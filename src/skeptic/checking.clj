@@ -6,6 +6,13 @@
             [clojure.set :as set]
             [skeptic.schematize :as schematize]))
 
+;; TODO: infer function types from actually applied args, if none given
+;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
+;; TODO: also, infer outputs from what is actually output
+;; TODO: gather schema info for internal functions
+;; TODO: check that function output matches schema
+;; TODO: how to go from macroexpanded version to line in code?
+
 (s/defn s-expr?
  [x]
   (and (seq? x)
@@ -26,7 +33,9 @@
 (s/defn let?
   [x]
   (and (seq? x)
-       (or (-> x first (= 'let))
+       (or (-> x first (= 'clojure.core/let))
+           (-> x first (= #'clojure.core/let))
+           (-> x first (= 'let))
            (-> x first (= 'let*)))))
 
 (s/defn convert-arglists
@@ -187,9 +196,13 @@
                               (conj acc errors)))
       :else (recur rest acc))))
 
+(s/defn normalize-fn-code
+  [f]
+  (-> f schematize/get-fn-code schematize/resolve-code-references de-def de-fn))
+
 (s/defn check-fn
   [dict f]
-  (let [{:keys [variables body]} (-> f schematize/get-fn-code schematize/resolve-code-references de-def de-fn)]
+  (let [{:keys [variables body]} (normalize-fn-code f)]
     (check-with-blame dict variables body)))
 
 (def sample-dict
