@@ -6,9 +6,6 @@
             [clojure.set :as set]
             [skeptic.schematize :as schematize]))
 
-;; TODO: deal with fn*
-;; TODO: deal with let
-
 (s/defn s-expr?
  [x]
   (and (seq? x)
@@ -23,7 +20,8 @@
   [x]
   (and (seq? x)
        (or (-> x first (= 'clojure.core/fn))
-           (-> x first (= #'clojure.core/fn)))))
+           (-> x first (= #'clojure.core/fn))
+           (-> x first (= 'fn*)))))
 
 (s/defn let?
   [x]
@@ -113,22 +111,34 @@
   ([dict vars arity expr]
    (let [res (merge
               {:name (str expr)
+               :context vars
                :expr expr}
               (cond
                 (nil? expr) {:schema (s/maybe s/Any)}
                 (s-expr? expr) (cond
                                  (let? expr) (let [[letblock body] (->> expr (drop 1))
                                                    letpairs (partition 2 letblock)
-                                                   ;; TODO: return let clauses for checking too
-                                                   newvars (reduce (fn [acc [newvar varbody]]
-                                                                     (assoc acc
-                                                                            newvar
-                                                                            (assoc
-                                                                             (attach-schema-info dict acc nil varbody)
-                                                                             :name (name newvar))))
-                                                                   vars
-                                                                   letpairs)]
-                                               (attach-schema-info dict newvars nil body))
+
+                                                   {:keys [vars let-clauses]}
+                                                   (reduce (fn [{:keys [vars let-clauses]} [newvar varbody]]
+                                                             (let [clause
+                                                                   (attach-schema-info dict vars nil varbody)]
+                                                               {:vars (assoc vars
+                                                                             newvar
+                                                                             (assoc clause
+                                                                                    :name (name newvar)))
+                                                                :let-clauses (conj let-clauses clause)}))
+                                                           {:let-clauses []
+                                                            :vars vars}
+                                                           letpairs)]
+                                               (assoc (attach-schema-info dict vars nil body)
+                                                      :let-clauses let-clauses))
+
+                                 (fn-expr? expr) (let [{:keys [variables body]} (de-fn expr)]
+                                                   (attach-schema-info dict (merge vars variables) nil body))
+
+                                 (def? expr) (attach-schema-info dict vars nil (de-def expr))
+
                                  :else (let [[f & args] expr
                                       fn-schema (attach-schema-info dict vars (dec (count expr)) f)
                                       arg-schemas (map (partial attach-schema-info dict vars (dec (count expr))) args)
@@ -143,13 +153,27 @@
        res
        (assoc res :output (:schema res))))))
 
+(s/defn match-s-exprs
+  [{{expected-args :arglist} :schema
+    actual-args :arglist
+    let-clauses :let-clauses
+    expr :expr
+    context :context}]
+  (let [actual-args (map :output actual-args)]
+    (concat
+     (if (seq expected-args)
+       [{:blame expr
+         :context context
+         :errors (->> (map vector expected-args actual-args)
+                      (keep (partial apply inconsistence/inconsistent?)))}]
+       [])
+     (mapcat match-s-exprs let-clauses))))
+
 (s/defn check-s-expr
   [dict vars s-expr]
-  (let [{{expected-args :arglist} :schema actual-args :arglist} (attach-schema-info dict vars s-expr)
-        actual-args (map :output actual-args)]
-    (when expected-args
-      (->>  (map vector expected-args actual-args)
-            (keep (partial apply inconsistence/inconsistent?))))))
+  (->> (attach-schema-info dict vars s-expr)
+       match-s-exprs
+       (remove (comp empty? :errors))))
 
 ;; TODO: this only shows the problematic term, the blame is sometimes on context
 (s/defn check-with-blame
@@ -160,9 +184,7 @@
       (empty? ctx) acc
       (s-expr? next) (recur (concat rest next)
                             (let [errors (check-s-expr dict vars next)]
-                              (if (seq errors)
-                                (conj acc {:blame next :errors errors})
-                                acc)))
+                              (conj acc errors)))
       :else (recur rest acc))))
 
 (s/defn check-fn

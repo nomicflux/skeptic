@@ -111,8 +111,13 @@
   [x]
   (+ 1 (+ nil x)))
 
-
-(defn sample-let-fn
+(defn sample-bad-let-fn
   [x]
   (let [y nil]
     (+ x y)))
+
+(defn sample-let-bad-fn
+  [x]
+  (let [y (+ 1 nil)
+        z (+ 2 3)]
+    (+ x y z)))
