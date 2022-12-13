@@ -80,7 +80,7 @@
    (multiple-arities-with-schemas x y 3))
   ([x :- s/Int
     y :- s/Int
-    & z]
+    & z :- [s/Int]]
    (apply + x y z)))
 
 (s/defn multiple-arities :- s/Str
@@ -94,3 +94,25 @@
   [x :- s/Int
    & others]
   (apply str x others))
+
+(s/defn sample-schema-fn :- s/Int
+  [x :- s/Int]
+  (+ 1 (+ 2 x)))
+
+(defn sample-fn
+  [x]
+  (+ 1 (+ 2 x)))
+
+(s/defn sample-schema-bad-fn :- s/Int
+  [x :- s/Int]
+  (+ 1 (+ nil x)))
+
+(defn sample-bad-fn
+  [x]
+  (+ 1 (+ nil x)))
+
+
+(defn sample-let-fn
+  [x]
+  (let [y nil]
+    (+ x y)))

@@ -19,8 +19,14 @@
 
 (defn try-resolve
   [x]
-  (try (resolve x)
-       (catch Exception _e x)))
+  (if (symbol? x)
+    (try (let [resolved (resolve x)]
+           (if (nil? resolved)
+             x
+             resolved))
+         (catch Exception _e
+           x))
+    x))
 
 (defn into-coll
   [f x]
@@ -102,7 +108,7 @@
    (fn [acc next]
      (let [{:keys [count args varargs]} (arg-list next)]
        (if (seq varargs)
-         (assoc acc count (conj args varargs))
+         (assoc acc :varargs {:args (conj args varargs) :count count})
          (assoc acc count args))))
    {}
    xs))
@@ -119,6 +125,11 @@
                                (assoc acc
                                       next
                                       (cond-> {:arglist arg}
+                                        (= next :varargs)
+                                        (assoc :count (:count arg)
+                                               :arglist (:args arg)
+                                               :schema (get inputs (:count arg)))
+
                                         (not (nil? input))
                                         (assoc :schema input)))))
                            {}
