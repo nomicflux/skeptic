@@ -95,6 +95,10 @@
    & others]
   (apply str x others))
 
+(s/defn sample-half-schema-fn
+  [x :- s/Int]
+  (+ 1 (+ 2 x)))
+
 (s/defn sample-schema-fn :- s/Int
   [x :- s/Int]
   (+ 1 (+ 2 x)))
@@ -111,6 +115,11 @@
   [x]
   (+ 1 (+ nil x)))
 
+(defn sample-let-fn
+  [x]
+  (let [y 2]
+    (+ x y)))
+
 (defn sample-bad-let-fn
   [x]
   (let [y nil]
@@ -121,3 +130,135 @@
   (let [y (+ 1 nil)
         z (+ 2 3)]
     (+ x y z)))
+
+(defn sample-if-fn
+  [x]
+  (if x
+    1
+    2))
+
+(defn sample-if-mixed-fn
+  [x]
+  (if x
+    1
+    "hi"))
+
+(defn sample-do-fn
+  [x]
+  (do (+ 1 2)
+      nil
+      "hi"))
+
+(defn sample-try-catch-fn
+  [x]
+  (try :a :b 1
+       (catch Exception e :c "hi")))
+
+(defn sample-try-finally-fn
+  [x]
+  (try :a :b 1
+       (finally nil "hi")))
+
+(defn sample-try-catch-finally-fn
+  [x]
+  (try :a 1
+       (catch Exception e :b nil)
+       (finally :c "hi")))
+
+(defn sample-throw-fn
+  [x]
+  (throw (AssertionError. "oops")))
+
+(defn sample-fn-fn
+  [x]
+  ((if x + -) 1 2))
+
+(defn sample-var-fn-fn
+  [x]
+  ((if x #'+ #'-) 1 2))
+
+(defn sample-found-var-fn-fn
+  [x]
+  ((if x #'+ -) 1 2))
+
+(defn sample-missing-var-fn-fn
+  [x]
+  ((if x + #'-) 1 2))
+
+;; (let*
+;;  [ufv__
+;;   #'schema.utils/use-fn-validation
+;;   output-schema38457
+;;   #'schema.core/Int
+;;   input-schema38458
+;;   [(#'schema.core/one #'schema.core/Int 'x)]
+;;   input-checker38459
+;;   (#'clojure.core/delay (#'schema.core/checker input-schema38458))
+;;   output-checker38460
+;;   (#'clojure.core/delay (#'schema.core/checker output-schema38457))]
+;;  (#'clojure.core/let
+;;   [ret__3203__auto__
+;;    (#'clojure.core/defn
+;;     sample-schema-bad-fn
+;;     {:schema (#'schema.core/->FnSchema output-schema38457 [input-schema38458]),
+;;      :doc "Inputs: [x :- s/Int]\n  Returns: s/Int",
+;;      :raw-arglists '([x :- #'schema.core/Int]),
+;;      :arglists '([x])}
+;;     ([G__38461]
+;;      (#'clojure.core/let
+;;       [validate__1616__auto__
+;;        (#'schema.macros/if-cljs (#'clojure.core/deref ufv__) (.get ufv__))]
+;;       (#'clojure.core/when
+;;        validate__1616__auto__
+;;        (#'clojure.core/let
+;;         [args__1617__auto__ [G__38461]]
+;;         (if
+;;          #'schema.core/fn-validator
+;;          (#'schema.core/fn-validator
+;;           :input
+;;           'sample-schema-bad-fn
+;;           input-schema38458
+;;           (#'clojure.core/deref input-checker38459)
+;;           args__1617__auto__)
+;;          (#'clojure.core/when-let
+;;           [error__1618__auto__
+;;            ((#'clojure.core/deref input-checker38459) args__1617__auto__)]
+;;           (#'schema.macros/error!
+;;            (#'schema.utils/format*
+;;             "Input to %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;             'sample-schema-bad-fn
+;;             (#'clojure.core/pr-str error__1618__auto__))
+;;            {:schema input-schema38458,
+;;             :value args__1617__auto__,
+;;             :error error__1618__auto__})))))
+;;       (#'clojure.core/let
+;;        [o__1619__auto__
+;;         (#'clojure.core/loop
+;;          [x G__38461]
+;;          (#'clojure.core/+ 1 (#'clojure.core/+ nil x)))]
+;;        (#'clojure.core/when
+;;         validate__1616__auto__
+;;         (if
+;;          #'schema.core/fn-validator
+;;          (#'schema.core/fn-validator
+;;           :output
+;;           'sample-schema-bad-fn
+;;           output-schema38457
+;;           (#'clojure.core/deref output-checker38460)
+;;           o__1619__auto__)
+;;          (#'clojure.core/when-let
+;;           [error__1618__auto__
+;;            ((#'clojure.core/deref output-checker38460) o__1619__auto__)]
+;;           (#'schema.macros/error!
+;;            (#'schema.utils/format*
+;;             "Output of %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;             'sample-schema-bad-fn
+;;             (#'clojure.core/pr-str error__1618__auto__))
+;;            {:schema output-schema38457,
+;;             :value o__1619__auto__,
+;;             :error error__1618__auto__}))))
+;;        o__1619__auto__))))]
+;;   (#'schema.utils/declare-class-schema!
+;;    (#'schema.utils/fn-schema-bearer sample-schema-bad-fn)
+;;    (#'schema.core/->FnSchema output-schema38457 [input-schema38458]))
+;;   ret__3203__auto__))

@@ -4,7 +4,11 @@
             [skeptic.schema :as dschema]
             [schema.core :as s]
             [clojure.set :as set]
-            [skeptic.schematize :as schematize]))
+            [skeptic.schematize :as schematize]
+            [clojure.repl :as repl])
+  (:import [schema.core Either Schema]))
+
+(def spy-on true)
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -13,15 +17,37 @@
 ;; TODO: check that function output matches schema
 ;; TODO: how to go from macroexpanded version to line in code?
 
+(defn spy
+  [msg x]
+  (when spy-on
+    (try (println msg (pr-str x))
+        (catch Exception e
+          (println msg e))))
+  x)
+
+(s/defn valid-schema?
+  [s]
+  (or (instance? Schema s)
+      (and (coll? s) (every? valid-schema? s))))
+
 (s/defn s-expr?
  [x]
   (and (seq? x)
-       (-> x first ifn?)))
+       (or (-> x first ifn?)
+           (-> x first s-expr?))))
 
 (s/defn def?
   [x]
   (and (seq? x)
-       (-> x first (= 'def))))
+       (or (-> x first (= 'def))
+           (-> x first (= 'clojure.core/def)))))
+
+(s/defn defn?
+  [x]
+  (and (seq? x)
+       (or (-> x first (= 'defn))
+           (-> x first (= 'clojure.core/defn))
+           (-> x first (= #'clojure.core/defn)))))
 
 (s/defn fn-expr?
   [x]
@@ -38,64 +64,144 @@
            (-> x first (= 'let))
            (-> x first (= 'let*)))))
 
+
+(s/defn loop?
+  [x]
+  (and (seq? x)
+       (or (-> x first (= 'clojure.core/loop))
+           (-> x first (= #'clojure.core/loop))
+           (-> x first (= 'loop))
+           (-> x first (= 'loop*)))))
+
+(s/defn if?
+  [x]
+  (and (seq? x)
+       (or (-> x first (= 'clojure.core/if))
+           (-> x first (= 'if))
+
+           ;; Should only get `when` if a var and wasn't macroexpanded
+           (-> x first (= #'clojure.core/when)))))
+
+(s/defn do?
+  [x]
+  (and (seq? x)
+       (-> x first (= 'do))))
+
+(s/defn try?
+  [x]
+  (and (seq? x)
+       (-> x first (= 'try))))
+
+(s/defn throw?
+  [x]
+  (and (seq? x)
+       (-> x first (= 'throw))))
+
+(s/defn catch?
+  [x]
+  (and (seq? x)
+       (-> x first (= 'catch))))
+
+(s/defn finally?
+  [x]
+  (and (seq? x)
+       (-> x first (= 'finally))))
+
 (s/defn convert-arglists
   [arity {:keys [schema arglists output]}]
-  (let [direct-res (get arglists arity)
-        {:keys [count] :as varargs-res} (get arglists :varargs)]
-    (if-let [res (if (>= arity count) varargs-res direct-res)]
-      (let [schemas (mapv (fn [{:keys [schema name] :as s}] (s/one (or schema s) name)) (:schema res))]
-       {:schema (s/make-fn-schema output [schemas])
-        :output output
-        :arglist (mapv :schema schemas)})
-     {:schema schema
-      :output output})))
+  (let [direct-res (spy :ca-dr (get arglists arity))
+        {:keys [count] :as varargs-res} (spy :ca-va (get arglists :varargs))]
+    (spy :ca-arity arity)
+    (if (and arity (or (and count varargs-res) direct-res))
+      (let [res (spy :ca-res (if (>= arity count) varargs-res direct-res))
+            schemas (spy :ca-schemas (mapv (fn [{:keys [schema name] :as s}] (s/one (or schema s) name)) (:schema res)))]
+        {:schema (s/make-fn-schema output [schemas])
+         :output output
+         :arglist (spy :ca-arglist (mapv :schema schemas))})
+      (do
+        (assert (valid-schema? schema) "Must provide a schema")
+        {:schema schema
+        :output output}))))
 
 (s/defn get-from-dict
   ([dict arity expr]
    (get-from-dict dict arity expr nil))
   ([dict arity expr default]
-   (if-let [res (or (get dict (name expr))
+   (if-let [res (or (try (get dict (name expr)) (catch Exception _e nil))
                     (get dict (str expr))
                     (get dict expr))]
-     (convert-arglists arity res)
-     {:schema default :output default})))
+     (spy :gfd-found (convert-arglists arity res))
+     (do
+       (assert (valid-schema? default) "Must provide a schema")
+       (spy :gfd-default {:schema default})))))
+
+(s/defn either?
+  [s]
+  (instance? Either s))
+
+(s/defn eitherize
+  [[t1 t2 & _r :as types]]
+  (cond
+    t2
+    (if (contains? types nil)
+      (s/maybe (eitherize (disj types nil)))
+      (apply s/either types))
+
+    t1 t1
+
+    :else s/Any))
+
+(defn fn-name
+  [f]
+  (as-> (str f) $
+    (repl/demunge $)
+    (or (re-find #"(.+)--\d+@" $)
+        (re-find #"(.+)@" $))
+    (last $)
+    (symbol $)))
+
+(declare seq-type)
 
 (s/defn get-type
   ([dict expr]
    (get-type dict #{} expr))
-  ([dict vars expr]
-   (get-type dict vars nil expr))
-  ([dict vars arity expr]
-   (cond
-     (nil? expr) nil
-     (symbol? expr) (if (contains? vars expr)
-                      (get vars expr) ;; TODO: allow for variables to receive types
-                      (get-from-dict dict arity expr s/Symbol))
-     (var? expr) (get-from-dict dict arity (symbol expr) s/Symbol)
-     (int? expr) {:schema s/Int}
-     (string? expr) {:schema s/Str}
-     (keyword? expr) {:schema s/Keyword}
-     (boolean? expr) {:schema s/Bool}
-     :else {:schema (class expr)}))) ;; TODO: Where to add in dynamic type?
+  ([dict local-vars expr]
+   (get-type dict local-vars nil expr))
+  ([dict local-vars arity expr]
+   (spy :gt expr)
+   (spy (keyword (str "gt-res-" (str expr)))
+        (cond
+          (nil? expr) nil
+          ;;(instance? Schema expr) {:schema s/Schema}
+          (vector? expr) {:schema (vector (seq-type dict local-vars arity expr))}
+          (set? expr) {:schema #{(seq-type dict local-vars arity expr)}}
+          (map? expr) {:schema {(seq-type dict local-vars arity (keys expr)) (seq-type dict local-vars arity (vals expr))}}
+          (or (list? expr) (seq? expr)) {:schema (vector (seq-type dict local-vars arity expr))}
+          (symbol? expr) (spy :gt-symbol (if (contains? local-vars expr)
+                                           (spy :gt-local-symbol (merge {:schema s/Any} (get local-vars expr)))
+                                           (spy :gt-global-symbol (get-from-dict dict arity expr s/Symbol))))
+          (var? expr) (spy :gt-var (get-type dict local-vars arity (or @expr (symbol expr))))
+          (int? expr) {:schema s/Int}
+          (string? expr) {:schema s/Str}
+          (keyword? expr) {:schema s/Keyword}
+          (boolean? expr) {:schema s/Bool}
+          (fn? expr) (spy :gt-fn (let [{:keys [schema] :as res} (get-type dict local-vars arity (spy :gt-fn-name (fn-name expr)))]
+                                   (assert (valid-schema? schema) "Must return a schema")
+                                   (if (and schema (not (= schema s/Symbol)))
+                                     res
+                                     {:schema (s/=> s/Any [s/Any])
+                                      :output s/Any
+                                      :arglist [s/Any]})))
+          :else (spy :gt-class {:schema (class expr)}))))) ;; TODO: Where to add in dynamic type casts?
 
-(s/defn eitherize
-  [[t1 t2 & _r :as types]]
-  (if t2
-    (apply s/either types)
-    t1))
-
+;; TODO: nested sequences will only return Java class; move sequential analysis to get-type?
 (s/defn seq-type
-  [dict vars s]
+  [dict local-vars arity s]
   (let [types (reduce (fn [acc next]
-                        (if (sequential? next)
-                          (set/union acc (seq-type dict vars next))
-                          (conj acc (get-type dict vars next))))
+                        (conj acc (:schema (get-type dict local-vars arity next))))
                 #{}
                 s)]
-    (cond
-      (empty? types) s/Any
-      (contains? types nil) (s/maybe (eitherize (disj types nil)))
-      :else (eitherize types))))
+    (eitherize types)))
 
 (defn de-def
   [x]
@@ -114,96 +220,119 @@
 
 (s/defn attach-schema-info
   ([dict expr]
-   (attach-schema-info dict #{} nil expr))
-  ([dict vars expr]
-   (attach-schema-info dict vars nil expr))
-  ([dict vars arity expr]
+   (attach-schema-info dict {} nil expr))
+  ([dict local-vars expr]
+   (attach-schema-info dict local-vars nil expr))
+  ([dict local-vars arity expr]
    (let [res (merge
-              {:name (str expr)
-               :context vars
+              {:context {} ;;local-vars
                :expr expr}
               (cond
-                (nil? expr) {:schema (s/maybe s/Any)}
-                (s-expr? expr) (cond
-                                 (let? expr) (let [[letblock body] (->> expr (drop 1))
-                                                   letpairs (partition 2 letblock)
+                (nil? expr) {:schema (s/maybe s/Any)} ;; TODO: thread through expectations so that we can cast Anys
+                (s-expr? expr)
+                (let [arity (dec (count expr))]
+                  (assoc
+                   (cond
+                     ;; TODO: def & defn need to add to a global set of symbols
+                     ;; TODO: need support for for, doseq, doall
+                     (or (let? expr) (loop? expr))
+                     (spy :let-expr (let [[letblock body] (->> expr (drop initial-length))
+                                          letpairs (spy :letpairs (partition 2 letblock))
 
-                                                   {:keys [vars let-clauses]}
-                                                   (reduce (fn [{:keys [vars let-clauses]} [newvar varbody]]
-                                                             (let [clause
-                                                                   (attach-schema-info dict vars nil varbody)]
-                                                               {:vars (assoc vars
-                                                                             newvar
-                                                                             (assoc clause
-                                                                                    :name (name newvar)))
-                                                                :let-clauses (conj let-clauses clause)}))
-                                                           {:let-clauses []
-                                                            :vars vars}
-                                                           letpairs)]
-                                               (assoc (attach-schema-info dict vars nil body)
-                                                      :let-clauses let-clauses))
+                                          {:keys [local-vars let-clauses]}
+                                          (spy :let-clauses (reduce (fn [{:keys [local-vars let-clauses]} [newvar varbody]]
+                                                                      (let [clause
+                                                                            (attach-schema-info dict local-vars arity varbody)]
+                                                                        {:local-vars (spy :local-vars (assoc local-vars
+                                                                                                             newvar
+                                                                                                             (assoc clause
+                                                                                                                    :name (name newvar))))
+                                                                         :let-clauses (conj let-clauses clause)}))
+                                                                    {:let-clauses []
+                                                                     :local-vars local-vars}
+                                                                    letpairs))]
+                                      (spy :let-body body)
+                                      (assoc (spy :let-body-analyzed (attach-schema-info dict local-vars arity body))
+                                             :extra-clauses let-clauses)))
 
-                                 (fn-expr? expr) (let [{:keys [variables body]} (de-fn expr)]
-                                                   (attach-schema-info dict (merge vars variables) nil body))
+                     (fn-expr? expr) (spy :fn-expr (let [{:keys [variables body]} (de-fn expr)]
+                                                     (attach-schema-info dict (merge local-vars variables) arity body)))
 
-                                 (def? expr) (attach-schema-info dict vars nil (de-def expr))
+;;defn? def?
 
-                                 :else (let [[f & args] expr
-                                      fn-schema (attach-schema-info dict vars (dec (count expr)) f)
-                                      arg-schemas (map (partial attach-schema-info dict vars (dec (count expr))) args)
-                                      output (-> fn-schema :output)]
-                                  {:schema fn-schema :output output :arglist arg-schemas}))
-                (vector? expr) {:schema (vector (seq-type dict vars expr))}
-                (list? expr) {:schema (list (seq-type dict vars expr))}
-                (set? expr) {:schema #{(seq-type dict vars expr)}}
-                (map? expr) {:schema {(seq-type dict vars (keys expr)) (seq-type dict vars (vals expr))}}
-                :else (get-type dict vars arity expr)))]
-     (if (:output res)
-       res
+                     (if? expr) (spy :if-expr (let [[_ p t f] expr
+                                                    p-info (spy :p-clause (attach-schema-info dict local-vars arity p))
+                                                    t-info (spy :t-clause (attach-schema-info dict local-vars arity t))
+                                                    f-info (spy :f-clause (attach-schema-info dict local-vars arity f))
+                                                    output-schema (eitherize (set [(:schema t-info) (:schema f-info)]))]
+                                                {:schema (s/=> output-schema (eitherize (set [s/Bool (:schema p-info)])) (:schema t-info) (:schema f-info))
+                                                 :output output-schema
+                                                 :extra-clauses [p-info t-info f-info]}))
+
+                     (do? expr) (spy :do-expr (let [exprs (spy :do-clauses (drop 1 expr))
+                                                    clauses (map #(attach-schema-info dict local-vars arity %) exprs)
+                                                    output-clause (spy :do-last-clause (last clauses))]
+                                                (assert (valid-schema? Schema (:schema output-clause) "Must provide a schema"))
+                                                {:schema (:schema output-clause) :extra-clauses clauses}))
+
+                     (try? expr) (spy :try-expr (let [[_ & body] expr
+                                                      [try-body after-body] (split-with (fn [c] (not (or (catch? c) (finally? c)))) body)
+                                                      [catch-body finally-body] (split-with (fn [c] (not (finally? c))) after-body)
+                                                      try-clauses (map #(attach-schema-info dict local-vars arity %) try-body)
+                                                      try-output (last try-clauses)
+                                                      catch-clauses (->> catch-body first (drop 3) (map #(attach-schema-info dict local-vars arity %)))
+                                                      finally-clauses (->> finally-body first (drop 1) (map #(attach-schema-info dict local-vars arity %)))
+                                                      finally-output (last finally-clauses)]
+                                                  {:extra-clauses (concat try-clauses catch-clauses finally-clauses)
+                                                   :schema (or (:schema finally-output) (:schema try-output))})) ;; TODO: Check for exceptions & exception type too?
+
+                     (throw? expr) (spy :throw-expr {:schema s/Any}) ;; TODO: this isn't quite an any....
+
+                     :else (let [[f & args] expr
+                                 fn-schema (spy :s-expr-fn (attach-schema-info dict local-vars arity f))
+                                 arg-schemas (spy :s-expr-args (map #(attach-schema-info dict local-vars arity %) args))]
+                             (assert (valid-schema? (:schema fn-schema)) (format "Must provide a schema: %s (%s)" (:schema fn-schema) fn-schema))
+                             (assert (valid-schema? (:output fn-schema)) (format "Must provide a schema output: %s (%s)" (:output fn-schema) fn-schema))
+                             {:schema (:schema fn-schema)
+                              :output (:output fn-schema)
+                              :expected-arglist (:arglist fn-schema)
+                              :actual-arglist arg-schemas
+                              :extra-clauses (concat (or (:extra-clauses fn-schema) []) arg-schemas)}))
+                   :name (first expr)))
+                :else (spy :val-expr (assoc (get-type dict local-vars arity expr)
+                              :name expr))))] (if (:output res) res
        (assoc res :output (:schema res))))))
 
 (s/defn match-s-exprs
-  [{{expected-args :arglist} :schema
-    actual-args :arglist
-    let-clauses :let-clauses
-    expr :expr
-    context :context}]
-  (let [actual-args (map :output actual-args)]
+  [{:keys [expected-arglist actual-arglist extra-clauses expr context]}]
+  (let [actual-arglist (map :output actual-arglist)]
     (concat
-     (if (seq expected-args)
-       [{:blame expr
-         :context context
-         :errors (->> (map vector expected-args actual-args)
-                      (keep (partial apply inconsistence/inconsistent?)))}]
-       [])
-     (mapcat match-s-exprs let-clauses))))
+     [{:blame expr
+       :context context
+       :errors (->> (map vector expected-arglist actual-arglist)
+                    (keep (partial apply inconsistence/inconsistent?)))}]
+     (mapcat match-s-exprs extra-clauses))))
 
 (s/defn check-s-expr
-  [dict vars s-expr]
-  (->> (attach-schema-info dict vars s-expr)
-       match-s-exprs
-       (remove (comp empty? :errors))))
+  [dict vars s-expr {:keys [keep-empty]}]
+  (cond->> (match-s-exprs (attach-schema-info dict vars s-expr))
 
-;; TODO: this only shows the problematic term, the blame is sometimes on context
-(s/defn check-with-blame
-  [dict vars s-expr]
-  (loop [[next & rest :as ctx] [s-expr]
-         acc []]
-    (cond
-      (empty? ctx) acc
-      (s-expr? next) (recur (concat rest next)
-                            (let [errors (check-s-expr dict vars next)]
-                              (conj acc errors)))
-      :else (recur rest acc))))
+    (not keep-empty)
+    (remove (comp empty? :errors))))
 
 (s/defn normalize-fn-code
   [f]
-  (-> f schematize/get-fn-code schematize/resolve-code-references de-def de-fn))
+  (-> f schematize/get-fn-code schematize/resolve-code-references))
 
 (s/defn check-fn
+  ([dict f]
+   (check-fn dict f {}))
+  ([dict f opts]
+   (check-s-expr dict {} (normalize-fn-code f) opts)))
+
+(s/defn annotate-fn
   [dict f]
-  (let [{:keys [variables body]} (normalize-fn-code f)]
-    (check-with-blame dict variables body)))
+  (->> f normalize-fn-code (attach-schema-info dict)))
 
 (def sample-dict
   {"clojure.core/+"

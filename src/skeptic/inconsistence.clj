@@ -2,6 +2,8 @@
   (:import [schema.core Maybe])
   (:require [schema.core :as s]))
 
+(def ground-types #{s/Int s/Str s/Bool s/Keyword s/Symbol})
+
 (defn maybe?
   [s]
   (instance? Maybe s))
