@@ -8,8 +8,8 @@
             [clojure.repl :as repl])
   (:import [schema.core Either Schema]))
 
-(def spy-on true)
-(def spy-only #{:letpairs :let-clauses :let-body})
+(def spy-on false)
+(def spy-only nil)
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -222,6 +222,8 @@
     {:variables {}
      :body x}))
 
+;; TODO: Not stack-safe; can we rewrite this to use loop? Or walk? Can we use transducers to better stream
+;; intermediate results to improve performance?
 (s/defn attach-schema-info
   ([dict expr]
    (attach-schema-info dict {} nil expr))
@@ -231,7 +233,7 @@
    (spy :all-expr [(reduce (fn [curr p] (if (p expr) (reduced (fn-name p)) curr)) :val [nil? let? loop? defn? fn-expr? def? if? try? throw? s-expr?])
                    expr])
    (let [res (merge
-              {:context {} ;;local-vars
+              {:context local-vars
                :expr expr}
               (cond
                 (nil? expr) {:schema (s/maybe s/Any)} ;; TODO: thread through expectations so that we can cast Anys
@@ -243,24 +245,28 @@
                     ;; TODO: let over a defn doesn't work, as we grab the defn's code, not the surrounding
                     ;; TODO: arity not passed through correctly in cases like `((if x + -) 2 3)`; is this even desirable?
                     (or (let? expr) (loop? expr))
-                    (spy :let-expr (let [[letblock body] (->> expr (drop 1))
-                                         letpairs (spy :letpairs (partition 2 letblock))
+                    (spy :let-expr (let [[letblock & body] (->> expr (drop 1))
+                                         letpairs (spy :let-pairs (partition 2 letblock))
 
                                          {:keys [local-vars let-clauses]}
                                          (spy :let-clauses (reduce (fn [{:keys [local-vars let-clauses]} [newvar varbody]]
                                                                      (let [clause
-                                                                           (attach-schema-info dict local-vars arity varbody)]
+                                                                           (spy :let-clause (attach-schema-info dict local-vars arity varbody))]
                                                                        {:local-vars (spy :local-vars (assoc local-vars
                                                                                                             newvar
-                                                                                                            (assoc clause
+                                                                                                            (assoc (select-keys clause [:schema :output])
                                                                                                                    :name (name newvar))))
                                                                         :let-clauses (conj let-clauses clause)}))
                                                                    {:let-clauses []
                                                                     :local-vars local-vars}
-                                                                   letpairs))]
-                                     (spy :let-body body)
-                                     (assoc (spy :let-body-analyzed (attach-schema-info dict local-vars arity body))
-                                            :extra-clauses let-clauses)))
+                                                                   letpairs))
+
+                                         body-clauses (spy :let-body-clauses (map #(attach-schema-info dict local-vars arity %) (spy :let-body body)))
+                                         output-clause (spy :let-output-clause (last body-clauses))]
+                                     (assert (valid-schema? (:schema output-clause)) (format "Must provide valid schema: %s (%s)" (:schema output-clause) output-clause))
+                                     {:schema (:schema output-clause)
+                                      :output (:output output-clause)
+                                      :extra-clauses (concat let-clauses body-clauses)}))
 
                     ;; TODO: Global vars
                     (or (defn? expr) (fn-expr? expr))
@@ -285,9 +291,9 @@
                                                         :name def-name)))
 
                     (if? expr) (spy :if-expr (let [[_ p t f] expr
-                                                   p-info (spy :p-clause (attach-schema-info dict local-vars arity p))
-                                                   t-info (spy :t-clause (attach-schema-info dict local-vars arity t))
-                                                   f-info (spy :f-clause (attach-schema-info dict local-vars arity f))
+                                                   p-info (spy :p-clause (attach-schema-info dict local-vars arity (spy :p-clause-body p)))
+                                                   t-info (spy :t-clause (attach-schema-info dict local-vars arity (spy :t-clause-body t)))
+                                                   f-info (spy :f-clause (attach-schema-info dict local-vars arity (spy :f-clause-body f)))
                                                    output-schema (eitherize (set [(:schema t-info) (:schema f-info)]))]
                                                {:schema (s/=> output-schema (eitherize (set [s/Bool (:schema p-info)])) (:schema t-info) (:schema f-info))
                                                 :output output-schema

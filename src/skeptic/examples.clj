@@ -229,7 +229,7 @@
 ;;     {:schema (#'schema.core/->FnSchema output-schema38457 [input-schema38458]),
 ;;      :doc "Inputs: [x :- s/Int]\n  Returns: s/Int",
 ;;      :raw-arglists '([x :- #'schema.core/Int]),
-;;      :arglists '([x])}
+;;  '([x])}
 ;;     ([G__38461]
 ;;      (#'clojure.core/let
 ;;       [validate__1616__auto__
