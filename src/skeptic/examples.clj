@@ -211,6 +211,18 @@
   (+ nil x)
   (+ 2 3))
 
+(defn sample-multi-line-let-body
+  [x]
+  (let [y (- 2 3)
+        z (* 7 8)
+        w nil
+        u (+ 2 3 4 nil)]
+    (+ 2 nil)
+    (+ w 1 x y z)
+    (+ 3 u))
+  (+ nil x)
+  (+ 2 3))
+
 ;; (let*
 ;;  [ufv__
 ;;   #'schema.utils/use-fn-validation
