@@ -32,6 +32,7 @@
 (s/defn valid-schema?
   [s]
   (or (instance? Schema s)
+      (class? s)
       (and (coll? s) (every? valid-schema? s))))
 
 (s/defn s-expr?
@@ -394,4 +395,15 @@
                 :schema
                 [{:schema s/Int, :optional? false, :name 'y}
                  {:schema s/Int, :optional? false, :name 'z}
-                 s/Int]}}}})
+                 s/Int]}}}
+  "clojure.core/str"
+   {:name "clojure.core/str"
+    :schema (s/=> s/Str s/Any)
+    :output s/Str
+    :arglists {1 {:arglist ['s], :schema [{:schema s/Any, :optional? false, :name 's}]},
+               :varargs
+               {:arglist ['s ['more]],
+                :count 2
+                :schema
+                [{:schema s/Any, :optional? false, :name 's}
+                 s/Any]}}}})

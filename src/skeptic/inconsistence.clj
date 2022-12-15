@@ -8,9 +8,15 @@
   [s]
   (instance? Maybe s))
 
+(defn any-schema?
+  [s]
+  (= s s/Any))
+
 (defn mismatched-maybe
   [expected {:keys [output expr]}]
-  (when (and (maybe? output) (not (maybe? expected)))
+  (when (and (maybe? output)
+             (not (maybe? expected))
+             (not (any-schema? expected))) ;; Technically, an Any could be a (maybe _)
     (format "Actual is nullable (%s as %s) but expected is not (%s)"
             (pr-str expr) (s/explain output)
             (s/explain expected))))

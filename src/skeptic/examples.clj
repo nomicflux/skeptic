@@ -232,6 +232,13 @@
   (let [s "hi"]
     (+ x s)))
 
+(defn sample-str-fn
+  [x]
+  (str x)
+  (+ 1 (str x))
+  (let [y (str nil)]
+    (+ 1 y)))
+
 ;; (let*
 ;;  [ufv__
 ;;   #'schema.utils/use-fn-validation
