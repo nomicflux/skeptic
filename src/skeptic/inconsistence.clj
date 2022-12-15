@@ -9,9 +9,11 @@
   (instance? Maybe s))
 
 (defn mismatched-maybe
-  [expected actual]
-  (when (and (maybe? actual) (not (maybe? expected)))
-    (format "Actual is nullable (%s) but expected is not (%s)" (s/explain actual) (s/explain expected))))
+  [expected {:keys [output expr]}]
+  (when (and (maybe? output) (not (maybe? expected)))
+    (format "Actual is nullable (%s as %s) but expected is not (%s)"
+            (pr-str expr) (s/explain output)
+            (s/explain expected))))
 
 (defn inconsistent?
   [expected actual]

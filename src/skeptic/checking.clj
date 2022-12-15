@@ -347,7 +347,7 @@
 
 (s/defn match-s-exprs
   [{:keys [expected-arglist actual-arglist extra-clauses expr context]}]
-  (let [actual-arglist (map :output (spy :actual-arglist-orig actual-arglist))]
+  (let [actual-arglist (map #(select-keys % [:output :expr]) (spy :actual-arglist-orig actual-arglist))]
     (concat
      [{:blame expr
        :context context
