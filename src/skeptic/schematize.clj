@@ -3,7 +3,9 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [skeptic.schema :as dschema]
-            [schema.core :as s]))
+            [schema.core :as s])
+  (:import [org.apache.commons.io IOUtils]
+           [clojure.lang Named RT]))
 
 (defn get-fn-schemas*
   [f]
@@ -66,13 +68,21 @@
        macroexpand-all
        (walk/postwalk try-resolve)))
 
+(s/defn get-own-schema
+  [fn-name :- s/Symbol]
+  (-> fn-name
+      try-resolve
+      get-meta))
+
 (s/defn get-schema-lookup
   [fn-name :- s/Symbol]
-  (->> fn-name
-       get-fn-code
-       resolve-code-references
-       get-meta
-       (remove :no-meta)))
+  (remove :no-meta
+          (concat
+           (->> fn-name
+                get-fn-code
+                resolve-code-references
+                get-meta)
+           (get-own-schema fn-name))))
 
 (s/defn count-map
   [x :- [s/Any]]
@@ -167,8 +177,21 @@
        fully-qualify-str
        attach-schema-info-to-qualified-symbol))
 
-(s/defn ns-schemas
-  [ns :- s/Str]
+;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
+(s/defn source-clj
+  [ns]
+  (require ns)
+  (some->> ns
+           ns-publics
+           vals
+           first
+           meta
+           :file
+           (.getResourceAsStream (RT/baseLoader))
+           IOUtils/toString))
+
+(defn ns-schemas
+  [ns]
   (->> ns
        symbol
        ns-publics

@@ -15,3 +15,18 @@
               (require ns)
               (println "Checking" ns)
               (println (checking/check-ns ns)))))
+
+(s/defn int-add :- s/Int
+  ([x :- s/Int]
+   x)
+  ([x :- s/Int
+    y :- s/Int]
+   (+ x y))
+  ([x :- s/Int
+    y :- s/Int
+    & zs :- [s/Int]]
+   (reduce + (+ x y) zs)))
+
+(defn bad-fn
+  [x]
+  (int-add x nil))

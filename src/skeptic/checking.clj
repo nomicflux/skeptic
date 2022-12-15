@@ -7,8 +7,7 @@
             [skeptic.schematize :as schematize]
             [clojure.repl :as repl])
   (:import [schema.core Either Schema]
-           [org.apache.commons.io IOUtils]
-           [clojure.lang Named RT]))
+           [clojure.lang Named]))
 
 (def spy-on false)
 (def spy-only #{:gt-type :all-expr :gt-res :ca-schemas :ca-arglist :ca-res :s-expr-arglist :expected-arglist})
@@ -215,8 +214,15 @@
           (set? expr) (assert-has-schema {:schema #{(seq-type dict local-vars arity expr)}})
           (map? expr) (assert-has-schema {:schema {(seq-type dict local-vars arity (keys expr)) (seq-type dict local-vars arity (vals expr))}})
           (or (list? expr) (seq? expr)) (assert-has-schema {:schema (vector (seq-type dict local-vars arity expr))})
-          (symbol? expr) (spy :gt-symbol (if (contains? local-vars expr)
+          (symbol? expr) (spy :gt-symbol (cond
+                                           (contains? local-vars expr)
                                            (spy :gt-local-symbol (assert-has-schema (merge {:schema s/Any} (get local-vars expr))))
+
+                                           ;; TODO: fully resolve names that, for some reason, aren't already resolved
+                                           ;; (and (resolve expr) (not (symbol? (resolve expr))))
+                                           ;; (spy :gt-resolved-symbol (assert-has-schema (get-type dict local-vars arity (resolve expr))))
+
+                                           :else
                                            (spy :gt-global-symbol (assert-has-schema (get-from-dict dict arity expr s/Symbol)))))
           (var? expr) (spy :gt-var (assert-has-schema (get-type dict local-vars arity (or @expr (symbol expr)))))
           (int? expr) (assert-has-schema {:schema s/Int})
@@ -251,7 +257,7 @@
    (spy :all-expr [(reduce (fn [curr p] (if (p expr) (reduced (fn-name p)) curr)) :val [nil? let? loop? defn? fn-expr? def? if? try? throw? s-expr?])
                    expr])
    (let [res (merge
-              {:context local-vars
+              {:context {} ;; local-vars
                :expr (spy :expr expr)}
               (assert-has-schema
                (cond
@@ -380,11 +386,14 @@
     []))
 
 (s/defn check-s-expr
-  [dict vars s-expr {:keys [keep-empty]}]
+  [dict vars s-expr {:keys [keep-empty clean-context]}]
   (cond->> (match-s-exprs (attach-schema-info dict vars s-expr))
 
     (not keep-empty)
-    (remove (comp empty? :errors))))
+    (remove (comp empty? :errors))
+
+    clean-context
+    (map #(dissoc % :context))))
 
 (s/defn normalize-fn-code
   [f]
@@ -400,23 +409,9 @@
   [dict f]
   (->> f normalize-fn-code (attach-schema-info dict)))
 
-;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
-(s/defn source-clj
-  [ns]
-  (require ns)
-  (some->> ns
-           ns-publics
-           vals
-           first
-           meta
-           :file
-           (spy :filename)
-           (.getResourceAsStream (RT/baseLoader))
-           IOUtils/toString))
-
 (s/defn ns-exprs
   [ns]
-  (-> (str "[" (source-clj ns) "]")
+  (-> (str "[" (schematize/source-clj ns) "]")
       schematize/resolve-code-references))
 
 (s/defn annotate-ns
