@@ -1,5 +1,6 @@
 (ns leiningen.skeptic
-  (:require [leiningen.core.main :as lein]
+  (:require [leiningen.core.main]
+            [leiningen.core.eval]
             [clojure.repl :as repl]
             [clojure.string :as str]
             [clojure.walk :as walk]
@@ -7,9 +8,7 @@
 
 (defn skeptic
   [project & args]
-  (case (first args)
-    "a" (lein/info "Option a")
-    "b" (lein/info "Option b")
-    (do (lein/info (str "other: " (str/join "," args)))
-        (lein/info (pr-str project)))))
-
+  (leiningen.core.eval/eval-in-project
+   project
+   `(skeptic.core/get-project-schemas ~(:group project))
+   '(require 'skeptic.core 'leiningen.core.main 'leiningen.core.eval)))

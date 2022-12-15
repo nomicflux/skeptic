@@ -166,3 +166,13 @@
   (->> f
        fully-qualify-str
        attach-schema-info-to-qualified-symbol))
+
+(s/defn ns-schemas
+  [ns :- s/Str]
+  (->> ns
+       symbol
+       ns-publics
+       vals
+       (map symbol)
+       (map attach-schema-info-to-qualified-symbol)
+       (reduce merge {})))
