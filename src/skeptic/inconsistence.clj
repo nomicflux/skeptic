@@ -15,6 +15,15 @@
             (pr-str expr) (s/explain output)
             (s/explain expected))))
 
+(defn mismatched-ground-types
+  [expected {:keys [output expr]}]
+  (when (and (contains? ground-types expected)
+             (contains? ground-types output)
+             (not= expected output))
+    (format "Mismatched types: %s is %s, but expected is %s"
+            (pr-str expr) (s/explain output)
+            (s/explain expected))))
+
 (defn inconsistent?
   [expected actual]
   (reduce
@@ -23,4 +32,5 @@
        (reduced reason)
        nil))
    nil
-   [mismatched-maybe]))
+   [mismatched-maybe
+    mismatched-ground-types]))

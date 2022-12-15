@@ -223,6 +223,15 @@
   (+ nil x)
   (+ 2 3))
 
+(defn sample-mismatched-types
+  [x]
+  (+ x "hi"))
+
+(defn sample-let-mismatched-types
+  [x]
+  (let [s "hi"]
+    (+ x s)))
+
 ;; (let*
 ;;  [ufv__
 ;;   #'schema.utils/use-fn-validation
