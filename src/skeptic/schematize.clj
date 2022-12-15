@@ -52,6 +52,13 @@
   [f]
   (walk/postwalk macroexpand f))
 
+(s/defn deref-vars
+  [f]
+  (walk/postwalk (fn [x] (cond-> x
+                          (and (var? x) (deref x))
+                          (comp symbol deref)))
+                 f))
+
 (s/defn resolve-code-references
   [fn-code :- s/Str]
   (->> fn-code

@@ -185,6 +185,32 @@
   [x]
   ((if x + #'-) 1 2))
 
+(let [x 2]
+  (defn sample-let-over-defn
+   [y]
+    (+ x y)))
+
+(let [x nil]
+  (defn sample-bad-let-over-defn
+   [y]
+    (+ x y)))
+
+(defn sample-internal-defn
+  [x]
+  (defn f [y] (+ x y))
+  (f 2))
+
+(defn sample-internal-def
+  [x]
+  (def y 1)
+  (+ x y))
+
+(defn sample-multi-line-body
+  [x]
+  (+ 1 x)
+  (+ nil x)
+  (+ 2 3))
+
 ;; (let*
 ;;  [ufv__
 ;;   #'schema.utils/use-fn-validation
