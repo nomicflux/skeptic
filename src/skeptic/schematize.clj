@@ -25,7 +25,7 @@
     (try (let [resolved (resolve x)]
            (if (nil? resolved)
              x
-             resolved))
+             (symbol resolved)))
          (catch Exception _e
            x))
     x))
@@ -39,8 +39,8 @@
 
 (defn get-meta
   [x]
-  (into-coll (fn [y] (try {:meta (meta y)
-                          :var @y}
+  (into-coll (fn [y] (try {:meta (meta (resolve y))
+                          :var y}
                          (catch Exception _e
                            {:no-meta y})))
              x))
@@ -61,12 +61,30 @@
                           (comp symbol deref)))
                  f))
 
+(s/defn resolve-once
+  [f]
+  (->> f
+       macroexpand-all
+       (walk/postwalk try-resolve)))
+
+(s/defn resolve-all
+  ([f]
+   ;; 8 is completely arbitrary. The goal is just to cut off any sort of infinite regression,
+   ;; and if we have to resolve more than 8 times, we should look into what is going wrong.
+   (resolve-all f 8))
+  ([f n]
+   (loop [f f
+          n n]
+     (let [resolved (resolve-once f)]
+       (if (or (= resolved f) (zero? n))
+         f
+         (recur resolved (dec n)))))))
+
 (s/defn resolve-code-references
   [fn-code :- s/Str]
   (->> fn-code
        read-string
-       macroexpand-all
-       (walk/postwalk try-resolve)))
+       resolve-all))
 
 (s/defn get-own-schema
   [fn-name :- s/Symbol]

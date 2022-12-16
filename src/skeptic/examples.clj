@@ -215,11 +215,13 @@
   [x]
   (let [y (- 2 3)
         z (* 7 8)
+        f (fn [x] nil)
         w nil
         u (+ 2 3 4 nil)]
     (+ 2 nil)
     (+ w 1 x y z)
-    (+ 3 u))
+    (+ 3 u)
+    (+ 1 (f x)))
   (+ nil x)
   (+ 2 3))
 
@@ -239,80 +241,118 @@
   (let [y (str nil)]
     (+ 1 y)))
 
+(defn sample-let-fn-fn
+  [x]
+  (let [f (fn [y] (+ y 1))]
+    (f x)))
+
+(defn sample-let-fn-bad1-fn
+  [x]
+  (let [f (fn [y] (+ y nil))]
+    (f x)))
+
+(defn sample-let-fn-bad2-fn
+  [x]
+  (let [f (fn [y] (+ y x))]
+    (f nil)))
+
+(defn sample-functional-fn
+  [x]
+  (let [f (fn [y] (+ y 1))
+        g (fn [f] (f x))]
+    (g f)))
+
+(defn sample-bad-functional-fn
+  [x]
+  (let [f (fn [_y] nil)
+        g (fn [f] (f x))]
+    (+ 1 (g f))))
+
+;;;; sample-bad-fn expanded & resolved
 ;; (let*
 ;;  [ufv__
-;;   #'schema.utils/use-fn-validation
-;;   output-schema38457
-;;   #'schema.core/Int
-;;   input-schema38458
-;;   [(#'schema.core/one #'schema.core/Int 'x)]
-;;   input-checker38459
-;;   (#'clojure.core/delay (#'schema.core/checker input-schema38458))
-;;   output-checker38460
-;;   (#'clojure.core/delay (#'schema.core/checker output-schema38457))]
-;;  (#'clojure.core/let
-;;   [ret__3203__auto__
-;;    (#'clojure.core/defn
+;;   schema.utils/use-fn-validation
+;;   output-schema137781
+;;   schema.core/Int
+;;   input-schema137782
+;;   [(schema.core/one schema.core/Int 'x)]
+;;   input-checker137783
+;;   (new clojure.lang.Delay (fn* [] (schema.core/checker input-schema137782)))
+;;   output-checker137784
+;;   (new clojure.lang.Delay (fn* [] (schema.core/checker output-schema137781)))]
+;;  (let*
+;;   [ret__3215__auto__
+;;    (def
 ;;     sample-schema-bad-fn
-;;     {:schema (#'schema.core/->FnSchema output-schema38457 [input-schema38458]),
-;;      :doc "Inputs: [x :- s/Int]\n  Returns: s/Int",
-;;      :raw-arglists '([x :- #'schema.core/Int]),
-;;  '([x])}
-;;     ([G__38461]
-;;      (#'clojure.core/let
-;;       [validate__1616__auto__
-;;        (#'schema.macros/if-cljs (#'clojure.core/deref ufv__) (.get ufv__))]
-;;       (#'clojure.core/when
-;;        validate__1616__auto__
-;;        (#'clojure.core/let
-;;         [args__1617__auto__ [G__38461]]
-;;         (if
-;;          #'schema.core/fn-validator
-;;          (#'schema.core/fn-validator
-;;           :input
-;;           'sample-schema-bad-fn
-;;           input-schema38458
-;;           (#'clojure.core/deref input-checker38459)
-;;           args__1617__auto__)
-;;          (#'clojure.core/when-let
-;;           [error__1618__auto__
-;;            ((#'clojure.core/deref input-checker38459) args__1617__auto__)]
-;;           (#'schema.macros/error!
-;;            (#'schema.utils/format*
-;;             "Input to %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;     (fn*
+;;      ([G__137785]
+;;       (let*
+;;        [validate__1628__auto__ (. ufv__ clojure.core/get)]
+;;        (if
+;;         validate__1628__auto__
+;;         (do
+;;          (let*
+;;           [args__1629__auto__ [G__137785]]
+;;           (if
+;;            schema.core/fn-validator
+;;            (schema.core/fn-validator
+;;             :input
 ;;             'sample-schema-bad-fn
-;;             (#'clojure.core/pr-str error__1618__auto__))
-;;            {:schema input-schema38458,
-;;             :value args__1617__auto__,
-;;             :error error__1618__auto__})))))
-;;       (#'clojure.core/let
-;;        [o__1619__auto__
-;;         (#'clojure.core/loop
-;;          [x G__38461]
-;;          (#'clojure.core/+ 1 (#'clojure.core/+ nil x)))]
-;;        (#'clojure.core/when
-;;         validate__1616__auto__
+;;             input-schema137782
+;;             @input-checker137783
+;;             args__1629__auto__)
+;;            (let*
+;;             [temp__5735__auto__ (@input-checker137783 args__1629__auto__)]
+;;             (if
+;;              temp__5735__auto__
+;;              (do
+;;               (let*
+;;                [error__1630__auto__ temp__5735__auto__]
+;;                (throw
+;;                 (new
+;;                  clojure.lang.ExceptionInfo
+;;                  (schema.utils/format*
+;;                   "Input to %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;                   'sample-schema-bad-fn
+;;                   (clojure.core/pr-str error__1630__auto__))
+;;                  {:type :schema.core/error,
+;;                   :schema input-schema137782,
+;;                   :value args__1629__auto__,
+;;                   :error error__1630__auto__}))))))))))
+;;        (let*
+;;         [o__1631__auto__
+;;          (loop* [x G__137785] (clojure.core/+ 1 (clojure.core/+ nil x)))]
 ;;         (if
-;;          #'schema.core/fn-validator
-;;          (#'schema.core/fn-validator
-;;           :output
-;;           'sample-schema-bad-fn
-;;           output-schema38457
-;;           (#'clojure.core/deref output-checker38460)
-;;           o__1619__auto__)
-;;          (#'clojure.core/when-let
-;;           [error__1618__auto__
-;;            ((#'clojure.core/deref output-checker38460) o__1619__auto__)]
-;;           (#'schema.macros/error!
-;;            (#'schema.utils/format*
-;;             "Output of %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;          validate__1628__auto__
+;;          (do
+;;           (if
+;;            schema.core/fn-validator
+;;            (schema.core/fn-validator
+;;             :output
 ;;             'sample-schema-bad-fn
-;;             (#'clojure.core/pr-str error__1618__auto__))
-;;            {:schema output-schema38457,
-;;             :value o__1619__auto__,
-;;             :error error__1618__auto__}))))
-;;        o__1619__auto__))))]
-;;   (#'schema.utils/declare-class-schema!
-;;    (#'schema.utils/fn-schema-bearer sample-schema-bad-fn)
-;;    (#'schema.core/->FnSchema output-schema38457 [input-schema38458]))
-;;   ret__3203__auto__))
+;;             output-schema137781
+;;             @output-checker137784
+;;             o__1631__auto__)
+;;            (let*
+;;             [temp__5735__auto__ (@output-checker137784 o__1631__auto__)]
+;;             (if
+;;              temp__5735__auto__
+;;              (do
+;;               (let*
+;;                [error__1630__auto__ temp__5735__auto__]
+;;                (throw
+;;                 (new
+;;                  clojure.lang.ExceptionInfo
+;;                  (schema.utils/format*
+;;                   "Output of %s does not match schema: \n\n\t [0;33m  %s [0m \n\n"
+;;                   'sample-schema-bad-fn
+;;                   (clojure.core/pr-str error__1630__auto__))
+;;                  {:type :schema.core/error,
+;;                   :schema output-schema137781,
+;;                   :value o__1631__auto__,
+;;                   :error error__1630__auto__})))))))))
+;;         o__1631__auto__)))))]
+;;   (schema.utils/declare-class-schema!
+;;    (schema.utils/fn-schema-bearer sample-schema-bad-fn)
+;;    (schema.core/->FnSchema output-schema137781 [input-schema137782]))
+;;   ret__3215__auto__))
