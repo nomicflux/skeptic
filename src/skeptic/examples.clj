@@ -262,7 +262,10 @@
         g (fn [f] (f x))]
     (g f)))
 
-(defn sample-bad-functional-fn
+;; TODO: this example needs parametricity to work
+;; (it needs to know that (fn [f] (f x)) takes some specific but not pre-determined schema,
+;; then applies it)
+(defn sample-bad-parametric-fn
   [x]
   (let [f (fn [_y] nil)
         g (fn [f] (f x))]

@@ -10,9 +10,8 @@
   (:import [schema.core Either Schema]
            [clojure.lang Named]))
 
-(def spy-on false)
-(def spy-only #{:let-body-clauses :let-output-clause :expected-arglist :actual-arglist
-                :gt-res :application-expr
+(def spy-on true)
+(def spy-only #{:defn-output
                 :ca-va :ca-dr :ca-arity})
 
 ;; TODO: infer function types from actually applied args, if none given
@@ -317,12 +316,12 @@
                                          _ (spy :defn-body body)
                                          defn-vars (into {} (map (fn [v] [v {}]) vars))
                                          clauses (map #(attach-schema-info dict false (merge local-vars defn-vars) arity %) body)
-                                         output (last clauses)
+                                         output (spy :defn-output (last clauses))
                                          arglist [(mapv (fn [v] (s/one s/Any v)) vars)]
                                          fn-schema (s/make-fn-schema (:output output) arglist)]
                                      (assert (valid-schema? (:output output)))
                                      (cond-> {:schema fn-schema
-                                              :output (:output output)
+                                              :output (:schema output)
                                               :arglists {(count vars) {:arglist vars
                                                                        :schema (mapv (fn [v] {:schema s/Any
                                                                                              :optional? false
