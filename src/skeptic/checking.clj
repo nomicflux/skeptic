@@ -10,9 +10,8 @@
   (:import [schema.core Either Schema]
            [clojure.lang Named]))
 
-(def spy-on true)
-(def spy-only #{:defn-output
-                :ca-va :ca-dr :ca-arity})
+(def spy-on false)
+(def spy-only #{:ca-va :ca-dr :ca-arity :ca-arglist})
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -38,15 +37,15 @@
       (class? s)
       (and (coll? s) (every? valid-schema? s))))
 
-(defn assert-schema
+(defmacro assert-schema
   [s]
-  (assert (valid-schema? s) (format "Must be valid schema: %s" s))
-  s)
+  `(do (assert (valid-schema? ~s) (format "Must be valid schema: %s" ~s))
+       ~s))
 
-(defn assert-has-schema
-  [{:keys [schema] :as x}]
-  (assert (valid-schema? schema) (format "Must be valid schema: %s (%s)" schema (pr-str x)))
-  x)
+(defmacro assert-has-schema
+  [x]
+  `(do (assert (valid-schema? (:schema ~x)) (format "Must be valid schema: %s (%s)" (:schema ~x) (pr-str ~x)))
+       ~x))
 
 (defn s-expr?
  [x]
@@ -126,7 +125,9 @@
   (and (seq? x)
        (-> x first (= 'finally))))
 
-(def dynamic-fn-schema (s/=> s/Any [s/Any]))
+(defn dynamic-fn-schema
+  [arity]
+  (s/=> s/Any (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
 
 (s/defn convert-arglists
   [arity {:keys [schema arglists output] :as info}]
@@ -136,18 +137,19 @@
              (or (and count varargs-res)
                  direct-res))
       (let [res (spy :ca-type (if (and count (>= arity count)) varargs-res direct-res))
-            schemas (spy :ca-schemas (mapv (fn [{:keys [schema name] :as s}] (s/one (or schema s s/Any) name)) (or (:schema res)
-                                                                                                                  [s/Any])))
+            schemas (spy :ca-schemas (mapv (fn [{:keys [schema name] :as s}] (s/one (or schema s s/Any) name))
+                                           (or (:schema res)
+                                               (vec (repeat (or arity 0) (s/one s/Any 'anon-arg))))))
             arglist (spy :ca-arglist (mapv :schema schemas))]
-        (assert (seq arglist) (format "Function should have arglist: %s (%s) (%s) (%s)" arglist schemas res info))
+        (assert (not (nil? arglist)) (format "Function should have arglist: %s (%s) (%s) (%s)" arglist schemas res info))
         (assert-has-schema
          (spy :ca-res
               {:schema (if (and output (seq schemas))
                          (s/make-fn-schema output [schemas])
-                         dynamic-fn-schema)
+                         (dynamic-fn-schema arity))
                :output (or output s/Any)
                :arglist arglist})))
-      (let [schema (or schema dynamic-fn-schema)]
+      (let [schema (or schema (dynamic-fn-schema arity))]
         (assert (valid-schema? schema) (format "Must provide a schema: %s %s" schema info))
         {:schema schema
          :output output}))))
@@ -231,7 +233,7 @@
 
                                            :else
                                            (spy :gt-global-symbol (assert-has-schema (get-from-dict dict arity expr (if fn-position?
-                                                                                                                      {:schema dynamic-fn-schema
+                                                                                                                      {:schema (dynamic-fn-schema arity)
                                                                                                                        :output s/Any}
                                                                                                                       {:schema s/Symbol}))))))
           (var? expr) (spy :gt-var (assert-has-schema (get-type dict fn-position? local-vars arity (or @expr (symbol expr)))))
@@ -243,7 +245,7 @@
                                     (assert (valid-schema? schema) "Must return a schema")
                                     (if (and schema (not (= schema s/Symbol)))
                                       res
-                                      {:schema dynamic-fn-schema
+                                      {:schema (dynamic-fn-schema arity)
                                        :output s/Any
                                        :arglist [s/Any]}))))
           :else (spy :gt-class (assert-has-schema {:schema (spy :gt-class-expr (class expr))})))))) ;; TODO: Where to add in dynamic type casts?
@@ -388,25 +390,34 @@
 ;;    then? (Can this still happen, or will we always get the dynamic fn type `(=> Any [Any])`?)
 (s/defn match-up-arglists
   [expected actual]
+  (spy :match-up-actual-list actual)
+  (spy :match-up-expected-list expected)
   (let [size (max (count expected) (count actual))
         expected-vararg (last expected)]
     (for [n (range 0 size)]
-      [(assert-schema (get expected n expected-vararg))
-       (assert-has-schema (get actual n))])))
+      [(assert-schema (spy :match-up-expected (get expected n expected-vararg)))
+       (assert-has-schema (spy :match-up-actual (get actual n)))])))
 
 (s/defn match-s-exprs
-  [{:keys [expected-arglist actual-arglist extra-clauses expr context] :as res}]
-  (spy :match-s-exprs-full res)
+  [{:keys [expected-arglist actual-arglist extra-clauses expr context] :as to-match}]
+  (spy :match-s-exprs-full to-match)
   (spy :match-s-exprs-expected-arglist expected-arglist)
   (spy :match-s-exprs-extra-clauses extra-clauses)
-  (let [actual-arglist (map #(dissoc % :context) (spy :actual-arglist-orig actual-arglist))]
+  (let [actual-arglist (mapv #(dissoc % :context) (spy :actual-arglist-orig actual-arglist))]
     (concat
      (if (seq expected-arglist)
-       [{:blame expr
-         :context context
-         :errors (->> (spy :matched-arglists (match-up-arglists (spy :expected-arglist (vec expected-arglist))
-                                                                (spy :actual-arglist (vec actual-arglist))))
-                      (keep (partial apply inconsistence/inconsistent?)))}]
+       (do
+         (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+                 (format "Arglists must not be nil: %s %s\n%s"
+                         expected-arglist actual-arglist to-match))
+         (assert (>= (count actual-arglist) (count expected-arglist))
+                 (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                         expected-arglist actual-arglist to-match))
+         [{:blame expr
+          :context context
+           :errors (->> (spy :matched-arglists (match-up-arglists (spy :expected-arglist expected-arglist)
+                                                                  (spy :actual-arglist actual-arglist)))
+                       (keep (partial apply inconsistence/inconsistent?)))}])
        [])
      (mapcat match-s-exprs extra-clauses))))
 
@@ -421,23 +432,28 @@
     (map #(dissoc % :context))))
 
 (s/defn normalize-fn-code
-  [f]
-  (-> f schematize/get-fn-code schematize/resolve-code-references))
+  [ns-refs f]
+  (->> f
+       schematize/get-fn-code
+       (schematize/resolve-code-references ns-refs)))
 
 (s/defn check-fn
-  ([dict f]
-   (check-fn dict f {}))
-  ([dict f opts]
-   (check-s-expr dict {} (normalize-fn-code f) opts)))
+  ([ns-refs dict f]
+   (check-fn ns-refs dict f {}))
+  ([ns-refs dict f opts]
+   (check-s-expr dict {} (normalize-fn-code ns-refs f) opts)))
 
 (s/defn annotate-fn
-  [dict f]
-  (->> f normalize-fn-code (attach-schema-info dict)))
+  [ns-refs dict f]
+  (->> f (normalize-fn-code ns-refs) (attach-schema-info dict)))
 
 (s/defn ns-exprs
   [ns]
-  (-> (str "[" (schematize/source-clj ns) "]")
-      schematize/resolve-code-references))
+  (->> (str "[" (schematize/source-clj ns) "]")
+       (schematize/resolve-code-references (ns-map ns))
+       (drop 1)))
+;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
+;; but we should add it back in
 
 (s/defn annotate-ns
   ([ns]
@@ -447,6 +463,8 @@
         ns-exprs
         (mapcat #(attach-schema-info dict %)))))
 
+;; TODO: if unparseable, throws error
+;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
 (s/defn check-ns
   ([ns]
    (check-ns ns {}))

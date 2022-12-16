@@ -20,14 +20,31 @@
   `(get-fn-schemas* '~f))
 
 (defn try-resolve
-  [x]
+  [ns-refs x]
   (if (symbol? x)
-    (try (let [resolved (resolve x)]
-           (if (nil? resolved)
-             x
-             (symbol resolved)))
-         (catch Exception _e
-           x))
+    (let [ns-ref (get ns-refs x)
+          resolved (try (resolve x) (catch Exception _e nil))]
+      (cond
+        (and resolved (class? resolved))
+        resolved
+
+        (and ns-ref (class? ns-ref))
+        ns-ref
+
+        (and resolved (var? resolved))
+        (try (symbol resolved)
+             (catch Exception e
+               (println (type resolved) resolved)
+               (throw e)))
+
+        ns-ref
+        (try (symbol ns-ref)
+             (catch Exception e
+               (println (type ns-ref) ns-ref)
+               (throw e)))
+
+        :else
+        x))
     x))
 
 (defn into-coll
@@ -52,55 +69,51 @@
 
 (s/defn macroexpand-all
   [f]
-  (walk/postwalk macroexpand f))
-
-(s/defn deref-vars
-  [f]
-  (walk/postwalk (fn [x] (cond-> x
-                          (and (var? x) (deref x))
-                          (comp symbol deref)))
+  (walk/postwalk (fn [x] (try (macroexpand x)
+                             (catch Exception _e
+                               x)))
                  f))
 
 (s/defn resolve-once
-  [f]
+  [ns-refs f]
   (->> f
        macroexpand-all
-       (walk/postwalk try-resolve)))
+       (walk/postwalk (partial try-resolve ns-refs))))
 
 (s/defn resolve-all
-  ([f]
+  ([ns-refs f]
    ;; 8 is completely arbitrary. The goal is just to cut off any sort of infinite regression,
    ;; and if we have to resolve more than 8 times, we should look into what is going wrong.
-   (resolve-all f 8))
-  ([f n]
+   (resolve-all ns-refs f 8))
+  ([ns-refs f n]
    (loop [f f
           n n]
-     (let [resolved (resolve-once f)]
+     (let [resolved (resolve-once ns-refs f)]
        (if (or (= resolved f) (zero? n))
          f
          (recur resolved (dec n)))))))
 
 (s/defn resolve-code-references
-  [fn-code :- s/Str]
+  [ns-refs fn-code :- s/Str]
   (->> fn-code
        read-string
-       resolve-all))
+       (resolve-all ns-refs)))
 
 (s/defn get-own-schema
-  [fn-name :- s/Symbol]
-  (-> fn-name
-      try-resolve
-      get-meta))
+  [ns-refs fn-name :- s/Symbol]
+  (->> fn-name
+       (try-resolve ns-refs)
+       get-meta))
 
 (s/defn get-schema-lookup
-  [fn-name :- s/Symbol]
+  [ns-refs fn-name :- s/Symbol]
   (remove :no-meta
           (concat
            (->> fn-name
                 get-fn-code
-                resolve-code-references
+                (resolve-code-references ns-refs)
                 get-meta)
-           (get-own-schema fn-name))))
+           (get-own-schema ns-refs fn-name))))
 
 (s/defn count-map
   [x :- [s/Any]]
@@ -182,18 +195,12 @@
       symbol))
 
 (s/defn attach-schema-info-to-qualified-symbol
-  [f :- s/Symbol]
+  [ns-refs f :- s/Symbol]
   (->> f
-       get-schema-lookup
+       (get-schema-lookup ns-refs)
        (map :meta)
        (map collect-schemas)
        (reduce (fn [acc {:keys [name] :as next}] (update acc name merge-with next)) {})))
-
-(s/defn get-schema-info
-  [f :- s/Str]
-  (->> f
-       fully-qualify-str
-       attach-schema-info-to-qualified-symbol))
 
 ;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
 (s/defn source-clj
@@ -215,5 +222,5 @@
        ns-publics
        vals
        (map symbol)
-       (map attach-schema-info-to-qualified-symbol)
+       (map (partial attach-schema-info-to-qualified-symbol (ns-map ns)))
        (reduce merge {})))
