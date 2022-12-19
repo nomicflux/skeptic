@@ -11,7 +11,8 @@
            [clojure.lang Named]))
 
 (def spy-on false)
-(def spy-only #{:ca-va :ca-dr :ca-arity :ca-arglist})
+(def spy-only #{:gfd-found :gfd-default
+                :gt-local-symbol :gt-global-symbol :gt-local-cache})
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -23,6 +24,7 @@
 
 (defn spy
   [msg x]
+  #_
   (when (and spy-on (or (nil? spy-only)
                         (= spy-only msg)
                         (contains? spy-only msg)))
@@ -125,6 +127,23 @@
   (and (seq? x)
        (-> x first (= 'finally))))
 
+(defn fn-name
+  [f]
+  (as-> (str f) $
+    (repl/demunge $)
+    (or (re-find #"(.+)--\d+@" $)
+        (re-find #"(.+)@" $))
+    (last $)
+    (symbol $)))
+
+(defn ubername
+  [s]
+  (cond
+    (fn? s) (fn-name s)
+    (var? s) (-> s symbol name)
+    (instance? Named s) (name s)
+    :else (str s)))
+
 (defn dynamic-fn-schema
   [arity]
   (s/=> s/Any (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
@@ -152,14 +171,14 @@
       (let [schema (or schema (dynamic-fn-schema arity))]
         (assert (valid-schema? schema) (format "Must provide a schema: %s %s" schema info))
         {:schema schema
-         :output output}))))
+         :output (or output s/Any)}))))
 
 (s/defn get-from-dict
   ([dict arity expr]
    (get-from-dict dict arity expr nil))
   ([dict arity expr default]
    (if-let [res (or (try (get dict (name expr)) (catch Exception _e nil))
-                    (get dict (str expr))
+                    (get dict (str expr) )
                     (get dict expr))]
      (spy :gfd-found (assert-has-schema (convert-arglists arity (spy :gfd-lookup res))))
      (spy :gfd-default (assert-has-schema default)))))
@@ -180,23 +199,6 @@
 
     :else s/Any))
 
-(defn fn-name
-  [f]
-  (as-> (str f) $
-    (repl/demunge $)
-    (or (re-find #"(.+)--\d+@" $)
-        (re-find #"(.+)@" $))
-    (last $)
-    (symbol $)))
-
-(defn ubername
-  [s]
-  (cond
-    (fn? s) (fn-name s)
-    (var? s) (-> s symbol name)
-    (instance? Named s) (name s)
-    :else (str s)))
-
 (declare seq-type)
 
 ;; TODO: clean up mutual recursion between get-type and seq-type, make stack-safe
@@ -214,7 +216,6 @@
    (spy :gt-res
         (cond
           (nil? expr) (assert-has-schema {:schema (s/maybe s/Any)})
-          ;;(instance? Schema expr) {:schema s/Schema}
           (vector? expr) (assert-has-schema {:schema (vector (seq-type dict local-vars arity expr))})
           (set? expr) (assert-has-schema {:schema #{(seq-type dict local-vars arity expr)}})
           (map? expr) (assert-has-schema {:schema {(seq-type dict local-vars arity (keys expr)) (seq-type dict local-vars arity (vals expr))}})
@@ -399,27 +400,32 @@
        (assert-has-schema (spy :match-up-actual (get actual n)))])))
 
 (s/defn match-s-exprs
-  [{:keys [expected-arglist actual-arglist extra-clauses expr context] :as to-match}]
-  (spy :match-s-exprs-full to-match)
-  (spy :match-s-exprs-expected-arglist expected-arglist)
-  (spy :match-s-exprs-extra-clauses extra-clauses)
-  (let [actual-arglist (mapv #(dissoc % :context) (spy :actual-arglist-orig actual-arglist))]
-    (concat
-     (if (seq expected-arglist)
-       (do
-         (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
-                 (format "Arglists must not be nil: %s %s\n%s"
-                         expected-arglist actual-arglist to-match))
-         (assert (>= (count actual-arglist) (count expected-arglist))
-                 (format "Actual should have at least as many elements as expected: %s %s\n%s"
-                         expected-arglist actual-arglist to-match))
-         [{:blame expr
-          :context context
-           :errors (->> (spy :matched-arglists (match-up-arglists (spy :expected-arglist expected-arglist)
-                                                                  (spy :actual-arglist actual-arglist)))
-                       (keep (partial apply inconsistence/inconsistent?)))}])
-       [])
-     (mapcat match-s-exprs extra-clauses))))
+  ([to-match]
+   (match-s-exprs [] to-match))
+  ([parent-name
+    {:keys [expected-arglist actual-arglist extra-clauses expr context name] :as to-match}]
+   (spy :match-s-exprs-full to-match)
+   (spy :match-s-exprs-expected-arglist expected-arglist)
+   (spy :match-s-exprs-extra-clauses extra-clauses)
+   (let [actual-arglist (mapv #(dissoc % :context) (spy :actual-arglist-orig actual-arglist))
+         path (remove nil? (conj parent-name name))]
+     (concat
+      (if (seq expected-arglist)
+        (do
+          (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+                  (format "Arglists must not be nil: %s %s\n%s"
+                          expected-arglist actual-arglist to-match))
+          (assert (>= (count actual-arglist) (count expected-arglist))
+                  (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                          expected-arglist actual-arglist to-match))
+          [{:blame expr
+            :path path
+            :context context
+            :errors (->> (spy :matched-arglists (match-up-arglists (spy :expected-arglist expected-arglist)
+                                                                   (spy :actual-arglist actual-arglist)))
+                         (keep (partial apply inconsistence/inconsistent?)))}])
+        [])
+      (mapcat (partial match-s-exprs path) extra-clauses)))))
 
 (s/defn check-s-expr
   [dict vars s-expr {:keys [keep-empty clean-context]}]
@@ -449,11 +455,14 @@
 
 (s/defn ns-exprs
   [ns]
-  (->> (str "[" (schematize/source-clj ns) "]")
-       (schematize/resolve-code-references (ns-map ns))
-       (drop 1)))
+  ;;(require '[schema.core :as s])
+  (let [ns-dec (read-string (schematize/source-clj ns))
+        other-code (->> (str "'(" (schematize/source-clj ns) ")") read-string (drop 1))]
+    (eval ns-dec)
+    (->> other-code (map (partial schematize/resolve-all (ns-map ns))))))
 ;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
 ;; but we should add it back in
+;; TODO: More than that, we should load the namespaces for proper resolution
 
 (s/defn annotate-ns
   ([ns]

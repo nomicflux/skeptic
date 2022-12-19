@@ -64,8 +64,10 @@
 
 (s/defn get-fn-code :- s/Str
   [func-name :- s/Symbol]
-  (-> func-name
-       repl/source-fn))
+  (if-let [code (repl/source-fn func-name)]
+    code
+    (do (println "No code found for" func-name)
+        "")))
 
 (s/defn macroexpand-all
   [f]
@@ -77,27 +79,30 @@
 (s/defn resolve-once
   [ns-refs f]
   (->> f
-       macroexpand-all
+       walk/macroexpand-all
        (walk/postwalk (partial try-resolve ns-refs))))
 
 (s/defn resolve-all
   ([ns-refs f]
-   ;; 8 is completely arbitrary. The goal is just to cut off any sort of infinite regression,
-   ;; and if we have to resolve more than 8 times, we should look into what is going wrong.
-   (resolve-all ns-refs f 8))
+   ;; 16 is completely arbitrary. The goal is just to cut off any sort of infinite regression,
+   ;; and if we have to resolve more than 16 times, we should look into what is going wrong.
+   (resolve-all ns-refs f 16))
   ([ns-refs f n]
    (loop [f f
           n n]
      (let [resolved (resolve-once ns-refs f)]
-       (if (or (= resolved f) (zero? n))
+       (if (or (identical? resolved f) (zero? n))
          f
          (recur resolved (dec n)))))))
 
 (s/defn resolve-code-references
   [ns-refs fn-code :- s/Str]
-  (->> fn-code
-       read-string
-       (resolve-all ns-refs)))
+  (try (->> fn-code
+        read-string
+        (resolve-all ns-refs))
+       (catch Exception e
+         ;(println "Can't resolve" fn-code e)
+         nil)))
 
 (s/defn get-own-schema
   [ns-refs fn-name :- s/Symbol]
