@@ -29,6 +29,13 @@
   [x]
   (int-add 1 (int-add 2 x)))
 
+(defn sample-namespaced-keyword-fn
+  [x]
+  (let [y {::key1 1
+           ::s/key2 2}]
+    (int-add x (::s/key2 y))
+    (int-add x (::key1 y))))
+
 (s/defn sample-schema-bad-fn :- s/Int
   [x :- s/Int]
   (int-add 1 (int-add nil x)))

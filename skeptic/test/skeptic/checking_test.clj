@@ -24,8 +24,9 @@
                      'skeptic.test-examples/sample-throw-fn
                      'skeptic.test-examples/sample-fn-fn
                      'skeptic.test-examples/sample-var-fn-fn
-                     'skeptic.test-examples/sample-found-var-fn
-                     'skeptic.test-examples/sample-missing-var-fn
+                     'skeptic.test-examples/sample-found-var-fn-fn
+                     'skeptic.test-examples/sample-missing-var-fn-fn
+                     'skeptic.test-examples/sample-namespaced-keyword-fn
                      'skeptic.test-examples/sample-let-fn-fn
                      'skeptic.test-examples/sample-functional-fn)))
 

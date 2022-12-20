@@ -169,7 +169,7 @@
                                            (or (:schema res)
                                                (vec (repeat (or arity 0) (s/one s/Any 'anon-arg))))))
             arglist (spy :ca-arglist (mapv :schema schemas))]
-        (assert (not (nil? arglist)) (format "Function should have arglist: %s (%s) (%s) (%s)" arglist schemas res info))
+        ;;(assert (not (nil? arglist)) (format "Function should have arglist: %s (%s) (%s) (%s)" arglist schemas res info))
         (assert-has-schema
          (spy :ca-res
               {:schema (if (and output (seq schemas))
@@ -178,7 +178,7 @@
                :output (or output s/Any)
                :arglist arglist})))
       (let [schema (or schema (dynamic-fn-schema arity))]
-        (assert (valid-schema? schema) (format "Must provide a schema: %s %s" schema info))
+        ;;(assert (valid-schema? schema) (format "Must provide a schema: %s %s" schema info))
         {:schema schema
          :output (or output s/Any)}))))
 
@@ -325,7 +325,7 @@
                                          output (spy :defn-output (last clauses))
                                          arglist [(mapv (fn [v] (s/one s/Any v)) vars)]
                                          fn-schema (s/make-fn-schema (:output output) arglist)]
-                                     (assert (valid-schema? (:output output)))
+                                     ;;(assert (valid-schema? (:output output)))
                                      (cond-> {:schema fn-schema
                                               :output (:schema output)
                                               :arglists {(count vars) {:arglist vars
@@ -375,8 +375,8 @@
                    :else (spy :application-expr (let [[f & args] expr
                                 fn-schema (spy :s-expr-fn (attach-schema-info dict true local-vars (count args) f))
                                 arg-schemas (spy :s-expr-args (mapv #(attach-schema-info dict false local-vars (count args) %) args))]
-                            (assert (valid-schema? (:schema fn-schema)) (format "Must provide a schema: %s (%s)" (:schema fn-schema) fn-schema))
-                            (assert (valid-schema? (:output fn-schema)) (format "Must provide a schema output: %s (%s)" (:output fn-schema) fn-schema))
+                            ;;(assert (valid-schema? (:schema fn-schema)) (format "Must provide a schema: %s (%s)" (:schema fn-schema) fn-schema))
+                            ;;(assert (valid-schema? (:output fn-schema)) (format "Must provide a schema output: %s (%s)" (:output fn-schema) fn-schema))
                             {:schema (:schema fn-schema)
                              :output (:output fn-schema)
                              :expected-arglist (spy :s-expr-arglist (:arglist fn-schema))
@@ -465,11 +465,10 @@
        (clojure.core/in-ns (symbol current-namespace#))
        res#)))
 
-(defmacro ns-exprs
+(defn ns-exprs
   [ns]
-  `(block-in-ns ~ns
-                (let [code# (read-string (str "'(" (schematize/source-clj ~ns) ")"))]
-                  (->> code# (mapv (partial schematize/resolve-all (ns-map ~ns)))))))
+  (let [code (read-string (str "'(" (schematize/source-clj ns) ")"))]
+    (->> code (mapv (partial schematize/resolve-all (ns-map ns))))))
 ;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
 ;; but we should add it back in for checking
 
@@ -477,7 +476,7 @@
   ([ns]
    `(annotate-ns (schematize/ns-schemas ~ns) ~ns))
   ([dict ns]
-   `(mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns))))
+   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns)))))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
@@ -487,5 +486,6 @@
   ([ns opts]
    `(check-ns (schematize/ns-schemas ~ns) ~ns ~opts))
   ([dict ns opts]
-   `(mapcat #(check-s-expr ~dict {} % ~opts)
-            (ns-exprs ~ns))))
+   `(block-in-ns ~ns
+                 (mapcat #(check-s-expr ~dict {} % ~opts)
+                         (ns-exprs ~ns)))))

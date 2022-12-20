@@ -5,7 +5,7 @@
             [skeptic.schema :as dschema]
             [schema.core :as s])
   (:import [org.apache.commons.io IOUtils]
-           [clojure.lang Named RT]))
+           [clojure.lang RT]))
 
 (defn get-fn-schemas*
   [f]
@@ -64,7 +64,7 @@
 
 (s/defn get-fn-code :- s/Str
   [func-name :- s/Symbol]
-  (if-let [code (repl/source-fn func-name)]
+  (if-let [code (try (repl/source-fn func-name) (catch Exception _e nil))]
     code
     (do (println "No code found for" func-name)
         "")))
@@ -166,7 +166,7 @@
    {}
    xs))
 
-(s/defn collect-schemas :- [dschema/SchemaDesc]
+(s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists]}]
   (let [{:keys [input-schemas output-schema]} (into {} schema)
         inputs (count-map input-schemas)

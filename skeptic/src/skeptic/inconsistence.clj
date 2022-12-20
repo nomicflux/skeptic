@@ -2,7 +2,8 @@
   (:require [schema.core :as s])
   (:import [schema.core Maybe]))
 
-(def ground-types #{s/Int s/Str s/Bool s/Keyword s/Symbol})
+;; TODO: Add Keyword back in once resolution of keyword in fn position is in place
+(def ground-types #{s/Int s/Str s/Bool s/Symbol})
 
 (defn maybe?
   [s]
