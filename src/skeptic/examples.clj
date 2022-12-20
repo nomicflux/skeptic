@@ -102,18 +102,6 @@
     & zs :- [s/Int]]
    (reduce + (+ x y) zs)))
 
-(s/defn sample-half-schema-fn
-  [x :- s/Int]
-  (int-add 1 (int-add 2 x)))
-
-(s/defn sample-schema-fn :- s/Int
-  [x :- s/Int]
-  (int-add 1 (int-add 2 x)))
-
-(defn sample-fn
-  [x]
-  (int-add 1 (int-add 2 x)))
-
 (s/defn sample-schema-bad-fn :- s/Int
   [x :- s/Int]
   (int-add 1 (int-add nil x)))
@@ -121,11 +109,6 @@
 (defn sample-bad-fn
   [x]
   (int-add 1 (int-add nil x)))
-
-(defn sample-let-fn
-  [x]
-  (let [y 2]
-    (int-add x y)))
 
 (defn sample-bad-let-fn
   [x]
@@ -137,76 +120,6 @@
   (let [y (int-add 1 nil)
         z (int-add 2 3)]
     (int-add x y z)))
-
-(defn sample-if-fn
-  [x]
-  (if x
-    1
-    2))
-
-(defn sample-if-mixed-fn
-  [x]
-  (if x
-    1
-    "hi"))
-
-(defn sample-do-fn
-  [x]
-  (do (int-add 1 2)
-      nil
-      "hi"))
-
-(defn sample-try-catch-fn
-  [x]
-  (try :a :b 1
-       (catch Exception e :c "hi")))
-
-(defn sample-try-finally-fn
-  [x]
-  (try :a :b 1
-       (finally nil "hi")))
-
-(defn sample-try-catch-finally-fn
-  [x]
-  (try :a 1
-       (catch Exception e :b nil)
-       (finally :c "hi")))
-
-(defn sample-throw-fn
-  [x]
-  (throw (AssertionError. "oops")))
-
-(defn sample-fn-fn
-  [x]
-  ((if x int-add -) 1 2))
-
-(defn sample-var-fn-fn
-  [x]
-  ((if x #'int-add #'-) 1 2))
-
-(defn sample-found-var-fn-fn
-  [x]
-  ((if x #'int-add -) 1 2))
-
-(defn sample-missing-var-fn-fn
-  [x]
-  ((if x int-add #'-) 1 2))
-
-(let [x 2]
-  (defn sample-let-over-defn
-   [y]
-    (int-add x y)))
-
-(let [x nil]
-  (defn sample-bad-let-over-defn
-   [y]
-    (int-add x y)))
-
-(defn sample-multi-line-body
-  [x]
-  (int-add 1 x)
-  (int-add nil x)
-  (int-add 2 3))
 
 (defn sample-multi-line-let-body
   [x]
@@ -222,48 +135,7 @@
   (int-add nil x)
   (int-add 2 3))
 
-(defn sample-mismatched-types
-  [x]
-  (int-add x "hi"))
-
 (defn sample-let-mismatched-types
   [x]
   (let [s "hi"]
     (int-add x s)))
-
-(defn sample-str-fn
-  [x]
-  (str x)
-  (int-add 1 (str x))
-  (let [y (str nil)]
-    (int-add 1 y)))
-
-(defn sample-let-fn-fn
-  [x]
-  (let [f (fn [y] (int-add y 1))]
-    (f x)))
-
-(defn sample-let-fn-bad1-fn
-  [x]
-  (let [f (fn [y] (int-add y nil))]
-    (f x)))
-
-(defn sample-let-fn-bad2-fn
-  [x]
-  (let [f (fn [y] (int-add y x))]
-    (f nil)))
-
-(defn sample-functional-fn
-  [x]
-  (let [f (fn [y] (int-add y 1))
-        g (fn [f] (f x))]
-    (g f)))
-
-;; TODO: this example needs parametricity to work
-;; (it needs to know that (fn [f] (f x)) takes some specific but not pre-determined schema,
-;; then applies it)
-(defn sample-bad-parametric-fn
-  [x]
-  (let [f (fn [_y] nil)
-        g (fn [f] (f x))]
-    (+ 1 (g f))))

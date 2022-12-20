@@ -6,6 +6,7 @@
             [clojure.pprint :as pprint]
             [taoensso.tufte :as tufte]))
 
+#_
 (tufte/add-basic-println-handler! {})
 
 ;; TODO: get all ns for project, not just those referenced here

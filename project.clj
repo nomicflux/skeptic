@@ -1,4 +1,4 @@
-(defproject skeptic "0.3.0"
+(defproject skeptic "0.4.0-SNAPSHOT"
   :description "Schema-based static type checking for Clojure"
   :url "http://example.com/FIXME"
   :license {:name "MIT License"
@@ -6,5 +6,4 @@
   :dependencies [[prismatic/schema                                 "1.1.12"]
                  [prismatic/plumbing                               "0.5.5"]
                  [com.taoensso/tufte                               "2.4.5"]]
-  :main skeptic.core
   :eval-in-leiningen true)

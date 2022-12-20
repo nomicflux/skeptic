@@ -265,6 +265,7 @@
 
 ;; TODO: Not stack-safe; can we rewrite this to use loop? Or walk? Can we use transducers to better stream
 ;; intermediate results to improve performance?
+;; TODO: atoms? refs? reader macros?
 (s/defn attach-schema-info
   ([dict expr]
    (attach-schema-info dict false {} nil expr))
@@ -455,63 +456,36 @@
   [ns-refs dict f]
   (->> f (normalize-fn-code ns-refs) (attach-schema-info dict)))
 
-(s/defn ns-exprs
-  [ns]
-  ;;(require '[schema.core :as s])
-  (let [ns-dec (read-string (schematize/source-clj ns))
-        other-code (->> (str "'(" (schematize/source-clj ns) ")") read-string (drop 1))]
-    (eval ns-dec)
-    (->> other-code (map (partial schematize/resolve-all (ns-map ns))))))
-;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
-;; but we should add it back in
-;; TODO: More than that, we should load the namespaces for proper resolution
+(defmacro block-in-ns
+  [ns & body]
+  `(let [ns-dec# (read-string (schematize/source-clj ~ns))
+         current-namespace# (str ~*ns*)]
+     (eval ns-dec#)
+     (let [res# (do ~@body)]
+       (clojure.core/in-ns (symbol current-namespace#))
+       res#)))
 
-(s/defn annotate-ns
+(defmacro ns-exprs
+  [ns]
+  `(block-in-ns ~ns
+                (let [code# (read-string (str "'(" (schematize/source-clj ~ns) ")"))]
+                  (->> code# (mapv (partial schematize/resolve-all (ns-map ~ns)))))))
+;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
+;; but we should add it back in for checking
+
+(defmacro annotate-ns
   ([ns]
-   (annotate-ns (schematize/ns-schemas ns) ns))
+   `(annotate-ns (schematize/ns-schemas ~ns) ~ns))
   ([dict ns]
-   (->> ns
-        ns-exprs
-        (mapcat #(attach-schema-info dict %)))))
+   `(mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns))))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
-(s/defn check-ns
+(defmacro check-ns
   ([ns]
-   (check-ns ns {}))
+   `(check-ns ~ns {}))
   ([ns opts]
-   (check-ns (schematize/ns-schemas ns) ns opts))
+   `(check-ns (schematize/ns-schemas ~ns) ~ns ~opts))
   ([dict ns opts]
-   (->> ns
-        ns-exprs
-        (mapcat #(check-s-expr dict {} % opts)))))
-
-(def sample-dict
-  {"clojure.core/+"
-   {:name "clojure.core/+"
-    :schema (s/=> s/Int s/Int)
-    :output s/Int
-    :arglists {1 {:arglist ['x], :schema [{:schema s/Int, :optional? false, :name 'x}]},
-               2
-               {:arglist ['y 'z],
-                :schema
-                [{:schema s/Int, :optional? false, :name 'y}
-                 {:schema s/Int, :optional? false, :name 'z}]}
-               :varargs
-               {:arglist ['y 'z ['more]],
-                :count 3
-                :schema
-                [{:schema s/Int, :optional? false, :name 'y}
-                 {:schema s/Int, :optional? false, :name 'z}
-                 s/Int]}}}
-  "clojure.core/str"
-   {:name "clojure.core/str"
-    :schema (s/=> s/Str s/Any)
-    :output s/Str
-    :arglists {1 {:arglist ['s], :schema [{:schema s/Any, :optional? false, :name 's}]},
-               :varargs
-               {:arglist ['s ['more]],
-                :count 2
-                :schema
-                [{:schema s/Any, :optional? false, :name 's}
-                 s/Any]}}}})
+   `(mapcat #(check-s-expr ~dict {} % ~opts)
+            (ns-exprs ~ns))))

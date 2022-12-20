@@ -23,7 +23,7 @@
   [ns-refs x]
   (if (symbol? x)
     (let [ns-ref (get ns-refs x)
-          resolved (try (resolve x) (catch Exception _e nil))]
+          resolved (try (requiring-resolve x) (catch Exception _e nil))]
       (cond
         (and resolved (class? resolved))
         resolved
@@ -56,7 +56,7 @@
 
 (defn get-meta
   [x]
-  (into-coll (fn [y] (try {:meta (meta (resolve y))
+  (into-coll (fn [y] (try {:meta (meta (requiring-resolve y))
                           :var y}
                          (catch Exception _e
                            {:no-meta y})))

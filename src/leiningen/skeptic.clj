@@ -4,7 +4,7 @@
             [clojure.repl :as repl]
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [schema.core :as s]))
+            [skeptic.core]))
 
 (defn skeptic
   [project & args]

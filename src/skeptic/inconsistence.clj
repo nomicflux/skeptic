@@ -1,6 +1,6 @@
 (ns skeptic.inconsistence
-  (:import [schema.core Maybe])
-  (:require [schema.core :as s]))
+  (:require [schema.core :as s])
+  (:import [schema.core Maybe]))
 
 (def ground-types #{s/Int s/Str s/Bool s/Keyword s/Symbol})
 
