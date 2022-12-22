@@ -12,8 +12,11 @@
            [clojure.lang Named]))
 
 (def spy-on false)
-(def spy-only #{:gfd-found :gfd-default
-                :gt-local-symbol :gt-global-symbol :gt-local-cache})
+(def spy-only #{:fn-expr :fn-once-expr :defn-vars :defn-body :def-name :def-body
+                :fn-tests :s-expr-expected-arglist :s-expr-actual-arglist :s-expr-extra-clauses
+                :fn-decl :fn-clauses :fn-clause :fn-arglists :fn-outputs
+                :match-s-exprs-full
+                :defn-expr :def-expr :gt-type :all-expr})
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -23,17 +26,21 @@
 ;; TODO: how to go from macroexpanded version to line in code?
 ;; TODO: handle `new`
 
+(defn spy*
+  [msg x]
+  (when (and spy-on (or (nil? spy-only)
+                           (contains? spy-only msg)))
+      (try (println msg (pr-str x))
+           (catch Exception e
+             (println msg e))))
+  x)
+
 (defmacro spy
   [msg x]
   #_
-  (when (and spy-on (or (nil? spy-only)
-                        (= spy-only msg)
-                        (contains? spy-only msg)))
-    (try (println msg (pr-str x))
-        (catch Exception e
-          (println msg e))))
+  `(spy* ~msg ~x)
   #_
-  (if (list? x)
+  (if (seq? x)
     `(tufte/p ~msg ~x)
     x)
   x)
@@ -58,12 +65,6 @@
        ~x)
   x)
 
-(defn s-expr?
- [x]
-  (and (seq? x)
-       (or (-> x first ifn?)
-           (-> x first s-expr?))))
-
 (defn def?
   [x]
   (and (seq? x)
@@ -77,12 +78,32 @@
            (-> x first (= 'clojure.core/defn))
            (-> x first (= #'clojure.core/defn)))))
 
-(s/defn fn-expr?
+(s/defn fn-once?
+  "(fn* [x] (...) (...) ...)"
   [x]
   (and (seq? x)
        (or (-> x first (= 'clojure.core/fn))
            (-> x first (= #'clojure.core/fn))
-           (-> x first (= 'fn*)))))
+           (-> x first (= 'fn*)))
+       (-> x second vector?)))
+
+(s/defn fn-expr?
+  "(fn* ([x] ...) ([x y] ...) ...)"
+  [x]
+  (and (seq? x)
+       (or (-> x first (= 'clojure.core/fn))
+           (-> x first (= #'clojure.core/fn))
+           (-> x first (= 'fn*)))
+       (-> x second seq?)
+       (-> x second first vector?)))
+
+(defn s-expr?
+ [x]
+  (and (seq? x)
+       (or (-> x first ifn?)
+           (-> x first fn-expr?)
+           (-> x first fn-once?)
+           (-> x first s-expr?))))
 
 (s/defn let?
   [x]
@@ -272,7 +293,10 @@
   ([dict fn-position? local-vars expr]
    (attach-schema-info dict fn-position? local-vars nil expr))
   ([dict fn-position? local-vars arity expr]
-   (spy :all-expr [(reduce (fn [curr p] (if (p expr) (reduced (fn-name p)) curr)) :val [nil? let? loop? defn? fn-expr? def? if? try? throw? s-expr?])
+
+   (spy :all-expr [(reduce (fn [curr p] (if (p expr) (reduced (fn-name p)) curr))
+                           :val
+                           [nil? let? loop? defn? fn-once? fn-expr? def? if? try? throw? s-expr?])
                    expr])
    (let [res (merge
               {:context local-vars
@@ -313,19 +337,17 @@
                                      :extra-clauses (concat let-clauses body-clauses)}))
 
                    ;; TODO: Global vars from def
-                   ;; TODO: multi-arity fns
-                   (or (defn? expr) (fn-expr? expr))
-                   (spy :defn-expr (let [[vars body] (if (->> expr (take-last 2) first vector?)
-                                                       (take-last 2 expr)
-                                                       [(first (last expr)) (rest (last expr))])
+                   (or (defn? expr) (fn-once? expr))
+                   (spy :fn-once-expr (let [[vars & body] (drop-while (complement vector?) expr)
                                          _ (spy :defn-vars vars)
                                          _ (spy :defn-body body)
-                                         defn-vars (into {} (map (fn [v] [v {}]) vars))
+                                         defn-vars (try (into {} (map (fn [v] [v {}]) vars))
+                                                        (catch Exception e
+                                                          (println "Error with vars:" expr vars e)))
                                          clauses (mapv #(attach-schema-info dict false (merge local-vars defn-vars) arity %) body)
                                          output (spy :defn-output (last clauses))
                                          arglist [(mapv (fn [v] (s/one s/Any v)) vars)]
                                          fn-schema (s/make-fn-schema (:output output) arglist)]
-                                     ;;(assert (valid-schema? (:output output)))
                                      (cond-> {:schema fn-schema
                                               :output (:schema output)
                                               :arglists {(count vars) {:arglist vars
@@ -338,8 +360,34 @@
                                        (defn? expr)
                                        (assoc :name (second expr)))))
 
+                   (fn-expr? expr)
+                   (spy :fn-expr (let [pairs (spy :fn-decl (drop-while (complement seq?) expr))
+                                       clauses (spy :fn-clauses (mapv (fn [[vs & body :as pair]]
+                                                                        (spy :fn-clause (let [vs (into {} (mapv (fn [v] {v {}}) vs))
+                                                                                              sub-clauses (mapv #(attach-schema-info dict true (merge local-vars vs) (count vs) %) body)
+                                                                                              arglist [(mapv (fn [v] (s/one s/Any v)) vs)]
+                                                                                              output (last sub-clauses)]
+                                                                                          {:schema (s/make-fn-schema (:output output) arglist)
+                                                                                           :output (:schema output)
+                                                                                           :expr pair
+                                                                                           :context local-vars
+                                                                                           :extra-clauses sub-clauses
+                                                                                           :arglists {(count vs) {:arglist arglist
+                                                                                                                  :schema (mapv (fn [v] {:schema s/Any
+                                                                                                                                        :optional? false
+                                                                                                                                        :name v})
+                                                                                                                                vs)}}})))
+                                                                      pairs))
+                                       all-arglists (spy :fn-arglists (into {} (mapcat :arglists clauses)))
+                                       all-outputs (spy :fn-outputs (eitherize (into #{} (map :output clauses))))]
+                                   (assoc (convert-arglists arity
+                                                      {:schema all-outputs ;; TODO: how do we express the type of multi-arity functions? Best to drop the output/schema distinction.
+                                                       :output all-outputs
+                                                       :arglists all-arglists})
+                                          :extra-clauses clauses)))
+
                    ;; TODO: Global vars
-                   (def? expr) (spy :def-expr (let [def-name (second expr)
+                   (def? expr) (spy :def-expr (let [def-name (spy :def-name (second expr))
                                                     body (spy :def-body (last expr))]
                                                 (assoc (attach-schema-info dict false local-vars arity body)
                                                        :name def-name)))
@@ -375,13 +423,19 @@
                    :else (spy :application-expr (let [[f & args] expr
                                 fn-schema (spy :s-expr-fn (attach-schema-info dict true local-vars (count args) f))
                                 arg-schemas (spy :s-expr-args (mapv #(attach-schema-info dict false local-vars (count args) %) args))]
+
                             ;;(assert (valid-schema? (:schema fn-schema)) (format "Must provide a schema: %s (%s)" (:schema fn-schema) fn-schema))
                             ;;(assert (valid-schema? (:output fn-schema)) (format "Must provide a schema output: %s (%s)" (:output fn-schema) fn-schema))
+                            (spy :fn-tests [expr (seq? expr)
+                                            (when (seq? expr) [(first expr) (= (first expr) 'fn*)])
+                                            (when (seq? expr) [(second expr) (list? (second expr)) (type (second expr))])
+                                            (when (and (seq? expr) (seq? (second expr)))
+                                              [(first (second expr)) (vector? (first (second expr)))])])
                             {:schema (:schema fn-schema)
                              :output (:output fn-schema)
-                             :expected-arglist (spy :s-expr-arglist (:arglist fn-schema))
-                             :actual-arglist (map #(select-keys % [:expr :schema :output :name]) arg-schemas)
-                             :extra-clauses (concat (or (:extra-clauses fn-schema) []) arg-schemas)})))
+                             :expected-arglist (spy :s-expr-expected-arglist (:arglist fn-schema))
+                             :actual-arglist (spy :s-expr-actual-arglist (map #(select-keys % [:expr :schema :output :name]) arg-schemas))
+                             :extra-clauses (spy :s-expr-extra-clauses (concat [fn-schema] arg-schemas))})))
                  :else (spy :val-expr (assoc (get-type dict fn-position? local-vars arity expr)
                                              :name expr)))))] (if (:output res) res
        (assoc res :output (:schema res))))))

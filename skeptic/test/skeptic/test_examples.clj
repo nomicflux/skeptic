@@ -181,6 +181,38 @@
         g (fn [f] (f x))]
     (+ 1 (g f))))
 
+(defn sample-multi-arity-fn
+  ([x]
+   (int-add x nil)
+   (sample-multi-arity-fn x nil))
+  ([x y]
+   (int-add x y nil)
+   (sample-multi-arity-fn x y nil))
+  ([x y & z]
+   (int-add x y z nil)
+   (apply str x y z)))
+
+(defn ^:always-validate sample-metadata-fn
+  {:something-else true}
+  [x]
+  (int-add x nil))
+
+(defn sample-doc-fn
+  "Doc here."
+  [x]
+  (int-add x nil))
+
+(defn ^:always-validate sample-doc-and-metadata-fn
+  "Doc here."
+  {:something-else true}
+  [x]
+  (int-add x nil))
+
+(defn sample-fn-once
+  [x]
+  ((^{:once true} fn* [y] (int-add y nil))
+   x))
+
 (def sample-dict
   {"skeptic.test-examples/int-add"
    {:name "skeptic.test-examples/int-add"

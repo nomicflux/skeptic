@@ -64,7 +64,7 @@
 
 (s/defn get-fn-code :- s/Str
   [func-name :- s/Symbol]
-  (if-let [code (try (repl/source-fn func-name) (catch Exception _e nil))]
+  (if-let [code (repl/source-fn func-name)]
     code
     (do (println "No code found for" func-name)
         "")))
