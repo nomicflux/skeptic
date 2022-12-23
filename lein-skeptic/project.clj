@@ -3,5 +3,5 @@
   :url "http://example.com/FIXME"
   :license {:name "MIT License"
             :url "https://spdx.org/licenses/MIT.html"}
-  :dependencies [[skeptic                                          "0.4.0-SNAPSHOT"]]
+  :dependencies [[skeptic "0.4.0-SNAPSHOT"]]
   :eval-in-leiningen true)
