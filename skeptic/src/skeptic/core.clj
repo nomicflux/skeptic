@@ -17,13 +17,16 @@
   (let [nss (->> (all-ns)
                  (map ns-name)
                  (filter #(str/starts-with? % group-name))
-                 ;;(filter #(= % 'skeptic.examples))
-                 ;;(remove #(= % 'skeptic.checking))
                  sort)]
     (println (pr-str nss))
     (doseq [ns nss]
               (require ns)
-              (println "Checking" ns)
+              (println "*** Checking" ns "***")
               ;; (pprint/pprint (checking/annotate-ns ns))
-              (pprint/pprint (mapv #(dissoc % :context)
-                                   (checking/check-ns ns))))))
+              (doseq [{:keys [blame path errors]} (checking/check-ns ns)]
+                (println "---------")
+                (println "Expression: \t" (pr-str blame))
+                (println "In: \t\t" (pr-str path))
+                (doseq [error errors]
+                  (println "---")
+                  (println error "\n"))))))
