@@ -93,3 +93,11 @@
                                                                         [(inconsistence/mismatched-nullable-msg nil (s/maybe s/Any) s/Int)]]
                      'skeptic.test-examples/sample-fn-once ['(skeptic.test-examples/int-add y nil)
                                                             [(inconsistence/mismatched-nullable-msg nil (s/maybe s/Any) s/Int)]])))
+
+
+(deftest analyse-let-test
+  (is (= {}
+         (->> '(let [x 1] (+ 1 x))
+              schematize/macroexpand-all
+              sut/annotate-expr
+              (sut/analyse-let {})))))
