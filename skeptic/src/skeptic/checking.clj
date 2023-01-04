@@ -440,47 +440,74 @@
                                              :name expr)))))] (if (:output res) res
        (assoc res :output (:schema res))))))
 
+(defn flip
+  [f]
+  (fn [x y]
+    (f y x)))
+
+(defn update-with-var
+  [{:keys [var-name step-lookup]}]
+  (fn [results el]
+    (if (and var-name step-lookup)
+      (update el :dict assoc var-name (-> results (get step-lookup) :schema)))))
+
 (defn attach-schema-info-loop
   [dict
    expr]
-  (loop [expr-stack (list expr)
+  (loop [expr-stack []
+         expr {:expr expr
+               :dict dict}
          results {}
          step 0]
-    (if (empty? expr-stack)
+    (if (nil? expr)
       (vals results)
 
-      (let [{:keys [expr fn-position? local-vars arity callback]} (first expr-stack)]
+      (let [{:keys [pre-callback] :as next} (first expr-stack)
+            {:keys [expr fn-position? dict arity post-callback]} (if pre-callback (pre-callback results next) next)
+            post-callback (or post-callback identity)]
         (if (s-expr? expr)
           (cond
             (or (loop? expr) (let? expr))
             (let [[letblock & body] (->> expr (drop 1))
-                                        letpairs (spy :let-pairs (partition 2 letblock))
+                  letpairs (spy :let-pairs (partition 2 letblock))
 
-                                        {:keys [local-vars let-clauses]}
-                                        (spy :let-clauses (reduce (fn [{:keys [local-vars let-clauses]} [newvar varbody]]
-                                                                    (let [clause
-                                                                          (spy :let-clause (attach-schema-info dict false local-vars arity varbody))]
-                                                                      {:local-vars (spy :local-vars (assoc local-vars
-                                                                                                           newvar
-                                                                                                           (assoc (select-keys clause [:schema
-                                                                                                                                       :output
-                                                                                                                                       :arglists])
-                                                                                                                  :name (ubername (spy :let-newvar newvar)))))
-                                                                       :let-clauses (conj let-clauses clause)}))
-                                                                  {:let-clauses []
-                                                                   :local-vars local-vars}
-                                                                  letpairs))
+                  {:keys [let-clauses step]}
+                  (reduce (fn [{:keys [step let-clauses previous-clause]} [newvar varbody]]
+                            (let [clause {:expr varbody
+                                          :dict dict
+                                          :pre-callback (update-with-var previous-clause)}]
+                              {:previous-clause {:var-name newvar :step-lookup step}
+                               :step (inc step)
+                               :let-clauses (conj let-clauses clause)}))
+                          {:let-clauses []
+                           :step (inc step)
+                           :previous-clause nil}
+                          letpairs)
 
-                                        body-clauses (spy :let-body-clauses (mapv #(attach-schema-info dict false local-vars arity %) (spy :let-body body)))
-                                        output-clause (spy :let-output-clause (last body-clauses))]
-                                    {:schema (:schema output-clause)
-                                     :output (:output output-clause)
-                                     :extra-clauses (concat let-clauses body-clauses)}
-                                    (recur (concat next-clauses expr-stack) {step current-clause} (inc step)))
+                  {:keys [body-clauses step]}
+                  (reduce (fn [{:keys [step body-clauses]} clause]
+                                         (let [clause {:expr clause
+                                                       :dict dict}]
+                                           {:step (inc step)
+                                            :body-clauses (conj body-clauses clause)}))
+                                       {:body-clauses []
+                                        :step (inc step)}
+                                       body)
+                  output-clause (spy :let-output-clause (last body-clauses))]
+              {:schema (:schema output-clause)
+               :output (:output output-clause)
+               :extra-clauses (concat let-clauses body-clauses)}
+              (recur (concat [] expr-stack)
+                     {}
+                     (post-callback (assoc results step nil))
+                     (inc step)))
 
             :else nil)
 
-          (recur (rest expr-stack) {step (get-type dict fn-position? local-vars arity expr)} (inc step)))))))
+          (recur (rest expr-stack)
+                 {}
+                 (post-callback (assoc results step (get-type dict fn-position? nil arity expr)))
+                 (inc step)))))))
 
 ;; TODO: what can we assert here? We already either:
 ;; 1. Found a matching arglist, in which case we know the counts match; if expected is short, the last arg is
