@@ -12,11 +12,7 @@
            [clojure.lang Named]))
 
 (def spy-on false)
-(def spy-only #{:fn-expr :fn-once-expr :defn-vars :defn-body :def-name :def-body
-                :fn-tests :s-expr-expected-arglist :s-expr-actual-arglist :s-expr-extra-clauses
-                :fn-decl :fn-clauses :fn-clause :fn-arglists :fn-outputs
-                :match-s-exprs-full
-                :defn-expr :def-expr :gt-type :all-expr})
+(def spy-only nil)
 
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
@@ -478,39 +474,45 @@
    (s/optional-key :finished?) s/Bool})
 
 (defn analyse-let
-  [results
-   {:keys [expr idx fn-position? local-vars arity] :as this}]
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
   (let [[letblock & body] (->> expr (drop 1))
-        letpairs (partition 2 letblock)
+        letpairs (spy :let-pairs (partition 2 (:expr letblock)))
 
         {:keys [let-clauses local-vars previous-clause]}
-        (reduce (fn [{:keys [let-clauses previous-clause]} [newvar varbody]]
-                  (let [clause {:expr varbody
-                                :local-vars local-vars
-                                :dep-callback (update-new-var previous-clause)}]
-                    {:previous-clause (assoc varbody :name newvar)
+        (reduce (fn [{:keys [let-clauses local-vars previous-clause]}
+                    [newvar varbody]]
+                  (let [clause (spy :let-clause (assoc varbody
+                                                       :local-vars local-vars
+                                                       :dep-callback (update-new-var previous-clause)))]
+                    {:previous-clause (spy :let-prev-clause (assoc varbody :name newvar))
+                     :local-vars (assoc local-vars
+                                        (:expr newvar)
+                                        {:placeholder (:idx varbody)})
                      :let-clauses (conj let-clauses clause)}))
                 {:let-clauses []
+                 :local-vars local-vars
                  :previous-clause nil}
                 letpairs)
 
         body-clauses
         (reduce (fn [body-clauses clause]
-                  (conj body-clauses {:expr clause
-                                      :local-vars local-vars
-                                      :dep-callback (update-with-vars previous-clause)}))
+                  (conj body-clauses (spy :let-body-clause {:expr clause
+                                                            :local-vars local-vars
+                                                            :dep-callback (update-with-vars previous-clause)})))
                 []
                 body)
 
-        output-clause (last body-clauses)
-        current-clause (assoc this
-                              :dep-callback (fn [results el]
-                                              (assoc el
-                                                     :schema
-                                                     (->> output-clause
-                                                          :idx
-                                                          (get results)
-                                                          :schema))))]
+        output-clause (spy :let-output-clause (last body-clauses))
+        current-clause (spy :let-current-clause (assoc this
+                                                      :dep-callback (fn [results el]
+                                                                      (assoc el
+                                                                             :finished? true
+                                                                             :schema
+                                                                             (->> output-clause
+                                                                                  :idx
+                                                                                  (get results)
+                                                                                  :schema)))))]
     (concat let-clauses body-clauses [current-clause])))
 
 (defn annotate-expr
@@ -535,7 +537,7 @@
           (recur (rest expr-stack) (assoc results idx (assoc this :schema (get-type dict fn-position? local-vars arity expr))))
 
           (or (loop? expr) (let? expr))
-          (recur (concat (analyse-let results this) (rest expr-stack))
+          (recur (concat (analyse-let this) (rest expr-stack))
                  results)
           )))))
 
