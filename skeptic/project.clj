@@ -4,7 +4,7 @@
   :license {:name "MIT License"
             :url "https://spdx.org/licenses/MIT.html"}
   :dependencies [[prismatic/schema                                 "1.1.12"]
-                 [prismatic/plumbing                               "0.5.5"]
+                 [prismatic/plumbing                               "0.6.0"]
                  [com.taoensso/tufte                               "2.4.5"]
                  [org.clojure/clojure                              "1.11.1"]
                  [commons-io "2.11.0"]]

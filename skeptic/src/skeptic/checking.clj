@@ -1,12 +1,9 @@
 (ns skeptic.checking
-  (:require [clojure.walk :as walk]
-            [skeptic.inconsistence :as inconsistence]
-            [skeptic.schema :as dschema]
+  (:require [skeptic.inconsistence :as inconsistence]
+            [skeptic.analysis :as analysis]
             [schema.core :as s]
-            [clojure.set :as set]
             [skeptic.schematize :as schematize]
             [clojure.repl :as repl]
-            [clojure.pprint :as pprint]
             [taoensso.tufte :as tufte])
   (:import [schema.core Either Schema]
            [clojure.lang Named]))
@@ -436,94 +433,10 @@
                                              :name expr)))))] (if (:output res) res
        (assoc res :output (:schema res))))))
 
-(defn flip
-  [f]
-  (fn [x y]
-    (f y x)))
-
-(defn update-new-var
-  [{:keys [name expr idx]}]
-  (fn [results el]
-    (if (and name expr)
-      (let [local-vars-1 (:local-vars el)
-            dep (get results idx)
-            local-vars-2 (:local-vars dep)]
-        (assoc (merge local-vars-1 local-vars-2)
-               name (:schema dep)))
-      el)))
-
-(defn update-with-vars
-  [{:keys [name expr idx]}]
-  (fn [results el]
-    (if (and name expr)
-      (let [local-vars-1 (:local-vars el)
-            dep (get results idx)
-            local-vars-2 (:local-vars dep)]
-        (merge local-vars-1 local-vars-2))
-      el)))
-
-(s/defschema AnnotatedExpression
-  {:expr s/Any
-   :idx s/Int
-   (s/optional-key :schema) s/Schema
-   (s/optional-key :name) s/Symbol
-   (s/optional-key :fn-position?) s/Bool
-   (s/optional-key :local-vars) {s/Symbol s/Any}
-   (s/optional-key :arity) s/Int
-   (s/optional-key :dep-callback) (s/=> AnnotatedExpression {s/Int AnnotatedExpression} AnnotatedExpression)
-   (s/optional-key :finished?) s/Bool})
-
-(defn analyse-let
-  [{:keys [expr local-vars]
-    :or {local-vars {}} :as this}]
-  (let [[letblock & body] (->> expr (drop 1))
-        letpairs (spy :let-pairs (partition 2 (:expr letblock)))
-
-        {:keys [let-clauses local-vars previous-clause]}
-        (reduce (fn [{:keys [let-clauses local-vars previous-clause]}
-                    [newvar varbody]]
-                  (let [clause (spy :let-clause (assoc varbody
-                                                       :local-vars local-vars
-                                                       :dep-callback (update-new-var previous-clause)))]
-                    {:previous-clause (spy :let-prev-clause (assoc varbody :name newvar))
-                     :local-vars (assoc local-vars
-                                        (:expr newvar)
-                                        {:placeholder (:idx varbody)})
-                     :let-clauses (conj let-clauses clause)}))
-                {:let-clauses []
-                 :local-vars local-vars
-                 :previous-clause nil}
-                letpairs)
-
-        body-clauses
-        (reduce (fn [body-clauses clause]
-                  (conj body-clauses (spy :let-body-clause {:expr clause
-                                                            :local-vars local-vars
-                                                            :dep-callback (update-with-vars previous-clause)})))
-                []
-                body)
-
-        output-clause (spy :let-output-clause (last body-clauses))
-        current-clause (spy :let-current-clause (assoc this
-                                                      :dep-callback (fn [results el]
-                                                                      (assoc el
-                                                                             :finished? true
-                                                                             :schema
-                                                                             (->> output-clause
-                                                                                  :idx
-                                                                                  (get results)
-                                                                                  :schema)))))]
-    (concat let-clauses body-clauses [current-clause])))
-
-(defn annotate-expr
-  [expr]
-  (walk/postwalk (let [n (atom 0)] (fn [f] {:expr f :idx (swap! n inc)}))
-                 expr))
-
 (defn attach-schema-info-loop
   [dict
    expr]
-  (loop [expr-stack [(annotate-expr expr)]
+  (loop [expr-stack [(analysis/annotate-expr expr)]
          results {}]
     (if (empty? expr-stack)
       results
@@ -537,7 +450,7 @@
           (recur (rest expr-stack) (assoc results idx (assoc this :schema (get-type dict fn-position? local-vars arity expr))))
 
           (or (loop? expr) (let? expr))
-          (recur (concat (analyse-let this) (rest expr-stack))
+          (recur (concat (analysis/analyse-let this) (rest expr-stack))
                  results)
           )))))
 
