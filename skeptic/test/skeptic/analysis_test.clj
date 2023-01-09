@@ -115,9 +115,91 @@
     (is (= '((pos? x) 1 -1 (if (pos? x) 1 -1))
            (unannotate-expr analysed)))))
 
+(deftest analyse-fn-test
+  (let [analysed (expand-and-annotate '(fn [x] x) sut/analyse-fn)]
+    (is (= [{:expr 'x, :idx 4, :local-vars {}}
+            {:expr
+             '({:expr fn*, :idx 1}
+               {:expr ({:expr [{:expr x, :idx 2}], :idx 3} {:expr x, :idx 4}),
+                :idx 5}),
+             :idx 6,
+             :output #:skeptic.analysis{:placeholders [4]},
+             :arglists
+             {1
+              {:arglist ['x],
+               :count 1,
+               :schema
+               [{:schema s/Any, :optional? false, :name 'x}]}}}]
+           (clean-callbacks analysed)))
+    (is (= '(x (fn* ([x] x)))
+           (unannotate-expr analysed))))
+  (let [analysed (expand-and-annotate '(fn [x y] (str y x) (+ x y)) sut/analyse-fn)]
+    (is (= [{:expr '({:expr str, :idx 5} {:expr y, :idx 6} {:expr x, :idx 7}),
+             :idx 8,
+             :local-vars {}}
+            {:expr '({:expr +, :idx 9} {:expr x, :idx 10} {:expr y, :idx 11}),
+             :idx 12,
+             :local-vars {}}
+            {:expr
+             '({:expr fn*, :idx 1}
+               {:expr
+                ({:expr [{:expr x, :idx 2} {:expr y, :idx 3}], :idx 4}
+                 {:expr ({:expr str, :idx 5} {:expr y, :idx 6} {:expr x, :idx 7}),
+                  :idx 8}
+                 {:expr ({:expr +, :idx 9} {:expr x, :idx 10} {:expr y, :idx 11}),
+                  :idx 12}),
+                :idx 13}),
+             :idx 14,
+             :output #:skeptic.analysis{:placeholders [12]},
+             :arglists
+             {2
+              {:arglist ['x 'y],
+               :count 2,
+               :schema
+               [{:schema s/Any, :optional? false, :name 'x}
+                {:schema s/Any, :optional? false, :name 'y}]}}}]
+           (clean-callbacks analysed)))
+    (is (= '((str y x) (+ x y) (fn* ([x y] (str y x) (+ x y))))
+           (unannotate-expr analysed))))
+
+  (let [analysed (expand-and-annotate '(fn* ([x] (+ x 1)) ([x y] (+ x y))) sut/analyse-fn)]
+    (is (= [{:expr '({:expr +, :idx 4} {:expr x, :idx 5} {:expr 1, :idx 6}),
+             :idx 7,
+             :local-vars {}}
+            {:expr '({:expr +, :idx 12} {:expr x, :idx 13} {:expr y, :idx 14}),
+             :idx 15,
+             :local-vars {}}
+            {:expr
+             '({:expr fn*, :idx 1}
+               {:expr
+                ({:expr [{:expr x, :idx 2}], :idx 3}
+                 {:expr ({:expr +, :idx 4} {:expr x, :idx 5} {:expr 1, :idx 6}),
+                  :idx 7}),
+                :idx 8}
+               {:expr
+                ({:expr ({:expr x, :idx 9} {:expr y, :idx 10}), :idx 11}
+                 {:expr ({:expr +, :idx 12} {:expr x, :idx 13} {:expr y, :idx 14}),
+                  :idx 15}),
+                :idx 16}),
+             :idx 17,
+             :output #:skeptic.analysis{:placeholders [7 15]},
+             :arglists
+             {1
+              {:arglist ['x],
+               :count 1,
+               :schema [{:schema s/Any, :optional? false, :name 'x}]},
+              2
+              {:arglist ['x 'y],
+               :count 2,
+               :schema
+               [{:schema s/Any, :optional? false, :name 'x}
+                {:schema s/Any, :optional? false, :name 'y}]}}}]
+           (clean-callbacks analysed)))
+    (is (= '((+ x 1) (+ x y) (fn* ([x] (+ x 1)) ([x y] (+ x y))))
+           (unannotate-expr analysed)))))
+
 (deftest analyse-application-test
-  (let [analysed (expand-and-annotate '(+ 1 x)
-                                      sut/analyse-application)]
+  (let [analysed (expand-and-annotate '(+ 1 x) sut/analyse-application)]
     (is (= [{:expr 1, :idx 2, :local-vars {}}
             {:expr 'x, :idx 3, :local-vars {}}
             {:expr '+, :idx 1, :arity 2, :fn-position? true}
@@ -531,3 +613,45 @@
          (->> '(if (pos? x) 1 -1)
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict )))))
+
+(deftest attach-schema-info-fn-test
+  (is (= {4 {:expr 'skeptic.test-examples/int-add,
+             :idx 4,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          5 {:expr 1, :idx 5, :local-vars {}, :schema s/Int},
+          6 {:expr 2, :idx 6, :local-vars {}, :schema s/Int},
+          7 {:expr
+             '({:expr skeptic.test-examples/int-add, :idx 4}
+               {:expr 1, :idx 5}
+               {:expr 2, :idx 6}),
+             :idx 7,
+             :local-vars {},
+             :schema s/Int,
+             :finished? true},
+          9 {:expr
+             '({:expr fn*, :idx 1}
+               {:expr
+                ({:expr [{:expr x, :idx 2}], :idx 3}
+                 {:expr
+                  ({:expr skeptic.test-examples/int-add, :idx 4}
+                   {:expr 1, :idx 5}
+                   {:expr 2, :idx 6}),
+                  :idx 7}),
+                :idx 8}),
+             :idx 9,
+             :output s/Int,
+             :arglists
+             {1
+              {:arglist ['x],
+               :count 1,
+               :schema [{:schema s/Any, :optional? false, :name 'x}]}},
+             :finished? true}}
+         (->> '(fn [x] (skeptic.test-examples/int-add 1 2))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (into (sorted-map))))))

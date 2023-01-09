@@ -1,5 +1,6 @@
 (ns skeptic.analysis
   (:require [schema.core :as s]
+            [skeptic.schematize :as schematize]
             [clojure.walk :as walk])
   (:import [schema.core Either]))
 
@@ -179,6 +180,19 @@
                     v)))
         (assoc :finished? true))))
 
+(def resolve-fn-outputs
+  (fn [results el]
+    (-> el
+        (update :output
+                (fn [v]
+                  (if-let [idxs (::placeholders v)]
+                    (->> idxs
+                         (map #(get results %))
+                         (map :schema)
+                         schema-join)
+                    v)))
+        (assoc :finished? true))))
+
 (def resolve-fn-position
   (fn [results el]
     (if-let [[idx arity] (::placeholder (:schema el))]
@@ -266,7 +280,41 @@
 (defn analyse-fn
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Fn blocks not implemented yet")))
+  (let [body-clauses
+        (->> expr
+             (drop 1)
+             (map (fn [fn-expr]
+                    (let [[vars & body] (:expr fn-expr)
+                          {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
+                          fn-vars (->> args (map (fn [x] [x {:expr x :name (str x) :schema s/Any}]) (into {})))
+                          fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
+                                                                               :name (str varargs)
+                                                                               :schema [s/Any]}))
+                          clauses (map (fn [clause]
+                                       (assoc clause
+                                              :local-vars (merge local-vars fn-vars)))
+                                       body)]
+                      {:clauses clauses
+                       :expr fn-expr
+                       :output-placeholder (-> clauses last :idx)
+                       :arglists (if with-varargs
+                                   {:varargs {:arglist (conj args varargs)
+                                              :count count
+                                              :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
+                                                            s/Any)}}
+                                   {count {:arglist args
+                                           :count count
+                                           :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})}))))
+
+        all-body-clauses (mapcat :clauses body-clauses)
+        full-arglist (reduce merge {} (map :arglists body-clauses))
+        full-output (map :output-placeholder body-clauses)
+        current-clause (assoc this
+                              :dep-callback resolve-fn-outputs
+                              :output {::placeholders full-output}
+                              :arglists full-arglist)]
+    (concat all-body-clauses
+            [current-clause])))
 
 (defn analyse-fn-once
   [{:keys [expr local-vars]
@@ -405,7 +453,7 @@
           (recur (concat (analyse-do this) rest-stack)
                  results)
 
-          (fn? expr)
+          (fn-expr? expr)
           (recur (concat (analyse-fn this) rest-stack)
                  results)
 
