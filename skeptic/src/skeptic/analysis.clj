@@ -18,14 +18,6 @@
        (-> x second :expr seq?)
        (-> x second :expr first :expr vector?)))
 
-(defn s-expr?
-  [x]
-  (and (seq? x)
-       (or (-> x first :expr ifn?)
-           (-> x first :expr fn-expr?)
-           (-> x first :expr fn-once?)
-           (-> x first :expr s-expr?))))
-
 (s/defn let?
   [x]
   (and (seq? x)
@@ -38,22 +30,59 @@
        (or (-> x first :expr (= 'loop))
            (-> x first :expr (= 'loop*)))))
 
+(s/defn if?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'if))))
+
+(s/defn do?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'do))))
+
+(s/defn try?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'try))))
+
+(s/defn throw?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'throw))))
+
+(s/defn catch?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'catch))))
+
+(s/defn finally?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'finally))))
+
+(s/defn def?
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'def))))
+
 (s/defn either?
   [s]
   (instance? Either s))
 
 (s/defn schema-join
   [[t1 & _r :as types]]
-  (let [types (into #{} types)]
+  (let [types (cond->> types (not (set? types)) (into #{}))]
     (cond
-      (> 1 (count types))
-      (if (contains? types nil)
-        (s/maybe (schema-join (disj types nil)))
-        (apply s/either types))
+      (= 1 (count types)) t1
 
-      t1 t1
+      (contains? types nil)
+      (s/maybe (schema-join (disj types nil)))
 
-      :else s/Any)))
+      (empty? types)
+      s/Any
+
+      :else
+      (apply s/either types))))
 
 (defn dynamic-fn-schema
   [arity]
@@ -128,6 +157,18 @@
                     v)))
         (assoc :finished? true))))
 
+(def resolve-if-schema
+  (fn [results el]
+    (-> el
+        (update :schema
+                (fn [v]
+                  (if-let [[t-idx f-idx] (::placeholders v)]
+                    (let [t-el (get results t-idx)
+                          f-el (get results f-idx)]
+                      (schema-join (set [(:schema t-el) (:schema f-el)])))
+                    v)))
+        (assoc :finished? true))))
+
 (def resolve-fn-output-schema
   (fn [results el]
     (-> el
@@ -190,6 +231,47 @@
                               :schema {::placeholder (:idx output-clause)}
                               :dep-callback resolve-schema)]
     (concat let-clauses body-clauses [current-clause])))
+
+(defn analyse-do
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (throw (UnsupportedOperationException. "Do blocks not implemented yet")))
+
+(defn analyse-if
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (let [[_ if-clause t-clause f-clause] expr
+
+        body-clauses
+        (map (fn [clause]
+               (assoc clause
+                      :local-vars local-vars))
+             [if-clause t-clause f-clause])
+
+        current-clause (assoc this
+                              :schema {::placeholders [(:idx t-clause) (:idx f-clause)]}
+                              :dep-callback resolve-if-schema)]
+    (concat body-clauses [current-clause])))
+
+(defn analyse-try
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (throw (UnsupportedOperationException. "Try blocks not implemented yet")))
+
+(defn analyse-def
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (throw (UnsupportedOperationException. "Def blocks not implemented yet")))
+
+(defn analyse-fn
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (throw (UnsupportedOperationException. "Fn blocks not implemented yet")))
+
+(defn analyse-fn-once
+  [{:keys [expr local-vars]
+    :or {local-vars {}} :as this}]
+  (throw (UnsupportedOperationException. "Fn-once blocks not implemented yet")))
 
 (defn analyse-application
   [{:keys [expr local-vars]
@@ -319,6 +401,26 @@
                        (assoc results idx finished)
                        results))))
 
+          (def? expr)
+          (recur (concat (analyse-do this) rest-stack)
+                 results)
+
+          (fn? expr)
+          (recur (concat (analyse-fn this) rest-stack)
+                 results)
+
+          (fn-once? expr)
+          (recur (concat (analyse-fn-once this) rest-stack)
+                 results)
+
+          (if? expr)
+          (recur (concat (analyse-if this) rest-stack)
+                 results)
+
+          (try? expr)
+          (recur (concat (analyse-try this) rest-stack)
+                 results)
+
           (or (loop? expr) (let? expr))
           (recur (concat (analyse-let this) rest-stack)
                  results)
@@ -326,4 +428,6 @@
           (seq? expr)
           (recur (concat (analyse-application this) rest-stack)
                  results)
-          )))))
+
+          :else
+          (throw (ex-info "Unknown expression type" this)))))))

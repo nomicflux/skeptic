@@ -80,6 +80,41 @@
              (let* [x (+ 1 2) y (+ 3 x)] (+ 7 x) (+ x y)))
            (unannotate-expr analysed)))))
 
+(deftest analyse-if-test
+  (let [analysed (expand-and-annotate '(if (even? 2) true "hello")
+                                      sut/analyse-if)]
+    (is (= [{:expr '({:expr even?, :idx 2} {:expr 2, :idx 3}),
+             :idx 4,
+             :local-vars {}}
+            {:expr true, :idx 5, :local-vars {}}
+            {:expr "hello", :idx 6, :local-vars {}}
+            {:expr
+             '({:expr if, :idx 1}
+               {:expr ({:expr even?, :idx 2} {:expr 2, :idx 3}), :idx 4}
+               {:expr true, :idx 5}
+               {:expr "hello", :idx 6}),
+             :idx 7,
+             :schema #:skeptic.analysis{:placeholders [5 6]}}]
+           (clean-callbacks analysed)))
+    (is (= '((even? 2) true "hello" (if (even? 2) true "hello"))
+           (unannotate-expr analysed))))
+  (let [analysed (expand-and-annotate '(if (pos? x) 1 -1) sut/analyse-if)]
+    (is (= [{:expr '({:expr pos?, :idx 2} {:expr x, :idx 3}),
+             :idx 4,
+             :local-vars {}}
+            {:expr 1, :idx 5, :local-vars {}}
+            {:expr -1, :idx 6, :local-vars {}}
+            {:expr
+             '({:expr if, :idx 1}
+               {:expr ({:expr pos?, :idx 2} {:expr x, :idx 3}), :idx 4}
+               {:expr 1, :idx 5}
+               {:expr -1, :idx 6}),
+             :idx 7,
+             :schema #:skeptic.analysis{:placeholders [5 6]}}]
+           (clean-callbacks analysed)))
+    (is (= '((pos? x) 1 -1 (if (pos? x) 1 -1))
+           (unannotate-expr analysed)))))
+
 (deftest analyse-application-test
   (let [analysed (expand-and-annotate '(+ 1 x)
                                       sut/analyse-application)]
@@ -271,9 +306,11 @@
              ([:a 1] [:b [:z "hello" #{1 2}]] [:c ([:d 7] [:e ([:f 9])])]))
            (unannotate-expr analysed)))))
 
-(deftest attach-schema-info-test
+(deftest attach-schema-info-value-test
   (is (= {1 {:expr 1, :idx 1, :schema s/Int}}
-         (sut/attach-schema-info-loop {} '1)))
+         (sut/attach-schema-info-loop {} '1))))
+
+(deftest attach-schema-info-coll-test
   (is (= {1 {:expr 1, :idx 1, :schema s/Int},
           2 {:expr 2, :idx 2, :schema s/Int},
           3
@@ -307,46 +344,47 @@
               :finished? true},
 
           13 {:expr
-              [{:expr [{:expr :a, :idx 2} {:expr 2, :idx 3}], :idx 4}
-               {:expr
-                [{:expr :b, :idx 5}
-                 {:expr
-                  [{:expr
-                    [{:expr :c, :idx 6}
-                     {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}}, :idx 9}],
-                    :idx 10}],
-                  :idx 11,
-                  :map? true}],
-                :idx 12}],
+              '({:expr [{:expr :a, :idx 2} {:expr 2, :idx 3}], :idx 4}
+                {:expr
+                 ({:expr :b, :idx 5}
+                  {:expr
+                   [{:expr
+                     [{:expr :c, :idx 6}
+                      {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}}, :idx 9}],
+                     :idx 10}],
+                   :idx 11,
+                   :map? true}),
+                 :idx 12}),
               :idx 13,
               :map? true,
-              :schema {s/Keyword s/Int},
+              :schema {s/Keyword (s/either s/Int {s/Keyword #{s/Int}})},
               :finished? true},
 
           14 {:expr 5, :idx 14, :schema s/Int},
 
           15 {:expr
-              [{:expr 1, :idx 1}
-               {:expr
-                [{:expr [{:expr :a, :idx 2} {:expr 2, :idx 3}], :idx 4}
-                 {:expr
-                  [{:expr :b, :idx 5}
-                   {:expr
-                    [{:expr
-                      [{:expr :c, :idx 6}
-                       {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}}, :idx 9}],
-                      :idx 10}],
-                    :idx 11,
-                    :map? true}],
-                  :idx 12}],
-                :idx 13,
-                :map? true}
-               {:expr 5, :idx 14}],
+              '({:expr 1, :idx 1}
+                {:expr
+                 ({:expr [{:expr :a, :idx 2} {:expr 2, :idx 3}], :idx 4}
+                  {:expr
+                   [{:expr :b, :idx 5}
+                    {:expr
+                     [{:expr
+                       [{:expr :c, :idx 6}
+                        {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}}, :idx 9}],
+                       :idx 10}],
+                     :idx 11,
+                     :map? true}],
+                   :idx 12}),
+                 :idx 13,
+                 :map? true}
+                {:expr 5, :idx 14}),
               :idx 15,
-              :schema [s/Int],
+              :schema [(s/either {s/Keyword (s/either s/Int {s/Keyword #{s/Int}})} s/Int)],
               :finished? true}}
-         (sut/attach-schema-info-loop {} '[1 {:a 2 :b {:c #{3 4}}} 5])))
+         (sut/attach-schema-info-loop {} '[1 {:a 2 :b {:c #{3 4}}} 5]))))
 
+(deftest attach-schema-info-application-test
   (is (= {1 {:expr '+,
              :idx 1,
              :arity 2,
@@ -378,8 +416,9 @@
              :finished? true}}
          (->> '(skeptic.test-examples/int-add 1 2)
               (schematize/resolve-all {})
-              (sut/attach-schema-info-loop test-examples/sample-dict ))))
+              (sut/attach-schema-info-loop test-examples/sample-dict )))))
 
+(deftest attach-schema-info-let-test
   (is (= {3 {:expr 'skeptic.test-examples/int-add,
              :idx 3,
              :arity 2,
@@ -437,5 +476,58 @@
               :finished? true}}
          (->> '(let [x (skeptic.test-examples/int-add 1 2)]
                  (skeptic.test-examples/int-add x 2))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict )))))
+
+(deftest attach-schema-info-if-test
+  (is (= {2 {:expr 'even?,
+             :idx 2,
+             :arity 1,
+             :fn-position? true,
+             :schema (s/=> s/Any [(s/one s/Any 'anon-arg)]),
+             :output s/Any,
+             :finished? true},
+          3 {:expr 2, :idx 3, :local-vars {}, :schema s/Int},
+          4 {:expr '({:expr even?, :idx 2} {:expr 2, :idx 3}),
+             :idx 4,
+             :local-vars {},
+             :schema s/Any,
+             :finished? true},
+          5 {:expr true, :idx 5, :local-vars {}, :schema s/Bool},
+          6 {:expr "hello", :idx 6, :local-vars {}, :schema s/Str},
+          7 {:expr
+             '({:expr if, :idx 1}
+               {:expr ({:expr even?, :idx 2} {:expr 2, :idx 3}), :idx 4}
+               {:expr true, :idx 5}
+               {:expr "hello", :idx 6}),
+             :idx 7,
+             :schema (s/either s/Str s/Bool),
+             :finished? true}}
+         (->> '(if (even? 2) true "hello")
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict ))))
+  (is (= {2 {:expr 'pos?,
+             :idx 2,
+             :arity 1,
+             :fn-position? true,
+             :schema (s/=> s/Any [(s/one s/Any 'anon-arg)]),
+             :output s/Any,
+             :finished? true},
+          3 {:expr 'x, :idx 3, :local-vars {}},
+          4 {:expr '({:expr pos?, :idx 2} {:expr x, :idx 3}),
+             :idx 4,
+             :local-vars {},
+             :schema s/Any,
+             :finished? true},
+          5 {:expr 1, :idx 5, :local-vars {}, :schema s/Int},
+          6 {:expr -1, :idx 6, :local-vars {}, :schema s/Int},
+          7 {:expr '({:expr if, :idx 1}
+                     {:expr ({:expr pos?, :idx 2} {:expr x, :idx 3}), :idx 4}
+                     {:expr 1, :idx 5}
+                     {:expr -1, :idx 6}),
+             :idx 7,
+             :schema s/Int,
+             :finished? true}}
+         (->> '(if (pos? x) 1 -1)
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict )))))
