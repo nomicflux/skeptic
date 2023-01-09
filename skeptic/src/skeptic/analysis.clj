@@ -7,44 +7,36 @@
   "(fn* [x] (...) (...) ...)"
   [x]
   (and (seq? x)
-       (or (-> x first (= 'clojure.core/fn))
-           (-> x first (= #'clojure.core/fn))
-           (-> x first (= 'fn*)))
-       (-> x second vector?)))
+       (-> x first :expr (= 'fn*))
+       (-> x second :expr vector?)))
 
 (s/defn fn-expr?
   "(fn* ([x] ...) ([x y] ...) ...)"
   [x]
   (and (seq? x)
-       (or (-> x first (= 'clojure.core/fn))
-           (-> x first (= #'clojure.core/fn))
-           (-> x first (= 'fn*)))
-       (-> x second seq?)
-       (-> x second first vector?)))
+       (-> x first :expr (= 'fn*))
+       (-> x second :expr seq?)
+       (-> x second :expr first :expr vector?)))
 
 (defn s-expr?
   [x]
   (and (seq? x)
-       (or (-> x first ifn?)
-           (-> x first fn-expr?)
-           (-> x first fn-once?)
-           (-> x first s-expr?))))
+       (or (-> x first :expr ifn?)
+           (-> x first :expr fn-expr?)
+           (-> x first :expr fn-once?)
+           (-> x first :expr s-expr?))))
 
 (s/defn let?
   [x]
   (and (seq? x)
-       (or (-> x first (= 'clojure.core/let))
-           (-> x first (= #'clojure.core/let))
-           (-> x first (= 'let))
-           (-> x first (= 'let*)))))
+       (or (-> x first :expr (= 'let))
+           (-> x first :expr (= 'let*)))))
 
 (s/defn loop?
   [x]
   (and (seq? x)
-       (or (-> x first (= 'clojure.core/loop))
-           (-> x first (= #'clojure.core/loop))
-           (-> x first (= 'loop))
-           (-> x first (= 'loop*)))))
+       (or (-> x first :expr (= 'loop))
+           (-> x first :expr (= 'loop*)))))
 
 (s/defn either?
   [s]
@@ -189,13 +181,13 @@
 
         body-clauses
         (map (fn [clause]
-               {:expr clause
-                :local-vars local-vars})
+               (assoc clause
+                      :local-vars local-vars))
              body)
 
         output-clause (last body-clauses)
         current-clause (assoc this
-                              :schema {::placeholder (-> output-clause :expr :idx)}
+                              :schema {::placeholder (:idx output-clause)}
                               :dep-callback resolve-schema)]
     (concat let-clauses body-clauses [current-clause])))
 

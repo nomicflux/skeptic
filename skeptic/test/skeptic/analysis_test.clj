@@ -3,7 +3,8 @@
             [clojure.test :refer [deftest is are]]
             [clojure.walk :as walk]
             [skeptic.schematize :as schematize]
-            [schema.core :as s]))
+            [schema.core :as s]
+            [skeptic.test-examples :as test-examples]))
 
 (defn expand-and-annotate
   [expr f]
@@ -23,15 +24,14 @@
 (deftest analyse-let-test
   (let [analysed (expand-and-annotate '(let [x 1] (+ 1 x)) sut/analyse-let)]
     (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x}
+            {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}),
+             :idx 8
+             :local-vars {'x #::sut{:placeholder 3}}},
             {:expr
-             {:expr [{:expr '+, :idx 5} {:expr 1, :idx 6} {:expr 'x, :idx 7}],
-              :idx 8},
-             :local-vars {'x #::sut{:placeholder 3}}}
-            {:expr
-             [{:expr 'let*, :idx 1}
-              {:expr [{:expr 'x, :idx 2} {:expr 1, :idx 3}], :idx 4}
-              {:expr [{:expr '+, :idx 5} {:expr 1, :idx 6} {:expr 'x, :idx 7}],
-               :idx 8}],
+             '({:expr let*, :idx 1}
+               {:expr [{:expr x, :idx 2} {:expr 1, :idx 3}], :idx 4}
+               {:expr [{:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}],
+                :idx 8}),
              :idx 9
              :schema #:skeptic.analysis{:placeholder 8}}]
            (clean-callbacks analysed)))
@@ -48,14 +48,12 @@
              :idx 11,
              :local-vars {'x #::sut{:placeholder 6}}
              :name 'y}
-            {:expr
-             {:expr [{:expr '+, :idx 13} {:expr 7, :idx 14} {:expr 'x, :idx 15}],
-              :idx 16},
+            {:expr [{:expr '+, :idx 13} {:expr 7, :idx 14} {:expr 'x, :idx 15}],
+             :idx 16,
              :local-vars {'x #::sut{:placeholder 6}
                           'y #::sut{:placeholder 11}}}
-            {:expr
-             {:expr [{:expr '+, :idx 17} {:expr 'x, :idx 18} {:expr 'y, :idx 19}],
-              :idx 20},
+            {:expr [{:expr '+, :idx 17} {:expr 'x, :idx 18} {:expr 'y, :idx 19}],
+             :idx 20,
              :local-vars {'x #::sut{:placeholder 6}
                           'y #::sut{:placeholder 11}}}
             {:expr
@@ -363,4 +361,81 @@
              :schema s/Any,
              :finished? true}}
          (sut/attach-schema-info-loop {} '(+ 1 2))))
-  )
+
+  (is (= {1 {:expr 'skeptic.test-examples/int-add,
+             :idx 1,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          2 {:expr 1, :idx 2, :local-vars {}, :schema s/Int},
+          3 {:expr 2, :idx 3, :local-vars {}, :schema s/Int},
+          4 {:expr [{:expr 'skeptic.test-examples/int-add, :idx 1} {:expr 1, :idx 2} {:expr 2, :idx 3}],
+             :idx 4,
+             :schema s/Int,
+             :finished? true}}
+         (->> '(skeptic.test-examples/int-add 1 2)
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict ))))
+
+  (is (= {3 {:expr 'skeptic.test-examples/int-add,
+             :idx 3,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          4 {:expr 1, :idx 4, :local-vars {}, :schema s/Int},
+          5 {:expr 2, :idx 5, :local-vars {}, :schema s/Int},
+          6 {:expr
+             '({:expr skeptic.test-examples/int-add, :idx 3}
+               {:expr 1, :idx 4}
+               {:expr 2, :idx 5}),
+             :idx 6,
+             :local-vars {},
+             :name 'x,
+             :schema s/Int,
+             :finished? true},
+          8 {:expr 'skeptic.test-examples/int-add,
+             :idx 8,
+             :arity 2
+             :fn-position? true
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]])
+             :output s/Int
+             :arglist [s/Int s/Int]
+             :finished? true}
+          9 {:expr 'x, :idx 9, :local-vars {'x #:skeptic.analysis{:placeholder 6}}, :schema s/Int},
+          10 {:expr 2, :idx 10, :local-vars {'x #:skeptic.analysis{:placeholder 6}}, :schema s/Int},
+          11 {:expr
+              '({:expr skeptic.test-examples/int-add, :idx 8}
+                {:expr x, :idx 9}
+                {:expr 2, :idx 10}),
+              :local-vars {'x #:skeptic.analysis{:placeholder 6}}
+              :schema s/Int
+              :finished? true
+              :idx 11}
+          12 {:expr
+              '({:expr let*, :idx 1}
+                {:expr
+                 [{:expr x, :idx 2}
+                  {:expr
+                   ({:expr skeptic.test-examples/int-add, :idx 3}
+                    {:expr 1, :idx 4}
+                    {:expr 2, :idx 5}),
+                   :idx 6}],
+                 :idx 7}
+                {:expr
+                 ({:expr skeptic.test-examples/int-add, :idx 8}
+                  {:expr x, :idx 9}
+                  {:expr 2, :idx 10}),
+                 :idx 11}),
+              :idx 12,
+              :schema s/Int,
+              :finished? true}}
+         (->> '(let [x (skeptic.test-examples/int-add 1 2)]
+                 (skeptic.test-examples/int-add x 2))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict )))))

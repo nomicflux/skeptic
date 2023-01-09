@@ -214,7 +214,7 @@
    x))
 
 (def sample-dict
-  {"skeptic.test-examples/int-add"
+  {'skeptic.test-examples/int-add
    {:name "skeptic.test-examples/int-add"
     :schema (s/=> s/Int s/Int)
     :output s/Int
@@ -231,7 +231,7 @@
                 [{:schema s/Int, :optional? false, :name 'y}
                  {:schema s/Int, :optional? false, :name 'z}
                  s/Int]}}}
-  "clojure.core/str"
+   'clojure.core/str
    {:name "clojure.core/str"
     :schema (s/=> s/Str s/Any)
     :output s/Str
