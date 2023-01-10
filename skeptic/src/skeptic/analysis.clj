@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.schematize :as schematize]
             [schema.spec.core :as spec :include-macros true]
-            [schema.spec.variant :as variant]
             [schema.spec.leaf :as leaf]
             [plumbing.core :as p]
             [clojure.walk :as walk])
@@ -234,9 +233,9 @@
                   (fn [v]
                     (if-let [arglists (::arglists v)]
                       (s/make-fn-schema output-schema (->> arglists
-                                                            vals
-                                                            (mapv :schema)
-                                                            (mapv (partial mapv arglist->input-schema))))
+                                                           vals
+                                                           (mapv :schema)
+                                                           (mapv (partial mapv arglist->input-schema))))
                       v)))
           (assoc :finished? true)))))
 
@@ -330,7 +329,25 @@
 (defn analyse-try
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Try blocks not implemented yet")))
+  (let [[_ & body] expr
+        [try-body after-body] (split-with (fn [{:keys [expr]}] (not (or (catch? expr) (finally? expr)))) body)
+        [catch-body finally-body] (split-with (fn [{:keys [expr]}] (not (finally? expr))) after-body)
+
+        try-clauses (mapv #(assoc % :local-vars local-vars) try-body)
+
+        catch-clauses (->> catch-body first :expr (drop 3) (mapv #(assoc % :local-vars local-vars)))
+        finally-clauses (->> finally-body first :expr (drop 1) (mapv #(assoc % :local-vars local-vars)))
+        output-clause (or (last finally-clauses) (last try-clauses))
+        current-clause (assoc this
+                              :schema {::placeholder (:idx output-clause)}
+                              :dep-callback resolve-schema)]
+    (concat try-clauses catch-clauses finally-clauses [current-clause])))
+
+(defn analyse-throw
+  [this]
+  ;; TODO: this isn't quite an any....
+  (assoc this
+         :schema s/Any))
 
 (defn analyse-do
   [{:keys [expr local-vars]
@@ -363,8 +380,8 @@
                                                                                :name (str varargs)
                                                                                :schema [s/Any]}))
                           clauses (map (fn [clause]
-                                       (assoc clause
-                                              :local-vars (merge local-vars fn-vars)))
+                                         (assoc clause
+                                                :local-vars (merge local-vars fn-vars)))
                                        body)]
                       {:clauses clauses
                        :expr fn-expr
@@ -404,13 +421,13 @@
                      body)
 
         arglist (if with-varargs
-                     {:varargs {:arglist (conj args varargs)
-                                :count count
-                                :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
-                                              s/Any)}}
-                     {count {:arglist args
+                  {:varargs {:arglist (conj args varargs)
                              :count count
-                             :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})
+                             :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
+                                           s/Any)}}
+                  {count {:arglist args
+                          :count count
+                          :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})
 
         current-clause (assoc this
                               :dep-callback resolve-fn-once-outputs
@@ -571,6 +588,10 @@
           (try? expr)
           (recur (concat (analyse-try this) rest-stack)
                  results)
+
+          (throw? expr)
+          (recur rest-stack
+                 (assoc results idx (analyse-throw this)))
 
           (or (loop? expr) (let? expr))
           (recur (concat (analyse-let this) rest-stack)

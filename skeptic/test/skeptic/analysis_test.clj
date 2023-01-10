@@ -21,6 +21,118 @@
   [expr]
   (walk/postwalk #(if (and (map? %) (contains? % :expr)) (:expr %) %) expr))
 
+(deftest analyse-throw-test
+  (let [analysed (expand-and-annotate '(throw (UnsupportedOperationException. "oops, not done yet")) sut/analyse-throw)]
+    (is (= {:expr
+            '({:expr throw, :idx 1}
+              {:expr
+               ({:expr new, :idx 2}
+                {:expr UnsupportedOperationException, :idx 3}
+                {:expr "oops, not done yet", :idx 4}),
+               :idx 5}),
+            :idx 6,
+            :schema s/Any}
+           (clean-callbacks analysed)))
+    (is (= '(throw (new UnsupportedOperationException "oops, not done yet"))
+           (unannotate-expr analysed)))))
+
+(deftest analyse-try-test
+  (let [analysed (expand-and-annotate '(try (+ 1 2) (catch UnsupportedOperationException e (println "doesn't work")))
+                                      sut/analyse-try)]
+    (is (= [{:expr '({:expr +, :idx 2} {:expr 1, :idx 3} {:expr 2, :idx 4}),
+             :idx 5,
+             :local-vars {}}
+            {:expr '({:expr println, :idx 9} {:expr "doesn't work", :idx 10}),
+             :idx 11,
+             :local-vars {}}
+            {:expr
+             '({:expr try, :idx 1}
+               {:expr ({:expr +, :idx 2} {:expr 1, :idx 3} {:expr 2, :idx 4}),
+                :idx 5}
+               {:expr
+                ({:expr catch, :idx 6}
+                 {:expr UnsupportedOperationException, :idx 7}
+                 {:expr e, :idx 8}
+                 {:expr ({:expr println, :idx 9} {:expr "doesn't work", :idx 10}),
+                  :idx 11}),
+                :idx 12}),
+             :idx 13,
+             :schema #:skeptic.analysis{:placeholder 5}}]
+           (clean-callbacks analysed)))
+    (is (= '((+ 1 2)
+             (println "doesn't work")
+             (try
+               (+ 1 2)
+               (catch UnsupportedOperationException e (println "doesn't work"))))
+           (unannotate-expr analysed))))
+  (let [analysed (expand-and-annotate '(try (str 3) (+ 1 2)
+                                            (catch UnsupportedOperationException e
+                                              (println "doesn't work")
+                                              (println "still doesn't"))
+                                            (finally (println "got something")
+                                                     (+ 7 8)))
+                                      sut/analyse-try)]
+    (is (= [{:expr '({:expr str, :idx 2} {:expr 3, :idx 3}),
+             :idx 4,
+             :local-vars {}}
+            {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
+             :idx 8,
+             :local-vars {}}
+            {:expr '({:expr println, :idx 12} {:expr "doesn't work", :idx 13}),
+             :idx 14,
+             :local-vars {}}
+            {:expr '({:expr println, :idx 15} {:expr "still doesn't", :idx 16}),
+             :idx 17,
+             :local-vars {}}
+            {:expr '({:expr println, :idx 20} {:expr "got something", :idx 21}),
+             :idx 22,
+             :local-vars {}}
+            {:expr '({:expr +, :idx 23} {:expr 7, :idx 24} {:expr 8, :idx 25}),
+             :idx 26,
+             :local-vars {}}
+            {:expr
+             '({:expr try, :idx 1}
+               {:expr ({:expr str, :idx 2} {:expr 3, :idx 3}), :idx 4}
+               {:expr ({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
+                :idx 8}
+               {:expr
+                ({:expr catch, :idx 9}
+                 {:expr UnsupportedOperationException, :idx 10}
+                 {:expr e, :idx 11}
+                 {:expr ({:expr println, :idx 12} {:expr "doesn't work", :idx 13}),
+                  :idx 14}
+                 {:expr
+                  ({:expr println, :idx 15} {:expr "still doesn't", :idx 16}),
+                  :idx 17}),
+                :idx 18}
+               {:expr
+                ({:expr finally, :idx 19}
+                 {:expr
+                  ({:expr println, :idx 20} {:expr "got something", :idx 21}),
+                  :idx 22}
+                 {:expr ({:expr +, :idx 23} {:expr 7, :idx 24} {:expr 8, :idx 25}),
+                  :idx 26}),
+                :idx 27}),
+             :idx 28,
+             :schema #:skeptic.analysis{:placeholder 26}}]
+           (clean-callbacks analysed)))
+    (is (= '((str 3)
+             (+ 1 2)
+             (println "doesn't work")
+             (println "still doesn't")
+             (println "got something")
+             (+ 7 8)
+             (try
+               (str 3)
+               (+ 1 2)
+               (catch
+                   UnsupportedOperationException
+                   e
+                 (println "doesn't work")
+                 (println "still doesn't"))
+               (finally (println "got something") (+ 7 8))))
+           (unannotate-expr analysed)))))
+
 (deftest analyse-let-test
   (let [analysed (expand-and-annotate '(let [x 1] (+ 1 x)) sut/analyse-let)]
     (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x}
@@ -913,6 +1025,167 @@
              :schema s/Int,
              :finished? true}}
          (->> '(do (println "something") (skeptic.test-examples/int-add x y))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)))))
+
+(deftest attach-schema-info-try-throw-test
+  (is (= {2 {:expr 'skeptic.test-examples/int-add,
+             :idx 2,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          3 {:expr 1, :idx 3, :local-vars {}, :schema s/Int},
+          4 {:expr 2, :idx 4, :local-vars {}, :schema s/Int},
+          5 {:expr
+             '({:expr skeptic.test-examples/int-add, :idx 2}
+               {:expr 1, :idx 3}
+               {:expr 2, :idx 4}),
+             :idx 5,
+             :local-vars {},
+             :schema s/Int,
+             :finished? true},
+          11 {:expr '({:expr throw, :idx 9} {:expr e, :idx 10}),
+              :idx 11,
+              :local-vars {},
+              :schema s/Any},
+          13 {:expr
+              '({:expr try, :idx 1}
+                {:expr
+                 ({:expr skeptic.test-examples/int-add, :idx 2}
+                  {:expr 1, :idx 3}
+                  {:expr 2, :idx 4}),
+                 :idx 5}
+                {:expr
+                 ({:expr catch, :idx 6}
+                  {:expr UnsupportedOperationException, :idx 7}
+                  {:expr e, :idx 8}
+                  {:expr ({:expr throw, :idx 9} {:expr e, :idx 10}), :idx 11}),
+                 :idx 12}),
+              :idx 13,
+              :schema s/Int,
+              :finished? true}}
+         (->> '(try (skeptic.test-examples/int-add 1 2) (catch UnsupportedOperationException e (throw e)))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict))))
+  (is (= {2 {:expr 'clojure.core/str,
+             :idx 2,
+             :arity 1,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Str [[(s/one s/Any 's)]]),
+             :output java.lang.String,
+             :arglist [s/Any],
+             :finished? true},
+          3 {:expr "hello", :idx 3, :local-vars {}, :schema java.lang.String},
+          4 {:expr '({:expr clojure.core/str, :idx 2} {:expr "hello", :idx 3}),
+             :idx 4,
+             :local-vars {},
+             :schema java.lang.String,
+             :finished? true},
+          5 {:expr 'skeptic.test-examples/int-add,
+             :idx 5,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          6 {:expr 1, :idx 6, :local-vars {}, :schema s/Int},
+          7 {:expr 2, :idx 7, :local-vars {}, :schema s/Int},
+          8 {:expr
+             '({:expr skeptic.test-examples/int-add, :idx 5}
+               {:expr 1, :idx 6}
+               {:expr 2, :idx 7}),
+             :idx 8,
+             :local-vars {},
+             :schema s/Int,
+             :finished? true},
+          12 {:expr 'println,
+              :idx 12,
+              :arity 1,
+              :fn-position? true,
+              :schema (s/=> s/Any [(s/one s/Any 'anon-arg)]),
+              :output s/Any,
+              :finished? true},
+          13 {:expr "oops", :idx 13, :local-vars {}, :schema java.lang.String},
+          14 {:expr '({:expr println, :idx 12} {:expr "oops", :idx 13}),
+              :idx 14,
+              :local-vars {},
+              :schema s/Any,
+              :finished? true},
+          17 {:expr '({:expr throw, :idx 15} {:expr e, :idx 16}),
+              :idx 17,
+              :local-vars {},
+              :schema s/Any},
+          20 {:expr 'skeptic.test-examples/int-add,
+              :idx 20,
+              :arity 2,
+              :fn-position? true,
+              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+              :output s/Int,
+              :arglist [s/Int s/Int],
+              :finished? true},
+          21 {:expr 3, :idx 21, :local-vars {}, :schema s/Int},
+          22 {:expr 4, :idx 22, :local-vars {}, :schema s/Int},
+          23 {:expr
+              '({:expr skeptic.test-examples/int-add, :idx 20}
+                {:expr 3, :idx 21}
+                {:expr 4, :idx 22}),
+              :idx 23,
+              :local-vars {},
+              :schema s/Int,
+              :finished? true},
+          24
+          {:expr 'clojure.core/str,
+           :idx 24,
+           :arity 1,
+           :fn-position? true,
+           :schema (s/make-fn-schema s/Str [[(s/one s/Any 's)]]),
+           :output java.lang.String,
+           :arglist [s/Any],
+           :finished? true},
+          25 {:expr "world", :idx 25, :local-vars {}, :schema java.lang.String},
+          26 {:expr '({:expr clojure.core/str, :idx 24} {:expr "world", :idx 25}),
+              :idx 26,
+              :local-vars {},
+              :schema java.lang.String,
+              :finished? true},
+          28 {:expr
+              '({:expr try, :idx 1}
+                {:expr ({:expr clojure.core/str, :idx 2} {:expr "hello", :idx 3}),
+                 :idx 4}
+                {:expr
+                 ({:expr skeptic.test-examples/int-add, :idx 5}
+                  {:expr 1, :idx 6}
+                  {:expr 2, :idx 7}),
+                 :idx 8}
+                {:expr
+                 ({:expr catch, :idx 9}
+                  {:expr UnsupportedOperationException, :idx 10}
+                  {:expr e, :idx 11}
+                  {:expr ({:expr println, :idx 12} {:expr "oops", :idx 13}),
+                   :idx 14}
+                  {:expr ({:expr throw, :idx 15} {:expr e, :idx 16}), :idx 17}),
+                 :idx 18}
+                {:expr
+                 ({:expr finally, :idx 19}
+                  {:expr
+                   ({:expr skeptic.test-examples/int-add, :idx 20}
+                    {:expr 3, :idx 21}
+                    {:expr 4, :idx 22}),
+                   :idx 23}
+                  {:expr
+                   ({:expr clojure.core/str, :idx 24} {:expr "world", :idx 25}),
+                   :idx 26}),
+                 :idx 27}),
+              :idx 28,
+              :schema java.lang.String,
+              :finished? true}}
+         (->> '(try (clojure.core/str "hello") (skeptic.test-examples/int-add 1 2)
+                    (catch UnsupportedOperationException e (println "oops") (throw e))
+                    (finally (skeptic.test-examples/int-add 3 4) (clojure.core/str "world")))
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
               (into (sorted-map))))))
