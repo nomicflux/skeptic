@@ -9,7 +9,7 @@
 (defn expand-and-annotate
   [expr f]
   (->> expr
-       schematize/macroexpand-all
+       (schematize/resolve-all {})
        sut/annotate-expr
        f))
 
@@ -123,6 +123,12 @@
                {:expr ({:expr [{:expr x, :idx 2}], :idx 3} {:expr x, :idx 4}),
                 :idx 5}),
              :idx 6,
+             :schema #:skeptic.analysis{:arglists
+                                        {1
+                                         {:arglist ['x],
+                                          :count 1,
+                                          :schema
+                                          [{:schema s/Any, :optional? false, :name 'x}]}}}
              :output #:skeptic.analysis{:placeholders [4]},
              :arglists
              {1
@@ -150,6 +156,13 @@
                   :idx 12}),
                 :idx 13}),
              :idx 14,
+             :schema #:skeptic.analysis{:arglists
+                                        {2
+                                         {:arglist ['x 'y],
+                                          :count 2,
+                                          :schema
+                                          [{:schema s/Any, :optional? false, :name 'x}
+                                           {:schema s/Any, :optional? false, :name 'y}]}}}
              :output #:skeptic.analysis{:placeholders [12]},
              :arglists
              {2
@@ -182,6 +195,18 @@
                   :idx 15}),
                 :idx 16}),
              :idx 17,
+             :schema #:skeptic.analysis{:arglists
+                                        {1
+                                         {:arglist ['x],
+                                          :count 1,
+                                          :schema
+                                          [{:schema s/Any, :optional? false, :name 'x}]},
+                                         2
+                                         {:arglist ['x 'y],
+                                          :count 2,
+                                          :schema
+                                          [{:schema s/Any, :optional? false, :name 'x}
+                                           {:schema s/Any, :optional? false, :name 'y}]}}}
              :output #:skeptic.analysis{:placeholders [7 15]},
              :arglists
              {1
@@ -196,6 +221,50 @@
                 {:schema s/Any, :optional? false, :name 'y}]}}}]
            (clean-callbacks analysed)))
     (is (= '((+ x 1) (+ x y) (fn* ([x] (+ x 1)) ([x y] (+ x y))))
+           (unannotate-expr analysed)))))
+
+(deftest analyse-def-test
+  (let [analysed (expand-and-annotate '(def n 5) sut/analyse-def)]
+    (is (= [{:expr 5, :idx 3, :local-vars {}}
+            {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
+             :idx 4,
+             :name 'n,
+             :schema #:skeptic.analysis{:placeholder 3}}]
+           (clean-callbacks analysed)))
+    (is (= '(5 (def n 5))
+           (unannotate-expr analysed))))
+  (let [analysed (expand-and-annotate '(defn f [x] (println "something") (+ 1 x)) sut/analyse-def)]
+    (is (= [{:expr
+             '({:expr fn*, :idx 3}
+               {:expr
+                ({:expr [{:expr x, :idx 4}], :idx 5}
+                 {:expr ({:expr println, :idx 6} {:expr "something", :idx 7}),
+                  :idx 8}
+                 {:expr ({:expr +, :idx 9} {:expr 1, :idx 10} {:expr x, :idx 11}),
+                  :idx 12}),
+                :idx 13}),
+             :idx 14,
+             :local-vars {}}
+            {:expr
+             '({:expr def, :idx 1}
+               {:expr f, :idx 2}
+               {:expr
+                ({:expr fn*, :idx 3}
+                 {:expr
+                  ({:expr [{:expr x, :idx 4}], :idx 5}
+                   {:expr ({:expr println, :idx 6} {:expr "something", :idx 7}),
+                    :idx 8}
+                   {:expr
+                    ({:expr +, :idx 9} {:expr 1, :idx 10} {:expr x, :idx 11}),
+                    :idx 12}),
+                  :idx 13}),
+                :idx 14}),
+             :idx 15,
+             :name 'f,
+             :schema #:skeptic.analysis{:placeholder 14}}]
+           (clean-callbacks analysed)))
+    (is (= '((fn* ([x] (println "something") (+ 1 x)))
+             (def f (fn* ([x] (println "something") (+ 1 x)))))
            (unannotate-expr analysed)))))
 
 (deftest analyse-application-test
@@ -644,6 +713,7 @@
                   :idx 7}),
                 :idx 8}),
              :idx 9,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Any 'x)]])
              :output s/Int,
              :arglists
              {1
@@ -652,6 +722,87 @@
                :schema [{:schema s/Any, :optional? false, :name 'x}]}},
              :finished? true}}
          (->> '(fn [x] (skeptic.test-examples/int-add 1 2))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)))))
+
+(deftest attach-schema-info-def-test
+  (is (= {3 {:expr 5, :idx 3, :local-vars {}, :schema s/Int},
+          4 {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
+             :idx 4,
+             :name 'n,
+             :schema (sut/variable s/Int),
+             :finished? true}}
+         (->> '(def n 5)
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict))))
+  (is (= {7 {:expr 'println,
+             :idx 7,
+             :arity 1,
+             :fn-position? true,
+             :schema (s/=> s/Any [(s/one s/Any 'anon-arg)]),
+             :output s/Any,
+             :finished? true},
+          8 {:expr "something", :idx 8, :local-vars {}, :schema java.lang.String},
+          9 {:expr '({:expr println, :idx 7} {:expr "something", :idx 8}),
+             :idx 9,
+             :local-vars {},
+             :schema s/Any,
+             :finished? true},
+          10 {:expr 'skeptic.test-examples/int-add,
+              :idx 10,
+              :arity 2,
+              :fn-position? true,
+              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+              :output s/Int,
+              :arglist [s/Int s/Int],
+              :finished? true},
+          11 {:expr 'x, :idx 11, :local-vars {}},
+          12 {:expr 'y, :idx 12, :local-vars {}},
+          13 {:expr '({:expr skeptic.test-examples/int-add, :idx 10} {:expr x, :idx 11} {:expr y, :idx 12}),
+              :idx 13,
+              :local-vars {},
+              :schema s/Int,
+              :finished? true},
+          15 {:expr
+              '({:expr fn*, :idx 3}
+                {:expr
+                 ({:expr [{:expr x, :idx 4} {:expr y, :idx 5}], :idx 6}
+                  {:expr ({:expr println, :idx 7} {:expr "something", :idx 8}),
+                   :idx 9}
+                  {:expr ({:expr skeptic.test-examples/int-add, :idx 10} {:expr x, :idx 11} {:expr y, :idx 12}),
+                   :idx 13}),
+                 :idx 14}),
+              :idx 15,
+              :local-vars {},
+              :schema (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])
+              :output s/Int,
+              :arglists
+              {2
+               {:arglist ['x 'y],
+                :count 2,
+                :schema
+                [{:schema s/Any, :optional? false, :name 'x}
+                 {:schema s/Any, :optional? false, :name 'y}]}},
+              :finished? true},
+          16 {:expr
+              '({:expr def, :idx 1}
+                {:expr f, :idx 2}
+                {:expr
+                 ({:expr fn*, :idx 3}
+                  {:expr
+                   ({:expr [{:expr x, :idx 4} {:expr y, :idx 5}], :idx 6}
+                    {:expr ({:expr println, :idx 7} {:expr "something", :idx 8}),
+                     :idx 9}
+                    {:expr
+                     ({:expr skeptic.test-examples/int-add, :idx 10} {:expr x, :idx 11} {:expr y, :idx 12}),
+                     :idx 13}),
+                   :idx 14}),
+                 :idx 15}),
+              :idx 16,
+              :name 'f,
+              :schema (sut/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])),
+              :finished? true}}
+         (->> '(defn f [x y] (println "something") (skeptic.test-examples/int-add x y))
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
               (into (sorted-map))))))

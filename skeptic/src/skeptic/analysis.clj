@@ -1,8 +1,11 @@
 (ns skeptic.analysis
   (:require [schema.core :as s]
             [skeptic.schematize :as schematize]
+            [schema.spec.core :as spec :include-macros true]
+            [schema.spec.variant :as variant]
+            [schema.spec.leaf :as leaf]
             [clojure.walk :as walk])
-  (:import [schema.core Either]))
+  (:import [schema.core Either Schema]))
 
 (s/defn fn-once?
   "(fn* [x] (...) (...) ...)"
@@ -89,6 +92,10 @@
   [arity]
   (s/=> s/Any (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
 
+(s/defn arglist->input-schema
+  [{:keys [schema name] :as s}]
+  (s/one (or schema s s/Any) name))
+
 (s/defn convert-arglists
   [arity {:keys [schema arglists output]}]
   (let [direct-res (get arglists arity)
@@ -96,7 +103,7 @@
     (if (or (and count varargs-res)
             direct-res)
       (let [res (if (and count (>= arity count)) varargs-res direct-res)
-            schemas (mapv (fn [{:keys [schema name] :as s}] (s/one (or schema s s/Any) name))
+            schemas (mapv arglist->input-schema
                           (or (:schema res)
                               (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
             arglist (mapv :schema schemas)]
@@ -158,6 +165,25 @@
                     v)))
         (assoc :finished? true))))
 
+(defrecord Variable [schema]
+  Schema
+  (spec [this] (leaf/leaf-spec (spec/precondition this #(and (var? %) (nil? (s/check schema (deref %)))) #(list 'var? schema %))))
+  (explain [_this] (list "#'" (s/explain schema))))
+
+(defn variable
+  [schema]
+  (Variable. schema))
+
+(def resolve-def-schema
+  (fn [results el]
+    (-> el
+        (update :schema
+                (fn [v]
+                  (if-let [idx (::placeholder v)]
+                    (variable (:schema (get results idx)))
+                    v)))
+        (assoc :finished? true))))
+
 (def resolve-if-schema
   (fn [results el]
     (-> el
@@ -182,16 +208,22 @@
 
 (def resolve-fn-outputs
   (fn [results el]
-    (-> el
-        (update :output
-                (fn [v]
-                  (if-let [idxs (::placeholders v)]
-                    (->> idxs
-                         (map #(get results %))
-                         (map :schema)
-                         schema-join)
-                    v)))
-        (assoc :finished? true))))
+    (let [output-schemas (->> el :output ::placeholders
+                              (map #(get results %))
+                              (map :schema)
+                              schema-join)]
+      (println output-schemas)
+      (-> el
+          (assoc :output output-schemas)
+          (update :schema
+                  (fn [v]
+                    (if-let [arglists (::arglists v)]
+                      (s/make-fn-schema output-schemas (->> arglists
+                                                            vals
+                                                            (mapv :schema)
+                                                            (mapv (partial mapv arglist->input-schema))))
+                      v)))
+          (assoc :finished? true)))))
 
 (def resolve-fn-position
   (fn [results el]
@@ -246,10 +278,23 @@
                               :dep-callback resolve-schema)]
     (concat let-clauses body-clauses [current-clause])))
 
-(defn analyse-do
+(defn analyse-def
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Do blocks not implemented yet")))
+  (let [[name & body] (->> expr (drop 1))
+
+        body-clauses
+        (map (fn [clause]
+               (assoc clause
+                      :local-vars local-vars))
+             body)
+
+        output-clause (last body-clauses)
+        current-clause (assoc this
+                              :name (:expr name)
+                              :schema {::placeholder (:idx output-clause)}
+                              :dep-callback resolve-def-schema)]
+    (concat body-clauses [current-clause])))
 
 (defn analyse-if
   [{:keys [expr local-vars]
@@ -272,10 +317,10 @@
     :or {local-vars {}} :as this}]
   (throw (UnsupportedOperationException. "Try blocks not implemented yet")))
 
-(defn analyse-def
+(defn analyse-do
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Def blocks not implemented yet")))
+  (throw (UnsupportedOperationException. "Do blocks not implemented yet")))
 
 (defn analyse-fn
   [{:keys [expr local-vars]
@@ -312,6 +357,7 @@
         current-clause (assoc this
                               :dep-callback resolve-fn-outputs
                               :output {::placeholders full-output}
+                              :schema {::arglists full-arglist}
                               :arglists full-arglist)]
     (concat all-body-clauses
             [current-clause])))
@@ -450,6 +496,10 @@
                        results))))
 
           (def? expr)
+          (recur (concat (analyse-def this) rest-stack)
+                 results)
+
+          (do? expr)
           (recur (concat (analyse-do this) rest-stack)
                  results)
 
