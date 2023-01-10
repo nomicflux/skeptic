@@ -267,6 +267,25 @@
              (def f (fn* ([x] (println "something") (+ 1 x)))))
            (unannotate-expr analysed)))))
 
+(deftest analyse-do-test
+  (let [analysed (expand-and-annotate '(do (str "hello") (+ 1 2)) sut/analyse-do)]
+    (is (= [{:expr '({:expr str, :idx 2} {:expr "hello", :idx 3}),
+              :idx 4,
+              :local-vars {}}
+             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
+              :idx 8,
+              :local-vars {}}
+             {:expr
+              '({:expr do, :idx 1}
+               {:expr ({:expr str, :idx 2} {:expr "hello", :idx 3}), :idx 4}
+               {:expr ({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
+                :idx 8}),
+              :idx 9,
+              :schema #:skeptic.analysis{:placeholder 8}}]
+           (clean-callbacks analysed)))
+    (is (= '((str "hello") (+ 1 2) (do (str "hello") (+ 1 2)))
+           (unannotate-expr analysed)))))
+
 (deftest analyse-application-test
   (let [analysed (expand-and-annotate '(+ 1 x) sut/analyse-application)]
     (is (= [{:expr 1, :idx 2, :local-vars {}}
@@ -803,6 +822,54 @@
               :schema (sut/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])),
               :finished? true}}
          (->> '(defn f [x y] (println "something") (skeptic.test-examples/int-add x y))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)))))
+
+(deftest attach-schema-info-do-test
+  (is (= {2 {:expr 'println,
+             :idx 2,
+             :arity 1,
+             :fn-position? true,
+             :schema (s/=> s/Any [(s/one s/Any 'anon-arg)]),
+             :output s/Any,
+             :finished? true},
+          3 {:expr "something", :idx 3, :local-vars {}, :schema java.lang.String},
+          4 {:expr '({:expr println, :idx 2} {:expr "something", :idx 3}),
+             :idx 4,
+             :local-vars {},
+             :schema s/Any,
+             :finished? true},
+          5 {:expr 'skeptic.test-examples/int-add,
+             :idx 5,
+             :arity 2,
+             :fn-position? true,
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :output s/Int,
+             :arglist [s/Int s/Int],
+             :finished? true},
+          6 {:expr 'x, :idx 6, :local-vars {}},
+          7 {:expr 'y, :idx 7, :local-vars {}},
+          8 {:expr
+             '({:expr skeptic.test-examples/int-add, :idx 5}
+               {:expr x, :idx 6}
+               {:expr y, :idx 7}),
+             :idx 8,
+             :local-vars {},
+             :schema s/Int,
+             :finished? true},
+          9 {:expr
+             '({:expr do, :idx 1}
+               {:expr ({:expr println, :idx 2} {:expr "something", :idx 3}),
+                :idx 4}
+               {:expr
+                ({:expr skeptic.test-examples/int-add, :idx 5}
+                 {:expr x, :idx 6}
+                 {:expr y, :idx 7}),
+                :idx 8}),
+             :idx 9,
+             :schema s/Int,
+             :finished? true}}
+         (->> '(do (println "something") (skeptic.test-examples/int-add x y))
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
               (into (sorted-map))))))

@@ -320,7 +320,19 @@
 (defn analyse-do
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Do blocks not implemented yet")))
+  (let [body (->> expr (drop 1))
+
+        body-clauses
+        (map (fn [clause]
+               (assoc clause
+                      :local-vars local-vars))
+             body)
+
+        output-clause (last body-clauses)
+        current-clause (assoc this
+                              :schema {::placeholder (:idx output-clause)}
+                              :dep-callback resolve-schema)]
+    (concat body-clauses [current-clause])))
 
 (defn analyse-fn
   [{:keys [expr local-vars]
