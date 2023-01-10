@@ -6,6 +6,6 @@
 (defn skeptic
   [project & args]
   (leiningen.core.eval/eval-in-project
-   (update-in project [:dependencies] concat [['skeptic "0.4.0-SNAPSHOT"]])
+   (update-in project [:dependencies] concat [['skeptic "0.4.0"]])
    `(skeptic.core/get-project-schemas ~(:group project))
    '(require 'skeptic.core)))
