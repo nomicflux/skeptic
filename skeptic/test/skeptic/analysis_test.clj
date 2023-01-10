@@ -5,9 +5,8 @@
             [skeptic.schematize :as schematize]
             [schema.core :as s]
             [skeptic.test-examples :as test-examples]
-            [skeptic.analysis.resolvers :as resolvers]
-            [skeptic.analysis.schema :as analysis-schema]
-            [skeptic.analysis :as analysis]))
+            [skeptic.analysis.resolvers :as analysis-resolvers]
+            [skeptic.analysis.schema :as analysis-schema]))
 
 (defn expand-and-annotate
   [expr f]
@@ -40,9 +39,11 @@
                                       sut/analyse-try)]
     (is (= [{:expr '({:expr +, :idx 2} {:expr 1, :idx 3} {:expr 2, :idx 4}),
              :idx 5,
+             :path []
              :local-vars {}}
             {:expr '({:expr println, :idx 9} {:expr "doesn't work", :idx 10}),
              :idx 11,
+             :path []
              :local-vars {}}
             {:expr
              '({:expr try, :idx 1}
@@ -56,7 +57,7 @@
                   :idx 11}),
                 :idx 12}),
              :idx 13,
-             :schema {::resolvers/placeholder 5}}]
+             :schema {::analysis-resolvers/placeholder 5}}]
            (clean-callbacks analysed)))
     (is (= '((+ 1 2)
              (println "doesn't work")
@@ -73,21 +74,27 @@
                                       sut/analyse-try)]
     (is (= [{:expr '({:expr str, :idx 2} {:expr 3, :idx 3}),
              :idx 4,
+             :path []
              :local-vars {}}
             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
              :idx 8,
+             :path []
              :local-vars {}}
             {:expr '({:expr println, :idx 12} {:expr "doesn't work", :idx 13}),
              :idx 14,
+             :path []
              :local-vars {}}
             {:expr '({:expr println, :idx 15} {:expr "still doesn't", :idx 16}),
              :idx 17,
+             :path []
              :local-vars {}}
             {:expr '({:expr println, :idx 20} {:expr "got something", :idx 21}),
              :idx 22,
+             :path []
              :local-vars {}}
             {:expr '({:expr +, :idx 23} {:expr 7, :idx 24} {:expr 8, :idx 25}),
              :idx 26,
+             :path []
              :local-vars {}}
             {:expr
              '({:expr try, :idx 1}
@@ -113,7 +120,7 @@
                   :idx 26}),
                 :idx 27}),
              :idx 28,
-             :schema {::resolvers/placeholder 26}}]
+             :schema {::analysis-resolvers/placeholder 26}}]
            (clean-callbacks analysed)))
     (is (= '((str 3)
              (+ 1 2)
@@ -134,17 +141,18 @@
 
 (deftest analyse-let-test
   (let [analysed (expand-and-annotate '(let [x 1] (+ 1 x)) sut/analyse-let)]
-    (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x}
+    (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x, :path []}
             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}),
+             :path []
              :idx 8
-             :local-vars {'x {::resolvers/placeholder 3}}},
+             :local-vars {'x {::analysis-resolvers/placeholder 3}}},
             {:expr
              '({:expr let*, :idx 1}
                {:expr [{:expr x, :idx 2} {:expr 1, :idx 3}], :idx 4}
                {:expr [{:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}],
                 :idx 8}),
              :idx 9
-             :schema {::resolvers/placeholder 8}}]
+             :schema {::analysis-resolvers/placeholder 8}}]
            (clean-callbacks analysed)))
     (is (= '(1 (+ 1 x) (let* [x 1] (+ 1 x)))
            (sut/unannotate-expr analysed))))
@@ -153,20 +161,24 @@
                                       sut/analyse-let)]
     (is (= [{:expr [{:expr '+, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}],
              :idx 6,
+             :path []
              :local-vars {},
              :name 'x}
             {:expr [{:expr '+, :idx 8} {:expr 3, :idx 9} {:expr 'x, :idx 10}],
              :idx 11,
-             :local-vars {'x {::resolvers/placeholder 6}}
+             :path []
+             :local-vars {'x {::analysis-resolvers/placeholder 6}}
              :name 'y}
             {:expr [{:expr '+, :idx 13} {:expr 7, :idx 14} {:expr 'x, :idx 15}],
              :idx 16,
-             :local-vars {'x {::resolvers/placeholder 6}
-                          'y {::resolvers/placeholder 11}}}
+             :path []
+             :local-vars {'x {::analysis-resolvers/placeholder 6}
+                          'y {::analysis-resolvers/placeholder 11}}}
             {:expr [{:expr '+, :idx 17} {:expr 'x, :idx 18} {:expr 'y, :idx 19}],
              :idx 20,
-             :local-vars {'x {::resolvers/placeholder 6}
-                          'y {::resolvers/placeholder 11}}}
+             :path []
+             :local-vars {'x {::analysis-resolvers/placeholder 6}
+                          'y {::analysis-resolvers/placeholder 11}}}
             {:expr
              [{:expr 'let*, :idx 1}
               {:expr
@@ -182,7 +194,7 @@
               {:expr [{:expr '+, :idx 17} {:expr 'x, :idx 18} {:expr 'y, :idx 19}],
                :idx 20}],
              :idx 21
-             :schema {::resolvers/placeholder 20}}]
+             :schema {::analysis-resolvers/placeholder 20}}]
            (clean-callbacks analysed)))
     (is (= '((+ 1 2)
              (+ 3 x)
@@ -196,51 +208,53 @@
                                       sut/analyse-if)]
     (is (= [{:expr '({:expr even?, :idx 2} {:expr 2, :idx 3}),
              :idx 4,
+             :path []
              :local-vars {}}
-            {:expr true, :idx 5, :local-vars {}}
-            {:expr "hello", :idx 6, :local-vars {}}
+            {:expr true, :idx 5, :local-vars {}, :path []}
+            {:expr "hello", :idx 6, :local-vars {}, :path []}
             {:expr
              '({:expr if, :idx 1}
                {:expr ({:expr even?, :idx 2} {:expr 2, :idx 3}), :idx 4}
                {:expr true, :idx 5}
                {:expr "hello", :idx 6}),
              :idx 7,
-             :schema {::resolvers/placeholders [5 6]}}]
+             :schema {::analysis-resolvers/placeholders [5 6]}}]
            (clean-callbacks analysed)))
     (is (= '((even? 2) true "hello" (if (even? 2) true "hello"))
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(if (pos? x) 1 -1) sut/analyse-if)]
     (is (= [{:expr '({:expr pos?, :idx 2} {:expr x, :idx 3}),
              :idx 4,
+             :path []
              :local-vars {}}
-            {:expr 1, :idx 5, :local-vars {}}
-            {:expr -1, :idx 6, :local-vars {}}
+            {:expr 1, :idx 5, :local-vars {}, :path []}
+            {:expr -1, :idx 6, :local-vars {}, :path []}
             {:expr
              '({:expr if, :idx 1}
                {:expr ({:expr pos?, :idx 2} {:expr x, :idx 3}), :idx 4}
                {:expr 1, :idx 5}
                {:expr -1, :idx 6}),
              :idx 7,
-             :schema {::resolvers/placeholders [5 6]}}]
+             :schema {::analysis-resolvers/placeholders [5 6]}}]
            (clean-callbacks analysed)))
     (is (= '((pos? x) 1 -1 (if (pos? x) 1 -1))
            (sut/unannotate-expr analysed)))))
 
 (deftest analyse-fn-test
   (let [analysed (expand-and-annotate '(fn [x] x) sut/analyse-fn)]
-    (is (= [{:expr 'x, :idx 4, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}}
+    (is (= [{:expr 'x, :idx 4, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}, :path []}
             {:expr
              '({:expr fn*, :idx 1}
                {:expr ({:expr [{:expr x, :idx 2}], :idx 3} {:expr x, :idx 4}),
                 :idx 5}),
              :idx 6,
-             :schema {::resolvers/arglists
-                                        {1
-                                         {:arglist ['x],
-                                          :count 1,
-                                          :schema
-                                          [{:schema s/Any, :optional? false, :name 'x}]}}}
-             :output {::resolvers/placeholders [4]},
+             :schema {::analysis-resolvers/arglists
+                      {1
+                       {:arglist ['x],
+                        :count 1,
+                        :schema
+                        [{:schema s/Any, :optional? false, :name 'x}]}}}
+             :output {::analysis-resolvers/placeholders [4]},
              :arglists
              {1
               {:arglist ['x],
@@ -253,10 +267,12 @@
   (let [analysed (expand-and-annotate '(fn [x y] (str y x) (+ x y)) sut/analyse-fn)]
     (is (= [{:expr '({:expr str, :idx 5} {:expr y, :idx 6} {:expr x, :idx 7}),
              :idx 8,
+             :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
                           'y {:expr 'y, :name 'y, :schema s/Any}}}
             {:expr '({:expr +, :idx 9} {:expr x, :idx 10} {:expr y, :idx 11}),
              :idx 12,
+             :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
                           'y {:expr 'y, :name 'y, :schema s/Any}}}
             {:expr
@@ -269,14 +285,14 @@
                   :idx 12}),
                 :idx 13}),
              :idx 14,
-             :schema {::resolvers/arglists
-                                        {2
-                                         {:arglist ['x 'y],
-                                          :count 2,
-                                          :schema
-                                          [{:schema s/Any, :optional? false, :name 'x}
-                                           {:schema s/Any, :optional? false, :name 'y}]}}}
-             :output {::resolvers/placeholders [12]},
+             :schema {::analysis-resolvers/arglists
+                      {2
+                       {:arglist ['x 'y],
+                        :count 2,
+                        :schema
+                        [{:schema s/Any, :optional? false, :name 'x}
+                         {:schema s/Any, :optional? false, :name 'y}]}}}
+             :output {::analysis-resolvers/placeholders [12]},
              :arglists
              {2
               {:arglist ['x 'y],
@@ -291,9 +307,11 @@
   (let [analysed (expand-and-annotate '(fn* ([x] (+ x 1)) ([x y] (+ x y))) sut/analyse-fn)]
     (is (= [{:expr '({:expr +, :idx 4} {:expr x, :idx 5} {:expr 1, :idx 6}),
              :idx 7,
+             :path [],
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}}
             {:expr '({:expr +, :idx 12} {:expr x, :idx 13} {:expr y, :idx 14}),
              :idx 15,
+             :path [],
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
                           'y {:expr 'y, :name 'y, :schema s/Any}}}
             {:expr
@@ -309,19 +327,19 @@
                   :idx 15}),
                 :idx 16}),
              :idx 17,
-             :schema {::resolvers/arglists
-                                        {1
-                                         {:arglist ['x],
-                                          :count 1,
-                                          :schema
-                                          [{:schema s/Any, :optional? false, :name 'x}]},
-                                         2
-                                         {:arglist ['x 'y],
-                                          :count 2,
-                                          :schema
-                                          [{:schema s/Any, :optional? false, :name 'x}
-                                           {:schema s/Any, :optional? false, :name 'y}]}}}
-             :output {::resolvers/placeholders [7 15]},
+             :schema {::analysis-resolvers/arglists
+                      {1
+                       {:arglist ['x],
+                        :count 1,
+                        :schema
+                        [{:schema s/Any, :optional? false, :name 'x}]},
+                       2
+                       {:arglist ['x 'y],
+                        :count 2,
+                        :schema
+                        [{:schema s/Any, :optional? false, :name 'x}
+                         {:schema s/Any, :optional? false, :name 'y}]}}}
+             :output {::analysis-resolvers/placeholders [7 15]},
              :arglists
              {1
               {:arglist ['x],
@@ -341,9 +359,11 @@
   (let [analysed (expand-and-annotate '(fn* [x] (str "hello") (+ 1 x)) sut/analyse-fn-once)]
     (is (= [{:expr '({:expr str, :idx 4} {:expr "hello", :idx 5}),
              :idx 6,
+             :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}}
             {:expr '({:expr +, :idx 7} {:expr 1, :idx 8} {:expr x, :idx 9}),
              :idx 10,
+             :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}}
             {:expr
              '({:expr fn*, :idx 1}
@@ -352,14 +372,14 @@
                {:expr ({:expr +, :idx 7} {:expr 1, :idx 8} {:expr x, :idx 9}),
                 :idx 10}),
              :idx 11,
-             :output {::resolvers/placeholder 10},
+             :output {::analysis-resolvers/placeholder 10},
              :schema
-             {::resolvers/arglist
-                                {1
-                                 {:arglist ['x],
-                                  :count 1,
-                                  :schema
-                                  [{:schema s/Any, :optional? false, :name 'x}]}}},
+             {::analysis-resolvers/arglist
+              {1
+               {:arglist ['x],
+                :count 1,
+                :schema
+                [{:schema s/Any, :optional? false, :name 'x}]}}},
              :arglists
              {1
               {:arglist ['x],
@@ -370,40 +390,41 @@
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(^{:once true} fn* [y] (int-add y nil)) sut/analyse-fn-once)]
     (is (= [{:expr
-              '({:expr int-add, :idx 4} {:expr y, :idx 5} {:expr nil, :idx 6}),
-              :idx 7,
-              :local-vars {'y {:expr 'y, :name 'y, :schema s/Any}}}
-             {:expr
-              '({:expr fn*, :idx 1}
+             '({:expr int-add, :idx 4} {:expr y, :idx 5} {:expr nil, :idx 6}),
+             :idx 7,
+             :path []
+             :local-vars {'y {:expr 'y, :name 'y, :schema s/Any}}}
+            {:expr
+             '({:expr fn*, :idx 1}
                {:expr [{:expr y, :idx 2}], :idx 3}
                {:expr
                 ({:expr int-add, :idx 4} {:expr y, :idx 5} {:expr nil, :idx 6}),
                 :idx 7}),
-              :idx 8,
-              :output {::resolvers/placeholder 7},
-              :schema
-              {::resolvers/arglist
-                                 {1
-                                  {:arglist ['y],
-                                   :count 1,
-                                   :schema
-                                   [{:schema s/Any, :optional? false, :name 'y}]}}},
-              :arglists
+             :idx 8,
+             :output {::analysis-resolvers/placeholder 7},
+             :schema
+             {::analysis-resolvers/arglist
               {1
                {:arglist ['y],
                 :count 1,
-                :schema [{:schema s/Any, :optional? false, :name 'y}]}}}]
+                :schema
+                [{:schema s/Any, :optional? false, :name 'y}]}}},
+             :arglists
+             {1
+              {:arglist ['y],
+               :count 1,
+               :schema [{:schema s/Any, :optional? false, :name 'y}]}}}]
            (clean-callbacks analysed)))
     (is (= '((int-add y nil) (fn* [y] (int-add y nil)))
            (sut/unannotate-expr analysed)))))
 
 (deftest analyse-def-test
   (let [analysed (expand-and-annotate '(def n 5) sut/analyse-def)]
-    (is (= [{:expr 5, :idx 3, :local-vars {}}
+    (is (= [{:expr 5, :idx 3, :local-vars {}, :path ['n]}
             {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
              :idx 4,
              :name 'n,
-             :schema {::resolvers/placeholder 3}}]
+             :schema {::analysis-resolvers/placeholder 3}}]
            (clean-callbacks analysed)))
     (is (= '(5 (def n 5))
            (sut/unannotate-expr analysed))))
@@ -418,6 +439,7 @@
                   :idx 12}),
                 :idx 13}),
              :idx 14,
+             :path ['f]
              :local-vars {}}
             {:expr
              '({:expr def, :idx 1}
@@ -435,7 +457,7 @@
                 :idx 14}),
              :idx 15,
              :name 'f,
-             :schema {::resolvers/placeholder 14}}]
+             :schema {::analysis-resolvers/placeholder 14}}]
            (clean-callbacks analysed)))
     (is (= '((fn* ([x] (println "something") (+ 1 x)))
              (def f (fn* ([x] (println "something") (+ 1 x)))))
@@ -445,9 +467,11 @@
   (let [analysed (expand-and-annotate '(do (str "hello") (+ 1 2)) sut/analyse-do)]
     (is (= [{:expr '({:expr str, :idx 2} {:expr "hello", :idx 3}),
              :idx 4,
+             :path []
              :local-vars {}}
             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
              :idx 8,
+             :path []
              :local-vars {}}
             {:expr
              '({:expr do, :idx 1}
@@ -455,41 +479,42 @@
                {:expr ({:expr +, :idx 5} {:expr 1, :idx 6} {:expr 2, :idx 7}),
                 :idx 8}),
              :idx 9,
-             :schema {::resolvers/placeholder 8}}]
+             :schema {::analysis-resolvers/placeholder 8}}]
            (clean-callbacks analysed)))
     (is (= '((str "hello") (+ 1 2) (do (str "hello") (+ 1 2)))
            (sut/unannotate-expr analysed)))))
 
 (deftest analyse-application-test
   (let [analysed (expand-and-annotate '(+ 1 x) sut/analyse-application)]
-    (is (= [{:expr 1, :idx 2, :local-vars {}}
-            {:expr 'x, :idx 3, :local-vars {}}
-            {:expr '+, :idx 1, :args [2 3], :local-vars {}, :fn-position? true}
-            {:expr [{:expr '+, :idx 1} {:expr 1, :idx 2} {:expr 'x, :idx 3},]
+    (is (= [{:expr 1, :idx 2, :local-vars {}, :path []}
+            {:expr 'x, :idx 3, :local-vars {}, :path []}
+            {:expr '+, :idx 1, :args [2 3], :local-vars {}, :fn-position? true, :path []}
+            {:expr [{:expr '+, :idx 1} {:expr 1, :idx 2} {:expr 'x, :idx 3}],
              :idx 4,
-             :actual-arglist {::resolvers/placeholders [2 3]},
-             :expected-arglist {::resolvers/placeholder 1},
-             :schema {::resolvers/placeholder 1}}]
+             :actual-arglist {::analysis-resolvers/placeholders [2 3]},
+             :expected-arglist {::analysis-resolvers/placeholder 1},
+             :schema {::analysis-resolvers/placeholder 1}}]
            (clean-callbacks analysed)))
     (is (= '(1 x + (+ 1 x))
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(f)
                                       sut/analyse-application)]
-    (is (= [{:expr 'f, :idx 1, :args [], :local-vars {}, :fn-position? true}
+    (is (= [{:expr 'f, :idx 1, :args [], :local-vars {}, :fn-position? true, :path []}
             {:expr [{:expr 'f, :idx 1}],
              :idx 2,
-             :actual-arglist {::resolvers/placeholders []},
-             :expected-arglist {::resolvers/placeholder 1},
-             :schema {::resolvers/placeholder 1}}]
+             :actual-arglist {::analysis-resolvers/placeholders []},
+             :expected-arglist {::analysis-resolvers/placeholder 1},
+             :schema {::analysis-resolvers/placeholder 1}}]
            (clean-callbacks analysed)))
     (is (= '(f (f))
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '((f 1) 3 4)
                                       sut/analyse-application)]
-    (is (= [{:expr 3, :idx 4, :local-vars {}}
-            {:expr 4, :idx 5, :local-vars {}}
+    (is (= [{:expr 3, :idx 4, :local-vars {}, :path []}
+            {:expr 4, :idx 5, :local-vars {}, :path []}
             {:expr [{:expr 'f, :idx 1} {:expr 1, :idx 2}],
              :idx 3,
+             :path []
              :args [4 5],
              :local-vars {}
              :fn-position? true}
@@ -498,9 +523,9 @@
               {:expr 3, :idx 4}
               {:expr 4, :idx 5}],
              :idx 6,
-             :actual-arglist {::resolvers/placeholders [4 5]},
-             :expected-arglist {::resolvers/placeholder 3},
-             :schema {::resolvers/placeholder 3}}]
+             :actual-arglist {::analysis-resolvers/placeholders [4 5]},
+             :expected-arglist {::analysis-resolvers/placeholder 3},
+             :schema {::analysis-resolvers/placeholder 3}}]
            (clean-callbacks analysed)))
     (is (= '(3 4 (f 1) ((f 1) 3 4))
            (sut/unannotate-expr analysed)))))
@@ -508,60 +533,60 @@
 (deftest analyse-coll-test
   (let [analysed (expand-and-annotate '[1 2 :a "hello"]
                                       sut/analyse-coll)]
-    (is (= [{:expr 1, :idx 1}
-            {:expr 2, :idx 2}
-            {:expr :a, :idx 3}
-            {:expr "hello", :idx 4}
+    (is (= [{:expr 1, :idx 1, :path [], :local-vars {}}
+            {:expr 2, :idx 2, :path [], :local-vars {}}
+            {:expr :a, :idx 3, :path [], :local-vars {}}
+            {:expr "hello", :idx 4, :path [], :local-vars {}}
             {:expr
              [{:expr 1, :idx 1}
               {:expr 2, :idx 2}
               {:expr :a, :idx 3}
               {:expr "hello", :idx 4}],
              :idx 5,
-             :schema {::resolvers/placeholders '(1 2 3 4)}}]
+             :schema {::analysis-resolvers/placeholders '(1 2 3 4)}}]
            (clean-callbacks analysed)))
     (is (= [1 2 :a "hello" '(1 2 :a "hello")]
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '#{1 2 :a "hello"}
                                       sut/analyse-coll)]
-    (is (= [{:expr 1, :idx 2}
-            {:expr 2, :idx 3}
-            {:expr "hello", :idx 1}
-            {:expr :a, :idx 4}
+    (is (= [{:expr 1, :idx 2, :path [], :local-vars {}}
+            {:expr 2, :idx 3, :path [], :local-vars {}}
+            {:expr "hello", :idx 1, :path [], :local-vars {}}
+            {:expr :a, :idx 4, :path [], :local-vars {}}
             {:expr
              #{{:expr 1, :idx 2}
                {:expr 2, :idx 3}
                {:expr "hello", :idx 1}
                {:expr :a, :idx 4}},
              :idx 5,
-             :schema {::resolvers/placeholders '(2 3 1 4)}}]
+             :schema {::analysis-resolvers/placeholders '(2 3 1 4)}}]
            (clean-callbacks analysed)))
     (is (= [1 2 "hello" :a #{1 2 :a "hello"}]
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(1 2 :a "hello")
                                       sut/analyse-coll)]
-    (is (= [{:expr 1, :idx 1}
-            {:expr 2, :idx 2}
-            {:expr :a, :idx 3}
-            {:expr "hello", :idx 4}
+    (is (= [{:expr 1, :idx 1, :path [], :local-vars {}}
+            {:expr 2, :idx 2, :path [], :local-vars {}}
+            {:expr :a, :idx 3, :path [], :local-vars {}}
+            {:expr "hello", :idx 4, :path [], :local-vars {}}
             {:expr
              [{:expr 1, :idx 1}
               {:expr 2, :idx 2}
               {:expr :a, :idx 3}
               {:expr "hello", :idx 4}],
              :idx 5,
-             :schema {::resolvers/placeholders '(1 2 3 4)}}]
+             :schema {::analysis-resolvers/placeholders '(1 2 3 4)}}]
            (clean-callbacks analysed)))
     (is (= [1 2 :a "hello" '(1 2 :a "hello")]
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '{:a 1 :b 2 :c 3}
                                       sut/analyse-coll)]
-    (is (= [{:expr :a, :idx 1}
-            {:expr 1, :idx 2}
-            {:expr :b, :idx 4}
-            {:expr 2, :idx 5}
-            {:expr :c, :idx 7}
-            {:expr 3, :idx 8}
+    (is (= [{:expr :a, :idx 1, :path [], :local-vars {}}
+            {:expr 1, :idx 2, :path [], :local-vars {}}
+            {:expr :b, :idx 4, :path [], :local-vars {}}
+            {:expr 2, :idx 5, :path [], :local-vars {}}
+            {:expr :c, :idx 7, :path [], :local-vars {}}
+            {:expr 3, :idx 8, :path [], :local-vars {}}
             {:expr
              [{:expr [{:expr :a, :idx 1} {:expr 1, :idx 2}], :idx 3}
               {:expr [{:expr :b, :idx 4} {:expr 2, :idx 5}], :idx 6}
@@ -569,20 +594,20 @@
              :idx 10,
              :map? true,
              :schema
-             {::resolvers/key-placeholders [1 4 7],
-              ::resolvers/val-placeholders [2 5 8]}}]
+             {::analysis-resolvers/key-placeholders [1 4 7],
+              ::analysis-resolvers/val-placeholders [2 5 8]}}]
            (clean-callbacks analysed)))
     (is (= '(:a 1 :b 2 :c 3 ([:a 1] [:b 2] [:c 3]))
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '[1 2 [3 4 [5]]]
                                       sut/analyse-coll)]
-    (is (= '({:expr 1, :idx 1}
-             {:expr 2, :idx 2}
+    (is (= '({:expr 1, :idx 1, :path [], :local-vars {}}
+             {:expr 2, :idx 2, :path [], :local-vars {}}
              {:expr
               [{:expr 3, :idx 3}
                {:expr 4, :idx 4}
                {:expr [{:expr 5, :idx 5}], :idx 6}],
-              :idx 7}
+              :idx 7, :path [], :local-vars {}}
              {:expr
               [{:expr 1, :idx 1}
                {:expr 2, :idx 2}
@@ -592,21 +617,21 @@
                  {:expr [{:expr 5, :idx 5}], :idx 6}],
                 :idx 7}],
               :idx 8,
-              :schema {::resolvers/placeholders (1 2 7)}})
+              :schema {::analysis-resolvers/placeholders (1 2 7)}})
            (clean-callbacks analysed)))
     (is (= '(1 2 [3 4 [5]] [1 2 [3 4 [5]]])
            (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '{:a 1 :b [:z "hello" #{1 2}] :c {:d 7 :e {:f 9}}}
                                       sut/analyse-coll)]
-    (is (= '({:expr :a, :idx 1}
-             {:expr 1, :idx 2}
-             {:expr :b, :idx 4}
+    (is (= '({:expr :a, :idx 1, :local-vars {}, :path []}
+             {:expr 1, :idx 2, :local-vars {}, :path []}
+             {:expr :b, :idx 4, :local-vars {}, :path []}
              {:expr
               [{:expr :z, :idx 5}
                {:expr "hello", :idx 6}
                {:expr #{{:expr 2, :idx 8} {:expr 1, :idx 7}}, :idx 9}],
-              :idx 10}
-             {:expr :c, :idx 12}
+              :idx 10, :local-vars {}, :path []}
+             {:expr :c, :idx 12, :local-vars {}, :path []}
              {:expr
               ({:expr [{:expr :d, :idx 13} {:expr 7, :idx 14}], :idx 15}
                {:expr
@@ -617,6 +642,8 @@
                   :map? true}],
                 :idx 21}),
               :idx 22,
+              :local-vars {},
+              :path [],
               :map? true}
              {:expr
               ({:expr [{:expr :a, :idx 1} {:expr 1, :idx 2}], :idx 3}
@@ -639,14 +666,14 @@
                       :idx 20,
                       :map? true}],
                     :idx 21}),
-                  :idx 22,
+                  :idx 22
                   :map? true}],
                 :idx 23}),
               :idx 24,
               :map? true,
               :schema
-              {::resolvers/key-placeholders (1 4 12),
-               ::resolvers/val-placeholders (2 10 22)}})
+              {::analysis-resolvers/key-placeholders (1 4 12),
+               ::analysis-resolvers/val-placeholders (2 10 22)}})
            (clean-callbacks analysed)))
     (is (= '(:a
              1
@@ -662,24 +689,26 @@
          (sut/attach-schema-info-loop {} '1))))
 
 (deftest attach-schema-info-coll-test
-  (is (= {1 {:expr 1, :idx 1, :schema s/Int},
-          2 {:expr 2, :idx 2, :schema s/Int},
+  (is (= {1 {:expr 1, :idx 1, :schema s/Int, :local-vars {}, :path []},
+          2 {:expr 2, :idx 2, :schema s/Int, :local-vars {}, :path []},
           3 {:expr [{:expr 1, :idx 1} {:expr 2, :idx 2}],
-           :idx 3,
-           :schema [s/Int],
-           :finished? true}}
+             :idx 3,
+             :schema [s/Int],
+             :finished? true}}
          (sut/attach-schema-info-loop {} '[1 2])))
-  (is (= {1 {:expr 1, :idx 1, :schema s/Int},
-          2 {:expr :a, :idx 2, :schema s/Keyword},
-          3 {:expr 2, :idx 3, :schema s/Int},
-          5 {:expr :b, :idx 5, :schema s/Keyword},
-          6 {:expr :c, :idx 6, :schema s/Keyword},
-          7 {:expr 4, :idx 7, :schema s/Int},
-          8 {:expr 3, :idx 8, :schema s/Int}
+  (is (= {1 {:expr 1, :idx 1, :schema s/Int, :local-vars {}, :path []},
+          2 {:expr :a, :idx 2, :schema s/Keyword, :local-vars {}, :path []},
+          3 {:expr 2, :idx 3, :schema s/Int, :local-vars {}, :path []},
+          5 {:expr :b, :idx 5, :schema s/Keyword, :local-vars {}, :path []},
+          6 {:expr :c, :idx 6, :schema s/Keyword, :local-vars {}, :path []},
+          7 {:expr 4, :idx 7, :schema s/Int, :local-vars {}, :path []},
+          8 {:expr 3, :idx 8, :schema s/Int, :local-vars {}, :path []}
 
           9 {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}},
              :idx 9,
              :schema #{s/Int},
+             :local-vars {},
+             :path [],
              :finished? true},
 
           11 {:expr
@@ -688,6 +717,8 @@
                  {:expr #{{:expr 4, :idx 7} {:expr 3, :idx 8}}, :idx 9}],
                 :idx 10}],
               :idx 11,
+              :local-vars {},
+              :path [],
               :map? true,
               :schema
               {s/Keyword #{s/Int}},
@@ -706,11 +737,13 @@
                    :map? true}),
                  :idx 12}),
               :idx 13,
+              :local-vars {},
+              :path [],
               :map? true,
               :schema {s/Keyword (analysis-schema/join {s/Keyword #{s/Int}} s/Int)},
               :finished? true},
 
-          14 {:expr 5, :idx 14, :schema s/Int},
+          14 {:expr 5, :idx 14, :schema s/Int, :local-vars {}, :path []},
 
           15 {:expr
               '({:expr 1, :idx 1}
@@ -739,13 +772,14 @@
              :idx 1,
              :args [2 3],
              :local-vars {},
+             :path [],
              :fn-position? true,
              :arglist [s/Any s/Any]
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
              :output s/Any,
              :finished? true},
-          2 {:expr 1, :idx 2, :local-vars {}, :schema s/Int},
-          3 {:expr 2, :idx 3, :local-vars {}, :schema s/Int},
+          2 {:expr 1, :idx 2, :local-vars {}, :path [], :schema s/Int},
+          3 {:expr 2, :idx 3, :local-vars {}, :path [], :schema s/Int},
           4 {:expr [{:expr '+, :idx 1} {:expr 1, :idx 2} {:expr 2, :idx 3}],
              :idx 4,
              :schema s/Any,
@@ -758,13 +792,14 @@
              :idx 1,
              :args [2 3],
              :fn-position? true,
+             :path [],
              :local-vars {},
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          2 {:expr 1, :idx 2, :local-vars {}, :schema s/Int},
-          3 {:expr 2, :idx 3, :local-vars {}, :schema s/Int},
+          2 {:expr 1, :idx 2, :local-vars {}, :path [], :schema s/Int},
+          3 {:expr 2, :idx 3, :local-vars {}, :path [], :schema s/Int},
           4 {:expr [{:expr 'skeptic.test-examples/int-add, :idx 1} {:expr 1, :idx 2} {:expr 2, :idx 3}],
              :idx 4,
              :schema s/Int,
@@ -780,19 +815,21 @@
              :idx 3,
              :args [4 5],
              :fn-position? true,
-             :local-vars {}
+             :local-vars {},
+             :path ['x],
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          4 {:expr 1, :idx 4, :local-vars {}, :schema s/Int},
-          5 {:expr 2, :idx 5, :local-vars {}, :schema s/Int},
+          4 {:expr 1, :idx 4, :local-vars {}, :path ['x], :schema s/Int},
+          5 {:expr 2, :idx 5, :local-vars {}, :path ['x], :schema s/Int},
           6 {:expr
              '({:expr skeptic.test-examples/int-add, :idx 3}
                {:expr 1, :idx 4}
                {:expr 2, :idx 5}),
              :idx 6,
              :local-vars {},
+             :path [],
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :name 'x,
@@ -801,22 +838,24 @@
           8 {:expr 'skeptic.test-examples/int-add,
              :idx 8,
              :args [9 10],
+             :path [],
              :fn-position? true,
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
-             :local-vars {'x {::resolvers/placeholder 6}},
+             :local-vars {'x {::analysis-resolvers/placeholder 6}},
              :output s/Int
              :arglist [s/Int s/Int]
              :finished? true}
-          9 {:expr 'x, :idx 9, :local-vars {'x {::resolvers/placeholder 6}}, :schema s/Int},
-          10 {:expr 2, :idx 10, :local-vars {'x {::resolvers/placeholder 6}}, :schema s/Int},
+          9 {:expr 'x, :idx 9, :local-vars {'x {::analysis-resolvers/placeholder 6}}, :path [], :schema s/Int},
+          10 {:expr 2, :idx 10, :local-vars {'x {::analysis-resolvers/placeholder 6}}, :path [], :schema s/Int},
           11 {:expr
               '({:expr skeptic.test-examples/int-add, :idx 8}
                 {:expr x, :idx 9}
                 {:expr 2, :idx 10}),
-              :local-vars {'x {::resolvers/placeholder 6}}
+              :local-vars {'x {::analysis-resolvers/placeholder 6}}
               :schema s/Int
-             :actual-arglist [s/Int s/Int],
-             :expected-arglist [s/Int s/Int],
+              :path [],
+              :actual-arglist [s/Int s/Int],
+              :expected-arglist [s/Int s/Int],
               :finished? true
               :idx 11}
           12 {:expr
@@ -848,20 +887,22 @@
              :args [3],
              :fn-position? true,
              :local-vars {}
+             :path []
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
              :arglist [s/Any]
              :output s/Any,
              :finished? true},
-          3 {:expr 2, :idx 3, :local-vars {}, :schema s/Int},
+          3 {:expr 2, :idx 3, :local-vars {}, :path [], :schema s/Int},
           4 {:expr '({:expr even?, :idx 2} {:expr 2, :idx 3}),
              :idx 4,
              :local-vars {},
+             :path []
              :actual-arglist [s/Int],
              :expected-arglist [s/Any],
              :schema s/Any,
              :finished? true},
-          5 {:expr true, :idx 5, :local-vars {}, :schema s/Bool},
-          6 {:expr "hello", :idx 6, :local-vars {}, :schema s/Str},
+          5 {:expr true, :idx 5, :local-vars {}, :path [], :schema s/Bool},
+          6 {:expr "hello", :idx 6, :local-vars {}, :path [], :schema s/Str},
           7 {:expr
              '({:expr if, :idx 1}
                {:expr ({:expr even?, :idx 2} {:expr 2, :idx 3}), :idx 4}
@@ -878,20 +919,22 @@
              :args [3],
              :fn-position? true,
              :local-vars {},
+             :path [],
              :arglist [s/Any]
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
              :output s/Any,
              :finished? true},
-          3 {:expr 'x, :idx 3, :schema s/Any, :local-vars {}},
+          3 {:expr 'x, :idx 3, :schema s/Any, :path [], :local-vars {}},
           4 {:expr '({:expr pos?, :idx 2} {:expr x, :idx 3}),
              :idx 4,
              :local-vars {},
+             :path [],
              :schema s/Any,
              :actual-arglist [s/Any],
              :expected-arglist [s/Any],
              :finished? true},
-          5 {:expr 1, :idx 5, :local-vars {}, :schema s/Int},
-          6 {:expr -1, :idx 6, :local-vars {}, :schema s/Int},
+          5 {:expr 1, :idx 5, :local-vars {}, :path [], :schema s/Int},
+          6 {:expr -1, :idx 6, :local-vars {}, :path [], :schema s/Int},
           7 {:expr '({:expr if, :idx 1}
                      {:expr ({:expr pos?, :idx 2} {:expr x, :idx 3}), :idx 4}
                      {:expr 1, :idx 5}
@@ -908,18 +951,20 @@
              :idx 4,
              :args [5 6],
              :fn-position? true,
+             :path []
              :local-vars {'x {:expr 'x :name 'x :schema s/Any}},
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          5 {:expr 1, :idx 5, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}, :schema s/Int},
-          6 {:expr 2, :idx 6, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}, :schema s/Int},
+          5 {:expr 1, :idx 5, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}, :path [], :schema s/Int},
+          6 {:expr 2, :idx 6, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}, :path [], :schema s/Int},
           7 {:expr
              '({:expr skeptic.test-examples/int-add, :idx 4}
                {:expr 1, :idx 5}
                {:expr 2, :idx 6}),
              :idx 7,
+             :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
@@ -949,7 +994,7 @@
               (sut/attach-schema-info-loop test-examples/sample-dict)))))
 
 (deftest attach-schema-info-def-test
-  (is (= {3 {:expr 5, :idx 3, :local-vars {}, :schema s/Int},
+  (is (= {3 {:expr 5, :idx 3, :local-vars {}, :path ['n] :schema s/Int},
           4 {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
              :idx 4,
              :name 'n,
@@ -961,21 +1006,24 @@
   (is (= {7 {:expr 'println,
              :idx 7,
              :args [8],
+             :path ['f]
              :fn-position? true,
-              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
-                           'y {:expr 'y, :name 'y, :schema s/Any}},
+             :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
+                          'y {:expr 'y, :name 'y, :schema s/Any}},
              :arglist [s/Any]
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
              :output s/Any,
              :finished? true},
           8 {:expr "something", :idx 8, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                                                      'y {:expr 'y, :name 'y, :schema s/Any}},
+             :path ['f]
              :schema java.lang.String},
           9 {:expr '({:expr println, :idx 7} {:expr "something", :idx 8}),
              :idx 9,
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                           'y {:expr 'y, :name 'y, :schema s/Any}},
              :schema s/Any,
+             :path ['f]
              :actual-arglist [s/Str]
              :expected-arglist [s/Any]
              :finished? true},
@@ -983,17 +1031,20 @@
               :idx 10,
               :args [11 12],
               :fn-position? true,
-             :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
-                          'y {:expr 'y, :name 'y, :schema s/Any}},
+              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
+                           'y {:expr 'y, :name 'y, :schema s/Any}},
               :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+              :path ['f]
               :output s/Int,
               :arglist [s/Int s/Int],
               :finished? true},
           11 {:expr 'x, :idx 11, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                                               'y {:expr 'y, :name 'y, :schema s/Any}}
+              :path ['f]
               :schema s/Any},
           12 {:expr 'y, :idx 12, :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                                               'y {:expr 'y, :name 'y, :schema s/Any}}
+              :path ['f]
               :schema s/Any},
           13 {:expr '({:expr skeptic.test-examples/int-add, :idx 10} {:expr x, :idx 11} {:expr y, :idx 12}),
               :idx 13,
@@ -1001,6 +1052,7 @@
               :expected-arglist [s/Int s/Int]
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                            'y {:expr 'y, :name 'y, :schema s/Any}},
+              :path ['f]
               :schema s/Int,
               :finished? true},
           15 {:expr
@@ -1015,6 +1067,7 @@
               :idx 15,
               :local-vars {},
               :schema (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])
+              :path ['f]
               :output s/Int,
               :arglists
               {2
@@ -1051,15 +1104,17 @@
              :idx 2,
              :args [3],
              :local-vars {}
+             :path []
              :arglist [s/Any]
              :fn-position? true,
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
              :output s/Any,
              :finished? true},
-          3 {:expr "something", :idx 3, :local-vars {}, :schema java.lang.String},
+          3 {:expr "something", :idx 3, :local-vars {}, :path [], :schema java.lang.String},
           4 {:expr '({:expr println, :idx 2} {:expr "something", :idx 3}),
              :idx 4,
              :local-vars {},
+             :path []
              :schema s/Any,
              :actual-arglist [s/Str]
              :expected-arglist [s/Any]
@@ -1069,12 +1124,13 @@
              :args [6 7],
              :fn-position? true,
              :local-vars {}
+             :path []
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          6 {:expr 'x, :idx 6, :schema s/Any, :local-vars {}},
-          7 {:expr 'y, :idx 7, :schema s/Any, :local-vars {}},
+          6 {:expr 'x, :idx 6, :schema s/Any, :path [], :local-vars {}},
+          7 {:expr 'y, :idx 7, :schema s/Any, :path [], :local-vars {}},
           8 {:expr
              '({:expr skeptic.test-examples/int-add, :idx 5}
                {:expr x, :idx 6}
@@ -1083,6 +1139,7 @@
              :actual-arglist [s/Any s/Any],
              :expected-arglist [s/Int s/Int],
              :local-vars {},
+             :path []
              :schema s/Int,
              :finished? true},
           9 {:expr
@@ -1107,18 +1164,20 @@
              :args [3 4],
              :fn-position? true,
              :local-vars {}
+             :path []
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          3 {:expr 1, :idx 3, :local-vars {}, :schema s/Int},
-          4 {:expr 2, :idx 4, :local-vars {}, :schema s/Int},
+          3 {:expr 1, :idx 3, :local-vars {}, :path [], :schema s/Int},
+          4 {:expr 2, :idx 4, :local-vars {}, :path [], :schema s/Int},
           5 {:expr
              '({:expr skeptic.test-examples/int-add, :idx 2}
                {:expr 1, :idx 3}
                {:expr 2, :idx 4}),
              :idx 5,
              :local-vars {},
+             :path []
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :schema s/Int,
@@ -1126,6 +1185,7 @@
           11 {:expr '({:expr throw, :idx 9} {:expr e, :idx 10}),
               :idx 11,
               :local-vars {},
+              :path []
               :schema s/Any},
           13 {:expr
               '({:expr try, :idx 1}
@@ -1151,14 +1211,16 @@
              :args [3],
              :fn-position? true,
              :local-vars {}
+             :path []
              :schema (s/make-fn-schema s/Str [[(s/one s/Any 's)]]),
              :output java.lang.String,
              :arglist [s/Any],
              :finished? true},
-          3 {:expr "hello", :idx 3, :local-vars {}, :schema java.lang.String},
+          3 {:expr "hello", :idx 3, :local-vars {}, :path [], :schema java.lang.String},
           4 {:expr '({:expr clojure.core/str, :idx 2} {:expr "hello", :idx 3}),
              :idx 4,
              :local-vars {},
+             :path []
              :schema java.lang.String,
              :actual-arglist [s/Str],
              :expected-arglist [s/Any],
@@ -1167,19 +1229,21 @@
              :idx 5,
              :args [6 7],
              :local-vars {},
+             :path []
              :fn-position? true,
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :arglist [s/Int s/Int],
              :finished? true},
-          6 {:expr 1, :idx 6, :local-vars {}, :schema s/Int},
-          7 {:expr 2, :idx 7, :local-vars {}, :schema s/Int},
+          6 {:expr 1, :idx 6, :local-vars {}, :path [], :schema s/Int},
+          7 {:expr 2, :idx 7, :local-vars {}, :path [], :schema s/Int},
           8 {:expr
              '({:expr skeptic.test-examples/int-add, :idx 5}
                {:expr 1, :idx 6}
                {:expr 2, :idx 7}),
              :idx 8,
              :local-vars {},
+             :path []
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :schema s/Int,
@@ -1188,15 +1252,17 @@
               :idx 12,
               :args [13],
               :local-vars {}
+              :path []
               :fn-position? true,
               :arglist [s/Any],
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
               :output s/Any,
               :finished? true},
-          13 {:expr "oops", :idx 13, :local-vars {}, :schema java.lang.String},
+          13 {:expr "oops", :idx 13, :local-vars {}, :path [], :schema java.lang.String},
           14 {:expr '({:expr println, :idx 12} {:expr "oops", :idx 13}),
               :idx 14,
               :local-vars {},
+              :path []
               :schema s/Any,
               :actual-arglist [s/Str],
               :expected-arglist [s/Any],
@@ -1204,42 +1270,46 @@
           17 {:expr '({:expr throw, :idx 15} {:expr e, :idx 16}),
               :idx 17,
               :local-vars {},
+              :path []
               :schema s/Any},
           20 {:expr 'skeptic.test-examples/int-add,
               :idx 20,
               :args [21 22],
               :fn-position? true,
               :local-vars {}
+              :path []
               :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
               :output s/Int,
               :arglist [s/Int s/Int],
               :finished? true},
-          21 {:expr 3, :idx 21, :local-vars {}, :schema s/Int},
-          22 {:expr 4, :idx 22, :local-vars {}, :schema s/Int},
+          21 {:expr 3, :idx 21, :local-vars {}, :path [], :schema s/Int},
+          22 {:expr 4, :idx 22, :local-vars {}, :path [], :schema s/Int},
           23 {:expr
               '({:expr skeptic.test-examples/int-add, :idx 20}
                 {:expr 3, :idx 21}
                 {:expr 4, :idx 22}),
               :idx 23,
               :local-vars {},
+              :path []
               :schema s/Int,
               :actual-arglist [s/Int s/Int],
               :expected-arglist [s/Int s/Int],
               :finished? true},
-          24
-          {:expr 'clojure.core/str,
-           :idx 24,
-           :args [25],
-           :fn-position? true,
-           :local-vars {},
-           :schema (s/make-fn-schema s/Str [[(s/one s/Any 's)]]),
-           :output java.lang.String,
-           :arglist [s/Any],
-           :finished? true},
-          25 {:expr "world", :idx 25, :local-vars {}, :schema java.lang.String},
+          24 {:expr 'clojure.core/str,
+              :idx 24,
+              :args [25],
+              :fn-position? true,
+              :local-vars {},
+              :path []
+              :schema (s/make-fn-schema s/Str [[(s/one s/Any 's)]]),
+              :output java.lang.String,
+              :arglist [s/Any],
+              :finished? true},
+          25 {:expr "world", :idx 25, :local-vars {}, :path [], :schema java.lang.String},
           26 {:expr '({:expr clojure.core/str, :idx 24} {:expr "world", :idx 25}),
               :idx 26,
               :local-vars {},
+              :path []
               :schema java.lang.String,
               :actual-arglist [s/Str],
               :expected-arglist [s/Any],
@@ -1286,6 +1356,7 @@
              :idx 6,
              :args [7 11],
              :fn-position? true,
+             :path ['sample-bad-fn]
              :arglist [s/Int s/Int],
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
@@ -1294,6 +1365,7 @@
           7 {:expr 1,
              :idx 7,
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+             :path ['sample-bad-fn]
              :schema s/Int},
           8 {:expr 'skeptic.test-examples/int-add,
              :idx 8,
@@ -1301,16 +1373,19 @@
              :fn-position? true,
              :arglist [s/Int s/Int],
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}}
+             :path ['sample-bad-fn]
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
              :output s/Int,
              :finished? true},
           9 {:expr nil,
              :idx 9,
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+             :path ['sample-bad-fn]
              :schema (s/maybe s/Any)},
           10 {:expr 'x,
               :idx 10,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-bad-fn]
               :schema s/Any},
           11 {:expr
               '({:expr skeptic.test-examples/int-add, :idx 8}
@@ -1318,6 +1393,7 @@
                 {:expr x, :idx 10}),
               :idx 11,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-bad-fn]
               :actual-arglist [(s/maybe s/Any) s/Any],
               :expected-arglist [s/Int s/Int],
               :schema s/Int,
@@ -1332,6 +1408,7 @@
                  :idx 11}),
               :idx 12,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-bad-fn]
               :actual-arglist [s/Int s/Int],
               :expected-arglist [s/Int s/Int],
               :schema s/Int,
@@ -1352,6 +1429,7 @@
                  :idx 13}),
               :idx 14,
               :local-vars {},
+              :path ['sample-bad-fn]
               :output s/Int,
               :schema (s/make-fn-schema s/Int [[(s/one s/Any 'x)]]),
               :arglists
@@ -1389,6 +1467,7 @@
               (sut/attach-schema-info-loop test-examples/sample-dict))))
   (is (= {6 {:expr nil,
              :idx 6,
+             :path ['f]
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
              :schema (s/maybe s/Any)},
           8 {:expr
@@ -1397,6 +1476,7 @@
                 :idx 7}),
              :idx 8,
              :local-vars {},
+             :path []
              :name 'f,
              :output (s/maybe s/Any),
              :schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
@@ -1411,30 +1491,35 @@
               :args [11 14],
               :fn-position? true,
               :arglist [s/Int s/Int],
-              :local-vars {'f {::resolvers/placeholder 8}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :path []
               :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y)  (s/one s/Int 'z)]]),
               :output s/Int,
               :finished? true},
           11 {:expr 1,
               :idx 11,
-              :local-vars {'f {::resolvers/placeholder 8}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :path []
               :schema s/Int},
           12 {:expr 'f,
               :idx 12,
               :args [13],
+              :path []
               :fn-position? true,
               :arglist [s/Any],
-              :local-vars {'f {::resolvers/placeholder 8}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}},
               :schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
               :output (s/maybe s/Any),
               :finished? true},
           13 {:expr 'x,
               :idx 13,
+              :path []
               :schema s/Any
-              :local-vars {'f {::resolvers/placeholder 8}}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}}},
           14 {:expr '({:expr f, :idx 12} {:expr x, :idx 13}),
               :idx 14,
-              :local-vars {'f {::resolvers/placeholder 8}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :path []
               :actual-arglist [s/Any],
               :expected-arglist [s/Any],
               :schema (s/maybe s/Any),
@@ -1444,7 +1529,8 @@
                 {:expr 1, :idx 11}
                 {:expr ({:expr f, :idx 12} {:expr x, :idx 13}), :idx 14}),
               :idx 15,
-              :local-vars {'f {::resolvers/placeholder 8}},
+              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :path []
               :actual-arglist [s/Int (s/maybe s/Any)],
               :expected-arglist [s/Int s/Int],
               :schema s/Int,
@@ -1474,9 +1560,9 @@
               (sut/attach-schema-info-loop test-examples/sample-dict))))
   (is (= {9 {:args [10 11],
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
-             :local-vars
-             {'x {:expr 'x, :name 'x, :schema s/Any},
-              'y {:expr 'y, :name 'y, :schema s/Any}},
+             :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
+                          'y {:expr 'y, :name 'y, :schema s/Any}},
+             :path ['sample-fn-once]
              :arglist [s/Any s/Any],
              :output s/Any,
              :expr 'int-add,
@@ -1485,22 +1571,22 @@
              :idx 9},
           10 {:expr 'y,
               :idx 10,
-              :local-vars
-              {'x {:expr 'x, :name 'x, :schema s/Any},
-               'y {:expr 'y, :name 'y, :schema s/Any}},
+              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
+                           'y {:expr 'y, :name 'y, :schema s/Any}},
+              :path ['sample-fn-once]
               :schema s/Any},
           11 {:expr nil,
               :idx 11,
-              :local-vars
-              {'x {:expr 'x, :name 'x, :schema s/Any},
-               'y {:expr 'y, :name 'y, :schema s/Any}},
+              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
+                           'y {:expr 'y, :name 'y, :schema s/Any}},
+              :path ['sample-fn-once]
               :schema (s/maybe s/Any)},
           12 {:expr
               '({:expr int-add, :idx 9} {:expr y, :idx 10} {:expr nil, :idx 11}),
               :idx 12,
-              :local-vars
-              {'x {:expr 'x, :name 'x, :schema s/Any},
-               'y {:expr 'y, :name 'y, :schema s/Any}},
+              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
+                           'y {:expr 'y, :name 'y, :schema s/Any}},
+              :path ['sample-fn-once]
               :actual-arglist [s/Any (s/maybe s/Any),]
               :expected-arglist [s/Any s/Any],
               :schema s/Any,
@@ -1508,6 +1594,7 @@
           13 {:args [14],
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'y)]]),
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-fn-once]
               :arglist [s/Any],
               :output s/Any,
               :expr
@@ -1522,6 +1609,7 @@
           14 {:expr 'x,
               :idx 14,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-fn-once]
               :schema s/Any},
           15 {:expr
               '({:expr
@@ -1536,6 +1624,7 @@
                 {:expr x, :idx 14}),
               :idx 15,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :path ['sample-fn-once]
               :actual-arglist [s/Any],
               :expected-arglist [s/Any],
               :schema s/Any,
@@ -1559,6 +1648,7 @@
                  :idx 16}),
               :idx 17,
               :local-vars {},
+              :path ['sample-fn-once]
               :output s/Any,
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'x)]]),
               :arglists

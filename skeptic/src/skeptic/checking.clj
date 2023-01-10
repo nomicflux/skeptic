@@ -13,20 +13,20 @@
 (defn spy*
   [msg x]
   (when (and spy-on (or (nil? spy-only)
-                           (contains? spy-only msg)))
-      (try (println msg (pr-str x))
-           (catch Exception e
-             (println msg e))))
+                        (contains? spy-only msg)))
+    (try (println msg (pr-str x))
+         (catch Exception e
+           (println msg e))))
   x)
 
 (defmacro spy
   [msg x]
+  #_
   `(spy* ~msg ~x)
   #_
   (if (seq? x)
     `(tufte/p ~msg ~x)
     x)
-  #_
   x)
 
 (defn valid-schema?
@@ -68,32 +68,28 @@
        (spy :match-up-actual (get actual n))])))
 
 (s/defn match-s-exprs
-  ([to-match]
-   (match-s-exprs [] to-match))
-  ([parent-name
-    {:keys [expected-arglist actual-arglist expr local-vars name] :as to-match}]
-   (spy :match-s-exprs-full to-match)
-   (spy :match-s-exprs-expected-arglist expected-arglist)
-   (spy :match-s-exprs-actual-arglist actual-arglist)
-   (let [path (remove nil? (conj parent-name name))]
-     (if (seq expected-arglist)
-       (do
-         (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
-                 (format "Arglists must not be nil: %s %s\n%s"
-                         expected-arglist actual-arglist to-match))
-         (assert (>= (count actual-arglist) (count expected-arglist))
-                 (format "Actual should have at least as many elements as expected: %s %s\n%s"
-                         expected-arglist actual-arglist to-match))
-         (let [cleaned (analysis/unannotate-expr expr)
-               matched (spy :matched-arglists (match-up-arglists cleaned
-                                                                 (spy :expected-arglist (vec expected-arglist))
-                                                                 (spy :actual-arglist (vec actual-arglist))))
-               errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
-           {:blame cleaned
-            :path path
-            :context local-vars
-            :errors errors}))
-       nil))))
+  [{:keys [expected-arglist actual-arglist expr local-vars path] :as to-match}]
+  (spy :match-s-exprs-full to-match)
+  (spy :match-s-exprs-expected-arglist expected-arglist)
+  (spy :match-s-exprs-actual-arglist actual-arglist)
+  (if (seq expected-arglist)
+    (do
+      (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+              (format "Arglists must not be nil: %s %s\n%s"
+                      expected-arglist actual-arglist to-match))
+      (assert (>= (count actual-arglist) (count expected-arglist))
+              (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                      expected-arglist actual-arglist to-match))
+      (let [cleaned (analysis/unannotate-expr expr)
+            matched (spy :matched-arglists (match-up-arglists cleaned
+                                                              (spy :expected-arglist (vec expected-arglist))
+                                                              (spy :actual-arglist (vec actual-arglist))))
+            errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
+        {:blame cleaned
+         :path path
+         :context local-vars
+         :errors errors}))
+    nil))
 
 (s/defn check-s-expr
   [dict s-expr {:keys [keep-empty clean-context]}]
