@@ -4,6 +4,7 @@
             [schema.spec.core :as spec :include-macros true]
             [schema.spec.variant :as variant]
             [schema.spec.leaf :as leaf]
+            [plumbing.core :as p]
             [clojure.walk :as walk])
   (:import [schema.core Either Schema]))
 
@@ -212,13 +213,27 @@
                               (map #(get results %))
                               (map :schema)
                               schema-join)]
-      (println output-schemas)
       (-> el
           (assoc :output output-schemas)
           (update :schema
                   (fn [v]
                     (if-let [arglists (::arglists v)]
                       (s/make-fn-schema output-schemas (->> arglists
+                                                            vals
+                                                            (mapv :schema)
+                                                            (mapv (partial mapv arglist->input-schema))))
+                      v)))
+          (assoc :finished? true)))))
+
+(def resolve-fn-once-outputs
+  (fn [results el]
+    (let [output-schema (->> el :output ::placeholder (get results))]
+      (-> el
+          (assoc :output output-schema)
+          (update :schema
+                  (fn [v]
+                    (if-let [arglists (::arglists v)]
+                      (s/make-fn-schema output-schema (->> arglists
                                                             vals
                                                             (mapv :schema)
                                                             (mapv (partial mapv arglist->input-schema))))
@@ -343,7 +358,7 @@
              (map (fn [fn-expr]
                     (let [[vars & body] (:expr fn-expr)
                           {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
-                          fn-vars (->> args (map (fn [x] [x {:expr x :name (str x) :schema s/Any}]) (into {})))
+                          fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
                           fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
                                                                                :name (str varargs)
                                                                                :schema [s/Any]}))
@@ -377,7 +392,33 @@
 (defn analyse-fn-once
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this}]
-  (throw (UnsupportedOperationException. "Fn-once blocks not implemented yet")))
+  (let [[_ vars & body] expr
+        {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
+        fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
+        fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
+                                                             :name varargs
+                                                             :schema [s/Any]}))
+        clauses (map (fn [clause]
+                       (assoc clause
+                              :local-vars (merge local-vars fn-vars)))
+                     body)
+
+        arglist (if with-varargs
+                     {:varargs {:arglist (conj args varargs)
+                                :count count
+                                :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
+                                              s/Any)}}
+                     {count {:arglist args
+                             :count count
+                             :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})
+
+        current-clause (assoc this
+                              :dep-callback resolve-fn-once-outputs
+                              :output {::placeholder (-> clauses last :idx)}
+                              :schema {::arglist arglist}
+                              :arglists arglist)]
+    (concat clauses
+            [current-clause])))
 
 (defn analyse-application
   [{:keys [expr local-vars]
