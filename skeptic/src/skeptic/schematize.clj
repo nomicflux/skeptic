@@ -205,7 +205,7 @@
        (get-schema-lookup ns-refs)
        (map :meta)
        (map collect-schemas)
-       (reduce (fn [acc {:keys [name] :as next}] (update acc name merge-with next)) {})))
+       (reduce (fn [acc {:keys [name] :as next}] (update acc (symbol name) merge-with next)) {})))
 
 ;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
 (s/defn source-clj

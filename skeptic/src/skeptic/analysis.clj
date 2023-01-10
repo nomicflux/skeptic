@@ -7,6 +7,22 @@
             [clojure.walk :as walk])
   (:import [schema.core Either Schema]))
 
+;; TODO: infer function types from actually applied args, if none given
+;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
+;; TODO: also, infer outputs from what is actually output
+;; TODO: gather schema info for internal functions
+;; TODO: check that function output matches schema
+;; TODO: how to go from macroexpanded version to line in code?
+;; TODO: handle `new`
+
+;; TODO: keywords & other values in function position
+;; TODO: atoms? refs? reader macros?
+
+;; TODO: def & defn need to add to a global set of symbols
+;; TODO: need support for for, doseq, doall
+
+;; TODO: Global vars from def
+
 (s/defn fn-once?
   "(fn* [x] (...) (...) ...)"
   [x]
@@ -89,16 +105,17 @@
       (apply s/either types))))
 
 (defn dynamic-fn-schema
-  [arity]
-  (s/=> s/Any (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
+  [arity output]
+  (s/make-fn-schema (or output s/Any) [(vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))]))
 
 (s/defn arglist->input-schema
   [{:keys [schema name] :as s}]
   (s/one (or schema s s/Any) name))
 
 (s/defn convert-arglists
-  [arity {:keys [schema arglists output]}]
-  (let [direct-res (get arglists arity)
+  [args {:keys [arglists output]}]
+  (let [arity (count args)
+        direct-res (get arglists arity)
         {:keys [count] :as varargs-res} (get arglists :varargs)]
     (if (or (and count varargs-res)
             direct-res)
@@ -109,10 +126,10 @@
             arglist (mapv :schema schemas)]
         {:schema (if (and output (seq schemas))
                    (s/make-fn-schema output [schemas])
-                   (dynamic-fn-schema arity))
+                   (dynamic-fn-schema arity output))
          :output (or output s/Any)
          :arglist arglist})
-      (let [schema (or schema (dynamic-fn-schema arity))]
+      (let [schema (dynamic-fn-schema arity output)]
         {:schema schema
          :output (or output s/Any)}))))
 
@@ -131,6 +148,10 @@
                          :else
                          {:expr f :idx idx}))))
                  expr))
+
+(defn unannotate-expr
+  [expr]
+  (walk/postwalk #(if (and (map? %) (contains? % :expr)) (:expr %) %) expr))
 
 (defn resolve-map-schema
   [schema-fn]
@@ -196,13 +217,27 @@
                     v)))
         (assoc :finished? true))))
 
-(def resolve-fn-output-schema
+(def resolve-application-schema
   (fn [results el]
     (-> el
         (update :schema
                 (fn [v]
                   (if-let [idx (::placeholder v)]
                     (:output (get results idx))
+                    v)))
+        (update :actual-arglist
+                (fn [v]
+                  (if-let [idxs (::placeholders v)]
+                    (->> idxs
+                         (map (partial get results))
+                         (map :schema))
+                    v)))
+        (update :expected-arglist
+                (fn [v]
+                  (if-let [idx (::placeholder v)]
+                    (->> idx
+                         (get results idx)
+                         :arglist)
                     v)))
         (assoc :finished? true))))
 
@@ -226,7 +261,7 @@
 
 (def resolve-fn-once-outputs
   (fn [results el]
-    (let [output-schema (->> el :output ::placeholder (get results))]
+    (let [output-schema (->> el :output ::placeholder (get results) :schema)]
       (-> el
           (assoc :output output-schema)
           (update :schema
@@ -241,11 +276,12 @@
 
 (def resolve-fn-position
   (fn [results el]
-    (if-let [[idx arity] (::placeholder (:schema el))]
+    (if-let [[idx args] (::placeholder (:schema el))]
       (let [ref (get results idx)
-            with-arglists (convert-arglists arity ref)]
+            with-arglists (convert-arglists (->> args (map (partial get results))) ref)]
         (-> el
             (merge with-arglists)
+            (assoc :arglist (->> with-arglists :schema :input-schemas first (map :schema)))
             (assoc :finished? true)))
       el)))
 
@@ -254,9 +290,10 @@
    :idx s/Int
    (s/optional-key :schema) s/Schema
    (s/optional-key :name) s/Symbol
+   (s/optional-key :path) [s/Symbol]
    (s/optional-key :fn-position?) s/Bool
    (s/optional-key :local-vars) {s/Symbol s/Any}
-   (s/optional-key :arity) s/Int
+   (s/optional-key :args) [s/Int]
    (s/optional-key :dep-callback) (s/=> AnnotatedExpression {s/Int AnnotatedExpression} AnnotatedExpression)
    (s/optional-key :finished?) s/Bool})
 
@@ -450,13 +487,16 @@
 
         fn-clause
         (assoc f
-               :arity (count args)
+               :args (map :idx args)
+               :local-vars local-vars
                :fn-position? true)]
     (concat arg-clauses
             [fn-clause
              (assoc this
+                    :actual-arglist {::placeholders (map :idx arg-clauses)}
+                    :expected-arglist {::placeholder (:idx fn-clause)}
                     :schema {::placeholder (:idx fn-clause)}
-                    :dep-callback resolve-fn-output-schema)])))
+                    :dep-callback resolve-application-schema)])))
 
 (s/defn analyse-coll
   [{:keys [expr map?] :as this}]
@@ -492,22 +532,24 @@
       lookup)))
 
 (s/defn analyse-function
-  [{:keys [fn-position? arity idx] :as this}]
+  [{:keys [fn-position? args idx] :as this}]
   (assert fn-position? "Must be in function position to analyse as a function")
-  (assert arity "A function must have an arity")
+  (assert (not (nil? args)) "A function must have a list of args")
   [(dissoc this :fn-position?)
    (assoc this
           :dep-callback resolve-fn-position
-          :schema {::placeholder [idx arity]})])
+          :arglist {::placeholder [idx args]}
+          :schema {::placeholder [idx args]})])
 
 (s/defn analyse-symbol
   [dict
    results
-   {:keys [expr local-vars]
+   {:keys [expr local-vars fn-position? args]
     :or {local-vars {}} :as this}]
-  (assert (symbol? expr) "Must be a symbol to be looked up")
-  (let [lookup (or (local-lookup results local-vars expr)
-                   (get dict expr))]
+  (let [default-schema (if fn-position? (dynamic-fn-schema (count args) s/Any) s/Any)
+        lookup (or (local-lookup results local-vars expr)
+                   (get dict expr)
+                   {:schema default-schema})]
     (merge this
            (select-keys lookup [:schema :output :arglists]))))
 
