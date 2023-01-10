@@ -1,4 +1,4 @@
-(defproject skeptic "0.4.0"
+(defproject skeptic "0.5.0-SNAPSHOT"
   :description "Schema-based static type checking for Clojure"
   :url "http://example.com/FIXME"
   :license {:name "MIT License"
