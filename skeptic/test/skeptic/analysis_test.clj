@@ -6,7 +6,8 @@
             [schema.core :as s]
             [skeptic.test-examples :as test-examples]
             [skeptic.analysis.resolvers :as resolvers]
-            [skeptic.analysis.schema :as analysis-schema]))
+            [skeptic.analysis.schema :as analysis-schema]
+            [skeptic.analysis :as analysis]))
 
 (defn expand-and-annotate
   [expr f]
@@ -706,7 +707,7 @@
                  :idx 12}),
               :idx 13,
               :map? true,
-              :schema {s/Keyword (s/either {s/Keyword #{s/Int}} s/Int)},
+              :schema {s/Keyword (analysis-schema/join {s/Keyword #{s/Int}} s/Int)},
               :finished? true},
 
           14 {:expr 5, :idx 14, :schema s/Int},
@@ -729,7 +730,7 @@
                  :map? true}
                 {:expr 5, :idx 14}),
               :idx 15,
-              :schema [(s/either s/Int {s/Keyword (s/either {s/Keyword #{s/Int}} s/Int)})],
+              :schema [(analysis-schema/join s/Int {s/Keyword (analysis-schema/join {s/Keyword #{s/Int}} s/Int)})],
               :finished? true}}
          (sut/attach-schema-info-loop {} '[1 {:a 2 :b {:c #{3 4}}} 5]))))
 
@@ -867,7 +868,7 @@
                {:expr true, :idx 5}
                {:expr "hello", :idx 6}),
              :idx 7,
-             :schema (s/either s/Str s/Bool),
+             :schema (analysis-schema/join s/Str s/Bool),
              :finished? true}}
          (->> '(if (even? 2) true "hello")
               (schematize/resolve-all {})

@@ -2,13 +2,18 @@
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
             [schema.spec.leaf :as leaf])
-  (:import [schema.core Either Schema]))
+  (:import [schema.core Schema]))
 
-(s/defn either?
-  [s]
-  (instance? Either s))
+(defrecord Join [schemas]
+  Schema
+  (spec [this] (leaf/leaf-spec (spec/precondition this set? #(list 'set? schemas %))))
+  (explain [_this] (into #{} (map s/explain schemas))))
 
-(s/defn schema-join
+(defn join
+  [& schemas]
+  (Join. (into #{} schemas)))
+
+(defn schema-join
   [[t1 & _r :as types]]
   (let [types (cond->> types (not (set? types)) (into #{}))]
     (cond
@@ -21,7 +26,7 @@
       s/Any
 
       :else
-      (apply s/either types))))
+      (apply join types))))
 
 (defn dynamic-fn-schema
   [arity output]
