@@ -152,5 +152,5 @@
    `(check-ns (schematize/ns-schemas ~ns) ~ns ~opts))
   ([dict ns opts]
    `(block-in-ns ~ns
-                 (mapcat #(check-s-expr ~dict {} % ~opts)
+                 (mapcat #(check-s-expr ~dict % ~opts)
                          (ns-exprs ~ns)))))
