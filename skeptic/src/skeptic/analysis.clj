@@ -318,7 +318,7 @@
   [f]
   `(try ~f
        (catch Exception e#
-         (println "Error analysing expression" (str ~(last f)))
+         (println "Error analysing expression" (unannotate-expr ~(last f)) (str ~(last f)))
          (throw e#))))
 
 (defn attach-schema-info-loop
@@ -394,3 +394,4 @@
           (throw (ex-info "Unknown expression type" this)))))))
 
 ;; TODO: do some-> blocks work correctly? Will they check correctly if a function requires a non-nil argument?
+;; TODO: make sure `doto` and `cond->` blocks work appropriately; something introduces an element between `let*` and its vector of assignments
