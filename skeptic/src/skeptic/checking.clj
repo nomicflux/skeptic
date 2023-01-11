@@ -2,8 +2,7 @@
   (:require [skeptic.inconsistence :as inconsistence]
             [skeptic.analysis :as analysis]
             [schema.core :as s]
-            [skeptic.schematize :as schematize]
-            [taoensso.tufte :as tufte])
+            [skeptic.schematize :as schematize])
   (:import [schema.core Schema]))
 
 (def spy-on false)
@@ -23,10 +22,6 @@
   [msg x]
   #_
   `(spy* ~msg ~x)
-  #_
-  (if (seq? x)
-    `(tufte/p ~msg ~x)
-    x)
   x)
 
 (defn valid-schema?

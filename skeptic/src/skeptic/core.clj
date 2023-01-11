@@ -2,12 +2,6 @@
   (:require [skeptic.checking :as checking]
             [clojure.string :as str]))
 
-#_
-(tufte/add-basic-println-handler! {})
-
-;; TODO: get all ns for project, not just those referenced here
-;; (not least to avoid circular dependencies)
-
 (defn get-project-schemas
   [group-name]
   (let [nss (->> (all-ns)
