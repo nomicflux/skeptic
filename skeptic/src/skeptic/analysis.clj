@@ -7,6 +7,8 @@
             [plumbing.core :as p]
             [clojure.walk :as walk]))
 
+;; TODO: Switch to tools.analyzer to avoid macroexpansion errors
+
 ;; TODO: infer function types from actually applied args, if none given
 ;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
 ;; TODO: also, infer outputs from what is actually output
@@ -84,15 +86,18 @@
     (concat let-clauses body-clauses [current-clause])))
 
 (defn analyse-def
-  [{:keys [expr] :as this}]
+  [{:keys [expr path] :or {path []} :as this}]
   (let [[name & body] (->> expr (drop 1))
 
+        with-name (assoc this
+                         :name (:expr name))
+
         body-clauses
-        (map (partial push-down-info (assoc this :name (:expr name))) body)
+        (map (partial push-down-info with-name) body)
 
         output-clause (last body-clauses)
-        current-clause (assoc this
-                              :name (:expr name)
+        current-clause (assoc with-name
+                              :path (conj path (:expr name))
                               :schema {::analysis-resolvers/placeholder (:idx output-clause)}
                               :dep-callback analysis-resolvers/resolve-def-schema)]
     (concat body-clauses [current-clause])))
@@ -268,6 +273,8 @@
       (get results placeholder)
       lookup)))
 
+;; TODO: add keywords/maps/vectors used as functions
+;; TODO: add `.`, `new`, other Java-specific things
 (s/defn analyse-function
   [{:keys [fn-position? args idx] :as this}]
   (assert fn-position? "Must be in function position to analyse as a function")
@@ -307,6 +314,13 @@
                                 (boolean? expr) s/Bool
                                 :else (class expr)))}))
 
+(defmacro report-error
+  [f]
+  `(try ~f
+       (catch Exception e#
+         (println "Error analysing expression" (str ~(last f)))
+         (throw e#))))
+
 (defn attach-schema-info-loop
   [dict
    expr]
@@ -323,58 +337,60 @@
           (recur rest-stack (assoc results idx this))
 
           fn-position?
-          (recur (concat (analyse-function this) rest-stack) results)
+          (recur (concat (report-error (analyse-function this)) rest-stack) results)
 
-          (not (seq? expr))
+          (or (not (seq? expr)) (and (seq? expr) (empty? expr)))
           (cond
             (coll? expr)
-            (recur (concat (analyse-coll this) rest-stack) results)
+            (recur (concat (report-error (analyse-coll this)) rest-stack) results)
 
             (symbol? expr)
-            (recur rest-stack (assoc results idx (analyse-symbol dict results this)))
+            (recur rest-stack (assoc results idx (report-error (analyse-symbol dict results this))))
 
             :else
-            (let [{:keys [finished enqueue]} (analyse-value this)]
+            (let [{:keys [finished enqueue]} (report-error (analyse-value this))]
               (recur (concat enqueue (or rest-stack []))
                      (if finished
                        (assoc results idx finished)
                        results))))
 
           (analysis-pred/def? expr)
-          (recur (concat (analyse-def this) rest-stack)
+          (recur (concat (report-error (analyse-def this)) rest-stack)
                  results)
 
           (analysis-pred/do? expr)
-          (recur (concat (analyse-do this) rest-stack)
+          (recur (concat (report-error (analyse-do this)) rest-stack)
                  results)
 
           (analysis-pred/fn-expr? expr)
-          (recur (concat (analyse-fn this) rest-stack)
+          (recur (concat (report-error (analyse-fn this)) rest-stack)
                  results)
 
           (analysis-pred/fn-once? expr)
-          (recur (concat (analyse-fn-once this) rest-stack)
+          (recur (concat (report-error (analyse-fn-once this)) rest-stack)
                  results)
 
           (analysis-pred/if? expr)
-          (recur (concat (analyse-if this) rest-stack)
+          (recur (concat (report-error (analyse-if this)) rest-stack)
                  results)
 
           (analysis-pred/try? expr)
-          (recur (concat (analyse-try this) rest-stack)
+          (recur (concat (report-error (analyse-try this)) rest-stack)
                  results)
 
           (analysis-pred/throw? expr)
           (recur rest-stack
-                 (assoc results idx (analyse-throw this)))
+                 (assoc results idx (report-error (analyse-throw this))))
 
           (or (analysis-pred/loop? expr) (analysis-pred/let? expr))
-          (recur (concat (analyse-let this) rest-stack)
+          (recur (concat (report-error (analyse-let this)) rest-stack)
                  results)
 
-          (seq? expr)
-          (recur (concat (analyse-application this) rest-stack)
+          (and (seq? expr) (not (empty? expr)))
+          (recur (concat (report-error (analyse-application this)) rest-stack)
                  results)
 
           :else
           (throw (ex-info "Unknown expression type" this)))))))
+
+;; TODO: do some-> blocks work correctly? Will they check correctly if a function requires a non-nil argument?

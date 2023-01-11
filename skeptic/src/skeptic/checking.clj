@@ -1,9 +1,12 @@
 (ns skeptic.checking
   (:require [skeptic.inconsistence :as inconsistence]
             [skeptic.analysis :as analysis]
+            [skeptic.file :as file]
             [schema.core :as s]
-            [skeptic.schematize :as schematize])
-  (:import [schema.core Schema]))
+            [skeptic.schematize :as schematize]
+            [skeptic.file :as file])
+  (:import [schema.core Schema]
+           [java.io File]))
 
 (def spy-on false)
 (def spy-only #{:match-s-exprs-expected-arglist :match-s-exprs-actual-arglist
@@ -67,61 +70,59 @@
   (spy :match-s-exprs-full to-match)
   (spy :match-s-exprs-expected-arglist expected-arglist)
   (spy :match-s-exprs-actual-arglist actual-arglist)
-  (if (seq expected-arglist)
-    (do
-      (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
-              (format "Arglists must not be nil: %s %s\n%s"
-                      expected-arglist actual-arglist to-match))
-      (assert (>= (count actual-arglist) (count expected-arglist))
-              (format "Actual should have at least as many elements as expected: %s %s\n%s"
-                      expected-arglist actual-arglist to-match))
-      (let [cleaned (analysis/unannotate-expr expr)
-            matched (spy :matched-arglists (match-up-arglists cleaned
-                                                              (spy :expected-arglist (vec expected-arglist))
-                                                              (spy :actual-arglist (vec actual-arglist))))
-            errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
-        {:blame cleaned
-         :path path
-         :context local-vars
-         :errors errors}))
-    nil))
+  (when (seq expected-arglist)
+    (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+            (format "Arglists must not be nil: %s %s\n%s"
+                    expected-arglist actual-arglist to-match))
+    (assert (>= (count actual-arglist) (count expected-arglist))
+            (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                    expected-arglist actual-arglist to-match))
+    (let [cleaned (analysis/unannotate-expr expr)
+          matched (spy :matched-arglists (match-up-arglists cleaned
+                                                            (spy :expected-arglist (vec expected-arglist))
+                                                            (spy :actual-arglist (vec actual-arglist))))
+          errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
+      {:blame cleaned
+       :path path
+       :context local-vars
+       :errors errors})))
 
 (s/defn check-s-expr
-  [dict s-expr {:keys [keep-empty clean-context]}]
+  [dict s-expr {:keys [keep-empty remove-context]}]
   (try (cond->> (->> (spy :check-s-expr-expr s-expr)
                      (analysis/attach-schema-info-loop dict)
                      vals
-                     (filter :expected-arglist)
-                     (map match-s-exprs))
+                     (keep match-s-exprs))
 
          (not keep-empty)
          (remove (comp empty? :errors))
 
-         clean-context
+         remove-context
          (map #(dissoc % :context)))
        (catch Exception e
          (println "Error parsing expression" (pr-str s-expr) ":" e)
          (throw e))))
 
 (s/defn normalize-fn-code
-  [ns-refs f]
+  [opts ns-refs f]
   (->> f
-       schematize/get-fn-code
+       (schematize/get-fn-code opts)
        (schematize/resolve-code-references ns-refs)))
 
 (s/defn check-fn
   ([ns-refs dict f]
    (check-fn ns-refs dict f {}))
   ([ns-refs dict f opts]
-   (check-s-expr dict (normalize-fn-code ns-refs f) opts)))
+   (check-s-expr dict (normalize-fn-code opts ns-refs f) opts)))
 
 (s/defn annotate-fn
-  [ns-refs dict f]
-  (->> f (normalize-fn-code ns-refs) (analysis/attach-schema-info-loop dict)))
+  [ns-refs dict f opts]
+  (->> f (normalize-fn-code opts ns-refs) (analysis/attach-schema-info-loop dict)))
 
 (defmacro block-in-ns
-  [ns & body]
-  `(let [ns-dec# (read-string (schematize/source-clj ~ns))
+  [ns ^File file & body]
+  `(let [contents# (slurp ~file)
+         ns-dec# (read-string contents#)
          current-namespace# (str ~*ns*)]
      (eval ns-dec#)
      (let [res# (do ~@body)]
@@ -129,26 +130,33 @@
        res#)))
 
 (defn ns-exprs
-  [ns]
-  (let [code (read-string (str "'(" (schematize/source-clj ns) ")"))]
-    (->> code (mapv (partial schematize/resolve-all (ns-map ns))))))
+  [ns ^File file]
+  (let [file-reader (file/pushback-reader file)
+        ns-refs (ns-map ns)]
+    (loop [expr (file/try-read file-reader)
+           acc []]
+      (cond
+        (nil? expr) acc
+        (file/is-ns-block? expr) (recur (file/try-read file-reader) acc)
+        :else (recur (file/try-read file-reader) (conj acc (->> expr (mapv (partial schematize/resolve-all ns-refs)))))))))
 ;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
 ;; but we should add it back in for checking
 
 (defmacro annotate-ns
-  ([ns]
-   `(annotate-ns (schematize/ns-schemas ~ns) ~ns))
-  ([dict ns]
-   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns)))))
+  ([ns opts file]
+   `(annotate-ns (schematize/ns-schemas ~opts ~ns) ~ns ~file))
+  ([dict ns opts ^File file]
+   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns ~file)))))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
 (defmacro check-ns
-  ([ns]
-   `(check-ns ~ns {}))
-  ([ns opts]
-   `(check-ns (schematize/ns-schemas ~ns) ~ns ~opts))
-  ([dict ns opts]
-   `(block-in-ns ~ns
-                 (mapcat #(check-s-expr ~dict % ~opts)
-                         (ns-exprs ~ns)))))
+  ([ns file]
+   `(check-ns ~ns ~file {}))
+  ([ns file opts]
+   `(check-ns (schematize/ns-schemas ~opts ~ns) ~ns ~file ~opts))
+  ([dict ns ^File file opts]
+   `(do (assert ~ns "Can't have null namespace for check-ns")
+        (block-in-ns ~ns ~file
+                     (mapcat #(check-s-expr ~dict % ~opts)
+                             (ns-exprs ~ns ~file))))))

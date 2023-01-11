@@ -6,7 +6,8 @@
             [schema.core :as s]
             [skeptic.test-examples :as test-examples]
             [skeptic.analysis.resolvers :as analysis-resolvers]
-            [skeptic.analysis.schema :as analysis-schema]))
+            [skeptic.analysis.schema :as analysis-schema]
+            [plumbing.core :as p]))
 
 (defn expand-and-annotate
   [expr f]
@@ -140,6 +141,21 @@
            (sut/unannotate-expr analysed)))))
 
 (deftest analyse-let-test
+  (let [analysed (expand-and-annotate '(let [] (+ 1 2)) sut/analyse-let)]
+    (is (= [{:expr '({:expr +, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
+              :idx 6,
+              :local-vars {},
+              :path []}
+             {:expr
+              '({:expr let*, :idx 1}
+               {:expr [], :idx 2}
+               {:expr ({:expr +, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
+                :idx 6}),
+              :idx 7,
+              :schema #:skeptic.analysis.resolvers{:placeholder 6}}]
+        (clean-callbacks analysed)))
+    (is (= '((+ 1 2) (let* [] (+ 1 2)))
+        (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(let [x 1] (+ 1 x)) sut/analyse-let)]
     (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x, :path []}
             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}),
@@ -424,6 +440,7 @@
             {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
              :idx 4,
              :name 'n,
+             :path ['n]
              :schema {::analysis-resolvers/placeholder 3}}]
            (clean-callbacks analysed)))
     (is (= '(5 (def n 5))
@@ -457,6 +474,7 @@
                 :idx 14}),
              :idx 15,
              :name 'f,
+             :path ['f]
              :schema {::analysis-resolvers/placeholder 14}}]
            (clean-callbacks analysed)))
     (is (= '((fn* ([x] (println "something") (+ 1 x)))
@@ -689,6 +707,8 @@
          (sut/attach-schema-info-loop {} '1))))
 
 (deftest attach-schema-info-coll-test
+  (is (= {1 {:expr '(), :idx 1, :schema [s/Any], :finished? true}}
+         (sut/attach-schema-info-loop {} '())))
   (is (= {1 {:expr 1, :idx 1, :schema s/Int, :local-vars {}, :path []},
           2 {:expr 2, :idx 2, :schema s/Int, :local-vars {}, :path []},
           3 {:expr [{:expr 1, :idx 1} {:expr 2, :idx 2}],
@@ -808,9 +828,41 @@
              :finished? true}}
          (->> '(skeptic.test-examples/int-add 1 2)
               (schematize/resolve-all {})
-              (sut/attach-schema-info-loop test-examples/sample-dict )))))
+              (sut/attach-schema-info-loop test-examples/sample-dict)))))
 
 (deftest attach-schema-info-let-test
+  (is (= {3 {:args [4 5],
+             :path [],
+             :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
+             :local-vars {},
+             :arglist [s/Int s/Int],
+             :output s/Int,
+             :expr 'skeptic.test-examples/int-add,
+             :finished? true,
+             :fn-position? true,
+             :idx 3},
+          4 {:expr 1, :idx 4, :local-vars {}, :path [], :schema s/Int},
+          5 {:expr 2, :idx 5, :local-vars {}, :path [], :schema s/Int},
+          6 {:expr '({:expr skeptic.test-examples/int-add, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
+             :idx 6,
+             :local-vars {},
+             :path [],
+             :actual-arglist [s/Int s/Int],
+             :expected-arglist [s/Int s/Int],
+             :schema s/Int,
+             :finished? true},
+          7 {:expr
+             '({:expr let*, :idx 1}
+               {:expr [], :idx 2}
+               {:expr ({:expr skeptic.test-examples/int-add, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
+                :idx 6}),
+             :idx 7,
+             :schema s/Int,
+             :finished? true}}
+         (->> '(let [] (skeptic.test-examples/int-add 1 2))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (into (sorted-map)))))
   (is (= {3 {:expr 'skeptic.test-examples/int-add,
              :idx 3,
              :args [4 5],
@@ -998,6 +1050,7 @@
           4 {:expr '({:expr def, :idx 1} {:expr n, :idx 2} {:expr 5, :idx 3}),
              :idx 4,
              :name 'n,
+             :path ['n]
              :schema (analysis-schema/variable s/Int),
              :finished? true}}
          (->> '(def n 5)
@@ -1093,6 +1146,7 @@
                  :idx 15}),
               :idx 16,
               :name 'f,
+              :path ['f]
               :schema (analysis-schema/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])),
               :finished? true}}
          (->> '(defn f [x y] (println "something") (skeptic.test-examples/int-add x y))
@@ -1458,6 +1512,7 @@
                  :idx 14}),
               :idx 15,
               :name 'sample-bad-fn,
+              :path ['sample-bad-fn]
               :schema (analysis-schema/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x)]])),
               :finished? true}}
          (->> '(defn sample-bad-fn
@@ -1680,6 +1735,7 @@
                  :idx 17}),
               :idx 18,
               :name 'sample-fn-once,
+              :path ['sample-fn-once]
               :schema (analysis-schema/variable (s/make-fn-schema s/Any [[(s/one s/Any 'x)]])),
               :finished? true}}
          (->> '(defn sample-fn-once
@@ -1687,4 +1743,70 @@
                  ((^{:once true} fn* [y] (int-add y nil))
                   x))
               (schematize/resolve-all {})
-              (sut/attach-schema-info-loop test-examples/sample-dict)))))
+              (sut/attach-schema-info-loop test-examples/sample-dict))))
+  (is (= {8 {:expr '+, :idx 8, :path ['sample-path-fn 'f]},
+          9 {:expr 1, :idx 9, :path ['sample-path-fn 'f]},
+          10 {:expr 'x, :idx 10, :path ['sample-path-fn 'f]},
+          11 {:expr '({:expr +, :idx 8} {:expr 1, :idx 9} {:expr x, :idx 10}),
+              :idx 11,
+              :path ['sample-path-fn]},
+          13 {:expr 'f, :idx 13, :path ['sample-path-fn]},
+          14 {:expr 'x, :idx 14, :path ['sample-path-fn]},
+          15 {:expr '({:expr f, :idx 13} {:expr x, :idx 14}),
+              :idx 15,
+              :path ['sample-path-fn]},
+          16 {:expr
+              '({:expr let*, :idx 6}
+                {:expr
+                 [{:expr f, :idx 7}
+                  {:expr ({:expr +, :idx 8} {:expr 1, :idx 9} {:expr x, :idx 10}),
+                   :idx 11}],
+                 :idx 12}
+                {:expr ({:expr f, :idx 13} {:expr x, :idx 14}), :idx 15}),
+              :idx 16,
+              :path ['sample-path-fn]},
+          18 {:expr
+              '({:expr fn*, :idx 3}
+                {:expr
+                 ({:expr [{:expr x, :idx 4}], :idx 5}
+                  {:expr
+                   ({:expr let*, :idx 6}
+                    {:expr
+                     [{:expr f, :idx 7}
+                      {:expr
+                       ({:expr +, :idx 8} {:expr 1, :idx 9} {:expr x, :idx 10}),
+                       :idx 11}],
+                     :idx 12}
+                    {:expr ({:expr f, :idx 13} {:expr x, :idx 14}), :idx 15}),
+                   :idx 16}),
+                 :idx 17}),
+              :idx 18,
+              :path ['sample-path-fn]},
+          19 {:expr
+              '({:expr def, :idx 1}
+                {:expr sample-path-fn, :idx 2}
+                {:expr
+                 ({:expr fn*, :idx 3}
+                  {:expr
+                   ({:expr [{:expr x, :idx 4}], :idx 5}
+                    {:expr
+                     ({:expr let*, :idx 6}
+                      {:expr
+                       [{:expr f, :idx 7}
+                        {:expr
+                         ({:expr +, :idx 8} {:expr 1, :idx 9} {:expr x, :idx 10}),
+                         :idx 11}],
+                       :idx 12}
+                      {:expr ({:expr f, :idx 13} {:expr x, :idx 14}), :idx 15}),
+                     :idx 16}),
+                   :idx 17}),
+                 :idx 18}),
+              :idx 19,
+              :path ['sample-path-fn]}}
+         (->> '(defn sample-path-fn
+                 [x]
+                 (let [f (+ 1 x)]
+                   (f x)))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (p/map-vals #(select-keys % [:expr :idx :path]))))))

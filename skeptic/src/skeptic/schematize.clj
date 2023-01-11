@@ -63,10 +63,11 @@
              x))
 
 (s/defn get-fn-code :- s/Str
-  [func-name :- s/Symbol]
+  [{:keys [verbose]}
+   func-name :- s/Symbol]
   (if-let [code (repl/source-fn func-name)]
     code
-    (do (println "No code found for" func-name)
+    (do (when verbose (println "No code found for" func-name))
         "")))
 
 (s/defn macroexpand-all
@@ -79,7 +80,7 @@
 (s/defn resolve-once
   [ns-refs f]
   (->> f
-       walk/macroexpand-all
+       macroexpand-all
        (walk/postwalk (partial try-resolve ns-refs))))
 
 (s/defn resolve-all
@@ -101,7 +102,7 @@
             read-string
             (resolve-all ns-refs))
        (catch Exception e
-                                        ;(println "Can't resolve" fn-code e)
+         ;(println "Can't resolve" fn-code e)
          nil)))
 
 (s/defn get-own-schema
@@ -111,11 +112,11 @@
        get-meta))
 
 (s/defn get-schema-lookup
-  [ns-refs fn-name :- s/Symbol]
+  [opts ns-refs fn-name :- s/Symbol]
   (remove :no-meta
           (concat
            (->> fn-name
-                get-fn-code
+                (get-fn-code opts)
                 (resolve-code-references ns-refs)
                 get-meta)
            (get-own-schema ns-refs fn-name))))
@@ -209,12 +210,17 @@
       symbol))
 
 (s/defn attach-schema-info-to-qualified-symbol
-  [ns-refs f :- s/Symbol]
+  [opts ns-refs f :- s/Symbol]
   (->> f
-       (get-schema-lookup ns-refs)
+       (get-schema-lookup opts ns-refs)
        (map :meta)
        (map collect-schemas)
        (reduce (fn [acc {:keys [name] :as next}] (update acc (symbol name) merge-with next)) {})))
+
+(defn spy->>
+  [msg x]
+  (println msg (pr-str x))
+  x)
 
 ;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
 (s/defn source-clj
@@ -230,11 +236,11 @@
            IOUtils/toString))
 
 (defn ns-schemas
-  [ns]
+  [opts ns]
   (->> ns
        symbol
        ns-publics
        vals
        (map symbol)
-       (map (partial attach-schema-info-to-qualified-symbol (ns-map ns)))
+       (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
        (reduce merge {})))
