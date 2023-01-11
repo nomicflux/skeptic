@@ -93,17 +93,20 @@
 
 (s/defn check-s-expr
   [dict s-expr {:keys [keep-empty clean-context]}]
-  (cond->> (->> (spy :check-s-expr-expr s-expr)
-                (analysis/attach-schema-info-loop dict)
-                vals
-                (filter :expected-arglist)
-                (map match-s-exprs))
+  (try (cond->> (->> (spy :check-s-expr-expr s-expr)
+                     (analysis/attach-schema-info-loop dict)
+                     vals
+                     (filter :expected-arglist)
+                     (map match-s-exprs))
 
-    (not keep-empty)
-    (remove (comp empty? :errors))
+         (not keep-empty)
+         (remove (comp empty? :errors))
 
-    clean-context
-    (map #(dissoc % :context))))
+         clean-context
+         (map #(dissoc % :context)))
+       (catch Exception e
+         (println "Error parsing expression" (pr-str s-expr) ":" e)
+         (throw e))))
 
 (s/defn normalize-fn-code
   [ns-refs f]

@@ -98,10 +98,10 @@
 (s/defn resolve-code-references
   [ns-refs fn-code :- s/Str]
   (try (->> fn-code
-        read-string
-        (resolve-all ns-refs))
+            read-string
+            (resolve-all ns-refs))
        (catch Exception e
-         ;(println "Can't resolve" fn-code e)
+                                        ;(println "Can't resolve" fn-code e)
          nil)))
 
 (s/defn get-own-schema
@@ -130,7 +130,7 @@
   [args]
   (reduce
    (fn [{:keys [count args varargs with-varargs]}
-       next]
+        next]
      (cond
        with-varargs
        {:count count
@@ -167,30 +167,39 @@
    xs))
 
 (s/defn collect-schemas :- dschema/SchemaDesc
-  [{:keys [schema ns name arglists]}]
-  (let [{:keys [input-schemas output-schema]} (into {} schema)
-        inputs (count-map input-schemas)
-        args (arg-map arglists)
-        args-with-schemas (reduce
-                           (fn [acc next]
-                             (let [input (get inputs next)
-                                   arg (get args next)]
-                               (assoc acc
-                                      next
-                                      (cond-> {:arglist arg}
-                                        (= next :varargs)
-                                        (assoc :count (:count arg)
-                                               :arglist (:args arg)
-                                               :schema (get inputs (:count arg)))
+  [{:keys [schema ns name arglists] :as this}]
+  (try
+    (if (class? schema)
+      {:name (str (s/explain schema))
+       :schema schema
+       :output schema
+       :arglists {}}
+      (let [{:keys [input-schemas output-schema]} (into {} schema)
+            inputs (count-map input-schemas)
+            args (arg-map arglists)
+            args-with-schemas (reduce
+                               (fn [acc next]
+                                 (let [input (get inputs next)
+                                       arg (get args next)]
+                                   (assoc acc
+                                          next
+                                          (cond-> {:arglist arg}
+                                            (= next :varargs)
+                                            (assoc :count (:count arg)
+                                                   :arglist (:args arg)
+                                                   :schema (get inputs (:count arg)))
 
-                                        (not (nil? input))
-                                        (assoc :schema input)))))
-                           {}
-                           (keys args))]
-    {:name (str ns "/" name)
-     :schema schema
-     :output (or output-schema schema)
-     :arglists args-with-schemas}))
+                                            (not (nil? input))
+                                            (assoc :schema input)))))
+                               {}
+                               (keys args))]
+        {:name (str ns "/" name)
+         :schema schema
+         :output (or output-schema schema)
+         :arglists args-with-schemas}))
+    (catch Exception e
+      (println "Exception collecting schemas:" (pr-str this))
+      (throw e))))
 
 (s/defn fully-qualify-str :- s/Symbol
   [f :- s/Str]
