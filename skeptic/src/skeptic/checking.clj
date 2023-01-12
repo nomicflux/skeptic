@@ -158,5 +158,6 @@
   ([dict ns ^File file opts]
    `(do (assert ~ns "Can't have null namespace for check-ns")
         (block-in-ns ~ns ~file
-                     (mapcat #(check-s-expr ~dict % ~opts)
-                             (ns-exprs ~ns ~file))))))
+                     (let [dict# ~dict]
+                       (mapcat #(check-s-expr dict# % ~opts)
+                              (ns-exprs ~ns ~file)))))))

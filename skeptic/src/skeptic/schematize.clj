@@ -68,7 +68,7 @@
   (if-let [code (repl/source-fn func-name)]
     code
     (do (when (and verbose (not (contains? @lookup-failures func-name)))
-          (println "No code found for" func-name))
+          (println "No code found :or" func-name))
         (swap! lookup-failures conj func-name)
         "")))
 
@@ -242,9 +242,9 @@
   (let [lookup-failures (atom #{})
         opts (assoc opts :lookup-failures lookup-failures)]
     (->> ns
-        symbol
-        ns-publics
-        vals
-        (map symbol)
-        (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
-        (reduce merge {}))))
+         symbol
+         ns-publics
+         vals
+         (map symbol)
+         (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
+         (reduce merge {}))))
