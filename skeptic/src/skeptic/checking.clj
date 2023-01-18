@@ -100,7 +100,9 @@
          remove-context
          (map #(dissoc % :context)))
        (catch Exception e
-         (println "Error parsing expression" (pr-str s-expr) ":" e)
+         (println "Error parsing expression")
+         (println (pr-str s-expr))
+         (println e)
          (throw e))))
 
 (s/defn normalize-fn-code

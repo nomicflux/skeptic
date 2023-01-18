@@ -30,7 +30,7 @@
                 {:expr "oops, not done yet", :idx 4}),
                :idx 5}),
             :idx 6,
-            :schema s/Any}
+            :schema analysis-schema/Bottom}
            (clean-callbacks analysed)))
     (is (= '(throw (new UnsupportedOperationException "oops, not done yet"))
            (sut/unannotate-expr analysed)))))
@@ -121,7 +121,7 @@
                   :idx 26}),
                 :idx 27}),
              :idx 28,
-             :schema {::analysis-resolvers/placeholder 26}}]
+             :schema {::analysis-resolvers/placeholder 8}}]
            (clean-callbacks analysed)))
     (is (= '((str 3)
              (+ 1 2)
@@ -1240,7 +1240,7 @@
               :idx 11,
               :local-vars {},
               :path []
-              :schema s/Any},
+              :schema analysis-schema/Bottom},
           13 {:expr
               '({:expr try, :idx 1}
                 {:expr
@@ -1325,7 +1325,7 @@
               :idx 17,
               :local-vars {},
               :path []
-              :schema s/Any},
+              :schema analysis-schema/Bottom},
           20 {:expr 'skeptic.test-examples/int-add,
               :idx 20,
               :args [21 22],
@@ -1397,7 +1397,7 @@
                    :idx 26}),
                  :idx 27}),
               :idx 28,
-              :schema java.lang.String,
+              :schema s/Int,
               :finished? true}}
          (->> '(try (clojure.core/str "hello") (skeptic.test-examples/int-add 1 2)
                     (catch UnsupportedOperationException e (println "oops") (throw e))
@@ -1810,3 +1810,26 @@
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
               (p/map-vals #(select-keys % [:expr :idx :path]))))))
+
+;; TODO: next to test
+;; (deftest analyse-defrecord-test
+;;   (->> '(defrecord AtomicCache [config atom]
+;;           clojure.lang.IDeref
+;;           (deref [_]
+;;             (if (nil? atom)
+;;               (cond-> (clojure.core/atom :invalid)
+;;                 (:initialize-during-start? config)
+;;                 (doto (set-cache-value
+;;                        (try
+;;                          (retry/try-try-again {:sleep 100 :tries 3}
+;;                                               #(refresh-fn this))
+;;                          (catch Throwable t
+;;                            (log/errorf t "Error in starting up AtomicCache %s" id)
+;;                            (throw t))))))
+;;               (let [a @atom]
+;;                 (if (= :invalid a)
+;;                   (throw (IllegalStateException. "AtomicCache cannot be read."))
+;;                   (:value a))))))
+;;        (schematize/resolve-all {})
+;;        (sut/attach-schema-info-loop test-examples/sample-dict)
+;;        ))

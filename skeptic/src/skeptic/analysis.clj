@@ -53,9 +53,9 @@
   [expr]
   (walk/postwalk #(if (and (map? %) (contains? % :expr)) (:expr %) %) expr))
 
-(defn analyse-let
+(s/defn analyse-let :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr local-vars]
-    :or {local-vars {}} :as this}]
+    :or {local-vars {}} :as this} :- analysis-schema/AnnotatedExpression]
   (let [[letblock & body] (->> expr (drop 1))
         letpairs (partition 2 (:expr letblock))
 
@@ -66,9 +66,18 @@
                                                (assoc varbody
                                                       :local-vars local-vars
                                                       :name (:expr newvar)))]
-                    {:local-vars (assoc local-vars
-                                        (:expr newvar)
-                                        {::analysis-resolvers/placeholder (:idx varbody)})
+                    {:local-vars (cond
+                                   (symbol? (:expr newvar))
+                                   (assoc local-vars
+                                         (:expr newvar)
+                                         {::analysis-resolvers/placeholder (:idx varbody)})
+
+                                   (vector? (:expr newvar))
+                                   local-vars ;; TODO: implement vector destructuring
+
+                                   (map? (:expr newvar))
+                                   local-vars ;; TODO: implement map destructuring
+                                   )
                      :let-clauses (conj let-clauses clause)}))
                 {:let-clauses []
                  :local-vars local-vars}
@@ -85,8 +94,8 @@
                               :dep-callback analysis-resolvers/resolve-schema)]
     (concat let-clauses body-clauses [current-clause])))
 
-(defn analyse-def
-  [{:keys [expr path] :or {path []} :as this}]
+(s/defn analyse-def :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr path] :or {path []} :as this} :- analysis-schema/AnnotatedExpression]
   (let [[name & body] (->> expr (drop 1))
 
         with-name (assoc this
@@ -102,21 +111,21 @@
                               :dep-callback analysis-resolvers/resolve-def-schema)]
     (concat body-clauses [current-clause])))
 
-(defn analyse-if
-  [{:keys [expr] :as this}]
+(s/defn analyse-if :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr] :as this} :- analysis-schema/AnnotatedExpression]
   (let [[_ if-clause t-clause f-clause] expr
 
         body-clauses
         (map (partial push-down-info this)
-             [if-clause t-clause f-clause])
+             (remove nil? [if-clause t-clause f-clause]))
 
         current-clause (assoc this
                               :schema {::analysis-resolvers/placeholders [(:idx t-clause) (:idx f-clause)]}
                               :dep-callback analysis-resolvers/resolve-if-schema)]
     (concat body-clauses [current-clause])))
 
-(defn analyse-try
-  [{:keys [expr] :as this}]
+(s/defn analyse-try :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr] :as this} :- analysis-schema/AnnotatedExpression]
   (let [[_ & body] expr
         [try-body after-body] (split-with (fn [{:keys [expr]}] (not (or (analysis-pred/catch? expr) (analysis-pred/finally? expr)))) body)
         [catch-body finally-body] (split-with (fn [{:keys [expr]}] (not (analysis-pred/finally? expr))) after-body)
@@ -125,20 +134,18 @@
 
         catch-clauses (->> catch-body first :expr (drop 3) (mapv (partial push-down-info this)))
         finally-clauses (->> finally-body first :expr (drop 1) (mapv (partial push-down-info this)))
-        output-clause (or (last finally-clauses) (last try-clauses))
         current-clause (assoc this
-                              :schema {::analysis-resolvers/placeholder (:idx output-clause)}
+                              :schema {::analysis-resolvers/placeholder (:idx (last try-clauses))}
                               :dep-callback analysis-resolvers/resolve-schema)]
     (concat try-clauses catch-clauses finally-clauses [current-clause])))
 
-(defn analyse-throw
-  [this]
-  ;; TODO: this isn't quite an any....
+(s/defn analyse-throw :- analysis-schema/AnnotatedExpression
+  [this :- analysis-schema/AnnotatedExpression]
   (assoc this
-         :schema s/Any))
+         :schema analysis-schema/Bottom))
 
-(defn analyse-do
-  [{:keys [expr] :as this}]
+(s/defn analyse-do :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr] :as this} :- analysis-schema/AnnotatedExpression]
   (let [body (->> expr (drop 1))
 
         body-clauses
@@ -151,19 +158,21 @@
                               :dep-callback analysis-resolvers/resolve-schema)]
     (concat body-clauses [current-clause])))
 
-(defn analyse-fn
+(s/defn analyse-fn :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr local-vars]
-    :or {local-vars {}} :as this}]
+    :or {local-vars {}} :as this} :- analysis-schema/AnnotatedExpression]
   (let [body-clauses
         (->> expr
              (drop 1)
              (map (fn [fn-expr]
                     (let [[vars & body] (:expr fn-expr)
                           {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
+                          args (filter symbol? args) ;; TODO: destructuring
                           fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
-                          fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
-                                                                               :name (str varargs)
-                                                                               :schema [s/Any]}))
+                          ;; TODO: varargs
+                          ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
+                          ;;                                                      :name (str varargs)
+                          ;;                                                     :schema [s/Any]}))
                           clauses (map (partial push-down-info
                                                 (assoc this :local-vars (merge local-vars fn-vars)))
                                        body)]
@@ -190,9 +199,9 @@
     (concat all-body-clauses
             [current-clause])))
 
-(defn analyse-fn-once
+(s/defn analyse-fn-once :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr local-vars]
-    :or {local-vars {}} :as this}]
+    :or {local-vars {}} :as this} :- analysis-schema/AnnotatedExpression]
   (let [[_ vars & body] expr
         {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
         fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
@@ -220,8 +229,8 @@
     (concat clauses
             [current-clause])))
 
-(defn analyse-application
-  [{:keys [expr] :as this}]
+(s/defn analyse-application :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr] :as this}] :- analysis-schema/AnnotatedExpression
   (let [[f & args] expr
 
         arg-clauses
@@ -239,8 +248,8 @@
                     :schema {::analysis-resolvers/placeholder (:idx fn-clause)}
                     :dep-callback analysis-resolvers/resolve-application-schema)])))
 
-(s/defn analyse-coll
-  [{:keys [expr map?] :as this}]
+(s/defn analyse-coll :- [analysis-schema/AnnotatedExpression]
+  [{:keys [expr map?] :as this} :- analysis-schema/AnnotatedExpression]
   (cond
     ;; As the postwalk rewrites things into maps, maps themselves need special annotation processing
     map? (concat (mapcat (comp (partial map (partial push-down-info this)) :expr) expr)
@@ -275,8 +284,8 @@
 
 ;; TODO: add keywords/maps/vectors used as functions
 ;; TODO: add `.`, `new`, other Java-specific things
-(s/defn analyse-function
-  [{:keys [fn-position? args idx] :as this}]
+(s/defn analyse-function :- [analysis-schema/AnnotatedExpression]
+  [{:keys [fn-position? args idx] :as this} :- analysis-schema/AnnotatedExpression]
   (assert fn-position? "Must be in function position to analyse as a function")
   (assert (not (nil? args)) "A function must have a list of args")
   [(dissoc this :fn-position?)
@@ -285,11 +294,12 @@
           :arglist {::analysis-resolvers/placeholder [idx args]}
           :schema {::analysis-resolvers/placeholder [idx args]})])
 
-(s/defn analyse-symbol
+(s/defn analyse-symbol :- analysis-schema/AnnotatedExpression
   [dict
    results
    {:keys [expr local-vars fn-position? args]
-    :or {local-vars {}} :as this}]
+    :or {local-vars {}} :as this} :- analysis-schema/AnnotatedExpression]
+  (assert (symbol? expr) "Expr should be a symbol; use analyse-value for other basic types")
   (let [default-schema (if fn-position? (analysis-schema/dynamic-fn-schema (count args) s/Any) s/Any)
         lookup (or (local-lookup results local-vars expr)
                    (get dict expr)
@@ -297,9 +307,9 @@
     (merge this
            (select-keys lookup [:schema :output :arglists]))))
 
-(s/defn analyse-value
-  [{:keys [expr fn-position?] :as this}] ;; :- analysis-schema/AnnotatedExpression]
-  ;; TODO: Figure out schema error message: More than one non-optional/required key schemata
+(s/defn analyse-value :- {(s/optional-key :finished) analysis-schema/AnnotatedExpression
+                          (s/optional-key :enqueue) [analysis-schema/AnnotatedExpression]}
+  [{:keys [expr fn-position?] :as this} :- analysis-schema/AnnotatedExpression]
   (assert (not fn-position?) "Functions should be analysed with analyse-function")
   (assert (not (symbol? expr)) "Symbols should be looked up with analyse-symbol")
   (if (var? expr)
@@ -318,7 +328,11 @@
   [f]
   `(try ~f
        (catch Exception e#
-         (println "Error analysing expression" (unannotate-expr ~(last f)) (str ~(last f)))
+         (println "Error analysing expression")
+         (println (unannotate-expr ~(last f)))
+         (println "---")
+         (println (str ~(last f)))
+         (println "---")
          (throw e#))))
 
 (defn attach-schema-info-loop

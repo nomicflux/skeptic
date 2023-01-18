@@ -24,14 +24,15 @@
        (try
          (doseq [{:keys [blame path errors]} (checking/check-ns ns file opts)]
            (println "---------")
+           (println "Namespace: \t" ns)
            (println "Expression: \t" (pr-str blame))
-           (println "In: \t\t" (pr-str path))
+           (println "In macro-expanded path: \t\t" (pr-str path))
            (doseq [error errors]
              (reset! errored true)
              (println "---")
              (println error "\n")))
          (catch Exception e
-           (println "Error parsing namespace" ns ":" e))
-         (finally
-           (when @errored
-             (System/exit 1))))))))
+           (println "Error parsing namespace" ns ":" e))))
+      (if @errored
+        (System/exit 1)
+        (println "No inconsistencies found")))))
