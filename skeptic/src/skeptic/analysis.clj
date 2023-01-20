@@ -51,12 +51,20 @@
 
 (defn unannotate-expr
   [expr]
-  (walk/postwalk #(if (and (map? %) (contains? % :expr)) (:expr %) %) expr))
+  (walk/postwalk (fn [el] (if (and (map? el) (contains? el :expr))
+                           (:expr (if (:map? el) (into {} el) el))
+                           el))
+                 expr))
 
 (s/defn analyse-let :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr local-vars]
     :or {local-vars {}} :as this} :- analysis-schema/AnnotatedExpression]
-  (let [[letblock & body] (->> expr (drop 1))
+  ;; A block like `(-> cache (doto set-cache-value))` macroexpands to
+  ;; `(let* cache [G__125245 set-cache-value] G__125245)`, with an odd
+  ;; element between `let*` and the vector. This shouldn't be legal, the Java Clojure compiler
+  ;; says it's not legal, the REPL says it's not legal, but that's what we get and
+  ;; what we need to analyse.
+  (let [[letblock & body] (->> expr (drop-while (complement (comp vector? :expr))))
         letpairs (partition 2 (:expr letblock))
 
         {:keys [let-clauses local-vars]}

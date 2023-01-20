@@ -7,7 +7,9 @@
             [skeptic.test-examples :as test-examples]
             [skeptic.analysis.resolvers :as analysis-resolvers]
             [skeptic.analysis.schema :as analysis-schema]
-            [plumbing.core :as p]))
+            [plumbing.core :as p]
+            [clojure.string :as str]
+            [plumbing.core :as pl]))
 
 (defn expand-and-annotate
   [expr f]
@@ -19,6 +21,27 @@
 (defn clean-callbacks
   [expr]
   (walk/postwalk #(if (map? %) (dissoc % :dep-callback) %) expr))
+
+(defn clean-gen-var
+  [var-name expr]
+  (->> expr
+       (p/map-vals #(update % :name (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))))
+       (p/map-vals #(update % :path (fn [p]
+                                      (mapv
+                                       (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                       p))))
+       (p/map-vals #(update % :expr (fn [ex]
+                                      (walk/postwalk
+                                       (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                       ex))))
+       (p/map-vals #(update % :local-vars (fn [lv]
+                                            (p/map-keys
+                                             (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                             lv))))))
+
+(defn unannotate-results
+  [exprv]
+  (p/map-vals #(update % :expr sut/unannotate-expr) exprv))
 
 (deftest analyse-throw-test
   (let [analysed (expand-and-annotate '(throw (UnsupportedOperationException. "oops, not done yet")) sut/analyse-throw)]
@@ -143,19 +166,19 @@
 (deftest analyse-let-test
   (let [analysed (expand-and-annotate '(let [] (+ 1 2)) sut/analyse-let)]
     (is (= [{:expr '({:expr +, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
-              :idx 6,
-              :local-vars {},
-              :path []}
-             {:expr
-              '({:expr let*, :idx 1}
+             :idx 6,
+             :local-vars {},
+             :path []}
+            {:expr
+             '({:expr let*, :idx 1}
                {:expr [], :idx 2}
                {:expr ({:expr +, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
                 :idx 6}),
-              :idx 7,
-              :schema #:skeptic.analysis.resolvers{:placeholder 6}}]
-        (clean-callbacks analysed)))
+             :idx 7,
+             :schema #:skeptic.analysis.resolvers{:placeholder 6}}]
+           (clean-callbacks analysed)))
     (is (= '((+ 1 2) (let* [] (+ 1 2)))
-        (sut/unannotate-expr analysed))))
+           (sut/unannotate-expr analysed))))
   (let [analysed (expand-and-annotate '(let [x 1] (+ 1 x)) sut/analyse-let)]
     (is (= [{:expr 1, :idx 3, :local-vars {}, :name 'x, :path []}
             {:expr '({:expr +, :idx 5} {:expr 1, :idx 6} {:expr x, :idx 7}),
@@ -1809,27 +1832,208 @@
                    (f x)))
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
-              (p/map-vals #(select-keys % [:expr :idx :path]))))))
+              (p/map-vals #(select-keys % [:expr :idx :path])))))
+  (is (= {3 {:args [10],
+             :path ['G],
+             :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
+             :local-vars {},
+             :name nil,
+             :arglist [s/Any],
+             :output s/Any,
+             :expr 'make-component,
+             :finished? true,
+             :fn-position? true,
+             :idx 3},
+          4 {:expr :a,
+             :idx 4,
+             :local-vars {},
+             :path ['G],
+             :schema s/Keyword,
+             :name nil},
+          5 {:expr 1, :idx 5, :local-vars {}, :path ['G], :schema s/Int, :name nil},
+          7 {:expr :b,
+             :idx 7,
+             :local-vars {},
+             :path ['G],
+             :schema s/Keyword,
+             :name nil},
+          8 {:expr 2, :idx 8, :local-vars {}, :path ['G], :schema s/Int, :name nil},
+          10 {:expr [[:a 1] [:b 2]],
+              :idx 10,
+              :map? true,
+              :local-vars {},
+              :path ['G],
+              :schema {s/Keyword s/Int},
+              :finished? true,
+              :name nil},
+          11 {:path [],
+              :schema s/Any,
+              :local-vars {},
+              :name 'G,
+              :expr '(make-component [[:a 1] [:b 2]]),
+              :finished? true,
+              :expected-arglist [s/Any],
+              :idx 11,
+              :actual-arglist [{s/Keyword s/Int}]},
+          13 {:args [14 18],
+              :path [],
+              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :name nil,
+              :arglist [s/Any s/Any],
+              :output s/Any,
+              :expr 'start,
+              :finished? true,
+              :fn-position? true,
+              :idx 13},
+          14 {:expr 'G,
+              :idx 14,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :path [],
+              :schema s/Any,
+              :name nil},
+          15 {:expr :opt1,
+              :idx 15,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :path [],
+              :schema s/Keyword,
+              :name nil},
+          16 {:expr true,
+              :idx 16,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :path [],
+              :schema java.lang.Boolean,
+              :name nil},
+          18 {:expr [[:opt1 true]],
+              :idx 18,
+              :map? true,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :path [],
+              :schema {s/Keyword java.lang.Boolean},
+              :finished? true,
+              :name nil},
+          19 {:path [],
+              :schema s/Any,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :name nil,
+              :expr '(start G [[:opt1 true]]),
+              :finished? true,
+              :expected-arglist [s/Any s/Any],
+              :idx 19,
+              :actual-arglist [s/Any {s/Keyword java.lang.Boolean}]},
+          20 {:expr 'G,
+              :idx 20,
+              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :path [],
+              :schema s/Any,
+              :name nil},
+          21 {:expr
+              '(let* [G (make-component [[:a 1] [:b 2]])],
+                 (start G [[:opt1 true]]),
+                 G),
+              :idx 21,
+              :schema s/Any,
+              :finished? true,
+              :name nil,
+              :path [],
+              :local-vars {}}}
+         (->> '(doto (make-component {:a 1 :b 2})
+                 (start {:opt1 true}))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results))))
 
-;; TODO: next to test
-;; (deftest analyse-defrecord-test
-;;   (->> '(defrecord AtomicCache [config atom]
-;;           clojure.lang.IDeref
-;;           (deref [_]
-;;             (if (nil? atom)
-;;               (cond-> (clojure.core/atom :invalid)
-;;                 (:initialize-during-start? config)
-;;                 (doto (set-cache-value
-;;                        (try
-;;                          (retry/try-try-again {:sleep 100 :tries 3}
-;;                                               #(refresh-fn this))
-;;                          (catch Throwable t
-;;                            (log/errorf t "Error in starting up AtomicCache %s" id)
-;;                            (throw t))))))
-;;               (let [a @atom]
-;;                 (if (= :invalid a)
-;;                   (throw (IllegalStateException. "AtomicCache cannot be read."))
-;;                   (:value a))))))
-;;        (schematize/resolve-all {})
-;;        (sut/attach-schema-info-loop test-examples/sample-dict)
-;;        ))
+(deftest analyse-problematic-let-test
+  (is (= {3 {:args [4],
+             :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
+             :arglist [s/Any],
+             :output s/Any,
+             :expr 'set-cache-value,
+             :idx 3},
+          4 {:expr 1, :idx 4, :schema s/Int},
+          5 {:schema s/Any,
+             :expr '(set-cache-value 1),
+             :idx 5},
+          7 {:expr 'G,
+             :idx 7,
+             :schema s/Any},
+          8 {:expr '(let* [G (set-cache-value 1)] G),
+             :idx 8,
+             :schema s/Any}}
+         (->> '(doto (set-cache-value 1))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results
+              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist])))))
+  (is (= {3 {:expr :invalid,
+             :idx 3,
+             :schema s/Keyword},
+          6 {:expr true,
+             :idx 6,
+             :schema java.lang.Boolean},
+          7 {:args [8 9],
+             :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
+             :arglist [s/Any s/Any],
+             :output s/Any,
+             :expr '=,
+             :idx 7},
+          8 {:expr 'G,
+             :idx 8,
+             :schema s/Keyword},
+          9 {:expr :valid,
+             :idx 9,
+             :schema s/Keyword},
+          10 {:schema s/Any,
+              :expr '(= G :valid),
+              :idx 10},
+          11 {:expr 'G,
+              :idx 11,
+              :schema s/Keyword},
+          12 {:expr '(if true (= G :valid) G),
+              :idx 12,
+              :schema (analysis-schema/join s/Any s/Keyword)},
+          13 {:expr '(let* [G :invalid] (if true (= G :valid) G)),
+              :idx 13,
+              :schema (analysis-schema/join s/Any s/Keyword)}}
+         (->> '(cond-> :invalid
+                 true
+                 (= :valid))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results
+              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist])))))
+  (is (= {4 {:expr 'set-cache-value, :idx 4, :schema s/Any},
+           6 {:expr 'G, :idx 6, :schema s/Any},
+           7 {:expr '(let* cache [G set-cache-value] G), :idx 7, :schema s/Any}}
+         (->> '(-> cache
+                 (doto set-cache-value))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results
+              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist])))))
+  (is (= {3 {:expr :invalid, :idx 3, :schema s/Keyword},
+           6 {:expr true, :idx 6, :schema java.lang.Boolean},
+           10 {:expr 'set-cache-value, :idx 10, :schema s/Any},
+           12 {:expr 'G, :idx 12, :schema s/Any},
+           13 {:expr '(let* G [G set-cache-value] G), :idx 13, :schema s/Any},
+           14 {:expr 'G, :idx 14, :schema s/Keyword},
+           15 {:expr '(if true (let* G [G set-cache-value] G) G),
+            :idx 15,
+               :schema (analysis-schema/join s/Any s/Keyword)},
+           16 {:expr '(let* [G :invalid] (if true (let* G [G set-cache-value] G) G)),
+            :idx 16,
+               :schema (analysis-schema/join s/Any s/Keyword)}}
+         (->> '(cond-> :invalid
+                 true
+                 (doto set-cache-value))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results
+              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist]))
+              (into (sorted-map))
+              ))))
