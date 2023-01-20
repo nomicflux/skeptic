@@ -119,6 +119,7 @@
                               :dep-callback analysis-resolvers/resolve-def-schema)]
     (concat body-clauses [current-clause])))
 
+;; TODO: If true branch taken, then we can assume that the predicate was not nil
 (s/defn analyse-if :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr] :as this} :- analysis-schema/AnnotatedExpression]
   (let [[_ if-clause t-clause f-clause] expr
@@ -353,7 +354,11 @@
 
       (let [{:keys [dep-callback] :as next} (first expr-stack)
             rest-stack (rest expr-stack)
-            {:keys [expr idx fn-position? finished?] :as this} (if dep-callback (dep-callback results (dissoc next :dep-callback)) next)]
+            {:keys [expr idx fn-position? finished?] :as this} (analysis-resolvers/resolve-local-vars
+                                                                results
+                                                                (if dep-callback
+                                                                  (dep-callback results (dissoc next :dep-callback))
+                                                                  next))]
         (cond
           finished?
           (recur rest-stack (assoc results idx this))

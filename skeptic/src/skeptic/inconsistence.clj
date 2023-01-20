@@ -1,13 +1,9 @@
 (ns skeptic.inconsistence
-  (:require [schema.core :as s])
-  (:import [schema.core Maybe]))
+  (:require [schema.core :as s]
+            [skeptic.analysis.schema :as analysis-schema]))
 
 ;; TODO: Add Keyword back in once resolution of keyword in fn position is in place
 (def ground-types #{s/Int s/Str s/Bool s/Symbol})
-
-(defn maybe?
-  [s]
-  (instance? Maybe s))
 
 (defn any-schema?
   [s]
@@ -21,8 +17,8 @@
 
 (defn mismatched-maybe
   [expr arg expected actual]
-  (when (and (maybe? actual)
-             (not (maybe? expected))
+  (when (and (analysis-schema/maybe? actual)
+             (not (analysis-schema/maybe? expected))
              (not (any-schema? expected))) ;; Technically, an Any could be a (maybe _)
     (mismatched-nullable-msg expr arg actual expected)))
 

@@ -2,7 +2,17 @@
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
             [schema.spec.leaf :as leaf])
-  (:import [schema.core Schema]))
+  (:import [schema.core Maybe Schema]))
+
+(defn maybe?
+  [s]
+  (instance? Maybe s))
+
+(defn de-maybe
+  [s]
+  (cond-> s
+    (maybe? s)
+    :schema))
 
 (defrecord BottomSchema [_]
   ;; This is copied from Any, but in terms of calculating joins of types it works in practically the opposite fashion

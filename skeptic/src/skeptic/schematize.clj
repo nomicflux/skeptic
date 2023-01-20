@@ -3,9 +3,7 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [skeptic.schema :as dschema]
-            [schema.core :as s])
-  (:import [org.apache.commons.io IOUtils]
-           [clojure.lang RT]))
+            [schema.core :as s]))
 
 (defn get-fn-schemas*
   [f]
@@ -223,19 +221,6 @@
   [msg x]
   (println msg (pr-str x))
   x)
-
-;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
-(s/defn source-clj
-  [ns]
-  (require ns)
-  (some->> ns
-           ns-publics
-           vals
-           first
-           meta
-           :file
-           (.getResourceAsStream (RT/baseLoader))
-           IOUtils/toString))
 
 (defn ns-schemas
   [opts ns]

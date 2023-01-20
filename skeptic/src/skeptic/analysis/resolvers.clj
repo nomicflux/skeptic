@@ -1,6 +1,7 @@
 (ns skeptic.analysis.resolvers
   (:require [schema.core :as s]
-            [skeptic.analysis.schema :as analysis-schema]))
+            [skeptic.analysis.schema :as analysis-schema]
+            [plumbing.core :as p]))
 
 (defn arglist->input-schema
   [{:keys [schema name] :as s}]
@@ -59,6 +60,19 @@
                     (:schema (get results idx))
                     v)))
         (assoc :finished? true))))
+
+(def resolve-local-vars
+  (fn [results el]
+    (if (contains? el :local-vars)
+      (update el
+              :local-vars
+              (fn [lvs]
+                (p/map-vals (fn [v]
+                              (if-let [idx (::placeholder v)]
+                                (select-keys (get results idx) [:schema :output :arglists])
+                                v))
+                            lvs)))
+      el)))
 
 (def resolve-def-schema
   (fn [results el]

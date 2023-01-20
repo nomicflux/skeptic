@@ -12,6 +12,7 @@
   [["-v" "--verbose" "Turn on verbose logging"]
    ["-k" "--keep-empty" "Print out checking results with empty error set"]
    ["-c" "--remove-context" "Remove context of local variables in error reporting"]
+   ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
    ["-h" "--help"]])
 
 (defn skeptic

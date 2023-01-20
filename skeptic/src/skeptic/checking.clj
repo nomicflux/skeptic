@@ -145,9 +145,9 @@
 ;; but we should add it back in for checking
 
 (defmacro annotate-ns
-  ([ns opts file]
-   `(annotate-ns (schematize/ns-schemas ~opts ~ns) ~ns ~file))
-  ([dict ns opts ^File file]
+  ([ns file]
+   `(annotate-ns (schematize/ns-schemas ~ns) ~ns ~file))
+  ([dict ns ^File file]
    `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns ~file)))))
 
 ;; TODO: if unparseable, throws error

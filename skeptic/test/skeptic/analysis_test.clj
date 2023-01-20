@@ -8,8 +8,7 @@
             [skeptic.analysis.resolvers :as analysis-resolvers]
             [skeptic.analysis.schema :as analysis-schema]
             [plumbing.core :as p]
-            [clojure.string :as str]
-            [plumbing.core :as pl]))
+            [clojure.string :as str]))
 
 (defn expand-and-annotate
   [expr f]
@@ -22,22 +21,31 @@
   [expr]
   (walk/postwalk #(if (map? %) (dissoc % :dep-callback) %) expr))
 
+(defn update-when
+  [m k f & args]
+  (if (contains? m k)
+    (apply update m k f args)
+    m))
+
 (defn clean-gen-var
   [var-name expr]
-  (->> expr
-       (p/map-vals #(update % :name (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))))
-       (p/map-vals #(update % :path (fn [p]
-                                      (mapv
-                                       (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                       p))))
-       (p/map-vals #(update % :expr (fn [ex]
-                                      (walk/postwalk
-                                       (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                       ex))))
-       (p/map-vals #(update % :local-vars (fn [lv]
-                                            (p/map-keys
-                                             (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                             lv))))))
+  (try (->> expr
+            (p/map-vals #(update-when % :name (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))))
+            (p/map-vals #(update-when % :path (fn [p]
+                                                     (mapv
+                                                      (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                                      p))))
+            (p/map-vals #(update-when % :expr (fn [ex]
+                                                     (walk/postwalk
+                                                      (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                                      ex))))
+            (p/map-vals #(update-when % :local-vars (fn [lv]
+                                                           (p/map-keys
+                                                            (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                                            (clean-gen-var var-name lv))))))
+       (catch Exception e
+         (println "Exception for " var-name " & " (pr-str expr))
+         (throw e))))
 
 (defn unannotate-results
   [exprv]
@@ -916,17 +924,17 @@
              :path [],
              :fn-position? true,
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
-             :local-vars {'x {::analysis-resolvers/placeholder 6}},
+             :local-vars {'x {:schema s/Int}},
              :output s/Int
              :arglist [s/Int s/Int]
              :finished? true}
-          9 {:expr 'x, :idx 9, :local-vars {'x {::analysis-resolvers/placeholder 6}}, :path [], :schema s/Int},
-          10 {:expr 2, :idx 10, :local-vars {'x {::analysis-resolvers/placeholder 6}}, :path [], :schema s/Int},
+          9 {:expr 'x, :idx 9, :local-vars {'x {:schema s/Int}}, :path [], :schema s/Int},
+          10 {:expr 2, :idx 10, :local-vars {'x {:schema s/Int}}, :path [], :schema s/Int},
           11 {:expr
               '({:expr skeptic.test-examples/int-add, :idx 8}
                 {:expr x, :idx 9}
                 {:expr 2, :idx 10}),
-              :local-vars {'x {::analysis-resolvers/placeholder 6}}
+              :local-vars {'x {:schema s/Int}}
               :schema s/Int
               :path [],
               :actual-arglist [s/Int s/Int],
@@ -1569,14 +1577,28 @@
               :args [11 14],
               :fn-position? true,
               :arglist [s/Int s/Int],
-              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :path []
               :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y)  (s/one s/Int 'z)]]),
               :output s/Int,
               :finished? true},
           11 {:expr 1,
               :idx 11,
-              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :path []
               :schema s/Int},
           12 {:expr 'f,
@@ -1585,7 +1607,14 @@
               :path []
               :fn-position? true,
               :arglist [s/Any],
-              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
               :output (s/maybe s/Any),
               :finished? true},
@@ -1593,10 +1622,24 @@
               :idx 13,
               :path []
               :schema s/Any
-              :local-vars {'f {::analysis-resolvers/placeholder 8}}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}}},
           14 {:expr '({:expr f, :idx 12} {:expr x, :idx 13}),
               :idx 14,
-              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :path []
               :actual-arglist [s/Any],
               :expected-arglist [s/Any],
@@ -1607,7 +1650,14 @@
                 {:expr 1, :idx 11}
                 {:expr ({:expr f, :idx 12} {:expr x, :idx 13}), :idx 14}),
               :idx 15,
-              :local-vars {'f {::analysis-resolvers/placeholder 8}},
+              :local-vars {'f
+                           {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
+                            :output (s/maybe s/Any),
+                            :arglists
+                            {1
+                             {:arglist ['x],
+                              :count 1,
+                              :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :path []
               :actual-arglist [s/Int (s/maybe s/Any)],
               :expected-arglist [s/Int s/Int],
@@ -1837,7 +1887,6 @@
              :path ['G],
              :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg)]]),
              :local-vars {},
-             :name nil,
              :arglist [s/Any],
              :output s/Any,
              :expr 'make-component,
@@ -1848,24 +1897,21 @@
              :idx 4,
              :local-vars {},
              :path ['G],
-             :schema s/Keyword,
-             :name nil},
-          5 {:expr 1, :idx 5, :local-vars {}, :path ['G], :schema s/Int, :name nil},
+             :schema s/Keyword},
+          5 {:expr 1, :idx 5, :local-vars {}, :path ['G], :schema s/Int},
           7 {:expr :b,
              :idx 7,
              :local-vars {},
              :path ['G],
-             :schema s/Keyword,
-             :name nil},
-          8 {:expr 2, :idx 8, :local-vars {}, :path ['G], :schema s/Int, :name nil},
+             :schema s/Keyword},
+          8 {:expr 2, :idx 8, :local-vars {}, :path ['G], :schema s/Int},
           10 {:expr [[:a 1] [:b 2]],
               :idx 10,
               :map? true,
               :local-vars {},
               :path ['G],
               :schema {s/Keyword s/Int},
-              :finished? true,
-              :name nil},
+              :finished? true},
           11 {:path [],
               :schema s/Any,
               :local-vars {},
@@ -1878,8 +1924,7 @@
           13 {:args [14 18],
               :path [],
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
-              :name nil,
+              :local-vars {'G {:schema s/Any}},
               :arglist [s/Any s/Any],
               :output s/Any,
               :expr 'start,
@@ -1888,34 +1933,29 @@
               :idx 13},
           14 {:expr 'G,
               :idx 14,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :local-vars {'G {:schema s/Any}},
               :path [],
-              :schema s/Any,
-              :name nil},
+              :schema s/Any},
           15 {:expr :opt1,
               :idx 15,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :local-vars {'G {:schema s/Any}},
               :path [],
-              :schema s/Keyword,
-              :name nil},
+              :schema s/Keyword},
           16 {:expr true,
               :idx 16,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :local-vars {'G {:schema s/Any}},
               :path [],
-              :schema java.lang.Boolean,
-              :name nil},
+              :schema java.lang.Boolean},
           18 {:expr [[:opt1 true]],
               :idx 18,
               :map? true,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :local-vars {'G {:schema s/Any}},
               :path [],
               :schema {s/Keyword java.lang.Boolean},
-              :finished? true,
-              :name nil},
+              :finished? true},
           19 {:path [],
               :schema s/Any,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
-              :name nil,
+              :local-vars {'G {:schema s/Any}},
               :expr '(start G [[:opt1 true]]),
               :finished? true,
               :expected-arglist [s/Any s/Any],
@@ -1923,20 +1963,16 @@
               :actual-arglist [s/Any {s/Keyword java.lang.Boolean}]},
           20 {:expr 'G,
               :idx 20,
-              :local-vars {'G #:skeptic.analysis.resolvers{:placeholder 11}},
+              :local-vars {'G {:schema s/Any}},
               :path [],
-              :schema s/Any,
-              :name nil},
+              :schema s/Any},
           21 {:expr
               '(let* [G (make-component [[:a 1] [:b 2]])],
                  (start G [[:opt1 true]]),
                  G),
               :idx 21,
               :schema s/Any,
-              :finished? true,
-              :name nil,
-              :path [],
-              :local-vars {}}}
+              :finished? true}}
          (->> '(doto (make-component {:a 1 :b 2})
                  (start {:opt1 true}))
               (schematize/resolve-all {})
@@ -2036,4 +2072,34 @@
               unannotate-results
               (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist]))
               (into (sorted-map))
+              ))))
+
+(deftest attach-schema-info-added-maybe
+  (is (= {}
+         (->> '(s/defn same-day-at-time :- common-schema/DateTimeZ
+                 "Return a `DateTimeZ` for a `DateTime` and anything that supports the interface for
+   `(time/{hour,minute,second,milli})`. Assumes for the moment that the given `DateTime`
+   is for Chicago time."
+                 [dt
+                  time
+                  timezone :- common-schema/TimeZone]
+                 (let [at-local-time (cond-> dt
+                                       (instance? DateTime dt) (utils/date-time->local-date-time timezone))]
+                   (-> (time/date-time
+                        (time/year at-local-time)
+                        (time/month at-local-time)
+                        (time/day at-local-time)
+                        (time/hour time)
+                        (time/minute time)
+                        (time/second time)
+                        (time/milli time))
+                       (time/from-time-zone timezone)
+                       (time/to-time-zone time/utc))))
+              (schematize/resolve-all {})
+              (sut/attach-schema-info-loop test-examples/sample-dict)
+              (clean-gen-var 'G)
+              unannotate-results
+              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist]))
+              (into (sorted-map))
+
               ))))

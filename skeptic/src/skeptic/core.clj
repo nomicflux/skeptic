@@ -1,20 +1,22 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
             [skeptic.file :as file]
-            [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.java.io :as io]))
 
 (defn get-project-schemas
-  [{:keys [verbose] :as opts} root & paths]
-  (let [nss (try (->> paths
-                      (map (partial file/relative-path (io/file root)))
-                      (mapcat file/clojure-files-for-path)
-                      (map file/ns-for-clojure-file)
-                      (remove (comp nil? first))
-                      (into {}))
-                 (catch Exception e
-                   (println "Couldn't get namespaces: " e)
-                   (throw e)))]
+  [{:keys [verbose namespace] :as opts} root & paths]
+  (let [nss (cond-> (try (->> paths
+                              (map (partial file/relative-path (io/file root)))
+                              (mapcat file/clojure-files-for-path)
+                              (map file/ns-for-clojure-file)
+                              (remove (comp nil? first))
+                              (into {}))
+                         (catch Exception e
+                           (println "Couldn't get namespaces: " e)
+                           (throw e)))
+
+              namespace
+              (select-keys [(symbol namespace)]))]
     (when verbose (println "Namespaces to check: " (pr-str (keys nss))))
     (let [errored (atom false)]
       (doseq [[ns file] nss]
@@ -22,11 +24,15 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         (doseq [{:keys [blame path errors]} (checking/check-ns ns file opts)]
+         (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
            (println "---------")
-           (println "Namespace: \t" ns)
-           (println "Expression: \t" (pr-str blame))
-           (println "In macro-expanded path: \t\t" (pr-str path))
+           (println "Namespace: \t\t" ns)
+           (println "Expression: \t\t" (pr-str blame))
+           (println "In macro-expanded path: \t" (pr-str path))
+           (when verbose
+             (println "Context:")
+             (doseq [[k v] context]
+               (println "\t" k ":" (pr-str v))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")
