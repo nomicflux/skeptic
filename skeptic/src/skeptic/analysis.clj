@@ -126,7 +126,9 @@
 
         body-clauses
         (map (partial push-down-info this)
-             (remove nil? [if-clause t-clause f-clause]))
+             (remove nil? [if-clause
+                           t-clause
+                           f-clause]))
 
         current-clause (assoc this
                               :schema {::analysis-resolvers/placeholders [(:idx t-clause) (:idx f-clause)]}

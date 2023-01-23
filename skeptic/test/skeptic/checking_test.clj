@@ -26,6 +26,20 @@
   [f]
   (in-test-examples (sut/annotate-fn test-refs test-dict f)))
 
+(deftest match-up-resolution-paths
+  (is (= {'x {:expr 'x, :name 'x, :schema s/Any, :resolution-path []},
+          'f {:schema (s/=> s/Int s/Any), :output s/Int, :resolution-path [{:a 1, :b 2}]},
+          'g {:schema s/Int, :resolution-path [{:c 3, :d 4} {:e 5, :f 6}]}}
+         (sut/match-up-resolution-paths {1 {:a 1 :b 2}
+                                         2 {:c 3 :d 4}
+                                         3 {:e 5 :f 6}}
+                                        {'x {:expr 'x, :name 'x, :schema s/Any}
+                                         'f {:schema (s/=> s/Int s/Any)
+                                             :output s/Int
+                                             :resolution-path [{:idx 1}]}
+                                         'g {:schema s/Int
+                                             :resolution-path [{:idx 2} {:idx 3}]}}))))
+
 (deftest working-functions
   (in-test-examples
    (are [f] (empty? (try (sut/check-fn test-refs test-dict f)

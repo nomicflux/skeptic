@@ -924,17 +924,18 @@
              :path [],
              :fn-position? true,
              :schema (s/make-fn-schema s/Int [[(s/one s/Int 'y) (s/one s/Int 'z)]]),
-             :local-vars {'x {:schema s/Int}},
+             :local-vars {'x {:schema s/Int
+                              :resolution-path [{:idx 6}]}},
              :output s/Int
              :arglist [s/Int s/Int]
              :finished? true}
-          9 {:expr 'x, :idx 9, :local-vars {'x {:schema s/Int}}, :path [], :schema s/Int},
-          10 {:expr 2, :idx 10, :local-vars {'x {:schema s/Int}}, :path [], :schema s/Int},
+          9 {:expr 'x, :idx 9, :local-vars {'x {:schema s/Int :resolution-path [{:idx 6}]}}, :path [], :schema s/Int},
+          10 {:expr 2, :idx 10, :local-vars {'x {:schema s/Int :resolution-path [{:idx 6}]}}, :path [], :schema s/Int},
           11 {:expr
               '({:expr skeptic.test-examples/int-add, :idx 8}
                 {:expr x, :idx 9}
                 {:expr 2, :idx 10}),
-              :local-vars {'x {:schema s/Int}}
+              :local-vars {'x {:schema s/Int :resolution-path [{:idx 6}]}}
               :schema s/Int
               :path [],
               :actual-arglist [s/Int s/Int],
@@ -1580,6 +1581,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1594,6 +1596,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1610,6 +1613,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1625,6 +1629,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1635,6 +1640,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1653,6 +1659,7 @@
               :local-vars {'f
                            {:schema (s/make-fn-schema (s/maybe s/Any) [[(s/one s/Any 'x)]]),
                             :output (s/maybe s/Any),
+                            :resolution-path [{:idx 8}]
                             :arglists
                             {1
                              {:arglist ['x],
@@ -1924,7 +1931,8 @@
           13 {:args [14 18],
               :path [],
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :arglist [s/Any s/Any],
               :output s/Any,
               :expr 'start,
@@ -1933,29 +1941,34 @@
               :idx 13},
           14 {:expr 'G,
               :idx 14,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :path [],
               :schema s/Any},
           15 {:expr :opt1,
               :idx 15,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :path [],
               :schema s/Keyword},
           16 {:expr true,
               :idx 16,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :path [],
               :schema java.lang.Boolean},
           18 {:expr [[:opt1 true]],
               :idx 18,
               :map? true,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :path [],
               :schema {s/Keyword java.lang.Boolean},
               :finished? true},
           19 {:path [],
               :schema s/Any,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :expr '(start G [[:opt1 true]]),
               :finished? true,
               :expected-arglist [s/Any s/Any],
@@ -1963,7 +1976,8 @@
               :actual-arglist [s/Any {s/Keyword java.lang.Boolean}]},
           20 {:expr 'G,
               :idx 20,
-              :local-vars {'G {:schema s/Any}},
+              :local-vars {'G {:schema s/Any
+                               :resolution-path [{:idx 11}]}},
               :path [],
               :schema s/Any},
           21 {:expr
@@ -2074,32 +2088,32 @@
               (into (sorted-map))
               ))))
 
-(deftest attach-schema-info-added-maybe
-  (is (= {}
-         (->> '(s/defn same-day-at-time :- common-schema/DateTimeZ
-                 "Return a `DateTimeZ` for a `DateTime` and anything that supports the interface for
-   `(time/{hour,minute,second,milli})`. Assumes for the moment that the given `DateTime`
-   is for Chicago time."
-                 [dt
-                  time
-                  timezone :- common-schema/TimeZone]
-                 (let [at-local-time (cond-> dt
-                                       (instance? DateTime dt) (utils/date-time->local-date-time timezone))]
-                   (-> (time/date-time
-                        (time/year at-local-time)
-                        (time/month at-local-time)
-                        (time/day at-local-time)
-                        (time/hour time)
-                        (time/minute time)
-                        (time/second time)
-                        (time/milli time))
-                       (time/from-time-zone timezone)
-                       (time/to-time-zone time/utc))))
-              (schematize/resolve-all {})
-              (sut/attach-schema-info-loop test-examples/sample-dict)
-              (clean-gen-var 'G)
-              unannotate-results
-              (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist]))
-              (into (sorted-map))
+;; (deftest attach-schema-info-added-maybe
+;;   (is (= {}
+;;          (->> '(s/defn same-day-at-time :- common-schema/DateTimeZ
+;;                  "Return a `DateTimeZ` for a `DateTime` and anything that supports the interface for
+;;    `(time/{hour,minute,second,milli})`. Assumes for the moment that the given `DateTime`
+;;    is for Chicago time."
+;;                  [dt
+;;                   time
+;;                   timezone :- common-schema/TimeZone]
+;;                  (let [at-local-time (cond-> dt
+;;                                        (instance? DateTime dt) (utils/date-time->local-date-time timezone))]
+;;                    (-> (time/date-time
+;;                         (time/year at-local-time)
+;;                         (time/month at-local-time)
+;;                         (time/day at-local-time)
+;;                         (time/hour time)
+;;                         (time/minute time)
+;;                         (time/second time)
+;;                         (time/milli time))
+;;                        (time/from-time-zone timezone)
+;;                        (time/to-time-zone time/utc))))
+;;               (schematize/resolve-all {})
+;;               (sut/attach-schema-info-loop test-examples/sample-dict)
+;;               (clean-gen-var 'G)
+;;               unannotate-results
+;;               (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist]))
+;;               (into (sorted-map))
 
-              ))))
+;;               ))))

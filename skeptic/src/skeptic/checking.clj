@@ -4,13 +4,13 @@
             [skeptic.file :as file]
             [schema.core :as s]
             [skeptic.schematize :as schematize]
-            [skeptic.file :as file])
+            [skeptic.file :as file]
+            [plumbing.core :as p])
   (:import [schema.core Schema]
            [java.io File]))
 
 (def spy-on false)
-(def spy-only #{:match-s-exprs-expected-arglist :match-s-exprs-actual-arglist
-                :expected-arglist :actual-arglist :matched-arglists})
+(def spy-only #{})
 
 (defn spy*
   [msg x]
@@ -65,11 +65,20 @@
        (spy :match-up-expected (get expected n expected-vararg))
        (spy :match-up-actual (get actual n))])))
 
+(s/defn match-up-resolution-paths
+  [refs
+   context]
+  (p/map-vals
+   #(update %
+           :resolution-path
+           (partial
+            map (fn [{:keys [idx]}]
+                  (get refs idx))))
+   context))
+
 (s/defn match-s-exprs
-  [{:keys [expected-arglist actual-arglist expr local-vars path] :as to-match}]
-  (spy :match-s-exprs-full to-match)
-  (spy :match-s-exprs-expected-arglist expected-arglist)
-  (spy :match-s-exprs-actual-arglist actual-arglist)
+  [refs
+   {:keys [expected-arglist actual-arglist expr local-vars path] :as to-match}]
   (when (seq expected-arglist)
     (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
             (format "Arglists must not be nil: %s %s\n%s"
@@ -84,21 +93,21 @@
           errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
       {:blame cleaned
        :path path
-       :context local-vars
+       :context (match-up-resolution-paths refs local-vars)
        :errors errors})))
 
 (s/defn check-s-expr
   [dict s-expr {:keys [keep-empty remove-context]}]
-  (try (cond->> (->> (spy :check-s-expr-expr s-expr)
-                     (analysis/attach-schema-info-loop dict)
-                     vals
-                     (keep match-s-exprs))
+  (try (let [analysed (analysis/attach-schema-info-loop dict s-expr)]
+         (cond->> (->> analysed
+                       vals
+                       (keep (partial match-s-exprs analysed)))
 
-         (not keep-empty)
-         (remove (comp empty? :errors))
+          (not keep-empty)
+          (remove (comp empty? :errors))
 
-         remove-context
-         (map #(dissoc % :context)))
+          remove-context
+          (map #(dissoc % :context))))
        (catch Exception e
          (println "Error parsing expression")
          (println (pr-str s-expr))

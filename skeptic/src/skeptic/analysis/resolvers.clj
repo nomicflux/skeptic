@@ -61,6 +61,7 @@
                     v)))
         (assoc :finished? true))))
 
+;; TODO: Add resolution path for all resolvers
 (def resolve-local-vars
   (fn [results el]
     (if (contains? el :local-vars)
@@ -69,7 +70,15 @@
               (fn [lvs]
                 (p/map-vals (fn [v]
                               (if-let [idx (::placeholder v)]
-                                (select-keys (get results idx) [:schema :output :arglists])
+                                (let [ref (get results idx)]
+                                  (-> ref
+                                      (select-keys [:schema :output :arglists])
+                                      (update :resolution-path (fn [rp]
+                                                                 (concat
+                                                                  (or (:resolution-path ref) [])
+                                                                  (or rp [])
+                                                                  [(select-keys ref [:idx])])))
+                                      ))
                                 v))
                             lvs)))
       el)))

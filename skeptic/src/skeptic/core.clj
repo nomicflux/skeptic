@@ -1,7 +1,8 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
             [skeptic.file :as file]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [skeptic.analysis :as analysis]))
 
 (defn get-project-schemas
   [{:keys [verbose namespace] :as opts} root & paths]
@@ -31,8 +32,10 @@
            (println "In macro-expanded path: \t" (pr-str path))
            (when verbose
              (println "Context:")
-             (doseq [[k v] context]
-               (println "\t" k ":" (pr-str v))))
+             (doseq [[k {:keys [schema resolution-path]}] context]
+               (println "\t" k ":" (pr-str schema))
+               (doseq [{:keys [expr schema]} resolution-path]
+                 (println "\t\t=>" (analysis/unannotate-expr expr) ":" schema))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")
