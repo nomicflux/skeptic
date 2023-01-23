@@ -6,7 +6,7 @@
             [skeptic.core]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
-                                     ['skeptic              "0.5.0-SNAPSHOT"]]})
+                                     ['skeptic              "0.5.1-SNAPSHOT"]]})
 
 (def cli-options
   [["-v" "--verbose" "Turn on verbose logging"]

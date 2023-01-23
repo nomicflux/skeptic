@@ -70,15 +70,16 @@
               (fn [lvs]
                 (p/map-vals (fn [v]
                               (if-let [idx (::placeholder v)]
-                                (let [ref (get results idx)]
+                                (let [transform-fn (get v ::transform-fn identity)
+                                      ref (-> (get results idx)
+                                              (update :schema transform-fn))]
                                   (-> ref
                                       (select-keys [:schema :output :arglists])
                                       (update :resolution-path (fn [rp]
                                                                  (concat
                                                                   (or (:resolution-path ref) [])
                                                                   (or rp [])
-                                                                  [(select-keys ref [:idx])])))
-                                      ))
+                                                                  [(select-keys ref [:idx])])))))
                                 v))
                             lvs)))
       el)))

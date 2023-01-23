@@ -4,7 +4,6 @@
             [skeptic.file :as file]
             [schema.core :as s]
             [skeptic.schematize :as schematize]
-            [skeptic.file :as file]
             [plumbing.core :as p])
   (:import [schema.core Schema]
            [java.io File]))
@@ -65,20 +64,24 @@
        (spy :match-up-expected (get expected n expected-vararg))
        (spy :match-up-actual (get actual n))])))
 
+(s/defn lookup-resolutions
+  [refs]
+  (partial
+   map (fn [{:keys [idx]}]
+         (get refs idx))))
+
 (s/defn match-up-resolution-paths
   [refs
    context]
   (p/map-vals
    #(update %
-           :resolution-path
-           (partial
-            map (fn [{:keys [idx]}]
-                  (get refs idx))))
+            :resolution-path
+            (lookup-resolutions refs))
    context))
 
 (s/defn match-s-exprs
   [refs
-   {:keys [expected-arglist actual-arglist expr local-vars path] :as to-match}]
+   {:keys [expected-arglist actual-arglist expr local-vars path resolution-path] :as to-match}]
   (when (seq expected-arglist)
     (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
             (format "Arglists must not be nil: %s %s\n%s"
@@ -93,7 +96,7 @@
           errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
       {:blame cleaned
        :path path
-       :context (match-up-resolution-paths refs local-vars)
+       :context (concat (match-up-resolution-paths refs local-vars) (map lookup-resolutions resolution-path))
        :errors errors})))
 
 (s/defn check-s-expr
@@ -103,11 +106,11 @@
                        vals
                        (keep (partial match-s-exprs analysed)))
 
-          (not keep-empty)
-          (remove (comp empty? :errors))
+           (not keep-empty)
+           (remove (comp empty? :errors))
 
-          remove-context
-          (map #(dissoc % :context))))
+           remove-context
+           (map #(dissoc % :context))))
        (catch Exception e
          (println "Error parsing expression")
          (println (pr-str s-expr))
@@ -171,4 +174,4 @@
         (block-in-ns ~ns ~file
                      (let [dict# ~dict]
                        (mapcat #(check-s-expr dict# % ~opts)
-                              (ns-exprs ~ns ~file)))))))
+                               (ns-exprs ~ns ~file)))))))

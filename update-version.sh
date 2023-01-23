@@ -6,4 +6,4 @@ if [ -z $VERSION ]; then
     exit 1
 fi
 
-grep -HR "skeptic\W*\"[^\"]*\"" . | sed -e 's/^\([^:]*\):.*/\1/' | uniq | xargs sed -ie "s/skeptic\(\W*\)\"\([^\"]*\)\"/skeptic\1\"$VERSION\"/g"
+grep -HR "skeptic\W*\"[^\"]*\"" . | sed -e 's/^\([^:]*\):.*/\1/' | uniq | xargs sed -i "s/skeptic\(\W*\)\"\([^\"]*\)\"/skeptic\1\"$VERSION\"/g"

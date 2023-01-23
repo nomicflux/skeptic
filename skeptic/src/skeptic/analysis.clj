@@ -5,7 +5,8 @@
             [skeptic.analysis.pred :as analysis-pred]
             [skeptic.analysis.resolvers :as analysis-resolvers]
             [plumbing.core :as p]
-            [clojure.walk :as walk]))
+            [clojure.walk :as walk]
+            [clojure.set :as set]))
 
 ;; TODO: Switch to tools.analyzer to avoid macroexpansion errors
 
@@ -119,7 +120,6 @@
                               :dep-callback analysis-resolvers/resolve-def-schema)]
     (concat body-clauses [current-clause])))
 
-;; TODO: If true branch taken, then we can assume that the predicate was not nil
 (s/defn analyse-if :- [analysis-schema/AnnotatedExpression]
   [{:keys [expr] :as this} :- analysis-schema/AnnotatedExpression]
   (let [[_ if-clause t-clause f-clause] expr
@@ -127,7 +127,15 @@
         body-clauses
         (map (partial push-down-info this)
              (remove nil? [if-clause
-                           t-clause
+                           (cond-> t-clause
+                             (symbol? (:expr if-clause))
+                             (update :local-vars
+                                     (fn [lvs]
+                                       (assoc lvs
+                                              (:expr if-clause)
+                                              {::analysis-resolvers/placeholder (:idx if-clause)
+                                               ;; If if clause was true, it couldn't have been `nil`
+                                               ::analysis-resolvers/transform-fn analysis-schema/de-maybe}))))
                            f-clause]))
 
         current-clause (assoc this
@@ -314,8 +322,14 @@
   (let [default-schema (if fn-position? (analysis-schema/dynamic-fn-schema (count args) s/Any) s/Any)
         lookup (or (local-lookup results local-vars expr)
                    (get dict expr)
-                   {:schema default-schema})]
-    (merge this
+                   {:schema default-schema})
+        lookup (-> lookup
+                   (update :expr (fn [e] (if e e expr)))
+                   (update :schema (fn [s] (if s s s/Any))))]
+    (merge (assoc this
+                  :resolution-path (concat (get this :resolution-path [])
+                                           (get lookup :resolution-path [])
+                                           [(select-keys lookup [:idx :expr :schema])]))
            (select-keys lookup [:schema :output :arglists]))))
 
 (s/defn analyse-value :- {(s/optional-key :finished) analysis-schema/AnnotatedExpression

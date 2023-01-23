@@ -81,6 +81,7 @@
   {:expr s/Any
    :idx s/Int
 
+   (s/optional-key :resolution-path) [s/Any]
    (s/optional-key :schema) s/Any
    (s/optional-key :name) s/Symbol
    (s/optional-key :path) [s/Symbol]
