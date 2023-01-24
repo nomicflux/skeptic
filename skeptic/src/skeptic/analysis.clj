@@ -5,8 +5,7 @@
             [skeptic.analysis.pred :as analysis-pred]
             [skeptic.analysis.resolvers :as analysis-resolvers]
             [plumbing.core :as p]
-            [clojure.walk :as walk]
-            [clojure.set :as set]))
+            [clojure.walk :as walk]))
 
 ;; TODO: Switch to tools.analyzer to avoid macroexpansion errors
 
@@ -78,8 +77,8 @@
                     {:local-vars (cond
                                    (symbol? (:expr newvar))
                                    (assoc local-vars
-                                         (:expr newvar)
-                                         {::analysis-resolvers/placeholder (:idx varbody)})
+                                          (:expr newvar)
+                                          {::analysis-resolvers/placeholder (:idx varbody)})
 
                                    (vector? (:expr newvar))
                                    local-vars ;; TODO: implement vector destructuring
@@ -352,13 +351,13 @@
 (defmacro report-error
   [f]
   `(try ~f
-       (catch Exception e#
-         (println "Error analysing expression")
-         (println (unannotate-expr ~(last f)))
-         (println "---")
-         (println (str ~(last f)))
-         (println "---")
-         (throw e#))))
+        (catch Exception e#
+          (println "Error analysing expression")
+          (println (unannotate-expr ~(last f)))
+          (println "---")
+          (println (str ~(last f)))
+          (println "---")
+          (throw e#))))
 
 (defn attach-schema-info-loop
   [dict

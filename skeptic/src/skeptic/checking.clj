@@ -66,9 +66,18 @@
 
 (s/defn lookup-resolutions
   [refs]
-  (partial
-   map (fn [{:keys [idx]}]
-         (get refs idx))))
+  (fn [els]
+    (loop [[{:keys [idx resolution-path] :as el} & rest] els
+           acc []]
+      (cond
+        (nil? el) acc
+        :else (if-let [lookup (get refs idx)]
+                (recur (concat rest
+                               resolution-path
+                               (:resolution-path lookup))
+                       (conj acc (select-keys lookup [:idx :expr :schema])))
+                (recur (concat rest resolution-path)
+                       acc))))))
 
 (s/defn match-up-resolution-paths
   [refs
@@ -94,9 +103,15 @@
                                                             (spy :expected-arglist (vec expected-arglist))
                                                             (spy :actual-arglist (vec actual-arglist))))
           errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
+      ;;(println :refs refs)
+      ;;(println :lvs local-vars)
+      ;;(println :murp-ls (match-up-resolution-paths refs local-vars))
+      ;;(println :rp resolution-path)
+      ;;(println :r-rp (map lookup-resolutions resolution-path))
       {:blame cleaned
        :path path
-       :context (concat (match-up-resolution-paths refs local-vars) (map lookup-resolutions resolution-path))
+       :context {:local-vars (match-up-resolution-paths refs local-vars)
+                 :refs ((lookup-resolutions refs) resolution-path)}
        :errors errors})))
 
 (s/defn check-s-expr

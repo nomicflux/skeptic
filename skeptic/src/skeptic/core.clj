@@ -32,10 +32,12 @@
            (println "In macro-expanded path: \t" (pr-str path))
            (when verbose
              (println "Context:")
-             (doseq [[k {:keys [schema resolution-path]}] context]
+             (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
                (println "\t" k ":" (pr-str schema))
                (doseq [{:keys [expr schema]} resolution-path]
-                 (println "\t\t=>" (analysis/unannotate-expr expr) ":" schema))))
+                 (println "\t\t=>" (analysis/unannotate-expr expr) ":" (pr-str schema))))
+             (doseq [{:keys [expr schema]} (:refs context)]
+               (println "\t" expr "<-" (pr-str schema))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")

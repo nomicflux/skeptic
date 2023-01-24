@@ -28,9 +28,10 @@
         {:schema schema
          :output (or output s/Any)}))))
 
+;; TODO: There has to be a cleaner way to do this than copying all of this resolution code everywhere.
 (defn resolve-map-schema
   [schema-fn]
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
@@ -38,30 +39,47 @@
                         val-idxs (::val-placeholders v)]
                     (schema-fn (->> key-idxs (map (comp :schema (partial get results))))
                                (->> val-idxs (map (comp :schema (partial get results))))) )))
+        (update :resolution-path
+                (fn [rp]
+                  (concat rp
+                          (let [key-idxs (::key-placeholders schema)
+                                val-idxs (::val-placeholders schema)]
+                            (concat (:resolution-path ref)
+                                    (map (partial hash-map :idx) (concat key-idxs val-idxs)))))))
         (assoc :finished? true))))
 
 (defn resolve-coll-schema
   [schema-fn]
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
                   (if-let [idxs (::placeholders v)]
                     (schema-fn (->> idxs (map (comp :schema (partial get results)))))
                     v)))
+        (update :resolution-path
+                (fn [rp]
+                  (concat rp
+                          (let [idxs (::placeholders schema)]
+                            (concat (:resolution-path ref)
+                                    (map (partial hash-map :idx) idxs))))))
         (assoc :finished? true))))
 
 (def resolve-schema
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
                   (if-let [idx (::placeholder v)]
                     (:schema (get results idx))
                     v)))
+        (update :resolution-path
+                (fn [rp]
+                  (conj rp
+                        (when-let [idx (::placeholder schema)]
+                          {:idx idx}))))
         (assoc :finished? true))))
 
-;; TODO: Add resolution path for all resolvers
 (def resolve-local-vars
   (fn [results el]
     (if (contains? el :local-vars)
@@ -76,26 +94,30 @@
                                   (-> ref
                                       (select-keys [:schema :output :arglists])
                                       (update :resolution-path (fn [rp]
-                                                                 (concat
-                                                                  (or (:resolution-path ref) [])
-                                                                  (or rp [])
-                                                                  [(select-keys ref [:idx])])))))
+                                                                 (conj
+                                                                  rp
+                                                                  {:idx idx})))))
                                 v))
                             lvs)))
       el)))
 
 (def resolve-def-schema
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
                   (if-let [idx (::placeholder v)]
                     (analysis-schema/variable (:schema (get results idx)))
                     v)))
+        (update :resolution-path
+                (fn [rp]
+                  (if-let [idx (::placeholder schema)]
+                    (conj rp {:idx idx})
+                    rp)))
         (assoc :finished? true))))
 
 (def resolve-if-schema
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
@@ -104,10 +126,15 @@
                           f-el (get results f-idx)]
                       (analysis-schema/schema-join (set [(:schema t-el) (:schema f-el)])))
                     v)))
+        (update :resolution-path
+                (fn [rp]
+                  (let [[t-idx f-idx] (::placeholders schema)]
+                    (concat rp
+                            (map (partial hash-map :idx) (keep identity [t-idx f-idx]))))))
         (assoc :finished? true))))
 
 (def resolve-application-schema
-  (fn [results el]
+  (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
@@ -128,6 +155,11 @@
                          (get results idx)
                          :arglist)
                     v)))
+        (update :resolution-path
+                (fn [rp]
+                  (if-let [idx (::placeholder schema)]
+                    (conj rp {:idx idx})
+                    rp)))
         (assoc :finished? true))))
 
 (def resolve-fn-outputs

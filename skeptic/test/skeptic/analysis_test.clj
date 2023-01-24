@@ -32,13 +32,13 @@
   (try (->> expr
             (p/map-vals #(update-when % :name (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))))
             (p/map-vals #(update-when % :path (fn [p]
-                                                     (mapv
-                                                      (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                                      p))))
+                                                (mapv
+                                                 (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                                 p))))
             (p/map-vals #(update-when % :expr (fn [ex]
-                                                     (walk/postwalk
-                                                      (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                                      ex))))
+                                                (walk/postwalk
+                                                 (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
+                                                 ex))))
             (p/map-vals #(update-when % :resolution-path (fn [rps]
                                                            (mapv
                                                             (fn [{:keys [expr] :as rp}]
@@ -49,9 +49,11 @@
                                                                 rp))
                                                             rps))))
             (p/map-vals #(update-when % :local-vars (fn [lv]
+                                                      (->> lv
+                                                           (clean-gen-var var-name)
                                                            (p/map-keys
-                                                            (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))
-                                                            (clean-gen-var var-name lv))))))
+                                                            (fn [k] (if (and (symbol? k) (str/starts-with? (name k) (str (name var-name) "__"))) var-name k))))
+                                                      ))))
        (catch Exception e
          (println " xception for " var-name " & " (pr-str expr))
          (throw e))))
@@ -747,12 +749,13 @@
          (sut/attach-schema-info-loop {} '1))))
 
 (deftest attach-schema-info-coll-test
-  (is (= {1 {:expr '(), :idx 1, :schema [s/Any], :finished? true}}
+  (is (= {1 {:expr '(), :idx 1, :schema [s/Any], :finished? true, :resolution-path []}}
          (sut/attach-schema-info-loop {} '())))
   (is (= {1 {:expr 1, :idx 1, :schema s/Int, :local-vars {}, :path []},
           2 {:expr 2, :idx 2, :schema s/Int, :local-vars {}, :path []},
           3 {:expr [{:expr 1, :idx 1} {:expr 2, :idx 2}],
              :idx 3,
+             :resolution-path [{:idx 1} {:idx 2}]
              :schema [s/Int],
              :finished? true}}
          (sut/attach-schema-info-loop {} '[1 2])))
@@ -769,6 +772,7 @@
              :schema #{s/Int},
              :local-vars {},
              :path [],
+             :resolution-path [{:idx 7} {:idx 8}]
              :finished? true},
 
           11 {:expr
@@ -779,6 +783,7 @@
               :idx 11,
               :local-vars {},
               :path [],
+              :resolution-path [{:idx 6} {:idx 9}]
               :map? true,
               :schema
               {s/Keyword #{s/Int}},
@@ -799,6 +804,11 @@
               :idx 13,
               :local-vars {},
               :path [],
+              :resolution-path
+              [{:idx 2}
+               {:idx 5}
+               {:idx 3}
+               {:idx 11}]
               :map? true,
               :schema {s/Keyword (analysis-schema/join {s/Keyword #{s/Int}} s/Int)},
               :finished? true},
@@ -823,6 +833,10 @@
                  :map? true}
                 {:expr 5, :idx 14}),
               :idx 15,
+              :resolution-path
+              [{:idx 1}
+               {:idx 13}
+               {:idx 14}]
               :schema [(analysis-schema/join s/Int {s/Keyword (analysis-schema/join {s/Keyword #{s/Int}} s/Int)})],
               :finished? true}}
          (sut/attach-schema-info-loop {} '[1 {:a 2 :b {:c #{3 4}}} 5]))))
@@ -845,6 +859,7 @@
              :schema s/Any,
              :actual-arglist [s/Int s/Int]
              :expected-arglist [s/Any s/Any]
+             :resolution-path [{:idx 1}]
              :finished? true}}
          (sut/attach-schema-info-loop {} '(+ 1 2))))
 
@@ -863,6 +878,7 @@
           4 {:expr [{:expr 'skeptic.test-examples/int-add, :idx 1} {:expr 1, :idx 2} {:expr 2, :idx 3}],
              :idx 4,
              :schema s/Int,
+             :resolution-path [{:idx 1}]
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :finished? true}}
@@ -889,6 +905,7 @@
              :path [],
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
+             :resolution-path [{:idx 3}]
              :schema s/Int,
              :finished? true},
           7 {:expr
@@ -897,6 +914,7 @@
                {:expr ({:expr skeptic.test-examples/int-add, :idx 3} {:expr 1, :idx 4} {:expr 2, :idx 5}),
                 :idx 6}),
              :idx 7,
+             :resolution-path [{:idx 6}]
              :schema s/Int,
              :finished? true}}
          (->> '(let [] (skeptic.test-examples/int-add 1 2))
@@ -926,6 +944,7 @@
              :expected-arglist [s/Int s/Int],
              :name 'x,
              :schema s/Int,
+             :resolution-path [{:idx 3}]
              :finished? true},
           8 {:expr 'skeptic.test-examples/int-add,
              :idx 8,
@@ -950,6 +969,7 @@
               :local-vars {'x {:schema s/Int :resolution-path [{:idx 6}]}}
               :schema s/Int
               :path [],
+              :resolution-path [{:idx 8}]
               :actual-arglist [s/Int s/Int],
               :expected-arglist [s/Int s/Int],
               :finished? true
@@ -970,6 +990,7 @@
                   {:expr 2, :idx 10}),
                  :idx 11}),
               :idx 12,
+              :resolution-path [{:idx 11}]
               :schema s/Int,
               :finished? true}}
          (->> '(let [x (skeptic.test-examples/int-add 1 2)]
@@ -993,40 +1014,33 @@
               :idx 10,
               :local-vars {'y {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]},
                            'or {:schema (s/maybe s/Any),
-                                :resolution-path [{:idx 3} {:expr 'y, :schema (s/maybe s/Any)} {:idx 7}]}},
-              :resolution-path [{:idx 3}
-               {:expr 'y, :schema (s/maybe s/Any)}
-               {:idx 7}
+                                :resolution-path [{:idx 7}]}},
+              :resolution-path [{:idx 7}
                                 {:expr 'or, :schema (s/maybe s/Any)}]
               :path ['x],
               :schema (s/maybe s/Any)},
           11 {:expr 'or,
               :idx 11,
               :local-vars {'y {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]},
-                           'or {:schema s/Any, :resolution-path [{:idx 3}
-                 {:expr 'y, :schema (s/maybe s/Any)}
-                 {:idx 7}
-                 {:expr 'or, :schema (s/maybe s/Any)}
-                                                                 {:idx 10}]}},
-              :resolution-path [{:idx 3}
-               {:expr 'y, :schema (s/maybe s/Any)}
-               {:idx 7}
-               {:expr 'or, :schema (s/maybe s/Any)}
-               {:idx 10}
-               {:expr 'or, :schema s/Any}]
+                           'or {:schema s/Any, :resolution-path [{:idx 10}]}},
+              :resolution-path [{:idx 10}
+                                {:expr 'or, :schema s/Any}]
               :path ['x],
               :schema s/Any},
           12 {:expr 1,
               :idx 12,
               :local-vars {'y {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]},
-                           'or {:schema (s/maybe s/Any), :resolution-path [{:idx 3} {:expr 'y, :schema (s/maybe s/Any)} {:idx 7}]}},
+                           'or {:schema (s/maybe s/Any), :resolution-path [{:idx 7}]}},
               :path ['x],
               :schema s/Int},
           13 {:expr '(if or or 1),
               :idx 13,
               :local-vars {'y {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]},
-                           'or {:schema (s/maybe s/Any), :resolution-path [{:idx 3} {:expr 'y, :schema (s/maybe s/Any)} {:idx 7}]}},
+                           'or {:schema (s/maybe s/Any), :resolution-path [{:idx 7}]}},
               :path ['x],
+              :resolution-path
+              [{:idx 11}
+               {:idx 12}]
               :schema (analysis-schema/join s/Any s/Int),
               :finished? true},
           14 {:expr '(let* [or y] (if or or 1)),
@@ -1034,6 +1048,8 @@
               :local-vars {'y {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]}},
               :name 'x,
               :path [],
+              :resolution-path
+              [{:idx 13}]
               :schema (analysis-schema/join s/Any s/Int),
               :finished? true},
           16 {:args [17 18],
@@ -1068,12 +1084,14 @@
               :actual-arglist [(analysis-schema/join s/Any s/Int) s/Int],
               :expected-arglist [s/Int s/Int],
               :schema s/Int,
+              :resolution-path [{:idx 16}]
               :finished? true},
           20 {:expr '(let*
                          [y nil x (let* [or y] (if or or 1))]
                        (skeptic.test-examples/int-add x 2)),
               :idx 20,
               :schema s/Int,
+              :resolution-path [{:idx 19}]
               :finished? true}}
          (->> '(let [y nil
                      x (or y 1)]
@@ -1100,6 +1118,7 @@
              :idx 4,
              :local-vars {},
              :path []
+             :resolution-path [{:idx 2}]
              :actual-arglist [s/Int],
              :expected-arglist [s/Any],
              :schema s/Any,
@@ -1112,6 +1131,7 @@
                {:expr true, :idx 5}
                {:expr "hello", :idx 6}),
              :idx 7,
+             :resolution-path [{:idx 5} {:idx 6}]
              :schema (analysis-schema/join s/Str s/Bool),
              :finished? true}}
          (->> '(if (even? 2) true "hello")
@@ -1132,6 +1152,7 @@
              :idx 4,
              :local-vars {},
              :path [],
+             :resolution-path [{:idx 2}]
              :schema s/Any,
              :actual-arglist [s/Any],
              :expected-arglist [s/Any],
@@ -1143,6 +1164,7 @@
                      {:expr 1, :idx 5}
                      {:expr -1, :idx 6}),
              :idx 7,
+             :resolution-path [{:idx 5} {:idx 6}]
              :schema s/Int,
              :finished? true}}
          (->> '(if (pos? x) 1 -1)
@@ -1162,8 +1184,9 @@
              :schema (s/maybe s/Any)},
           7 {:expr 'x,
              :idx 7,
-             :local-vars {'x {:schema s/Any, :resolution-path [{:idx 3} {:expr 'x, :schema (s/maybe s/Any)} {:idx 6}]}},
-             :resolution-path [{:idx 3} {:expr 'x :schema (s/maybe s/Any)} {:idx 6} {:expr 'x :schema s/Any}],
+             :local-vars {'x {:schema s/Any, :resolution-path [{:idx 6}]}},
+             :resolution-path [{:idx 6}
+                               {:expr 'x :schema s/Any}],
              :path [],
              :schema s/Any},
           8 {:expr 1,
@@ -1178,6 +1201,8 @@
              :idx 9,
              :local-vars {'x {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]}},
              :path [],
+             :resolution-path [{:idx 7}
+                               {:idx 8}]
              :schema (analysis-schema/join s/Any s/Int),
              :finished? true},
           10 {:expr '({:expr let*, :idx 1}
@@ -1190,6 +1215,7 @@
                        :idx 9}),
               :idx 10,
               :schema (analysis-schema/join s/Any s/Int),
+              :resolution-path [{:idx 9}]
               :finished? true}}
          (->> '(let [x nil] (if x x 1))
               (schematize/resolve-all {})
@@ -1210,12 +1236,8 @@
              :schema (s/maybe s/Any)},
           7 {:expr 'or,
              :idx 7,
-             :local-vars {'or {:schema s/Any, :resolution-path [{:idx 3}
-                                                                {:expr 'or, :schema (s/maybe s/Any)}
-                                                                {:idx 6}]}},
-             :resolution-path [{:idx 3}
-                               {:expr 'or, :schema (s/maybe s/Any)}
-                               {:idx 6}
+             :local-vars {'or {:schema s/Any, :resolution-path [{:idx 6}]}},
+             :resolution-path [{:idx 6}
                                {:expr 'or, :schema s/Any}]
              :path [],
              :schema s/Any},
@@ -1225,32 +1247,27 @@
                           {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]}},
              :path [],
              :schema s/Int},
-          9 {:expr '({:expr if, :idx 5}
-                     {:expr or, :idx 6}
-                     {:expr or, :idx 7}
-                     {:expr 1, :idx 8}),
+          9 {:expr '(if or or 1),
              :idx 9,
              :local-vars {'or
                           {:schema (s/maybe s/Any), :resolution-path [{:idx 3}]}},
              :path [],
+             :resolution-path
+             [{:idx 7}
+              {:idx 8}]
              :schema (analysis-schema/join s/Any s/Int),
              :finished? true},
-          10 {:expr '({:expr let*, :idx 1}
-                      {:expr [{:expr or, :idx 2} {:expr nil, :idx 3}],
-                       :idx 4}
-                      {:expr
-                       ({:expr if, :idx 5}
-                        {:expr or, :idx 6}
-                        {:expr or, :idx 7}
-                        {:expr 1, :idx 8}),
-                       :idx 9}),
+          10 {:expr '(let* [or nil] (if or or 1)),
               :idx 10,
               :schema (analysis-schema/join s/Any s/Int),
+              :resolution-path
+              [{:idx 9}]
               :finished? true}}
          (->> '(or nil 1)
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict )
               (clean-gen-var 'or)
+              unannotate-results
               (into (sorted-map))
               ))))
 
@@ -1274,6 +1291,7 @@
              :idx 7,
              :path []
              :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+             :resolution-path [{:idx 4}]
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :schema s/Int,
@@ -1307,6 +1325,7 @@
              :idx 4,
              :name 'n,
              :path ['n]
+             :resolution-path [{:idx 3}]
              :schema (analysis-schema/variable s/Int),
              :finished? true}}
          (->> '(def n 5)
@@ -1333,6 +1352,7 @@
                           'y {:expr 'y, :name 'y, :schema s/Any}},
              :schema s/Any,
              :path ['f]
+             :resolution-path [{:idx 7}]
              :actual-arglist [s/Str]
              :expected-arglist [s/Any]
              :finished? true},
@@ -1364,6 +1384,7 @@
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}
                            'y {:expr 'y, :name 'y, :schema s/Any}},
               :path ['f]
+              :resolution-path [{:idx 10}]
               :schema s/Int,
               :finished? true},
           15 {:expr
@@ -1405,6 +1426,7 @@
               :idx 16,
               :name 'f,
               :path ['f]
+              :resolution-path [{:idx 15}]
               :schema (analysis-schema/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x) (s/one s/Any 'y)]])),
               :finished? true}}
          (->> '(defn f [x y] (println "something") (skeptic.test-examples/int-add x y))
@@ -1430,6 +1452,7 @@
              :schema s/Any,
              :actual-arglist [s/Str]
              :expected-arglist [s/Any]
+             :resolution-path [{:idx 2}]
              :finished? true},
           5 {:expr 'skeptic.test-examples/int-add,
              :idx 5,
@@ -1452,6 +1475,7 @@
              :expected-arglist [s/Int s/Int],
              :local-vars {},
              :path []
+             :resolution-path [{:idx 5}]
              :schema s/Int,
              :finished? true},
           9 {:expr
@@ -1465,6 +1489,7 @@
                 :idx 8}),
              :idx 9,
              :schema s/Int,
+             :resolution-path [{:idx 8}]
              :finished? true}}
          (->> '(do (println "something") (skeptic.test-examples/int-add x y))
               (schematize/resolve-all {})
@@ -1490,6 +1515,7 @@
              :idx 5,
              :local-vars {},
              :path []
+             :resolution-path [{:idx 2}]
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :schema s/Int,
@@ -1513,6 +1539,7 @@
                   {:expr ({:expr throw, :idx 9} {:expr e, :idx 10}), :idx 11}),
                  :idx 12}),
               :idx 13,
+              :resolution-path [{:idx 5}]
               :schema s/Int,
               :finished? true}}
          (->> '(try (skeptic.test-examples/int-add 1 2) (catch UnsupportedOperationException e (throw e)))
@@ -1533,6 +1560,7 @@
              :idx 4,
              :local-vars {},
              :path []
+             :resolution-path [{:idx 2}]
              :schema java.lang.String,
              :actual-arglist [s/Str],
              :expected-arglist [s/Any],
@@ -1556,6 +1584,7 @@
              :idx 8,
              :local-vars {},
              :path []
+             :resolution-path [{:idx 5}]
              :actual-arglist [s/Int s/Int],
              :expected-arglist [s/Int s/Int],
              :schema s/Int,
@@ -1575,6 +1604,7 @@
               :idx 14,
               :local-vars {},
               :path []
+              :resolution-path [{:idx 12}]
               :schema s/Any,
               :actual-arglist [s/Str],
               :expected-arglist [s/Any],
@@ -1603,6 +1633,7 @@
               :idx 23,
               :local-vars {},
               :path []
+              :resolution-path [{:idx 20}]
               :schema s/Int,
               :actual-arglist [s/Int s/Int],
               :expected-arglist [s/Int s/Int],
@@ -1623,6 +1654,7 @@
               :local-vars {},
               :path []
               :schema java.lang.String,
+              :resolution-path [{:idx 24}]
               :actual-arglist [s/Str],
               :expected-arglist [s/Any],
               :finished? true},
@@ -1656,6 +1688,7 @@
                  :idx 27}),
               :idx 28,
               :schema s/Int,
+              :resolution-path [{:idx 8}]
               :finished? true}}
          (->> '(try (clojure.core/str "hello") (skeptic.test-examples/int-add 1 2)
                     (catch UnsupportedOperationException e (println "oops") (throw e))
@@ -1706,6 +1739,7 @@
                 {:expr x, :idx 10}),
               :idx 11,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :resolution-path [{:idx 8}]
               :path ['sample-bad-fn]
               :actual-arglist [(s/maybe s/Any) s/Any],
               :expected-arglist [s/Int s/Int],
@@ -1721,6 +1755,7 @@
                  :idx 11}),
               :idx 12,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :resolution-path [{:idx 6}]
               :path ['sample-bad-fn]
               :actual-arglist [s/Int s/Int],
               :expected-arglist [s/Int s/Int],
@@ -1772,6 +1807,7 @@
               :idx 15,
               :name 'sample-bad-fn,
               :path ['sample-bad-fn]
+              :resolution-path [{:idx 14}]
               :schema (analysis-schema/variable (s/make-fn-schema s/Int [[(s/one s/Any 'x)]])),
               :finished? true}}
          (->> '(defn sample-bad-fn
@@ -1875,6 +1911,7 @@
                               :count 1,
                               :schema [{:schema s/Any, :optional? false, :name 'x}]}}}},
               :path []
+              :resolution-path [{:idx 12}]
               :actual-arglist [s/Any],
               :expected-arglist [s/Any],
               :schema (s/maybe s/Any),
@@ -1896,6 +1933,7 @@
               :path []
               :actual-arglist [s/Int (s/maybe s/Any)],
               :expected-arglist [s/Int s/Int],
+              :resolution-path [{:idx 10}]
               :schema s/Int,
               :finished? true},
           16 {:expr
@@ -1915,6 +1953,7 @@
                   {:expr ({:expr f, :idx 12} {:expr x, :idx 13}), :idx 14}),
                  :idx 15}),
               :idx 16,
+              :resolution-path [{:idx 15}]
               :schema s/Int,
               :finished? true}}
          (->> '(let [f (fn [x] nil)]
@@ -1951,6 +1990,7 @@
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any},
                            'y {:expr 'y, :name 'y, :schema s/Any}},
               :path ['sample-fn-once]
+              :resolution-path [{:idx 9}]
               :actual-arglist [s/Any (s/maybe s/Any),]
               :expected-arglist [s/Any s/Any],
               :schema s/Any,
@@ -1989,6 +2029,7 @@
                 {:expr x, :idx 14}),
               :idx 15,
               :local-vars {'x {:expr 'x, :name 'x, :schema s/Any}},
+              :resolution-path [{:idx 13}]
               :path ['sample-fn-once]
               :actual-arglist [s/Any],
               :expected-arglist [s/Any],
@@ -2046,6 +2087,7 @@
               :idx 18,
               :name 'sample-fn-once,
               :path ['sample-fn-once]
+              :resolution-path [{:idx 17}]
               :schema (analysis-schema/variable (s/make-fn-schema s/Any [[(s/one s/Any 'x)]])),
               :finished? true}}
          (->> '(defn sample-fn-once
@@ -2147,6 +2189,7 @@
               :map? true,
               :local-vars {},
               :path ['G],
+              :resolution-path [{:idx 4} {:idx 7} {:idx 5} {:idx 8}]
               :schema {s/Keyword s/Int},
               :finished? true},
           11 {:path [],
@@ -2156,6 +2199,7 @@
               :expr '(make-component [[:a 1] [:b 2]]),
               :finished? true,
               :expected-arglist [s/Any],
+              :resolution-path [{:idx 3}]
               :idx 11,
               :actual-arglist [{s/Keyword s/Int}]},
           13 {:args [14 18],
@@ -2194,6 +2238,7 @@
               :local-vars {'G {:schema s/Any
                                :resolution-path [{:idx 11}]}},
               :path [],
+              :resolution-path [{:idx 15} {:idx 16}]
               :schema {s/Keyword java.lang.Boolean},
               :finished? true},
           19 {:path [],
@@ -2204,6 +2249,7 @@
               :finished? true,
               :expected-arglist [s/Any s/Any],
               :idx 19,
+              :resolution-path [{:idx 13}]
               :actual-arglist [s/Any {s/Keyword java.lang.Boolean}]},
           20 {:expr 'G,
               :idx 20,
@@ -2218,6 +2264,7 @@
                  G),
               :idx 21,
               :schema s/Any,
+              :resolution-path [{:idx 20}]
               :finished? true}}
          (->> '(doto (make-component {:a 1 :b 2})
                  (start {:opt1 true}))
@@ -2288,27 +2335,29 @@
               unannotate-results
               (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist])))))
   (is (= {4 {:expr 'set-cache-value, :idx 4, :schema s/Any},
-           6 {:expr 'G, :idx 6, :schema s/Any},
-           7 {:expr '(let* cache [G set-cache-value] G), :idx 7, :schema s/Any}}
+          6 {:expr 'G, :idx 6, :schema s/Any},
+          7 {:expr '(let* cache [G set-cache-value] G),
+             :idx 7,
+             :schema s/Any}}
          (->> '(-> cache
-                 (doto set-cache-value))
+                   (doto set-cache-value))
               (schematize/resolve-all {})
               (sut/attach-schema-info-loop test-examples/sample-dict)
               (clean-gen-var 'G)
               unannotate-results
               (p/map-vals #(select-keys % [:expr :idx :schema :args :output :arglist])))))
   (is (= {3 {:expr :invalid, :idx 3, :schema s/Keyword},
-           6 {:expr true, :idx 6, :schema java.lang.Boolean},
-           10 {:expr 'set-cache-value, :idx 10, :schema s/Any},
-           12 {:expr 'G, :idx 12, :schema s/Any},
-           13 {:expr '(let* G [G set-cache-value] G), :idx 13, :schema s/Any},
-           14 {:expr 'G, :idx 14, :schema s/Keyword},
-           15 {:expr '(if true (let* G [G set-cache-value] G) G),
-            :idx 15,
-               :schema (analysis-schema/join s/Any s/Keyword)},
-           16 {:expr '(let* [G :invalid] (if true (let* G [G set-cache-value] G) G)),
-            :idx 16,
-               :schema (analysis-schema/join s/Any s/Keyword)}}
+          6 {:expr true, :idx 6, :schema java.lang.Boolean},
+          10 {:expr 'set-cache-value, :idx 10, :schema s/Any},
+          12 {:expr 'G, :idx 12, :schema s/Any},
+          13 {:expr '(let* G [G set-cache-value] G), :idx 13, :schema s/Any},
+          14 {:expr 'G, :idx 14, :schema s/Keyword},
+          15 {:expr '(if true (let* G [G set-cache-value] G) G),
+              :idx 15,
+              :schema (analysis-schema/join s/Any s/Keyword)},
+          16 {:expr '(let* [G :invalid] (if true (let* G [G set-cache-value] G) G)),
+              :idx 16,
+              :schema (analysis-schema/join s/Any s/Keyword)}}
          (->> '(cond-> :invalid
                  true
                  (doto set-cache-value))
