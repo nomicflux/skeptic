@@ -474,6 +474,34 @@
                :schema [{:schema s/Any, :optional? false, :name 'y}]}}}]
            (clean-callbacks analysed)))
     (is (= '((int-add y nil) (fn* [y] (int-add y nil)))
+           (sut/unannotate-expr analysed))))
+  (let [analysed (expand-and-annotate '(fn* [& rst] (= 1 (count rst))) sut/analyse-fn-once)]
+    (is (= [{:expr
+             '({:expr =, :idx 5}
+               {:expr 1, :idx 6}
+               {:expr ({:expr count, :idx 7} {:expr rst, :idx 8}), :idx 9}),
+             :idx 10,
+             :local-vars {},
+             :path []}
+            {:expr
+             '({:expr fn*, :idx 1}
+               {:expr [{:expr &, :idx 2} {:expr rst, :idx 3}], :idx 4}
+               {:expr
+                ({:expr =, :idx 5}
+                 {:expr 1, :idx 6}
+                 {:expr ({:expr count, :idx 7} {:expr rst, :idx 8}), :idx 9}),
+                :idx 10}),
+             :idx 11,
+             :output #:skeptic.analysis.resolvers{:placeholder 10},
+             :schema
+             #:skeptic.analysis.resolvers{:arglist
+                                          {:varargs
+                                           {:arglist [['rst]],
+                                            :count 1,
+                                            :schema [s/Any]}}},
+             :arglists {:varargs {:arglist [['rst]], :count 1, :schema [s/Any]}}}]
+           (clean-callbacks analysed)))
+    (is (= '((= 1 (count rst)) (fn* [& rst] (= 1 (count rst))))
            (sut/unannotate-expr analysed)))))
 
 (deftest analyse-def-test

@@ -20,7 +20,7 @@
 ;; TODO: keywords & other values in function position
 ;; TODO: atoms? refs? reader macros?
 
-;; TODO: def & defn need to add to a global set of symbols
+;; TODO: def & defn need to add to a global set of symbols?
 ;; TODO: need support for for, doseq, doall
 
 ;; TODO: Global vars from def
@@ -223,9 +223,10 @@
   (let [[_ vars & body] expr
         {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
         fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
-        fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
-                                                             :name varargs
-                                                             :schema [s/Any]}))
+        ;; TODO: varargs
+        ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
+        ;;                                                      :name varargs
+        ;;                                                      :schema [s/Any]}))
         clauses (map (partial push-down-info
                               (assoc this :local-vars (merge local-vars fn-vars)))
                      body)

@@ -44,7 +44,8 @@
              (println "---")
              (println error "\n")))
          (catch Exception e
-           (println (colours/red (str "Error parsing namespace" ns ":" e) true)))))
+           (println (colours/white (str "Namespace: \t\t" ns) true))
+           (println (colours/red (str "Error parsing namespace " ns ": " e) true)))))
       (if @errored
         (System/exit 1)
         (println "No inconsistencies found")))))
