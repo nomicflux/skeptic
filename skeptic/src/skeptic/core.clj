@@ -6,7 +6,7 @@
             [skeptic.analysis :as analysis]))
 
 (defn get-project-schemas
-  [{:keys [verbose namespace] :as opts} root & paths]
+  [{:keys [verbose show-context namespace] :as opts} root & paths]
   (let [nss (cond-> (try (->> paths
                               (map (partial file/relative-path (io/file root)))
                               (mapcat file/clojure-files-for-path)
@@ -31,7 +31,7 @@
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/white (str "Expression: \t\t" (pr-str blame)) true))
            (println "In macro-expanded path: \t" (pr-str path))
-           (when verbose
+           (when show-context
              (println "Context:")
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
                (println (str "\t" (colours/blue (pr-str k)) ": " (colours/green (pr-str schema))))
