@@ -103,11 +103,6 @@
                                                             (spy :expected-arglist (vec expected-arglist))
                                                             (spy :actual-arglist (vec actual-arglist))))
           errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
-      ;;(println :refs refs)
-      ;;(println :lvs local-vars)
-      ;;(println :murp-ls (match-up-resolution-paths refs local-vars))
-      ;;(println :rp resolution-path)
-      ;;(println :r-rp (map lookup-resolutions resolution-path))
       {:blame cleaned
        :path path
        :context {:local-vars (match-up-resolution-paths refs local-vars)

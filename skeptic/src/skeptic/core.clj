@@ -1,6 +1,7 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
             [skeptic.file :as file]
+            [skeptic.colours :as colours]
             [clojure.java.io :as io]
             [skeptic.analysis :as analysis]))
 
@@ -27,23 +28,23 @@
        (try
          (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
            (println "---------")
-           (println "Namespace: \t\t" ns)
-           (println "Expression: \t\t" (pr-str blame))
+           (println (colours/white (str "Namespace: \t\t" ns) true))
+           (println (colours/white (str "Expression: \t\t" (pr-str blame)) true))
            (println "In macro-expanded path: \t" (pr-str path))
            (when verbose
              (println "Context:")
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
-               (println "\t" k ":" (pr-str schema))
+               (println (str "\t" (colours/blue (pr-str k)) ": " (colours/green (pr-str schema))))
                (doseq [{:keys [expr schema]} resolution-path]
-                 (println "\t\t=>" (analysis/unannotate-expr expr) ":" (pr-str schema))))
+                 (println (str "\t\t=> " (colours/blue (pr-str (analysis/unannotate-expr expr))) ": " (colours/green (pr-str schema))))))
              (doseq [{:keys [expr schema]} (:refs context)]
-               (println "\t" expr "<-" (pr-str schema))))
+               (println (str "\t" (colours/blue (pr-str (analysis/unannotate-expr expr))) " <- " (colours/green (pr-str schema))))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")
              (println error "\n")))
          (catch Exception e
-           (println "Error parsing namespace" ns ":" e))))
+           (println (colours/red (str "Error parsing namespace" ns ":" e) true)))))
       (if @errored
         (System/exit 1)
         (println "No inconsistencies found")))))

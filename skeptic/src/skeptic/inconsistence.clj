@@ -1,6 +1,7 @@
 (ns skeptic.inconsistence
   (:require [schema.core :as s]
-            [skeptic.analysis.schema :as analysis-schema]))
+            [skeptic.analysis.schema :as analysis-schema]
+            [skeptic.colours :as colours]))
 
 ;; TODO: Add Keyword back in once resolution of keyword in fn position is in place
 (def ground-types #{s/Int s/Str s/Bool s/Symbol})
@@ -12,8 +13,9 @@
 (defn mismatched-nullable-msg
   [expr arg output-schema expected-schema]
   (format "%s in %s is nullable:\n\n\t%s\n\nbut expected is not:\n\n\t%s"
-          (pr-str arg) (pr-str expr) (pr-str (s/explain output-schema))
-          (pr-str (s/explain expected-schema))))
+          (pr-str arg) (pr-str expr)
+          (colours/yellow (pr-str (s/explain output-schema)))
+          (colours/yellow (pr-str (s/explain expected-schema)))))
 
 (defn mismatched-maybe
   [expr arg expected actual]
@@ -25,8 +27,9 @@
 (defn mismatched-ground-type-msg
   [expr arg output-schema expected-schema]
   (format "%s in %s is a mismatched type:\n\n\t%s\n\nbut expected is:\n\n\t%s"
-          (pr-str arg) (pr-str expr) (pr-str (s/explain output-schema))
-          (pr-str (s/explain expected-schema))))
+          (pr-str arg) (pr-str expr)
+          (colours/yellow (pr-str (s/explain output-schema)))
+          (colours/yellow (pr-str (s/explain expected-schema)))))
 
 (defn mismatched-ground-types
   [expr arg expected actual]
