@@ -102,7 +102,7 @@
           matched (spy :matched-arglists (match-up-arglists cleaned
                                                             (spy :expected-arglist (vec expected-arglist))
                                                             (spy :actual-arglist (vec actual-arglist))))
-          errors (vec (keep (partial apply inconsistence/inconsistent? cleaned) matched))]
+          errors (vec (mapcat (partial apply inconsistence/inconsistent? cleaned) matched))]
       {:blame cleaned
        :path path
        :context {:local-vars (match-up-resolution-paths refs local-vars)

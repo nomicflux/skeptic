@@ -149,29 +149,17 @@
              :schema (s/=> s/Int s/Int s/Int)}]
            ((sut/lookup-resolutions refs) [{:idx 20}])))))
 
-;; (deftest match-up-resolution-paths
-;;   (is (= {'x {:expr 'x, :name 'x, :schema s/Any, :resolution-path []},
-;;           'f {:schema (s/=> s/Int s/Any), :output s/Int, :resolution-path [{:a 1, :b 2}]},
-;;           'g {:schema s/Int, :resolution-path [{:c 3, :d 4} {:e 5, :f 6}]}}
-;;          (sut/match-up-resolution-paths {1 {:a 1 :b 2}
-;;                                          2 {:c 3 :d 4}
-;;                                          3 {:e 5 :f 6}}
-;;                                         {'x {:expr 'x, :name 'x, :schema s/Any}
-;;                                          'f {:schema (s/=> s/Int s/Any)
-;;                                              :output s/Int
-;;                                              :resolution-path [{:idx 1}]}
-;;                                          'g {:schema s/Int
-;;                                              :resolution-path [{:idx 2} {:idx 3}]}}))))
-
 (deftest working-functions
   (in-test-examples
-   (are [f] (empty? (try (sut/check-fn test-refs test-dict f)
-                         (catch Exception e
-                           (throw (ex-info "Exception checking function"
-                                           {:function f
-                                            :test-refs test-refs
-                                            :test-dict test-dict
-                                            :error e})))))
+   (are [f] (try (cond
+                   (empty? (sut/check-fn test-refs test-dict f)) true
+                   :else (do (println "Failed for" f "\n\tfor reasons" (sut/check-fn test-refs test-dict f)) false))
+                 (catch Exception e
+                   (throw (ex-info "Exception checking function"
+                                   {:function f
+                                    :test-refs test-refs
+                                    :test-dict test-dict
+                                    :error e}))))
      'skeptic.test-examples/sample-fn
      'skeptic.test-examples/sample-schema-fn
      'skeptic.test-examples/sample-half-schema-fn
@@ -196,41 +184,41 @@
    (are [f errors] (= errors
                       (mapcat (juxt :blame :errors) (sut/check-fn test-refs test-dict f)))
      'skeptic.test-examples/sample-bad-fn ['(skeptic.test-examples/int-add nil x)
-                                           [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add nil x) nil (s/maybe s/Any) s/Int)]]
+                                           [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-bad-let-fn ['(skeptic.test-examples/int-add x y)
-                                               [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x y) 'y (s/maybe s/Any) s/Int)]]
+                                               [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x y):arg 'y} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-let-bad-fn ['(skeptic.test-examples/int-add 1 nil)
-                                               [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add 1 nil) nil (s/maybe s/Any) s/Int)]]
+                                               [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add 1 nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-multi-line-body ['(skeptic.test-examples/int-add nil x)
-                                                    [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add nil x) nil (s/maybe s/Any) s/Int)]]
+                                                    [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-multi-line-let-body ['(skeptic.test-examples/int-add nil x)
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add nil x) nil (s/maybe s/Any) s/Int)]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]
                                                         '(skeptic.test-examples/int-add 1 (f x))
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add 1 (f x)) '(f x) (s/maybe s/Any) s/Int)]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add 1 (f x)) :arg '(f x)} (s/maybe s/Any) s/Int)]
                                                         '(skeptic.test-examples/int-add 2 3 4 nil)
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add 2 3 4 nil) nil (s/maybe s/Any) s/Int)]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add 2 3 4 nil) :arg nil} (s/maybe s/Any) s/Int)]
                                                         '(skeptic.test-examples/int-add w 1 x y z)
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add w 1 x y z) 'w (s/maybe s/Any) s/Int)]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)]
                                                         '(skeptic.test-examples/int-add 2 nil)
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add 2 nil) nil (s/maybe s/Any) s/Int)]]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add 2 nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-mismatched-types ['(skeptic.test-examples/int-add x "hi")
-                                                     [(inconsistence/mismatched-ground-type-msg '(skeptic.test-examples/int-add x "hi") "hi" s/Str s/Int)]]
+                                                     [(inconsistence/mismatched-ground-type-msg {:expr '(skeptic.test-examples/int-add x "hi") :arg "hi"} s/Str s/Int)]]
      'skeptic.test-examples/sample-let-mismatched-types ['(skeptic.test-examples/int-add x s)
-                                                         [(inconsistence/mismatched-ground-type-msg '(skeptic.test-examples/int-add x s) 's s/Str s/Int)]]
+                                                         [(inconsistence/mismatched-ground-type-msg {:expr '(skeptic.test-examples/int-add x s):arg 's} s/Str s/Int)]]
      'skeptic.test-examples/sample-let-fn-bad1-fn ['(skeptic.test-examples/int-add y nil)
-                                                   [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add y nil) nil (s/maybe s/Any) s/Int)]]
+                                                   [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]]
      ;;'skeptic.test-examples/sample-let-fn-bad2-fn [""]
      'skeptic.test-examples/sample-multi-arity-fn ['(skeptic.test-examples/int-add x y z nil)
-                                                   [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x y z nil) nil (s/maybe s/Any) s/Int)]
+                                                   [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x y z nil) :arg nil} (s/maybe s/Any) s/Int)]
                                                    '(skeptic.test-examples/int-add x y nil)
-                                                   [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x y nil) nil (s/maybe s/Any) s/Int)]
+                                                   [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x y nil) :arg nil} (s/maybe s/Any) s/Int)]
                                                    '(skeptic.test-examples/int-add x nil)
-                                                   [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x nil) nil (s/maybe s/Any) s/Int)]]
+                                                   [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-metadata-fn ['(skeptic.test-examples/int-add x nil)
-                                                [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x nil) nil (s/maybe s/Any) s/Int)]]
+                                                [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-doc-fn ['(skeptic.test-examples/int-add x nil)
-                                           [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x nil) nil (s/maybe s/Any) s/Int)]]
+                                           [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-doc-and-metadata-fn ['(skeptic.test-examples/int-add x nil)
-                                                        [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add x nil) nil (s/maybe s/Any) s/Int)]]
+                                                        [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-fn-once ['(skeptic.test-examples/int-add y nil)
-                                            [(inconsistence/mismatched-nullable-msg '(skeptic.test-examples/int-add y nil) nil (s/maybe s/Any) s/Int)]])))
+                                            [(inconsistence/mismatched-nullable-msg {:expr '(skeptic.test-examples/int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]])))
