@@ -3,7 +3,8 @@
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.java.io :as io]
-            [skeptic.analysis :as analysis]))
+            [skeptic.analysis :as analysis]
+            [skeptic.analysis.annotation :as aa]))
 
 (defn get-project-schemas
   [{:keys [verbose show-context namespace] :as opts} root & paths]
@@ -36,9 +37,9 @@
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
                (println (str "\t" (colours/blue (pr-str k)) ": " (colours/green (pr-str schema))))
                (doseq [{:keys [expr schema]} resolution-path]
-                 (println (str "\t\t=> " (colours/blue (pr-str (analysis/unannotate-expr expr))) ": " (colours/green (pr-str schema))))))
+                 (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr))) ": " (colours/green (pr-str schema))))))
              (doseq [{:keys [expr schema]} (:refs context)]
-               (println (str "\t" (colours/blue (pr-str (analysis/unannotate-expr expr))) " <- " (colours/green (pr-str schema))))))
+               (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr))) " <- " (colours/green (pr-str schema))))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")

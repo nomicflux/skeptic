@@ -1,18 +1,45 @@
 (ns skeptic.analysis.schema
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
-            [schema.spec.leaf :as leaf])
-  (:import [schema.core Maybe Schema]))
+            [schema.spec.leaf :as leaf]
+            [clojure.set :as set])
+  (:import [schema.core EqSchema Maybe Schema]))
+
+(defn any-schema?
+  [s]
+  (= s s/Any))
+
+(defn schema?
+  [s]
+  (instance? Schema s))
+
+(defn check-if-schema
+  [s x]
+  (if (schema? s)
+    (if (s/check s x)
+      ::schema-invalid
+      ::schema-valid)
+    ::value))
 
 (defn maybe?
   [s]
   (instance? Maybe s))
+
+(defn eq?
+  [s]
+  (instance? EqSchema s))
 
 (defn de-maybe
   [s]
   (cond-> s
     (maybe? s)
     :schema))
+
+(defn de-eq
+  [s]
+  (cond-> s
+    (eq? s)
+    :v))
 
 (defrecord BottomSchema [_]
   ;; This is copied from Any, but in terms of calculating joins of types it works in practically the opposite fashion
@@ -31,8 +58,6 @@
   ;; It is intended for use in analysis rather than directly in programs, to represent an unresolved Join of the included
   ;; schemas (which often will be simply x || y || z || ... for distinct schemas x, y, z, ..., but may be able to be restricted
   ;; in the case of maps with overlapping keys, numeric types, etc.)
-  ;; Nils treated as an automatic `maybe`; this isn't strictly necessary, as `maybe x` is just `nil || x`, but `nil` analysis is
-  ;; important enough that they are treated as a separate case
   Schema
   (spec [this] (leaf/leaf-spec (spec/precondition this set? #(list 'set? schemas %))))
   (explain [_this] (into #{} (map s/explain schemas))))
@@ -41,7 +66,19 @@
   [& schemas]
   (Join. (into #{} schemas)))
 
+(defn join?
+  [s]
+  (instance? Join s))
+
+(defn join->set
+  [s]
+  (if (join? s)
+    (:schemas s)
+    #{s}))
+
 (defn schema-join
+  ;; Nils treated as an automatic `maybe`; this isn't strictly necessary, as `maybe x` is just `nil || x`, but `nil` analysis is
+  ;; important enough that they are treated as a separate case
   [[t1 & _r :as types]]
   (let [types (cond->> types (not (set? types)) (into #{}))]
     (cond

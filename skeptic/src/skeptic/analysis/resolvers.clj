@@ -1,7 +1,8 @@
 (ns skeptic.analysis.resolvers
   (:require [schema.core :as s]
-            [skeptic.analysis.schema :as analysis-schema]
-            [plumbing.core :as p]))
+            [skeptic.analysis.schema :as as]
+            [plumbing.core :as p]
+            [skeptic.analysis.annotation :as aa]))
 
 (defn arglist->input-schema
   [{:keys [schema name] :as s}]
@@ -21,31 +22,33 @@
             arglist (mapv :schema schemas)]
         {:schema (if (and output (seq schemas))
                    (s/make-fn-schema output [schemas])
-                   (analysis-schema/dynamic-fn-schema arity output))
+                   (as/dynamic-fn-schema arity output))
          :output (or output s/Any)
          :arglist arglist})
-      (let [schema (analysis-schema/dynamic-fn-schema arity output)]
+      (let [schema (as/dynamic-fn-schema arity output)]
         {:schema schema
          :output (or output s/Any)}))))
 
 ;; TODO: There has to be a cleaner way to do this than copying all of this resolution code everywhere.
-(defn resolve-map-schema
-  [schema-fn]
+(def resolve-map-schema
   (fn [results {:keys [schema] :as el}]
     (-> el
         (update :schema
                 (fn [v]
-                  (let [key-idxs (::key-placeholders v)
-                        val-idxs (::val-placeholders v)]
-                    (schema-fn (->> key-idxs (map (comp :schema (partial get results))))
-                               (->> val-idxs (map (comp :schema (partial get results))))) )))
+                  (let [idx-pairs (::key-val-placeholders v)
+                        f (fn [[key-idx val-idx]]
+                            (let [k (get results key-idx)
+                                  k-schema (as/schema-join [(s/eq (aa/unannotate-expr k)) (:schema k)])
+                                  v (get results val-idx)
+                                  v-schema (as/schema-join [(s/eq (aa/unannotate-expr v)) (:schema v)])]
+                              [k-schema v-schema]))]
+                    (->> idx-pairs (map f) (into {})))))
         (update :resolution-path
                 (fn [rp]
                   (concat rp
-                          (let [key-idxs (::key-placeholders schema)
-                                val-idxs (::val-placeholders schema)]
+                          (let [idx-pairs (::key-val-placeholders schema)]
                             (concat (:resolution-path ref)
-                                    (map (partial hash-map :idx) (concat key-idxs val-idxs)))))))
+                                    (map (partial hash-map :idx) (apply concat idx-pairs)))))))
         (assoc :finished? true))))
 
 (defn resolve-coll-schema
@@ -107,7 +110,7 @@
         (update :schema
                 (fn [v]
                   (if-let [idx (::placeholder v)]
-                    (analysis-schema/variable (:schema (get results idx)))
+                    (as/variable (:schema (get results idx)))
                     v)))
         (update :resolution-path
                 (fn [rp]
@@ -124,7 +127,7 @@
                   (if-let [[t-idx f-idx] (::placeholders v)]
                     (let [t-el (get results t-idx)
                           f-el (get results f-idx)]
-                      (analysis-schema/schema-join (set [(:schema t-el) (:schema f-el)])))
+                      (as/schema-join (set [(:schema t-el) (:schema f-el)])))
                     v)))
         (update :resolution-path
                 (fn [rp]
@@ -167,7 +170,7 @@
     (let [output-schemas (->> el :output ::placeholders
                               (map #(get results %))
                               (map :schema)
-                              analysis-schema/schema-join)]
+                              as/schema-join)]
       (-> el
           (assoc :output output-schemas)
           (update :schema

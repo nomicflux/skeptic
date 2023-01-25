@@ -4,7 +4,8 @@
             [skeptic.file :as file]
             [schema.core :as s]
             [skeptic.schematize :as schematize]
-            [plumbing.core :as p])
+            [plumbing.core :as p]
+            [skeptic.analysis.annotation :as aa])
   (:import [schema.core Schema]
            [java.io File]))
 
@@ -98,7 +99,7 @@
     (assert (>= (count actual-arglist) (count expected-arglist))
             (format "Actual should have at least as many elements as expected: %s %s\n%s"
                     expected-arglist actual-arglist to-match))
-    (let [cleaned (analysis/unannotate-expr expr)
+    (let [cleaned (aa/unannotate-expr expr)
           matched (spy :matched-arglists (match-up-arglists cleaned
                                                             (spy :expected-arglist (vec expected-arglist))
                                                             (spy :actual-arglist (vec actual-arglist))))
