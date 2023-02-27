@@ -11,15 +11,25 @@
 
 (defn schema?
   [s]
-  (instance? Schema s))
+  (or (instance? Schema s)
+      (try (s/check s nil)
+           true
+           (catch Exception _e
+             false))))
+
+(defn schema-match?
+  [s x]
+  (try
+    (nil? (s/check s x))
+    (catch Exception _e
+      nil)))
 
 (defn check-if-schema
   [s x]
-  (if (schema? s)
-    (if (s/check s x)
-      ::schema-invalid
-      ::schema-valid)
-    ::value))
+  (case (schema-match? s x)
+    true ::schema-valid
+    false ::schema-invalid
+    nil ::value))
 
 (defn maybe?
   [s]
@@ -92,6 +102,62 @@
 
       :else
       (apply join types))))
+
+(defrecord ValuedSchema [schema value]
+  Schema
+  (spec [this] (leaf/leaf-spec (spec/precondition this #(instance? Schema (:schema %)) (fn [s] s))))
+  (explain [_this] (str value " : " (s/explain schema))))
+
+(defn valued-schema
+  [schema value]
+  (ValuedSchema. schema value))
+
+(defn valued-schema?
+  [s]
+  (instance? ValuedSchema s))
+
+(defn cartesian
+  [coll1 coll2]
+  (for [x coll1
+        y coll2]
+    [x y]))
+
+(defn all-pairs
+  [[coll1 & rst]]
+  (cond
+    (nil? coll1) []
+    (empty? rst)  coll1
+    :else (mapv flatten (reduce cartesian coll1 (or rst [])))))
+
+(defn schema-values
+  [s]
+  (cond
+    (valued-schema? s) [(:schema s) (:value s)]
+    (and (map? s)
+         (not (s/optional-key? s)))
+    (let [{valued-schemas true base-schemas false} (->> s keys (group-by valued-schema?))
+
+          complex-keys (->> valued-schemas
+                            (map (fn [k] (let [v (get s k)]
+                                      (map (fn [k2]
+                                             {k2 (if (and (schema? k2) (valued-schema? v))
+                                                   (:schema v)
+                                                   v)})
+                                           (schema-values k)))))
+                            all-pairs
+                            (map (partial into {})))
+
+          complex-values (->> base-schemas
+                              (map (fn [k]
+                                     (let [v (get s k)]
+                                       (map (fn [v2] {k v2})
+                                            (if (valued-schema? v) (schema-values v) [v])))))
+                              all-pairs
+                              (map (partial into {})))
+
+          split-keys (mapcat (fn [vs] (mapv #(merge vs %) complex-keys)) complex-values)]
+      split-keys)
+    :else [s]))
 
 (defn dynamic-fn-schema
   [arity output]

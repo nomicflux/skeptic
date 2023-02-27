@@ -812,7 +812,7 @@
               :path [],
               :resolution-path [{:idx 6} {:idx 9}]
               :map? true,
-              :schema {(as/join s/Keyword (s/eq :c)) (as/join #{s/Int} (s/eq #{4 3}))},
+              :schema {(as/valued-schema s/Keyword :c) (as/valued-schema #{s/Int} #{4 3})},
               :finished? true},
 
           13 {:expr
@@ -836,8 +836,10 @@
                {:idx 5}
                {:idx 11}]
               :map? true,
-              :schema {(as/join (s/eq :a) s/Keyword) (as/join (s/eq 2) s/Int),
-                       (as/join s/Keyword (s/eq :b)) (as/join (s/eq {:c #{4 3}}) {(as/join s/Keyword (s/eq :c)) (as/join #{s/Int} (s/eq #{4 3}))})},
+              :schema {(as/valued-schema s/Keyword :a) (as/valued-schema s/Int 2),
+                       (as/valued-schema s/Keyword :b) (as/valued-schema {(as/valued-schema s/Keyword :c)
+                                                                          (as/valued-schema #{s/Int} #{4 3})}
+                                                                         {:c #{4 3}})},
               :finished? true},
 
           14 {:expr 5, :idx 14, :schema s/Int, :local-vars {}, :path []},
@@ -864,8 +866,10 @@
               [{:idx 1}
                {:idx 13}
                {:idx 14}]
-              :schema [(as/join s/Int {(as/join (s/eq :a) s/Keyword) (as/join (s/eq 2) s/Int),
-                                       (as/join s/Keyword (s/eq :b)) (as/join (s/eq {:c #{4 3}}) {(as/join s/Keyword (s/eq :c)) (as/join #{s/Int} (s/eq #{4 3}))})})],
+              :schema [(as/join s/Int {(as/valued-schema s/Keyword :a) (as/valued-schema s/Int 2),
+                                       (as/valued-schema s/Keyword :b) (as/valued-schema {(as/valued-schema s/Keyword :c)
+                                                                                          (as/valued-schema #{s/Int} #{4 3})}
+                                                                                         {:c #{4 3}})})],
               :finished? true}}
          (sut/attach-schema-info-loop {} '[1 {:a 2 :b {:c #{3 4}}} 5]))))
 
@@ -2218,8 +2222,8 @@
               :local-vars {},
               :path ['G],
               :resolution-path [{:idx 4} {:idx 5} {:idx 7} {:idx 8}]
-              :schema {(as/join (s/eq :a) s/Keyword) (as/join s/Int (s/eq 1)),
-                       (as/join s/Keyword (s/eq :b)) (as/join (s/eq 2) s/Int)},
+              :schema {(as/valued-schema s/Keyword :a) (as/valued-schema s/Int 1),
+                       (as/valued-schema s/Keyword :b) (as/valued-schema s/Int 2)},
               :finished? true},
           11 {:path [],
               :schema s/Any,
@@ -2230,8 +2234,8 @@
               :expected-arglist [s/Any],
               :resolution-path [{:idx 3}]
               :idx 11,
-              :actual-arglist [{(as/join (s/eq :a) s/Keyword) (as/join s/Int (s/eq 1)),
-                                (as/join s/Keyword (s/eq :b)) (as/join (s/eq 2) s/Int)}]},
+              :actual-arglist [{(as/valued-schema s/Keyword :a) (as/valued-schema s/Int 1),
+                                (as/valued-schema s/Keyword :b) (as/valued-schema s/Int 2)}]},
           13 {:args [14 18],
               :path [],
               :schema (s/make-fn-schema s/Any [[(s/one s/Any 'anon-arg) (s/one s/Any 'anon-arg)]]),
@@ -2269,7 +2273,7 @@
                                :resolution-path [{:idx 11}]}},
               :path [],
               :resolution-path [{:idx 15} {:idx 16}]
-              :schema {(as/join (s/eq :opt1) s/Keyword) (as/join s/Bool (s/eq true))},
+              :schema {(as/valued-schema s/Keyword :opt1) (as/valued-schema s/Bool true)},
               :finished? true},
           19 {:path [],
               :schema s/Any,
@@ -2280,7 +2284,7 @@
               :expected-arglist [s/Any s/Any],
               :idx 19,
               :resolution-path [{:idx 13}]
-              :actual-arglist [s/Any {(as/join (s/eq :opt1) s/Keyword) (as/join s/Bool (s/eq true))}]},
+              :actual-arglist [s/Any {(as/valued-schema s/Keyword :opt1) (as/valued-schema s/Bool true)}]},
           20 {:expr 'G,
               :idx 20,
               :local-vars {'G {:schema s/Any

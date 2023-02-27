@@ -38,9 +38,9 @@
                   (let [idx-pairs (::key-val-placeholders v)
                         f (fn [[key-idx val-idx]]
                             (let [k (get results key-idx)
-                                  k-schema (as/schema-join [(s/eq (aa/unannotate-expr k)) (:schema k)])
+                                  k-schema (as/valued-schema (:schema k) (aa/unannotate-expr k))
                                   v (get results val-idx)
-                                  v-schema (as/schema-join [(s/eq (aa/unannotate-expr v)) (:schema v)])]
+                                  v-schema (as/valued-schema (:schema v) (aa/unannotate-expr v))]
                               [k-schema v-schema]))]
                     (->> idx-pairs (map f) (into {})))))
         (update :resolution-path

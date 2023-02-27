@@ -3,6 +3,7 @@
   :url "http://example.com/FIXME"
   :license {:name "MIT License"
             :url "https://spdx.org/licenses/MIT.html"}
+  :plugins [[jonase/eastwood "1.3.0"]]
   :dependencies [[prismatic/schema           "1.1.12"]
                  [prismatic/plumbing         "0.6.0"]
                  [org.clojure/clojure        "1.11.1"]

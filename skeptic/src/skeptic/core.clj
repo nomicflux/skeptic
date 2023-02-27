@@ -3,7 +3,6 @@
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.java.io :as io]
-            [skeptic.analysis :as analysis]
             [skeptic.analysis.annotation :as aa]))
 
 (defn get-project-schemas
@@ -31,15 +30,15 @@
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/white (str "Expression: \t\t" (pr-str blame)) true))
-           (println "In macro-expanded path: \t" (pr-str path))
+           (when verbose (println "In macro-expanded path: \t" (pr-str path)))
            (when show-context
              (println "Context:")
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
-               (println (str "\t" (colours/blue (pr-str k)) ": " (colours/green (pr-str schema))))
+               (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str schema))))
                (doseq [{:keys [expr schema]} resolution-path]
-                 (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr))) ": " (colours/green (pr-str schema))))))
+                 (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str schema))))))
              (doseq [{:keys [expr schema]} (:refs context)]
-               (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr))) " <- " (colours/green (pr-str schema))))))
+               (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str schema))))))
            (doseq [error errors]
              (reset! errored true)
              (println "---")

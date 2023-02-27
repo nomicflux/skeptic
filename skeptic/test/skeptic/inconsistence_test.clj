@@ -12,7 +12,7 @@
 
 (defn schema-or-value
   [s v]
-  (as/schema-join [(s/eq v) s]))
+  (as/valued-schema s v))
 
 (deftest mismatched-maybe-test
   (is (nil? (sut/mismatched-maybe sample-ctx (s/maybe s/Int) (s/maybe s/Int))))
@@ -51,7 +51,7 @@
   (is (empty? (sut/apply-mismatches-by-key sample-ctx {s/Keyword s/Int} {:a s/Int})))
   (is (empty? (sut/apply-mismatches-by-key sample-ctx {s/Keyword (s/maybe s/Int)} {:a s/Int})))
 
-  ;(is (seq (sut/apply-mismatches-by-key sample-ctx {s/Keyword s/Int} {:a s/Str})))
+  ;; (is (seq (sut/apply-mismatches-by-key sample-ctx {s/Keyword s/Int} {:a s/Str})))
   (is (seq (sut/apply-mismatches-by-key sample-ctx {s/Keyword s/Int} {(schema-or-value s/Keyword :a) (schema-or-value (s/maybe s/Int) nil)})))
   (is (seq (sut/apply-mismatches-by-key sample-ctx {s/Keyword s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Str "hello")})))
   (is (seq (sut/apply-mismatches-by-key sample-ctx
@@ -62,24 +62,157 @@
                                         {s/Keyword s/Int s/Str s/Str}
                                         {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)
                                          (schema-or-value s/Str "b") (schema-or-value s/Int 2)})))
+
+  (is (empty? (sut/apply-mismatches-by-key sample-ctx {{:a s/Int} s/Str} {{:a s/Int} "hello"})))
+  (is (empty? (sut/apply-mismatches-by-key sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{:a s/Int} "hello"})))
+  ;; (is (seq (sut/apply-mismatches-by-key sample-ctx {{:a s/Int} s/Str} {{:a s/Int} 1})))
+  ;; (is (seq (sut/apply-mismatches-by-key sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{:a s/Int} 1})))
   )
 
-(deftest check-keys-test
-  (is (nil? (sut/check-keys sample-ctx {s/Keyword s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
-  (is (nil? (sut/check-keys sample-ctx {:a s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
-  (is (nil? (sut/check-keys sample-ctx {(s/optional-key s/Keyword) s/Int} {})))
-  (is (nil? (sut/check-keys sample-ctx {(s/optional-key s/Keyword) s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
-  (is (nil? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
-  (is (nil? (sut/check-keys sample-ctx {s/Keyword s/Int} {:a s/Int})))
-  (is (nil? (sut/check-keys sample-ctx {:a s/Int} {:a s/Int})))
-  (is (nil? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {:a s/Int})))
-  (is (nil? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {(s/optional-key :a) s/Int})))
+(s/defschema Update {:a s/Keyword :b (s/maybe s/Str) (s/optional-key :c) s/Int})
+(s/defschema Item {:x s/Str :y s/Int})
 
-  (is (not (nil? (sut/check-keys sample-ctx {s/Str s/Int} {:a s/Int}))))
-  (is (not (nil? (sut/check-keys sample-ctx {:a s/Int} {(s/optional-key :a) s/Int}))))
-  (is (not (nil? (sut/check-keys sample-ctx {} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)}))))
-  (is (not (nil? (sut/check-keys sample-ctx {s/Str s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)}))))
-  (is (not (nil? (sut/check-keys sample-ctx {:b s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)}))))
+(deftest check-keys-test
+  (is (empty? (sut/check-keys sample-ctx {s/Keyword s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (empty? (sut/check-keys sample-ctx {:a s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (empty? (sut/check-keys sample-ctx {(s/optional-key s/Keyword) s/Int} {})))
+  (is (empty? (sut/check-keys sample-ctx {(s/optional-key s/Keyword) s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (empty? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (empty? (sut/check-keys sample-ctx {s/Keyword s/Int} {:a s/Int})))
+  (is (empty? (sut/check-keys sample-ctx {:a s/Int} {:a s/Int})))
+  (is (empty? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {:a s/Int})))
+  (is (empty? (sut/check-keys sample-ctx {(s/optional-key :a) s/Int} {(s/optional-key :a) s/Int})))
+
+  (is (seq (sut/check-keys sample-ctx {s/Str s/Int} {:a s/Int})))
+  (is (seq (sut/check-keys sample-ctx {:a s/Int} {(s/optional-key :a) s/Int})))
+  (is (seq (sut/check-keys sample-ctx {} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (seq (sut/check-keys sample-ctx {s/Str s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  (is (seq (sut/check-keys sample-ctx {:b s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+  )
+
+(deftest get-matching-schemas
+  (is (= 1 (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} 1)))
+  (is (= 2 (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} :a)))
+  (is (= nil (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} "x")))
+  )
+
+(deftest valued-get-test
+  (is (= 1 (sut/valued-get {:a 1 :b 2} :a)))
+  (is (= 1 (sut/valued-get {:a 1 :b 2} (as/valued-schema s/Keyword :a))))
+  (is (= 1 (sut/valued-get {s/Keyword 1 :b 2} (as/valued-schema s/Keyword :a))))
+  ;; Prefer value over schema
+  (is (= 1 (sut/valued-get {:a 1 s/Keyword 2} (as/valued-schema s/Keyword :a))))
+  (is (= nil (sut/valued-get {:c 1 :b 2} (as/valued-schema s/Keyword :a))))
+  (is (= 2 (sut/valued-get {:a 1 s/Keyword 2} (as/valued-schema s/Keyword :b))))
+  )
+
+(deftest valued-compare-test
+  (is (sut/valued-compare 1 1))
+  (is (sut/valued-compare s/Int 1))
+  (is (not (sut/valued-compare :a 1)))
+  (is (sut/valued-compare 1 (as/valued-schema s/Int 1)))
+  (is (sut/valued-compare s/Int (as/valued-schema s/Int 1)))
+  (is (not (sut/valued-compare 1 (as/valued-schema s/Keyword :a))))
+  (is (not (sut/valued-compare s/Int (as/valued-schema s/Keyword :a))))
+
+  (is (sut/valued-compare {:a 1 :b 2} {:a 1 :b 2}))
+  (is (sut/valued-compare {:a 1 :b 2} {:a 1 :b (as/valued-schema s/Int 2)}))
+  (is (not (sut/valued-compare {:a 1 :b 2} {:a 1 :b (as/valued-schema s/Str "x")})))
+  (is (sut/valued-compare {:a 1 :b 2} {:a (as/valued-schema s/Int 1) :b (as/valued-schema s/Int 2)}))
+  (is (not (sut/valued-compare {:a 1 :b 2} {:a 1 (as/valued-schema s/Str "x") 2})))
+  (is (sut/valued-compare {:a 1 :b 2} {(as/valued-schema s/Keyword :a) (as/valued-schema s/Int 1)
+                                       (as/valued-schema s/Keyword :b) (as/valued-schema s/Int 2)}))
+  (is (sut/valued-compare {:a 1 :b 2} {(as/valued-schema s/Keyword :a) 1
+                                       (as/valued-schema s/Keyword :b) 2}))
+
+  (is (sut/valued-compare {:a s/Int :b s/Int} {:a 1 :b 2}))
+  (is (sut/valued-compare {s/Keyword s/Int :b s/Str} {:a 1 :b "x"}))
+  (is (not (sut/valued-compare {s/Keyword s/Int :b s/Str} {:b 1 :a "x"})))
+
+  (is (sut/valued-compare {:a s/Int :b s/Int} {:a (as/valued-schema s/Int 1) :b (as/valued-schema s/Int 2)}))
+  (is (sut/valued-compare {s/Keyword s/Int :b s/Str} {:a (as/valued-schema s/Int 1) :b (as/valued-schema s/Str "x")}))
+  (is (not (sut/valued-compare {s/Keyword s/Int :b s/Str} {:b (as/valued-schema s/Int 1) :a (as/valued-schema s/Str "x")})))
+
+  (is (sut/valued-compare {s/Keyword s/Int :b s/Str} {s/Keyword s/Int :b s/Str}))
+)
+
+(deftest matches-map-test
+  (is (sut/matches-map {:a 1 :b 2} :a 1))
+  (is (not (sut/matches-map {:a 1 :b 2} :b 1)))
+  (is (not (sut/matches-map {:a 1 :b 2} :c 1)))
+  (is (sut/matches-map {:a s/Int :b 2} :a 1))
+  (is (sut/matches-map {s/Keyword s/Str :b 2} :a "x"))
+  (is (not (sut/matches-map {s/Keyword s/Str :b 2} :a 1)))
+
+  (is (sut/matches-map {{:a 1 :b 2} "x"} {:a 1 :b 2} "x"))
+  (is (sut/matches-map {{:a s/Int :b 2} "x"} {:a 1 :b 2} "x"))
+  (is (sut/matches-map {{:a 1 s/Keyword 2} "x"} {:a 1 :b 2} "x"))
+  (is (sut/matches-map {{:a 1 :b 2} s/Str} {:a 1 :b 2} "x"))
+
+  (is (sut/matches-map {{{:a 1 :b 2} "x"} :x} {{:a 1 :b 2} "x"} :x))
+  (is (sut/matches-map {{{:a s/Int :b 2} "x"} :x} {{:a 1 :b 2} "x"} :x))
+  (is (sut/matches-map {{{:a 1 s/Keyword 2} "x"} :x} {{:a 1 :b 2} "x"} :x))
+  (is (sut/matches-map {{{:a 1 :b 2} s/Str} :x} {{:a 1 :b 2} "x"} :x))
+  (is (sut/matches-map {{{:a 1 :b 2} "x"} s/Keyword} {{:a 1 :b 2} "x"} :x))
+
+  (is (sut/matches-map {{:z {:a 1 :b 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3} "x"))
+  (is (sut/matches-map {{:z {:a s/Int :b 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3} "x"))
+  (is (sut/matches-map {{:z {:a 1 s/Keyword 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3} "x"))
+  (is (sut/matches-map {{:z {:a 1 :b 2} s/Keyword 3} "x"} {:z {:a 1 :b 2} :c 3} "x"))
+  (is (sut/matches-map {{:z {:a 1 :b 2} :c 3} s/Str} {:z {:a 1 :b 2} :c 3} "x"))
+  (is (sut/matches-map {{s/Keyword {:a 1 :b 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3} "x"))
+  )
+
+(deftest in-set-test
+  (is (sut/in-set? (keys {:a 1 :b 2}) :a))
+  (is (not (sut/in-set? (keys {:a 1 :b 2}) :c)))
+  (is (sut/in-set? (keys {:a s/Int :b 2}) :a))
+  (is (sut/in-set? (keys {s/Keyword s/Str :b 2}) :a))
+  (is (not (sut/in-set? (keys {s/Str s/Str :b 2}) :a)))
+  (is (not (sut/in-set? (keys {s/Str s/Str s/Int s/Int}) :a)))
+  (is (sut/in-set? (keys {s/Keyword s/Int}) :a))
+
+  (is (not (sut/in-set? (keys {{:a 1 :b 2} 3}) :a)))
+  (is (sut/in-set? (keys {{:a 1 :b 2} 3}) {:a 1 :b 2}))
+  (is (sut/in-set? (keys {{:a s/Int :b 2} 3}) {:a 1 :b 2}))
+  (is (sut/in-set? (keys {{:a s/Int s/Keyword 2} 3}) {:a 1 :b 2}))
+  (is (not (sut/in-set? (keys {{:a s/Int s/Str 2} 3}) {:a 1 :b 2})))
+
+  (is (sut/in-set? (keys {{:z {:a 1 :b 2} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? (keys {{:z {:a s/Int :b 2} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? (keys {{:z {:a 1 s/Keyword s/Int} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? (keys {{:z {:a 1 :b 2} :c 3} s/Str}) {:z {:a 1 :b 2} :c 3}))
+  )
+
+(deftest check-keys-with-map-keys
+  (is (empty? (sut/check-keys sample-ctx {s/Keyword s/Int} {:a s/Any})))
+  (is (empty? (sut/check-keys sample-ctx {s/Keyword s/Int} {s/Keyword s/Any})))
+  (is (empty? (sut/check-keys sample-ctx {:a s/Int} {:a s/Any})))
+  (is (empty? (sut/check-keys sample-ctx {s/Keyword s/Int} {(schema-or-value s/Keyword :a) s/Any})))
+
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {{:a :hey :b "there"} [{:x "a" :y 2}]})))
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {{(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)
+                                                           (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}
+                                                          [{:x "a" :y 2}]})))
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {Update [Item]})))
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {Update [s/Any]})))
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {Update s/Any})))
+  (is (empty? (sut/check-keys sample-ctx {{:a s/Int} s/Str} {{:a s/Int} "hello"})))
+  (is (empty? (sut/check-keys sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{:a s/Int} "hello"})))
+  (is (empty? (sut/check-keys sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{(schema-or-value s/Keyword :a) s/Int} "hello"})))
+
+  (is (seq (sut/check-keys sample-ctx {Update [Item]} {{:a :hey :b 3} [{:x "a" :y 2}]})))
+  ;; Bad value, but right key
+  (is (empty? (sut/check-keys sample-ctx {Update [Item]} {{:a :hey :b "there"} [{:x "a" :z 2}]})))
+  (is (seq (sut/check-keys sample-ctx {Update [Item]} {{(schema-or-value s/Keyword :a) (schema-or-value s/Int 3)
+                                                           (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}
+                                                          [{:x "a" :y 2}]})))
+  (is (seq (sut/check-keys sample-ctx {{:a s/Int} s/Str} {{:b s/Int} "hello"})))
+  (is (seq (sut/check-keys sample-ctx {{:a s/Int} s/Str} {{(schema-or-value s/Keyword :b) s/Int} "hello"})))
+  (is (seq (sut/check-keys sample-ctx {{:a s/Int} s/Str} {{:a s/Str} "hello"})))
+  (is (seq (sut/check-keys sample-ctx {{:a s/Int} s/Str} {{(schema-or-value s/Keyword :a) s/Str} "hello"})))
+  (is (seq (sut/check-keys sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{:b s/Int} "hello"})))
+  (is (seq (sut/check-keys sample-ctx {{(s/optional-key :a) s/Int} s/Str} {{:a s/Str} "hello"})))
   )
 
 (deftest mismatched-maps-test
@@ -111,4 +244,6 @@
   (is (seq (sut/mismatched-maps sample-ctx {} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
   (is (seq (sut/mismatched-maps sample-ctx {s/Str s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
   (is (seq (sut/mismatched-maps sample-ctx {:b s/Int} {(schema-or-value s/Keyword :a) (schema-or-value s/Int 1)})))
+
+
   )
