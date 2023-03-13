@@ -17,12 +17,19 @@
            (catch Exception _e
              false))))
 
-(defn schema-match?
+(defn schema-match-value?
   [s x]
   (try
     (nil? (s/check s x))
     (catch Exception _e
       nil)))
+
+(defn schema-match?
+  [s x]
+  (or (schema-match-value? s x)
+      (try (schema-match-value? s (-> x resolve deref))
+           (catch Exception _e
+             nil))))
 
 (defn check-if-schema
   [s x]
@@ -128,6 +135,17 @@
     (nil? coll1) []
     (empty? rst)  coll1
     :else (mapv flatten (reduce cartesian coll1 (or rst [])))))
+
+(defn flatten-valued-schema-map
+  [m]
+  (loop [m m]
+    (if (and (map? m)
+             (valued-schema? m)
+             (map? (:schema m))
+             (or (some valued-schema? (keys (:schema m)))
+                 (some valued-schema? (vals (:schema m)))))
+      (recur (:schema m))
+      m)))
 
 (defn schema-values
   [s]

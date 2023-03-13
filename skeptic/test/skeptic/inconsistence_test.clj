@@ -134,7 +134,29 @@
   (is (not (sut/valued-compare {s/Keyword s/Int :b s/Str} {:b (as/valued-schema s/Int 1) :a (as/valued-schema s/Str "x")})))
 
   (is (sut/valued-compare {s/Keyword s/Int :b s/Str} {s/Keyword s/Int :b s/Str}))
-)
+  (is (sut/valued-compare {:b s/Str}
+                          {(schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}))
+  (is (sut/valued-compare {:b (s/maybe s/Str)}
+                          {(schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}))
+  (is (sut/valued-compare {{:a (s/maybe s/Str)
+                            (s/optional-key :b) s/Str}
+                           s/Int}
+                          {{(schema-or-value s/Keyword :a) (schema-or-value s/Str "here")
+                            (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}
+                           (schema-or-value s/Int 1)}))
+  (is (sut/valued-compare {{:a (s/maybe s/Str)
+                            (s/optional-key :b) s/Str}
+                           s/Int}
+                          {{(schema-or-value s/Keyword :a) (schema-or-value s/Str "here")}
+                           (schema-or-value s/Int 1)}))
+  (is (not (sut/valued-compare {{:a (s/maybe s/Str)} s/Int}
+                               {{(schema-or-value s/Keyword :a) (schema-or-value s/Str "here")
+                                 (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}
+                                (schema-or-value s/Int 1)})))
+
+  (is (sut/valued-compare (s/enum :a :b) :a))
+  (is (sut/valued-compare (s/enum :a :b) (schema-or-value s/Any :a)))
+  )
 
 (deftest matches-map-test
   (is (sut/matches-map {:a 1 :b 2} :a 1))
@@ -164,24 +186,44 @@
   )
 
 (deftest in-set-test
-  (is (sut/in-set? (keys {:a 1 :b 2}) :a))
-  (is (not (sut/in-set? (keys {:a 1 :b 2}) :c)))
-  (is (sut/in-set? (keys {:a s/Int :b 2}) :a))
-  (is (sut/in-set? (keys {s/Keyword s/Str :b 2}) :a))
-  (is (not (sut/in-set? (keys {s/Str s/Str :b 2}) :a)))
-  (is (not (sut/in-set? (keys {s/Str s/Str s/Int s/Int}) :a)))
-  (is (sut/in-set? (keys {s/Keyword s/Int}) :a))
+  (is (sut/in-set? {:a 1 :b 2} :a))
+  (is (not (sut/in-set? {:a 1 :b 2} :c)))
+  (is (sut/in-set? {:a s/Int :b 2} :a))
+  (is (sut/in-set? {s/Keyword s/Str :b 2} :a))
+  (is (not (sut/in-set? {s/Str s/Str :b 2} :a)))
+  (is (not (sut/in-set? {s/Str s/Str s/Int s/Int} :a)))
+  (is (sut/in-set? {s/Keyword s/Int} :a))
 
-  (is (not (sut/in-set? (keys {{:a 1 :b 2} 3}) :a)))
-  (is (sut/in-set? (keys {{:a 1 :b 2} 3}) {:a 1 :b 2}))
-  (is (sut/in-set? (keys {{:a s/Int :b 2} 3}) {:a 1 :b 2}))
-  (is (sut/in-set? (keys {{:a s/Int s/Keyword 2} 3}) {:a 1 :b 2}))
-  (is (not (sut/in-set? (keys {{:a s/Int s/Str 2} 3}) {:a 1 :b 2})))
+  (is (not (sut/in-set? {{:a 1 :b 2} 3} :a)))
+  (is (sut/in-set? {{:a 1 :b 2} 3} {:a 1 :b 2}))
+  (is (sut/in-set? {{:a s/Int :b 2} 3} {:a 1 :b 2}))
+  (is (sut/in-set? {{:a s/Int s/Keyword 2} 3} {:a 1 :b 2}))
+  (is (not (sut/in-set? {{:a s/Int s/Str 2} 3} {:a 1 :b 2})))
 
-  (is (sut/in-set? (keys {{:z {:a 1 :b 2} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
-  (is (sut/in-set? (keys {{:z {:a s/Int :b 2} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
-  (is (sut/in-set? (keys {{:z {:a 1 s/Keyword s/Int} :c 3} "x"}) {:z {:a 1 :b 2} :c 3}))
-  (is (sut/in-set? (keys {{:z {:a 1 :b 2} :c 3} s/Str}) {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? {{:z {:a 1 :b 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? {{:z {:a s/Int :b 2} :c 3} "x"} {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? {{:z {:a 1 s/Keyword s/Int} :c 3} "x"} {:z {:a 1 :b 2} :c 3}))
+  (is (sut/in-set? {{:z {:a 1 :b 2} :c 3} s/Str} {:z {:a 1 :b 2} :c 3}))
+
+  (is (sut/in-set? {{:a s/Keyword} s/Any}
+                   {(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)}))
+  (is (sut/in-set? {{:b (s/maybe s/Str)} s/Any}
+                   {(schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}))
+  (is (sut/in-set? {{:a s/Keyword :b (s/maybe s/Str)} s/Any}
+                   {(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)
+                    (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}))
+  (is (sut/in-set? {{:a s/Keyword :b (s/maybe s/Str) (s/optional-key :c) s/Int} s/Any}
+                   {(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)
+                    (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}))
+
+  ;; Current blocker: nested schema-or-values
+  (is (sut/in-set? {{:a s/Keyword} s/Any}
+                   (schema-or-value {(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)}
+                                    {:a :hey})))
+  (is (sut/in-set? {{:a s/Keyword :b (s/maybe s/Str) (s/optional-key :c) s/Int} s/Any}
+                   (schema-or-value {(schema-or-value s/Keyword :a) (schema-or-value s/Keyword :hey)
+                                     (schema-or-value s/Keyword :b) (schema-or-value s/Str "there")}
+                                    {:a :hey :b "there"})))
   )
 
 (deftest check-keys-with-map-keys

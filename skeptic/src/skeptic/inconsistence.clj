@@ -21,10 +21,9 @@
   (with-out-str (pprint/pprint s)))
 
 (defn mismatched-nullable-msg
-  [{:keys [expr arg]} output-schema expected-schema]
-  (format "%s in %s is nullable:\n\n\t%s\n\nbut expected is not:\n\n\t%s"
+  [{:keys [expr arg]} expected-schema]
+  (format "%s\n\tin\n\n%s\nis nullable, but expected is not:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (ppr-str (s/explain output-schema)))
           (colours/yellow (ppr-str (s/explain expected-schema)))))
 
 (s/defn mismatched-maybe :- (s/maybe s/Str)
@@ -37,7 +36,7 @@
 
 (defn mismatched-ground-type-msg
   [{:keys [expr arg]} output-schema expected-schema]
-  (format "%s in %s is a mismatched type:\n\n\t%s\n\nbut expected is:\n\n\t%s"
+  (format "%s\n\tin\n\n%s\nis a mismatched type:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
           (colours/yellow (ppr-str (s/explain output-schema)))
           (colours/yellow (ppr-str (s/explain expected-schema)))))
@@ -65,23 +64,24 @@
   [{:keys [expr arg]} :- ErrorMsgCtx
    missing :- #{s/Any}]
   (when (seq missing)
-    (format "%s in %s has missing keys:\n\n\t- %s"
+    (format "%s\n\tin\n\n%s\nhas missing keys:\n\n\t- %s"
             (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
             (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) missing)))))
 
-(s/defn nullable-key-message :- s/Str
-  [{:keys [expr arg]} :- ErrorMsgCtx
-   {:keys [expected actual]}]
-  (format "%s in %s in potentially nullable, but the schema doesn't allow that:\n\n\t%s\nexpected, but\n\n%s\nprovided\n"
-          (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (ppr-str expected))
-          (colours/yellow (str/join "\n" (mapv (comp #(str "\t" %) ppr-str) actual)))))
+(s/defn nullable-key-message :- (s/maybe s/Str)
+  [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
+   nullables :- #{s/Any}]
+  (when (seq nullables)
+    (format "%s\n\tin\n\n%s\nin potentially nullable, but the schema doesn't allow that:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
+            (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
+            (colours/yellow (ppr-str expected-keys))
+            (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) nullables)))))
 
 (s/defn superfluous-key-message :- (s/maybe s/Str)
   [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
    actual-keys :- #{s/Any}]
   (when (seq actual-keys)
-    (format "%s in %s has disallowed keys:\n\n\t%s\nexpected, but\n\n\t- %s\nprovided\n"
+    (format "%s\n\tin\n\n%s\nhas disallowed keys:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
             (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
             (colours/yellow (ppr-str expected-keys))
             (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) actual-keys)))))
@@ -95,9 +95,9 @@
 (s/defn get-by-matching-schema
   [m k]
   (let [matches (->> m
-             keys
-             (filter (fn [s] (= (as/check-if-schema s k) ::as/schema-valid)))
-             (select-keys m))]
+                     keys
+                     (filter (fn [s] (= (as/check-if-schema s k) ::as/schema-valid)))
+                     (select-keys m))]
     (cond
       (empty? matches) nil
       (> (count matches) 1) (throw (IllegalStateException. (format "Multiple results for key %s and m %s: %s"
@@ -121,15 +121,21 @@
 (s/defn valued-compare
   [expected actual]
   (cond
-    (and (as/valued-schema? expected)
-         (as/valued-schema? actual))
+    (as/valued-schema? expected)
     (throw (IllegalArgumentException. "Only actual can be a valued schema"))
 
     (as/valued-schema? actual)
-    (or (= expected (:value actual))
-        (= expected (:schema actual)))
+    (let [v (:value actual)
+          s (:schema actual)
+          e (as/de-maybe expected)]
+      (or (= e v)
+          (= e s)
+          (= e (s/optional-key v))
+          (= e (s/optional-key s))
+          (= (as/check-if-schema e v) ::as/schema-valid)))
 
     (or (= expected actual)
+        (= expected (s/optional-key actual))
         (= (as/check-if-schema expected actual) ::as/schema-valid))
     true
 
@@ -145,9 +151,18 @@
          (remove (comp s/optional-key? first))
          (into {})
          (pl/map-keys remove-optional-keys)
-         ;(pl/map-vals remove-optional-keys)
+                                        ;(pl/map-vals remove-optional-keys)
          )
     m))
+
+(s/defn deoptionalize-map-keys
+  [m]
+  (pl/map-keys (fn [k]
+                 (cond
+                   (s/optional-key? k) (:k k)
+                   (map? k) (deoptionalize-map-keys k)
+                   :else k))
+               m))
 
 (s/defn matches-map
   [expected actual-k actual-v]
@@ -158,8 +173,8 @@
       (seq (filter #(valued-compare % actual-v) expected-vs)))))
 
 (s/defn in-set?
-  [expected actual-k]
-  (let [possible-keys (filter (fn [x] (valued-compare x actual-k)) expected)]
+  [expected-m actual-k]
+  (let [possible-keys (filter (fn [[k _v]] (valued-compare k (as/flatten-valued-schema-map actual-k))) expected-m)]
     (seq possible-keys)))
 
 (s/defn valued-disj
@@ -174,28 +189,27 @@
   [ctx expected actual]
   (let [req-expected (->> expected keys (filter s/required-key?) (map plain-key) set)
         opt-expected (->> expected keys (filter s/optional-key?) (map plain-key) set)
-        expected-keys (->> expected remove-optional-keys keys set)
-        ctx (assoc ctx :expected-keys expected-keys)
+        ctx (assoc ctx :expected-keys (keys expected))
         {:keys [missing illegally-nullable superfluous]}
         (reduce (fn [{:keys [missing illegally-nullable superfluous]} actual-key]
                   {:missing (valued-disj missing (plain-key actual-key))
                    :illegally-nullable (cond-> illegally-nullable
-                                         (contains? opt-expected actual-key)
-                                         (conj {:expected expected-keys
-                                                :actual actual-key}))
-                   :superfluous (let [match (in-set? expected-keys (plain-key actual-key))]
+                                         (and (s/optional-key? actual-key)
+                                              (not (contains? opt-expected (plain-key actual-key))))
+                                         (conj actual-key))
+                   :superfluous (let [match (in-set? expected (plain-key actual-key))]
                                   (cond-> superfluous
                                     (nil? match)
-                                    (conj actual-key)))})
+                                    (conj {:orig-key actual-key
+                                           :cleaned-key (-> actual-key plain-key as/flatten-valued-schema-map)})))})
                 {:missing req-expected
                  :illegally-nullable #{}
                  :superfluous #{}}
                 (keys actual))]
 
-    (remove nil? (concat
-                  [(missing-key-message ctx missing)
-                   (superfluous-key-message ctx superfluous)]
-                  (map (partial nullable-key-message ctx) illegally-nullable)))))
+    (remove nil? [(missing-key-message ctx missing)
+                  (superfluous-key-message ctx superfluous)
+                  (nullable-key-message ctx illegally-nullable)])))
 
 (s/defn check-for-key-schema :- [s/Str]
   [ctx expected actual ks]
@@ -230,5 +244,5 @@
   [expr arg expected actual]
   (let [ctx {:expr expr :arg arg}]
     (filter seq
-           (concat (apply-base-rules ctx expected actual)
-                   (mismatched-maps ctx expected actual)))))
+            (concat (apply-base-rules ctx expected actual)
+                    (mismatched-maps ctx expected actual)))))
