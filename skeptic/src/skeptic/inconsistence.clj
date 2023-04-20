@@ -2,11 +2,9 @@
   (:require [schema.core :as s]
             [skeptic.analysis.schema :as as]
             [skeptic.colours :as colours]
-            [clojure.set :as set]
             [plumbing.core :as pl]
             [clojure.string :as str]
-            [clojure.pprint :as pprint]
-            [clojure.walk :as walk]))
+            [clojure.pprint :as pprint]))
 
 (s/defschema ErrorMsgCtx
   {:expr s/Any
@@ -20,11 +18,12 @@
   [s]
   (with-out-str (pprint/pprint s)))
 
+;; Actual is just (maybe expected), so no need to print it out
+;; TODO: thread through verbosity flag to output schema when set
 (defn mismatched-nullable-msg
-  [{:keys [expr arg]} expected-schema]
-  (format "%s\n\tin\n\n%s\nis nullable, but expected is not:\n\n%s"
-          (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (ppr-str (s/explain expected-schema)))))
+  [{:keys [expr arg]} _actual-schema _expected-schema]
+  (format "%s\n\tin\n\n%s\nis nullable, but expected is not"
+          (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))))
 
 (s/defn mismatched-maybe :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
@@ -143,26 +142,6 @@
     (every? (fn [[k v]] (matches-map expected k v)) actual)
 
     :else false))
-
-(s/defn remove-optional-keys
-  [m]
-  (if (map? m)
-    (->> m
-         (remove (comp s/optional-key? first))
-         (into {})
-         (pl/map-keys remove-optional-keys)
-                                        ;(pl/map-vals remove-optional-keys)
-         )
-    m))
-
-(s/defn deoptionalize-map-keys
-  [m]
-  (pl/map-keys (fn [k]
-                 (cond
-                   (s/optional-key? k) (:k k)
-                   (map? k) (deoptionalize-map-keys k)
-                   :else k))
-               m))
 
 (s/defn matches-map
   [expected actual-k actual-v]

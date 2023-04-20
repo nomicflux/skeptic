@@ -1,8 +1,7 @@
 (ns skeptic.analysis.schema
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
-            [schema.spec.leaf :as leaf]
-            [clojure.set :as set])
+            [schema.spec.leaf :as leaf])
   (:import [schema.core EqSchema Maybe Schema]))
 
 (defn any-schema?
@@ -136,6 +135,7 @@
     (empty? rst)  coll1
     :else (mapv flatten (reduce cartesian coll1 (or rst [])))))
 
+;; TODO: This should either be pushed into the constructor or handled in original analysis
 (defn flatten-valued-schema-map
   [m]
   (loop [m m]
