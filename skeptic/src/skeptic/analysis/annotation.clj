@@ -21,7 +21,11 @@
   [expr]
   (walk/postwalk (fn [el] (if (and (map? el) (contains? el :expr))
                            (if (:map? el)
-                             (into {} (:expr el))
+                             (try (into {} (:expr el))
+                                  ;; TODO: Why do certain maps get split out differently? This
+                                  ;; appears to happen almost entirely with compojure routes for the moment.
+                                  (catch Exception _e
+                                    (apply hash-map (:expr el))))
                              (:expr el))
                            el))
                  expr))
