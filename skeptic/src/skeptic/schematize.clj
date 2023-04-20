@@ -170,7 +170,7 @@
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
   (try
-    (if (class? schema)
+    (if (or (class? schema) (set? schema) (vector? schema))
       {:name (str (s/explain schema))
        :schema schema
        :output schema
