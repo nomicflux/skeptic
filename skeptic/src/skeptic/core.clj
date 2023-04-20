@@ -3,6 +3,7 @@
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.java.io :as io]
+            [clojure.stacktrace :as stacktrace]
             [skeptic.analysis.annotation :as aa]))
 
 (defn get-project-schemas
@@ -47,7 +48,7 @@
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/red (str "Error parsing namespace " ns ": " e) true))
            (when verbose
-             (println (clojure.stacktrace/print-stack-trace e))))))
+             (println (stacktrace/print-stack-trace e))))))
       (if @errored
         (System/exit 1)
         (println "No inconsistencies found")))))
