@@ -3,6 +3,8 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [skeptic.schema :as dschema]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as e]
             [schema.core :as s]))
 
 (defn get-fn-schemas*

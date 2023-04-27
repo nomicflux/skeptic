@@ -29,9 +29,9 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         (when verbose
-           (println "Schema dictionary:")
-           (pprint/pprint (schematize/ns-schemas opts ns)))
+         ;(when verbose
+         ;  (println "Schema dictionary:")
+         ;  (pprint/pprint (schematize/ns-schemas opts ns)))
          (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))

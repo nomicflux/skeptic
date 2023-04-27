@@ -99,11 +99,6 @@
     (assert (>= (count actual-arglist) (count expected-arglist))
             (format "Actual should have at least as many elements as expected: %s %s\n%s"
                     expected-arglist actual-arglist to-match))
-    (println "-----")
-    (println "Expected arglist:" expected-arglist)
-    (println "Actual arglist:" actual-arglist)
-    (println "Expr:" expr)
-    (println "Local Vars:" local-vars)
     (let [cleaned (aa/unannotate-expr expr)
           matched (spy :matched-arglists (match-up-arglists cleaned
                                                             (spy :expected-arglist (vec expected-arglist))

@@ -222,7 +222,6 @@
 (s/defn inconsistent? :- [s/Str]
   [expr arg expected actual]
   (let [ctx {:expr expr :arg arg}]
-    (println "Checking inconsistency:" (pr-str expr) "|" (pr-str arg) "|" (pr-str expected) "|" (pr-str actual))
     (filter seq
             (concat (apply-base-rules ctx expected actual)
                     (mismatched-maps ctx expected actual)))))

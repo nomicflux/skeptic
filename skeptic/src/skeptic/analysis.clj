@@ -83,8 +83,6 @@
 (s/defn analyse-def :- [as/AnnotatedExpression]
   [{:keys [expr path] :or {path []} :as this} :- as/AnnotatedExpression]
   (let [[name & body] (->> expr (drop 1))
-        _ (println "-----" name "-----")
-        _ (println "Def body:" body)
 
         with-name (assoc this
                          :name (:expr name))
@@ -180,20 +178,10 @@
              (drop-while #(or (:map? %) (not (seq? (:expr %)))))
              (map (fn [fn-expr]
                     (let [[vars & body] (:expr fn-expr)
-                          _ (println "***" name "***")
-                          _ (println (ap/defn-expr? expr) (ap/fn-expr? expr) orig-name this)
-                          _ (println (aa/unannotate-expr expr))
-                          _ (println "Fn expr:" fn-expr)
-                          _ (println "Fn vars:" vars)
-                          _ (println "Fn body:" body)
                           {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
                           args (filter symbol? args) ;; TODO: destructuring
                           vec-for-arity (get arglist-dict count)
                           fn-vars (into {} (zip-to-longest (fn [k [name schema]] [k {:expr k :name (or name k) :schema (or schema s/Any)}]) args vec-for-arity))
-                          _ (println "Fn args:" args)
-                          _ (println "Fn vec-for-arity:" vec-for-arity)
-                          _ (println "Fn fn-vars:" fn-vars)
-                          _ (println "******")
                           ;; TODO: varargs
                           ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
                           ;;                                                      :name (str varargs)
@@ -385,9 +373,9 @@
                                                                 (if dep-callback
                                                                   (dep-callback results (dissoc next :dep-callback))
                                                                   next))]
-        (println "@@@" (aa/unannotate-expr expr) "@@@")
-        (doseq [f [seq? coll? symbol? ap/def? ap/do? ap/fn-expr? ap/defn-expr? ap/fn-once? ap/if? ap/try? ap/throw? ap/loop? ap/let?]]
-          (println f ":" (f expr)))
+        ;;(println "@@@" (aa/unannotate-expr expr) "@@@")
+        ;;(doseq [f [seq? coll? symbol? ap/def? ap/do? ap/fn-expr? ap/defn-expr? ap/fn-once? ap/if? ap/try? ap/throw? ap/loop? ap/let?]]
+        ;;  (println f ":" (f expr)))
         (cond
           finished?
           (recur rest-stack (assoc results idx this))

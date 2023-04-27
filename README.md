@@ -4,7 +4,7 @@ A Leiningen plugin to check plumatic/schema annotations and enforce their cohere
 
 ## Usage
 
-Put `[lein-skeptic "0.6.1-SNAPSHOT"]` into the `:plugins` vector of your project.clj.
+Put `[lein-skeptic "0.6.1"]` into the `:plugins` vector of your project.clj.
 
 To run, type:
 
