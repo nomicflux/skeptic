@@ -217,11 +217,6 @@
        (map collect-schemas)
        (reduce (fn [acc {:keys [name] :as next}] (update acc (symbol name) merge-with next)) {})))
 
-(defn spy->>
-  [msg x]
-  (println msg (pr-str x))
-  x)
-
 (defn ns-schemas
   [opts ns]
   (let [lookup-failures (atom #{})

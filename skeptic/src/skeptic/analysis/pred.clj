@@ -15,6 +15,12 @@
        (-> x second :expr seq?)
        (-> x second :expr first :expr vector?)))
 
+(defn defn-expr?
+  "(clojure.core/defn f {:metadata true} ([x] ...) ([x y] ...) ...)"
+  [x]
+  (and (seq? x)
+       (-> x first :expr (= 'clojure.core/defn))))
+
 (defn let?
   [x]
   (and (seq? x)
@@ -60,4 +66,4 @@
 (defn def?
   [x]
   (and (seq? x)
-       (-> x first :expr (= 'def))))
+       (or (-> x first :expr (= 'def)))))

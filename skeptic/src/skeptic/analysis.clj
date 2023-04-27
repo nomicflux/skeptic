@@ -32,7 +32,7 @@
       (update :local-vars
               #(merge local-vars %))
       (assoc :path
-             (if name (conj path name) path))))
+             (if (and name (not= (first path) name)) (conj path name) path))))
 
 (s/defn analyse-let :- [as/AnnotatedExpression]
   [{:keys [expr local-vars]
@@ -83,12 +83,16 @@
 (s/defn analyse-def :- [as/AnnotatedExpression]
   [{:keys [expr path] :or {path []} :as this} :- as/AnnotatedExpression]
   (let [[name & body] (->> expr (drop 1))
+        _ (println "-----" name "-----")
+        _ (println "Def body:" body)
 
         with-name (assoc this
                          :name (:expr name))
 
         body-clauses
-        (map (partial push-down-info with-name) body)
+        (map (comp
+              #(assoc % :name (:expr name))
+              (partial push-down-info with-name)) body)
 
         output-clause (last body-clauses)
         current-clause (assoc with-name
@@ -154,21 +158,46 @@
                               :dep-callback ar/resolve-schema)]
     (concat body-clauses [current-clause])))
 
+(defn zip-to-longest
+  [f xs ys]
+  (let [count (max (count xs) (count ys))
+        xv (vec xs)
+        yv (vec ys)]
+    (for [n (range 0 count)]
+      (f (get xv n nil) (get yv n nil)))))
+
 (s/defn analyse-fn :- [as/AnnotatedExpression]
-  [{:keys [expr local-vars]
+  [dict
+   {:keys [expr local-vars name]
     :or {local-vars {}} :as this} :- as/AnnotatedExpression]
-  (let [body-clauses
+  (let [orig-name name
+        name (if (ap/defn-expr? expr) (->> expr (drop 1) first :expr) name)
+        {:keys [arglists]} (get dict name)
+        arglist-dict (p/map-vals (fn [{:keys [schema]}] (mapv (fn [{:keys [schema name]}] [name schema]) schema)) arglists)
+
+        body-clauses
         (->> expr
-             (drop 1)
+             (drop-while #(or (:map? %) (not (seq? (:expr %)))))
              (map (fn [fn-expr]
                     (let [[vars & body] (:expr fn-expr)
+                          _ (println "***" name "***")
+                          _ (println (ap/defn-expr? expr) (ap/fn-expr? expr) orig-name this)
+                          _ (println (aa/unannotate-expr expr))
+                          _ (println "Fn expr:" fn-expr)
+                          _ (println "Fn vars:" vars)
+                          _ (println "Fn body:" body)
                           {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
                           args (filter symbol? args) ;; TODO: destructuring
-                          fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
+                          vec-for-arity (get arglist-dict count)
+                          fn-vars (into {} (zip-to-longest (fn [k [name schema]] [k {:expr k :name (or name k) :schema (or schema s/Any)}]) args vec-for-arity))
+                          _ (println "Fn args:" args)
+                          _ (println "Fn vec-for-arity:" vec-for-arity)
+                          _ (println "Fn fn-vars:" fn-vars)
+                          _ (println "******")
                           ;; TODO: varargs
                           ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
                           ;;                                                      :name (str varargs)
-                          ;;                                                     :schema [s/Any]}))
+                          ;;                                                      :schema [s/Any]}))
                           clauses (map (partial push-down-info
                                                 (assoc this :local-vars (merge local-vars fn-vars)))
                                        body)]
@@ -178,11 +207,11 @@
                        :arglists (if with-varargs
                                    {:varargs {:arglist (conj args varargs)
                                               :count count
-                                              :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
+                                              :schema (conj (zip-to-longest (fn [arg [name schema]] {:schema (or schema s/Any) :optional? false :name (or name arg)}) args vec-for-arity)
                                                             s/Any)}}
                                    {count {:arglist args
                                            :count count
-                                           :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})}))))
+                                           :schema (zip-to-longest (fn [arg [name schema]] {:schema (or schema s/Any) :optional? false :name (or name arg)}) args vec-for-arity)}})}))))
 
         all-body-clauses (mapcat :clauses body-clauses)
         full-arglist (reduce merge {} (map :arglists body-clauses))
@@ -196,11 +225,17 @@
             [current-clause])))
 
 (s/defn analyse-fn-once :- [as/AnnotatedExpression]
-  [{:keys [expr local-vars]
+  [dict
+   {:keys [expr local-vars name]
     :or {local-vars {}} :as this} :- as/AnnotatedExpression]
   (let [[_ vars & body] expr
+        {:keys [arglists]} (get dict name)
         {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
-        fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema s/Any}) args)
+        arglist (get arglists count)
+        dict-for-args (into {} (map (fn [{:keys [schema name]}] [name schema]) (:schema arglist)))
+        args (filter symbol? args) ;; TODO: destructuring
+        fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema (or (get dict-for-args k) s/Any)}) args)
+
         ;; TODO: varargs
         ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
         ;;                                                      :name varargs
@@ -350,6 +385,9 @@
                                                                 (if dep-callback
                                                                   (dep-callback results (dissoc next :dep-callback))
                                                                   next))]
+        (println "@@@" (aa/unannotate-expr expr) "@@@")
+        (doseq [f [seq? coll? symbol? ap/def? ap/do? ap/fn-expr? ap/defn-expr? ap/fn-once? ap/if? ap/try? ap/throw? ap/loop? ap/let?]]
+          (println f ":" (f expr)))
         (cond
           finished?
           (recur rest-stack (assoc results idx this))
@@ -380,12 +418,12 @@
           (recur (concat (report-error (analyse-do this)) rest-stack)
                  results)
 
-          (ap/fn-expr? expr)
-          (recur (concat (report-error (analyse-fn this)) rest-stack)
+          (or (ap/fn-expr? expr) (ap/defn-expr? expr))
+          (recur (concat (report-error (analyse-fn dict this)) rest-stack)
                  results)
 
           (ap/fn-once? expr)
-          (recur (concat (report-error (analyse-fn-once this)) rest-stack)
+          (recur (concat (report-error (analyse-fn-once dict this)) rest-stack)
                  results)
 
           (ap/if? expr)

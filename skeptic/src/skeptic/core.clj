@@ -3,8 +3,10 @@
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.java.io :as io]
+            [clojure.pprint :as pprint]
             [clojure.stacktrace :as stacktrace]
-            [skeptic.analysis.annotation :as aa]))
+            [skeptic.analysis.annotation :as aa]
+            [skeptic.schematize :as schematize]))
 
 (defn get-project-schemas
   [{:keys [verbose show-context namespace] :as opts} root & paths]
@@ -27,6 +29,9 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
+         (when verbose
+           (println "Schema dictionary:")
+           (pprint/pprint (schematize/ns-schemas opts ns)))
          (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))

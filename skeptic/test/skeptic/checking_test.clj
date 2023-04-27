@@ -179,6 +179,13 @@
      'skeptic.test-examples/sample-let-fn-fn
      'skeptic.test-examples/sample-functional-fn)))
 
+(deftest new-failing-function
+  (in-test-examples
+   (are [f errors] (= errors
+                      (mapcat (juxt :blame :errors) (sut/check-fn test-refs test-dict f)))
+     'skeptic.test-examples/sample-bad-schema-fn ['(skeptic.test-examples/int-add not-an-int 2)
+                                                   [(inconsistence/mismatched-ground-type-msg {:expr '(skeptic.test-examples/int-add not-an-int 2) :arg 'not-an-int} s/Str s/Int)]])))
+
 (deftest failing-functions
   (in-test-examples
    (are [f errors] (= errors

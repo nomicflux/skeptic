@@ -40,6 +40,10 @@
   [x :- s/Int]
   (int-add 1 (int-add nil x)))
 
+(s/defn sample-bad-schema-fn :- s/Int
+  [not-an-int :- s/Str]
+  (int-add not-an-int 2))
+
 (defn sample-bad-fn
   [x]
   (int-add 1 (int-add nil x)))
