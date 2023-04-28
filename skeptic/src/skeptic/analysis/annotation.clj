@@ -1,5 +1,8 @@
 (ns skeptic.analysis.annotation
-  (:require [clojure.walk :as walk]))
+  (:require [clojure.walk :as walk]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
+            [skeptic.schematize :as schematize]))
 
 (defn annotate-expr
   [expr]

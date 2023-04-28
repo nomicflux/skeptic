@@ -5,7 +5,9 @@
             [schema.core :as s]
             [skeptic.schematize :as schematize]
             [plumbing.core :as p]
-            [skeptic.analysis.annotation :as aa])
+            [skeptic.analysis.annotation :as aa]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef])
   (:import [schema.core Schema]
            [java.io File]))
 
@@ -128,22 +130,6 @@
          (println e)
          (throw e))))
 
-(s/defn normalize-fn-code
-  [opts ns-refs f]
-  (->> f
-       (schematize/get-fn-code opts)
-       (schematize/resolve-code-references ns-refs)))
-
-(s/defn check-fn
-  ([ns-refs dict f]
-   (check-fn ns-refs dict f {}))
-  ([ns-refs dict f opts]
-   (check-s-expr dict (normalize-fn-code opts ns-refs f) opts)))
-
-(s/defn annotate-fn
-  [ns-refs dict f opts]
-  (->> f (normalize-fn-code opts ns-refs) (analysis/attach-schema-info-loop dict)))
-
 (defmacro block-in-ns
   [ns ^File file & body]
   `(let [contents# (slurp ~file)
@@ -167,11 +153,15 @@
 ;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
 ;; but we should add it back in for checking
 
+(defn analysed-ns-exprs
+  [ns]
+  (map ana.ef/emit-form (ana.jvm/analyze-ns ns)))
+
 (defmacro annotate-ns
   ([ns file]
    `(annotate-ns (schematize/ns-schemas ~ns) ~ns ~file))
   ([dict ns ^File file]
-   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns ~file)))))
+   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (analysed-ns-exprs ~ns ~file)))))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
@@ -185,4 +175,4 @@
         (block-in-ns ~ns ~file
                      (let [dict# ~dict]
                        (mapcat #(check-s-expr dict# % ~opts)
-                               (ns-exprs ~ns ~file)))))))
+                               (analysed-ns-exprs ~ns)))))))

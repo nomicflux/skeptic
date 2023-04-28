@@ -5,11 +5,13 @@
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.stacktrace :as stacktrace]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotation :as aa]
-            [skeptic.schematize :as schematize]))
+            [skeptic.schematize :as schematize]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]))
 
 (defn get-project-schemas
-  [{:keys [verbose show-context namespace] :as opts} root & paths]
+  [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
   (let [nss (cond-> (try (->> paths
                               (map (partial file/relative-path (io/file root)))
                               (mapcat file/clojure-files-for-path)
@@ -32,6 +34,8 @@
          ;(when verbose
          ;  (println "Schema dictionary:")
          ;  (pprint/pprint (schematize/ns-schemas opts ns)))
+         (when analyzer
+           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
          (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))
@@ -56,4 +60,5 @@
              (println (stacktrace/print-stack-trace e))))))
       (if @errored
         (System/exit 1)
-        (println "No inconsistencies found")))))
+        (do (println "No inconsistencies found")
+            (System/exit 0))))))

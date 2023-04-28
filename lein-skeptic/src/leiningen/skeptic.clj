@@ -10,6 +10,7 @@
 
 (def cli-options
   [["-v" "--verbose" "Turn on verbose logging"]
+   ["-a" "--analyzer" "Use clojure.tools.analyzer to analyse code"]
    ["-k" "--keep-empty" "Print out checking results with empty error set"]
    ["-c" "--show-context" "Show context and resolution path on items"]
    ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
