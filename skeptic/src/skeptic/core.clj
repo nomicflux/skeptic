@@ -26,7 +26,7 @@
               (select-keys [(symbol namespace)]))]
     (when verbose (println "Namespaces to check: " (pr-str (keys nss))))
     (let [errored (atom false)]
-      (doseq [[ns file] nss]
+      (doseq [[ns _file] nss]
        (require ns)
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
@@ -36,7 +36,7 @@
          ;  (pprint/pprint (schematize/ns-schemas opts ns)))
          (when analyzer
            (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-         (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
+         (doseq [{:keys [blame path errors context]} (checking/check-ns ns opts)]
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/white (str "Expression: \t\t" (pr-str blame)) true))

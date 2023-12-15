@@ -112,7 +112,7 @@
                  :refs ((lookup-resolutions refs) resolution-path)}
        :errors errors})))
 
-(s/defn check-s-expr
+(defn check-s-expr
   [dict s-expr {:keys [keep-empty remove-context]}]
   (try (let [analysed (analysis/attach-schema-info-loop dict s-expr)]
          (cond->> (->> analysed
@@ -126,7 +126,7 @@
            (map #(dissoc % :context))))
        (catch Exception e
          (println "Error parsing expression")
-         (println (pr-str s-expr))
+         (println (pr-str (ana.ef/emit-form s-expr)))
          (println e)
          (throw e))))
 
@@ -141,38 +141,18 @@
        res#)))
 
 (defn ns-exprs
-  [ns ^File file]
-  (let [file-reader (file/pushback-reader file)
-        ns-refs (ns-map ns)]
-    (loop [expr (file/try-read file-reader)
-           acc []]
-      (cond
-        (nil? expr) acc
-        (file/is-ns-block? expr) (recur (file/try-read file-reader) acc)
-        :else (recur (file/try-read file-reader) (conj acc (->> expr (mapv (partial schematize/resolve-all ns-refs)))))))))
-;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
-;; but we should add it back in for checking
-
-(defn analysed-ns-exprs
   [ns]
-  (map ana.ef/emit-form (ana.jvm/analyze-ns ns)))
-
-(defmacro annotate-ns
-  ([ns file]
-   `(annotate-ns (schematize/ns-schemas ~ns) ~ns ~file))
-  ([dict ns ^File file]
-   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (analysed-ns-exprs ~ns ~file)))))
+  (ana.jvm/analyze-ns ns))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
 (defmacro check-ns
-  ([ns file]
-   `(check-ns ~ns ~file {}))
-  ([ns file opts]
-   `(check-ns (schematize/ns-schemas ~opts ~ns) ~ns ~file ~opts))
-  ([dict ns ^File file opts]
+  ([ns]
+   `(check-ns ~ns {}))
+  ([ns opts]
+   `(check-ns (schematize/ns-schemas ~opts ~ns) ~ns ~opts))
+  ([dict ns opts]
    `(do (assert ~ns "Can't have null namespace for check-ns")
-        (block-in-ns ~ns ~file
-                     (let [dict# ~dict]
-                       (mapcat #(check-s-expr dict# % ~opts)
-                               (analysed-ns-exprs ~ns)))))))
+        (let [dict# ~dict]
+          (mapcat #(check-s-expr dict# % ~opts)
+                  (ns-exprs ~ns))))))
