@@ -354,24 +354,24 @@
            :case-then nil
            :catch nil
            :const (case type
-                    :vector (recur (concat (report-error (analyse-coll this)) rest-stack) results)
-                    :map (recur (concat (report-error (analyse-coll this)) rest-stack) results)
-                    :set (recur (concat (report-error (analyse-coll this)) rest-stack) results)
-                    (recur (concat (report-error (analyse-value this)) rest-stack) results))
-           :def (recur (concat (report-error (analyse-def this)) rest-stack) results)
+                    :vector (recur (into (report-error (analyse-coll this)) rest-stack) results)
+                    :map (recur (into (report-error (analyse-coll this)) rest-stack) results)
+                    :set (recur (into (report-error (analyse-coll this)) rest-stack) results)
+                    (recur (into (report-error (analyse-value this)) rest-stack) results))
+           :def (recur (into (report-error (analyse-def this)) rest-stack) results)
            :deftype nil
-           :do (recur (concat (report-error (analyse-do this)) rest-stack) results)
-           :fn (recur (concat (report-error (analyse-fn dict this)) rest-stack) results)
+           :do (recur (into (report-error (analyse-do this)) rest-stack) results)
+           :fn (recur (into (report-error (analyse-fn dict this)) rest-stack) results)
            :fn-method nil
            :host-interop nil
-           :if (recur (concat (report-error (analyse-if this)) rest-stack) results)
+           :if (recur (into (report-error (analyse-if this)) rest-stack) results)
            :import nil
            :instance-call nil
            :instance-field nil
            :instance? nil
            :invoke nil
            :keyword-invoke nil
-           :let (recur (concat (report-error (analyse-let this)) rest-stack) results)
+           :let (recur (into (report-error (analyse-let this)) rest-stack) results)
            :letfn nil
            :local nil
            :loop nil
@@ -387,11 +387,11 @@
            :reify nil
            ;;:set nil
            :set! nil
-           :static-call (recur (concat (report-error (analyse-static-call this)) rest-stack) results)
+           :static-call (recur (into (report-error (analyse-static-call this)) rest-stack) results)
            :static-field nil
            :the-var nil
            :throw nil
-           :try (recur (concat (report-error (analyse-try this)) rest-stack) results)
+           :try (recur (into (report-error (analyse-try this)) rest-stack) results)
            :var nil
            ;;:vector nil
            :with-meta nil

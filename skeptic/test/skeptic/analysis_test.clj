@@ -9,13 +9,15 @@
             [skeptic.analysis.schema :as as]
             [plumbing.core :as p]
             [clojure.string :as str]
-            [skeptic.analysis.annotation :as aa]))
+            [skeptic.analysis.annotation :as aa]
+            [clojure.tools.analyzer.jvm :as ana.jvm]))
 
 (defn expand-and-annotate
   [expr f]
   (->> expr
        (schematize/resolve-all {})
-       aa/annotate-expr
+       ana.jvm/analyze
+       aa/idx-expression
        f))
 
 (defn clean-callbacks

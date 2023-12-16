@@ -23,8 +23,8 @@
       (let [[p e] (first exprs-with-paths)
             r (rest exprs-with-paths)]
         (if (vector? e)
-          (recur (concat (map-indexed (fn [i a] [(conj p i) a]) e) r) paths n)
-          (recur (concat (map (fn [c] [(conj p c) (get e c)]) (:children e)) r)
+          (recur (into (map-indexed (fn [i a] [(conj p i) a]) e) r) paths n)
+          (recur (into (map (fn [c] [(conj p c) (get e c)]) (:children e)) r)
                  (conj paths [p n])
                  (inc n)))))))
 
