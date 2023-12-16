@@ -28,6 +28,18 @@
                  (conj paths [p n])
                  (inc n)))))))
 
+(defn unanalyze
+  [expr]
+  (walk/postwalk (fn [el]
+                   (if (map? el)
+                     (cond
+                       (:raw-forms el) (:raw-forms el)
+                       (:val el) (:val el)
+                       (:form el) (:form el)
+                       :else (dissoc el :meta :env))
+                     el))
+                 expr))
+
 (defn annotate-expr
   [expr]
   (walk/postwalk (let [n (atom 0)]

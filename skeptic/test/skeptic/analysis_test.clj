@@ -559,7 +559,7 @@
              :schema {::ar/placeholder 8}}]
            (clean-callbacks analysed)))
     (is (= '((str "hello") (+ 1 2) (do (str "hello") (+ 1 2)))
-           (aa/unannotate-expr analysed)))))
+           (aa/unanalyze analysed)))))
 
 (deftest analyse-application-test
   (let [analysed (expand-and-annotate '(+ 1 x) sut/analyse-application)]

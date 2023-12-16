@@ -137,16 +137,19 @@
          :schema as/Bottom))
 
 (defn analyse-do
-  [{:keys [statements] :as this}]
+  [{:keys [statements ret] :as this}]
+  (pprint/pprint this)
   (let [body-clauses
         (map (partial push-down-info this)
              statements)
 
-        output-clause (last body-clauses)
-        current-clause (assoc this
-                              :schema {::ar/placeholder (:idx output-clause)}
-                              :dep-callback ar/resolve-schema)]
-    (concat body-clauses [current-clause])))
+        output-clause (push-down-info this ret)
+        current-clause (->
+                        this
+                        (dissoc :ret :statements)
+                        (assoc :schema {::ar/placeholder (:idx output-clause)}
+                               :dep-callback ar/resolve-schema))]
+    (into body-clauses [output-clause current-clause])))
 
 (defn zip-to-longest
   [f xs ys]

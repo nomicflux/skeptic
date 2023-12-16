@@ -88,3 +88,11 @@
             :op :static-call
             :idx 0}
            (-> expr sut/idx-expression clean-for-test)))))
+
+(deftest unanalyze-test
+  (is (= '(+ 1 2)
+         (-> '(+ 1 2) ana.jvm/analyze sut/unanalyze)))
+  (is (= '(* (+ 1 2) (let [x 3] (println 3) (- 4)))
+         (-> '(* (+ 1 2) (let [x 3] (println 3) (- 4)))
+             ana.jvm/analyze
+             sut/unanalyze))))
