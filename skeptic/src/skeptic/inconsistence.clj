@@ -40,6 +40,13 @@
           (colours/yellow (ppr-str (s/explain output-schema)))
           (colours/yellow (ppr-str (s/explain expected-schema)))))
 
+(defn mismatched-output-schema-msg
+  [{:keys [expr arg]} output-schema expected-schema]
+  (format "%s\n\tin\n\n%s\nhas output schema:\n\n%s\n\nbut declared return schema is:\n\n%s"
+          (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
+          (colours/yellow (ppr-str (s/explain output-schema)))
+          (colours/yellow (ppr-str (s/explain expected-schema)))))
+
 (s/defn mismatched-ground-types :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
    expected actual]
@@ -47,6 +54,42 @@
              (contains? ground-types actual)
              (not= expected actual))
     (mismatched-ground-type-msg ctx actual expected)))
+
+(defn unknown-output-schema?
+  [schema]
+  (cond
+    (as/any-schema? schema) true
+    (or (= schema s/Num)
+        (= schema Number)
+        (= schema java.lang.Number)
+        (= schema Object)
+        (= schema java.lang.Object)) true
+    (as/maybe? schema) (unknown-output-schema? (as/de-maybe schema))
+    (as/join? schema) (some unknown-output-schema? (:schemas schema))
+    :else false))
+
+(defn output-schema-compatible?
+  [expected actual]
+  (cond
+    (= actual as/Bottom) true
+    (as/any-schema? expected) true
+    (unknown-output-schema? actual) true
+    (and (as/maybe? expected) (as/maybe? actual))
+    (output-schema-compatible? (as/de-maybe expected) (as/de-maybe actual))
+    (as/maybe? expected)
+    (output-schema-compatible? (as/de-maybe expected) actual)
+    (as/maybe? actual) false
+    (as/join? actual)
+    (every? #(output-schema-compatible? expected %) (:schemas actual))
+    :else
+    (or (= expected actual)
+        (= (as/check-if-schema expected actual) ::as/schema-valid))))
+
+(s/defn mismatched-output-schema :- (s/maybe s/Str)
+  [ctx :- ErrorMsgCtx
+   expected actual]
+  (when-not (output-schema-compatible? expected actual)
+    (mismatched-output-schema-msg ctx actual expected)))
 
 (def base-mismatch-rules
   [mismatched-maybe

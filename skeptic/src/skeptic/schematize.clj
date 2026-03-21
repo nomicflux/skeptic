@@ -224,10 +224,11 @@
   [opts ns]
   (let [lookup-failures (atom #{})
         opts (assoc opts :lookup-failures lookup-failures)]
-    (->> ns
-         symbol
-         ns-publics
-         vals
-         (map symbol)
-         (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
-         (reduce merge {}))))
+    (binding [*ns* (the-ns ns)]
+      (->> ns
+           symbol
+           ns-publics
+           vals
+           (map symbol)
+           (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
+           (reduce merge {})))))

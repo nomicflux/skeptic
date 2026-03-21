@@ -12,11 +12,13 @@
     (catch Exception _e
       false)))
 
+(declare class->schema)
+
 (defn one->arg-entry
   [idx one]
   (let [m (try (into {} one)
                (catch Exception _e {}))]
-    {:schema (or (:schema m) s/Any)
+    {:schema (class->schema (or (:schema m) s/Any))
      :optional? false
      :name (or (:name m) (symbol (str "arg" idx)))}))
 
@@ -51,7 +53,9 @@
                  entry
                  {:schema entry})]
       (merge (schema->callable (:schema base))
-             base))))
+             (cond-> base
+               (:schema base) (update :schema class->schema)
+               (:output base) (update :output class->schema))))))
 
 (defn class->schema
   [klass]
@@ -137,11 +141,20 @@
     (let [m (meta var)]
       (symbol (str (ns-name (:ns m)) "/" (:name m))))))
 
+(defn qualify-symbol
+  [ns-sym sym]
+  (cond
+    (nil? sym) nil
+    (not (symbol? sym)) sym
+    (namespace sym) sym
+    ns-sym (symbol (str ns-sym "/" sym))
+    :else sym))
+
 (defn lookup-entry
-  [dict node name]
+  [dict ns-sym node]
   (let [candidates (remove nil?
-                           [name
-                            (:form node)
+                           [(:form node)
+                            (qualify-symbol ns-sym (:form node))
                             (var->sym (:var node))])]
     (some (comp normalize-entry dict) candidates)))
 
@@ -195,9 +208,9 @@
              {:schema s/Any})))
 
 (defn annotate-var-like
-  [{:keys [dict name]} node]
+  [{:keys [dict ns]} node]
   (merge node
-         (or (lookup-entry dict node name)
+         (or (lookup-entry dict ns node)
              {:schema s/Any})))
 
 (defn annotate-static-call
@@ -270,9 +283,10 @@
            :schema (schema-join* [(:schema then-node) (:schema else-node)]))))
 
 (defn arg-schema-specs
-  [dict name params]
+  [dict ns-sym name params]
   (let [entry (when-some [sym name]
-                (get dict sym))
+                (or (get dict sym)
+                    (get dict (qualify-symbol ns-sym sym))))
         arg-specs (get-in entry [:arglists (count params) :schema])]
     (or arg-specs
         (mapv (fn [param]
@@ -282,8 +296,8 @@
               params))))
 
 (defn annotate-fn-method
-  [{:keys [locals dict name] :as ctx} node]
-  (let [param-specs (arg-schema-specs dict name (:params node))
+  [{:keys [locals dict name ns] :as ctx} node]
+  (let [param-specs (arg-schema-specs dict ns name (:params node))
         annotated-params (mapv (fn [param spec]
                                  (merge param spec))
                                (:params node)
@@ -468,27 +482,30 @@
 (defn annotate-ast
   ([dict ast]
    (annotate-ast dict ast {}))
-  ([dict ast {:keys [locals name]}]
+  ([dict ast {:keys [locals name ns]}]
    (annotate-node {:dict dict
                    :locals (into {}
                                  (map (fn [[sym entry]]
                                         [sym (normalize-entry entry)]))
                                  locals)
-                   :name name}
+                   :name name
+                   :ns ns}
                   ast)))
 
 (defn analyze-form
   ([form]
    (analyze-form form {}))
-  ([form {:keys [locals ns]}]
+  ([form {:keys [locals ns source-file]}]
    (let [target-ns (or (some-> ns the-ns) *ns*)
          env (binding [*ns* target-ns]
-               (assoc (ta/empty-env)
-                      :ns (ns-name target-ns)
-                      :locals (into {}
-                                    (map-indexed (fn [idx sym]
-                                                   [sym (local-binding-ast idx sym)]))
-                                    (keys locals))))]
+               (cond-> (assoc (ta/empty-env)
+                              :ns (ns-name target-ns)
+                              :locals (into {}
+                                            (map-indexed (fn [idx sym]
+                                                           [sym (local-binding-ast idx sym)]))
+                                            (keys locals)))
+                 source-file
+                 (assoc :file source-file)))]
      (binding [*ns* target-ns]
        (ana.jvm/analyze form env)))))
 
