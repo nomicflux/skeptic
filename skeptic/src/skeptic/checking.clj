@@ -1,15 +1,12 @@
 (ns skeptic.checking
-  (:require [skeptic.inconsistence :as inconsistence]
+  (:require [clojure.tools.analyzer.ast :as ana.ast]
+            [schema.core :as s]
             [skeptic.analysis :as analysis]
             [skeptic.file :as file]
-            [schema.core :as s]
-            [skeptic.schematize :as schematize]
-            [plumbing.core :as p]
-            [skeptic.analysis.annotation :as aa]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
-            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef])
-  (:import [schema.core Schema]
-           [java.io File]))
+            [skeptic.inconsistence :as inconsistence]
+            [skeptic.schematize :as schematize])
+  (:import [java.io File]
+           [schema.core Schema]))
 
 (def spy-on false)
 (def spy-only #{})
@@ -30,17 +27,17 @@
   x)
 
 (defn valid-schema?
-  [s]
-  (or (instance? Schema s)
-      (class? s)
-      (and (coll? s) (every? valid-schema? s))))
+  [schema]
+  (or (instance? Schema schema)
+      (class? schema)
+      (and (coll? schema) (every? valid-schema? schema))))
 
 (defmacro assert-schema
-  [s]
+  [schema]
   #_
-  `(do (assert (valid-schema? ~s) (format "Must be valid schema: %s" ~s))
-       ~s)
-  s)
+  `(do (assert (valid-schema? ~schema) (format "Must be valid schema: %s" ~schema))
+       ~schema)
+  schema)
 
 (defmacro assert-has-schema
   [x]
@@ -49,86 +46,147 @@
        ~x)
   x)
 
-;; TODO: what can we assert here? We already either:
-;; 1. Found a matching arglist, in which case we know the counts match; if expected is short, the last arg is
-;;    a vararg and repeats (can we fix this representation? Is there a better one?). Not sure how actual could
-;;    be short.
-;; 2. We didn't find a matching arglist, in which case we assume that we have no valid data to match up; what
-;;    then? (Can this still happen, or will we always get the dynamic fn type `(=> Any [Any])`?)
-(s/defn match-up-arglists
-  [expr expected actual]
+(def invoke-ops
+  #{:instance-call
+    :invoke
+    :keyword-invoke
+    :prim-invoke
+    :protocol-invoke
+    :static-call})
+
+(defn child-nodes
+  [node]
+  (mapcat (fn [child]
+            (let [value (get node child)]
+              (cond
+                (vector? value) value
+                (map? value) [value]
+                :else [])))
+          (:children node)))
+
+(defn ast-nodes-preorder
+  [ast]
+  (tree-seq map? child-nodes ast))
+
+(defn node-ref
+  [node]
+  (when node
+    (select-keys node [:form :schema])))
+
+(defn callee-ref
+  [node]
+  (when node
+    (case (:op node)
+      :invoke (node-ref (:fn node))
+      :with-meta (recur (:expr node))
+      nil)))
+
+(defn match-up-arglists
+  [arg-nodes expected actual]
   (spy :match-up-actual-list actual)
   (spy :match-up-expected-list expected)
   (let [size (max (count expected) (count actual))
-        args (vec (drop 1 expr))
         expected-vararg (last expected)]
     (for [n (range 0 size)]
-      [(get args n)
+      [(:form (get arg-nodes n))
        (spy :match-up-expected (get expected n expected-vararg))
        (spy :match-up-actual (get actual n))])))
 
-(s/defn lookup-resolutions
-  [refs]
-  (fn [els]
-    (loop [[{:keys [idx resolution-path] :as el} & rest] els
-           acc []]
-      (cond
-        (nil? el) acc
-        :else (if-let [lookup (get refs idx)]
-                (recur (concat rest
-                               resolution-path
-                               (:resolution-path lookup))
-                       (conj acc (select-keys lookup [:idx :expr :schema])))
-                (recur (concat rest resolution-path)
-                       acc))))))
+(defn binding-index
+  [ast]
+  (reduce (fn [acc node]
+            (if (= :binding (:op node))
+              (assoc acc (:form node) node)
+              acc))
+          {}
+          (ana.ast/nodes ast)))
 
-(s/defn match-up-resolution-paths
-  [refs
-   context]
-  (p/map-vals
-   #(update %
-            :resolution-path
-            (lookup-resolutions refs))
-   context))
+(declare local-resolution-path)
 
-(s/defn match-s-exprs
-  [refs
-   {:keys [expected-arglist actual-arglist expr local-vars path resolution-path] :as to-match}]
-  (when (seq expected-arglist)
-    (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
-            (format "Arglists must not be nil: %s %s\n%s"
-                    expected-arglist actual-arglist to-match))
-    (assert (>= (count actual-arglist) (count expected-arglist))
-            (format "Actual should have at least as many elements as expected: %s %s\n%s"
-                    expected-arglist actual-arglist to-match))
-    (let [cleaned (aa/unannotate-expr expr)
-          matched (spy :matched-arglists (match-up-arglists cleaned
-                                                            (spy :expected-arglist (vec expected-arglist))
-                                                            (spy :actual-arglist (vec actual-arglist))))
-          errors (vec (mapcat (partial apply inconsistence/inconsistent? cleaned) matched))]
-      {:blame cleaned
-       :path path
-       :context {:local-vars (match-up-resolution-paths refs local-vars)
-                 :refs ((lookup-resolutions refs) resolution-path)}
-       :errors errors})))
+(defn local-resolution-path
+  [bindings local-node]
+  (if-let [binding (get bindings (:form local-node))]
+    (if-let [init (:init binding)]
+      (cond-> [(node-ref init)]
+        (callee-ref init)
+        (conj (callee-ref init)))
+      [])
+    []))
+
+(defn local-vars-context
+  [bindings node]
+  (->> (:args node)
+       (mapcat ana.ast/nodes)
+       (filter #(= :local (:op %)))
+       (reduce (fn [acc local-node]
+                 (if (contains? acc (:form local-node))
+                   acc
+                   (assoc acc
+                          (:form local-node)
+                          {:form (:form local-node)
+                           :schema (:schema local-node)
+                           :resolution-path (local-resolution-path bindings local-node)})))
+               {})))
+
+(defn call-refs
+  [bindings node]
+  (let [fn-node (:fn node)]
+    (cond
+      (nil? fn-node) []
+      (= :local (:op fn-node))
+      (into [(node-ref fn-node)]
+            (local-resolution-path bindings fn-node))
+      :else
+      (cond-> []
+        (node-ref fn-node)
+        (conj (node-ref fn-node))))))
+
+(defn call-node?
+  [node]
+  (and (contains? invoke-ops (:op node))
+       (vector? (:args node))
+       (seq (:expected-arglist node))
+       (seq (:actual-arglist node))))
+
+(defn match-s-exprs
+  [bindings node]
+  (when (call-node? node)
+    (let [expected-arglist (vec (:expected-arglist node))
+          actual-arglist (vec (:actual-arglist node))]
+      (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+              (format "Arglists must not be nil: %s %s\n%s"
+                      expected-arglist actual-arglist node))
+      (assert (>= (count actual-arglist) (count expected-arglist))
+              (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                      expected-arglist actual-arglist node))
+      (let [matched (spy :matched-arglists (match-up-arglists (:args node)
+                                                              (spy :expected-arglist expected-arglist)
+                                                              (spy :actual-arglist actual-arglist)))
+            errors (vec (mapcat (partial apply inconsistence/inconsistent? (:form node)) matched))]
+        {:blame (:form node)
+         :path nil
+         :context {:local-vars (local-vars-context bindings node)
+                   :refs (call-refs bindings node)}
+         :errors errors}))))
 
 (defn check-s-expr
-  [dict s-expr {:keys [keep-empty remove-context]}]
-  (try (let [analysed (analysis/attach-schema-info-loop dict s-expr)]
-         (cond->> (->> analysed
-                       vals
-                       (keep (partial match-s-exprs analysed)))
+  [dict s-expr {:keys [keep-empty remove-context] :as opts}]
+  (try
+    (let [analysed (analysis/attach-schema-info-loop dict s-expr opts)
+          bindings (binding-index analysed)]
+      (cond->> (->> (ast-nodes-preorder analysed)
+                    (filter call-node?)
+                    (keep #(match-s-exprs bindings %)))
+        (not keep-empty)
+        (remove (comp empty? :errors))
 
-           (not keep-empty)
-           (remove (comp empty? :errors))
-
-           remove-context
-           (map #(dissoc % :context))))
-       (catch Exception e
-         (println "Error parsing expression")
-         (println (pr-str (ana.ef/emit-form s-expr)))
-         (println e)
-         (throw e))))
+        remove-context
+        (map #(dissoc % :context))))
+    (catch Exception e
+      (println "Error parsing expression")
+      (println (pr-str s-expr))
+      (println e)
+      (throw e))))
 
 (defmacro block-in-ns
   [ns ^File file & body]
@@ -142,7 +200,13 @@
 
 (defn ns-exprs
   [ns]
-  (ana.jvm/analyze-ns ns))
+  (let [source-file (file/source-clj ns)]
+    (assert source-file (format "Can't find source file for namespace %s" ns))
+    (with-open [reader (file/pushback-reader source-file)]
+      (->> (repeatedly #(file/try-read reader))
+           (take-while some?)
+           (remove file/is-ns-block?)
+           doall))))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
@@ -153,6 +217,7 @@
    `(check-ns (schematize/ns-schemas ~opts ~ns) ~ns ~opts))
   ([dict ns opts]
    `(do (assert ~ns "Can't have null namespace for check-ns")
-        (let [dict# ~dict]
-          (mapcat #(check-s-expr dict# % ~opts)
+        (let [dict# ~dict
+              opts# (assoc ~opts :ns ~ns)]
+          (mapcat #(check-s-expr dict# % opts#)
                   (ns-exprs ~ns))))))

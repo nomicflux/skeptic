@@ -43,10 +43,13 @@
 (defn source-clj
   [ns]
   (require ns)
-  (some->> ns
-           ns-publics
-           vals
-           first
-           meta
-           :file
-           io/file))
+  (when-some [path (some->> ns
+                            ns-publics
+                            vals
+                            first
+                            meta
+                            :file)]
+    (let [direct (io/file path)]
+      (cond
+        (.exists direct) direct
+        :else (some-> path io/resource io/file)))))

@@ -30,15 +30,20 @@
 
 (defn unanalyze
   [expr]
-  (walk/postwalk (fn [el]
-                   (if (map? el)
-                     (cond
-                       (:raw-forms el) (:raw-forms el)
-                       (:val el) (:val el)
-                       (:form el) (:form el)
-                       :else (dissoc el :meta :env))
-                     el))
-                 expr))
+  (letfn [(raw-form-value [raw-forms]
+            (if (and (sequential? raw-forms)
+                     (= 1 (count raw-forms)))
+              (first raw-forms)
+              raw-forms))]
+    (walk/postwalk (fn [el]
+                     (if (map? el)
+                       (cond
+                         (contains? el :raw-forms) (raw-form-value (:raw-forms el))
+                         (contains? el :val) (:val el)
+                         (contains? el :form) (:form el)
+                         :else (dissoc el :meta :env))
+                       el))
+                   expr)))
 
 (defn annotate-expr
   [expr]
