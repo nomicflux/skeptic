@@ -1,441 +1,518 @@
 (ns skeptic.analysis
-  (:require [schema.core :as s]
-            [skeptic.schematize :as schematize]
-            [skeptic.analysis.annotation :as aa]
-            [skeptic.analysis.schema :as as]
-            [skeptic.analysis.pred :as ap]
+  (:require [clojure.tools.analyzer :as ta]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [schema.core :as s]
             [skeptic.analysis.resolvers :as ar]
-            [plumbing.core :as p]
-            [clojure.walk :as walk]))
+            [skeptic.analysis.schema :as as]))
 
-;; TODO: Switch to tools.analyzer to avoid macroexpansion errors
+(defn fn-schema?
+  [schema]
+  (try
+    (boolean (:input-schemas (into {} schema)))
+    (catch Exception _e
+      false)))
 
-;; TODO: infer function types from actually applied args, if none given
-;; TODO: representation for cast values instead of just static types (such as dynamic functions cast to actual arg types)
-;; TODO: also, infer outputs from what is actually output
-;; TODO: gather schema info for internal functions
-;; TODO: check that function output matches schema
-;; TODO: how to go from macroexpanded version to line in code?
-;; TODO: handle `new`
+(declare class->schema)
 
-;; TODO: keywords & other values in function position
-;; TODO: atoms? refs? reader macros?
+(defn one->arg-entry
+  [idx one]
+  (let [m (try (into {} one)
+               (catch Exception _e {}))]
+    {:schema (class->schema (or (:schema m) s/Any))
+     :optional? false
+     :name (or (:name m) (symbol (str "arg" idx)))}))
 
-;; TODO: def & defn need to add to a global set of symbols?
-;; TODO: need support for for, doseq, doall
+(defn schema->callable
+  [schema]
+  (when (fn-schema? schema)
+    (let [{:keys [input-schemas output-schema]} (into {} schema)]
+      {:output output-schema
+       :arglists (into {}
+                       (map (fn [inputs]
+                              [(count inputs)
+                               {:arglist (mapv (fn [idx one]
+                                                 (:name (one->arg-entry idx one)))
+                                               (range)
+                                               inputs)
+                                :count (count inputs)
+                                :schema (mapv one->arg-entry (range) inputs)}]))
+                       input-schemas)})))
 
-;; TODO: Global vars from def
+(defn entry-map?
+  [entry]
+  (and (map? entry)
+       (or (contains? entry :schema)
+           (contains? entry :output)
+           (contains? entry :arglists)
+           (contains? entry :name))))
 
-(defn push-down-info
-  [{:keys [local-vars name path] :or {local-vars {} path []} :as _parent} child]
-  (-> child
-      (update :local-vars
-              #(merge local-vars %))
-      (assoc :path
-             (if (and name (not= (first path) name)) (conj path name) path))))
+(defn normalize-entry
+  [entry]
+  (when (some? entry)
+    (let [base (if (entry-map? entry)
+                 entry
+                 {:schema entry})]
+      (merge (schema->callable (:schema base))
+             (cond-> base
+               (:schema base) (update :schema class->schema)
+               (:output base) (update :output class->schema))))))
 
-(s/defn analyse-let :- [as/AnnotatedExpression]
-  [{:keys [expr local-vars]
-    :or {local-vars {}} :as this} :- as/AnnotatedExpression]
-  ;; A block like `(-> cache (doto set-cache-value))` macroexpands to
-  ;; `(let* cache [G__125245 set-cache-value] G__125245)`, with an odd
-  ;; element between `let*` and the vector. This shouldn't be legal, the Java Clojure compiler
-  ;; says it's not legal, the REPL says it's not legal, but that's what we get and
-  ;; what we need to analyse.
-  (let [[letblock & body] (->> expr (drop-while (complement (comp vector? :expr))))
-        letpairs (partition 2 (:expr letblock))
-
-        {:keys [let-clauses local-vars]}
-        (reduce (fn [{:keys [let-clauses local-vars]}
-                    [newvar varbody]]
-                  (let [clause (push-down-info this
-                                               (assoc varbody
-                                                      :local-vars local-vars
-                                                      :name (:expr newvar)))]
-                    {:local-vars (cond
-                                   (symbol? (:expr newvar))
-                                   (assoc local-vars
-                                          (:expr newvar)
-                                          {::ar/placeholder (:idx varbody)})
-
-                                   (vector? (:expr newvar))
-                                   local-vars ;; TODO: implement vector destructuring
-
-                                   (map? (:expr newvar))
-                                   local-vars ;; TODO: implement map destructuring
-                                   )
-                     :let-clauses (conj let-clauses clause)}))
-                {:let-clauses []
-                 :local-vars local-vars}
-                letpairs)
-
-        body-clauses
-        (map (partial push-down-info (assoc this
-                                            :local-vars local-vars))
-             body)
-
-        output-clause (last body-clauses)
-        current-clause (assoc this
-                              :schema {::ar/placeholder (:idx output-clause)}
-                              :dep-callback ar/resolve-schema)]
-    (concat let-clauses body-clauses [current-clause])))
-
-(s/defn analyse-def :- [as/AnnotatedExpression]
-  [{:keys [expr path] :or {path []} :as this} :- as/AnnotatedExpression]
-  (let [[name & body] (->> expr (drop 1))
-
-        with-name (assoc this
-                         :name (:expr name))
-
-        body-clauses
-        (map (comp
-              #(assoc % :name (:expr name))
-              (partial push-down-info with-name)) body)
-
-        output-clause (last body-clauses)
-        current-clause (assoc with-name
-                              :path (conj path (:expr name))
-                              :schema {::ar/placeholder (:idx output-clause)}
-                              :dep-callback ar/resolve-def-schema)]
-    (concat body-clauses [current-clause])))
-
-(s/defn analyse-if :- [as/AnnotatedExpression]
-  [{:keys [expr] :as this} :- as/AnnotatedExpression]
-  (let [[_ if-clause t-clause f-clause] expr
-
-        body-clauses
-        (map (partial push-down-info this)
-             (remove nil? [if-clause
-                           (cond-> t-clause
-                             (symbol? (:expr if-clause))
-                             (update :local-vars
-                                     (fn [lvs]
-                                       (assoc lvs
-                                              (:expr if-clause)
-                                              {::ar/placeholder (:idx if-clause)
-                                               ;; If if clause was true, it couldn't have been `nil`
-                                               ::ar/transform-fn as/de-maybe}))))
-                           f-clause]))
-
-        current-clause (assoc this
-                              :schema {::ar/placeholders [(:idx t-clause) (:idx f-clause)]}
-                              :dep-callback ar/resolve-if-schema)]
-    (concat body-clauses [current-clause])))
-
-(s/defn analyse-try :- [as/AnnotatedExpression]
-  [{:keys [expr] :as this} :- as/AnnotatedExpression]
-  (let [[_ & body] expr
-        [try-body after-body] (split-with (fn [{:keys [expr]}] (not (or (ap/catch? expr) (ap/finally? expr)))) body)
-        [catch-body finally-body] (split-with (fn [{:keys [expr]}] (not (ap/finally? expr))) after-body)
-
-        try-clauses (mapv (partial push-down-info this) try-body)
-
-        catch-clauses (->> catch-body first :expr (drop 3) (mapv (partial push-down-info this)))
-        finally-clauses (->> finally-body first :expr (drop 1) (mapv (partial push-down-info this)))
-        current-clause (assoc this
-                              :schema {::ar/placeholder (:idx (last try-clauses))}
-                              :dep-callback ar/resolve-schema)]
-    (concat try-clauses catch-clauses finally-clauses [current-clause])))
-
-(s/defn analyse-throw :- as/AnnotatedExpression
-  [this :- as/AnnotatedExpression]
-  (assoc this
-         :schema as/Bottom))
-
-(s/defn analyse-do :- [as/AnnotatedExpression]
-  [{:keys [expr] :as this} :- as/AnnotatedExpression]
-  (let [body (->> expr (drop 1))
-
-        body-clauses
-        (map (partial push-down-info this)
-             body)
-
-        output-clause (last body-clauses)
-        current-clause (assoc this
-                              :schema {::ar/placeholder (:idx output-clause)}
-                              :dep-callback ar/resolve-schema)]
-    (concat body-clauses [current-clause])))
-
-(defn zip-to-longest
-  [f xs ys]
-  (let [count (max (count xs) (count ys))
-        xv (vec xs)
-        yv (vec ys)]
-    (for [n (range 0 count)]
-      (f (get xv n nil) (get yv n nil)))))
-
-(s/defn analyse-fn :- [as/AnnotatedExpression]
-  [dict
-   {:keys [expr local-vars name]
-    :or {local-vars {}} :as this} :- as/AnnotatedExpression]
-  (let [orig-name name
-        name (if (ap/defn-expr? expr) (->> expr (drop 1) first :expr) name)
-        {:keys [arglists]} (get dict name)
-        arglist-dict (p/map-vals (fn [{:keys [schema]}] (mapv (fn [{:keys [schema name]}] [name schema]) schema)) arglists)
-
-        body-clauses
-        (->> expr
-             (drop-while #(or (:map? %) (not (seq? (:expr %)))))
-             (map (fn [fn-expr]
-                    (let [[vars & body] (:expr fn-expr)
-                          {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
-                          args (filter symbol? args) ;; TODO: destructuring
-                          vec-for-arity (get arglist-dict count)
-                          fn-vars (into {} (zip-to-longest (fn [k [name schema]] [k {:expr k :name (or name k) :schema (or schema s/Any)}]) args vec-for-arity))
-                          ;; TODO: varargs
-                          ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
-                          ;;                                                      :name (str varargs)
-                          ;;                                                      :schema [s/Any]}))
-                          clauses (map (partial push-down-info
-                                                (assoc this :local-vars (merge local-vars fn-vars)))
-                                       body)]
-                      {:clauses clauses
-                       :expr fn-expr
-                       :output-placeholder (-> clauses last :idx)
-                       :arglists (if with-varargs
-                                   {:varargs {:arglist (conj args varargs)
-                                              :count count
-                                              :schema (conj (zip-to-longest (fn [arg [name schema]] {:schema (or schema s/Any) :optional? false :name (or name arg)}) args vec-for-arity)
-                                                            s/Any)}}
-                                   {count {:arglist args
-                                           :count count
-                                           :schema (zip-to-longest (fn [arg [name schema]] {:schema (or schema s/Any) :optional? false :name (or name arg)}) args vec-for-arity)}})}))))
-
-        all-body-clauses (mapcat :clauses body-clauses)
-        full-arglist (reduce merge {} (map :arglists body-clauses))
-        full-output (map :output-placeholder body-clauses)
-        current-clause (assoc this
-                              :dep-callback ar/resolve-fn-outputs
-                              :output {::ar/placeholders full-output}
-                              :schema {::ar/arglists full-arglist}
-                              :arglists full-arglist)]
-    (concat all-body-clauses
-            [current-clause])))
-
-(s/defn analyse-fn-once :- [as/AnnotatedExpression]
-  [dict
-   {:keys [expr local-vars name]
-    :or {local-vars {}} :as this} :- as/AnnotatedExpression]
-  (let [[_ vars & body] expr
-        {:keys [arglists]} (get dict name)
-        {:keys [count args with-varargs varargs]} (->> vars :expr (map :expr) schematize/arg-list)
-        arglist (get arglists count)
-        dict-for-args (into {} (map (fn [{:keys [schema name]}] [name schema]) (:schema arglist)))
-        args (filter symbol? args) ;; TODO: destructuring
-        fn-vars (p/map-from-keys (fn [k] {:expr k :name k :schema (or (get dict-for-args k) s/Any)}) args)
-
-        ;; TODO: varargs
-        ;; fn-vars (cond-> fn-vars with-varargs (assoc varargs {:expr varargs
-        ;;                                                      :name varargs
-        ;;                                                      :schema [s/Any]}))
-        clauses (map (partial push-down-info
-                              (assoc this :local-vars (merge local-vars fn-vars)))
-                     body)
-
-        arglist (if with-varargs
-                  {:varargs {:arglist (conj args varargs)
-                             :count count
-                             :schema (conj (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)
-                                           s/Any)}}
-                  {count {:arglist args
-                          :count count
-                          :schema (map (fn [arg] {:schema s/Any :optional? false :name arg}) args)}})
-
-        current-clause (assoc this
-                              :dep-callback ar/resolve-fn-once-outputs
-                              :output {::ar/placeholder (-> clauses last :idx)}
-                              :schema {::ar/arglist arglist}
-                              :arglists arglist)]
-    (concat clauses
-            [current-clause])))
-
-(s/defn analyse-application :- [as/AnnotatedExpression]
-  [{:keys [expr] :as this}] :- as/AnnotatedExpression
-  (let [[f & args] expr
-
-        arg-clauses
-        (map (partial push-down-info this) args)
-
-        fn-clause
-        (assoc (push-down-info this f)
-               :args (map :idx args)
-               :fn-position? true)]
-    (concat arg-clauses
-            [fn-clause
-             (assoc this
-                    :actual-arglist {::ar/placeholders (map :idx arg-clauses)}
-                    :expected-arglist {::ar/placeholder (:idx fn-clause)}
-                    :schema {::ar/placeholder (:idx fn-clause)}
-                    :dep-callback ar/resolve-application-schema)])))
-
-(s/defn analyse-coll :- [as/AnnotatedExpression]
-  [{:keys [expr map?] :as this} :- as/AnnotatedExpression]
+(defn class->schema
+  [klass]
   (cond
-    ;; As the postwalk rewrites things into maps, maps themselves need special annotation processing
-    map? (concat (mapcat (comp (partial map (partial push-down-info this)) :expr) expr)
-                 [(assoc this
-                         :dep-callback ar/resolve-map-schema
-                         :schema {::ar/key-val-placeholders (->> expr (map (comp (partial map :idx) :expr)))})])
-    (vector? expr) (concat (map (partial push-down-info this) expr)
-                           [(assoc this
-                                   :dep-callback (ar/resolve-coll-schema (fn [schemas] (vector (as/schema-join schemas))))
-                                   :schema {::ar/placeholders (map :idx expr)})])
-    (set? expr) (concat (map (partial push-down-info this) expr)
-                        [(assoc this
-                                :dep-callback (ar/resolve-coll-schema (fn [schemas] #{(as/schema-join schemas)}))
-                                :schema {::ar/placeholders (map :idx expr)})])
-    (or (list? expr) (seq? expr)) (concat (map (partial push-down-info this) expr)
-                                          [(assoc this
-                                                  :dep-callback (ar/resolve-coll-schema (fn [schemas] (vector (as/schema-join schemas))))
-                                                  :schema {::ar/placeholders (map :idx expr)})])))
+    (or (= klass java.lang.Long)
+        (= klass Long/TYPE)
+        (= klass java.lang.Integer)
+        (= klass Integer/TYPE)
+        (= klass java.lang.Short)
+        (= klass Short/TYPE)
+        (= klass java.lang.Byte)
+        (= klass Byte/TYPE)
+        (= klass java.math.BigInteger))
+    s/Int
 
-(s/defn local-lookup
-  [results
-   local-vars
-   sym]
-  (let [lookup (get local-vars sym)
-        placeholder (::ar/placeholder lookup)]
-    (if placeholder
-      (get results placeholder)
-      lookup)))
+    (or (= klass java.lang.String)
+        (= klass clojure.lang.Keyword)
+        (= klass java.lang.Boolean)
+        (= klass Boolean/TYPE))
+    (cond
+      (= klass java.lang.String) s/Str
+      (= klass clojure.lang.Keyword) s/Keyword
+      :else s/Bool)
 
-;; TODO: add keywords/maps/vectors used as functions
-;; TODO: add `.`, `new`, other Java-specific things
-(s/defn analyse-function :- [as/AnnotatedExpression]
-  [{:keys [fn-position? args idx] :as this} :- as/AnnotatedExpression]
-  (assert fn-position? "Must be in function position to analyse as a function")
-  (assert (not (nil? args)) "A function must have a list of args")
-  [(dissoc this :fn-position?)
-   (assoc this
-          :dep-callback ar/resolve-fn-position
-          :arglist {::ar/placeholder [idx args]}
-          :schema {::ar/placeholder [idx args]})])
+    :else
+    klass))
 
-(s/defn analyse-symbol :- as/AnnotatedExpression
-  [dict
-   results
-   {:keys [expr local-vars fn-position? args]
-    :or {local-vars {}} :as this} :- as/AnnotatedExpression]
-  (assert (symbol? expr) "Expr should be a symbol; use analyse-value for other basic types")
-  (let [default-schema (if fn-position? (as/dynamic-fn-schema (count args) s/Any) s/Any)
-        lookup (or (local-lookup results local-vars expr)
-                   (get dict expr)
-                   {:schema default-schema})
-        lookup (-> lookup
-                   (update :expr (fn [e] (if e e expr)))
-                   (update :schema (fn [s] (if s s s/Any))))]
-    (merge (assoc this
-                  :resolution-path (concat (get this :resolution-path [])
-                                           (get lookup :resolution-path [])
-                                           [(select-keys lookup [:idx :expr :schema])]))
-           (select-keys lookup [:schema :output :arglists]))))
+(declare schema-of-value)
 
-(s/defn analyse-value :- {(s/optional-key :finished) as/AnnotatedExpression
-                          (s/optional-key :enqueue) [as/AnnotatedExpression]}
-  [{:keys [expr fn-position?] :as this} :- as/AnnotatedExpression]
-  (assert (not fn-position?) "Functions should be analysed with analyse-function")
-  (assert (not (symbol? expr)) "Symbols should be looked up with analyse-symbol")
-  (if (var? expr)
-    {:enqueue [(assoc this
-                      :expr (or @expr (symbol expr)))]}
-    {:finished (assoc this
-                      :schema (cond
-                                (nil? expr) (s/maybe s/Any)
-                                (int? expr) s/Int
-                                (string? expr) s/Str
-                                (keyword? expr) s/Keyword
-                                (boolean? expr) s/Bool
-                                :else (class expr)))}))
+(defn coll-element-schema
+  [values]
+  (if (seq values)
+    (as/schema-join (set (map schema-of-value values)))
+    s/Any))
 
-(defmacro report-error
-  [f]
-  `(try ~f
-        (catch Exception e#
-          (println "Error analysing expression")
-          (println (aa/unannotate-expr ~(last f)))
-          (println "---")
-          (println (str ~(last f)))
-          (println "---")
-          (throw e#))))
+(defn map-schema
+  [m]
+  (into {}
+        (map (fn [[k v]]
+               [(as/valued-schema (schema-of-value k) k)
+                (as/valued-schema (schema-of-value v) v)]))
+        m))
+
+(defn schema-of-value
+  [value]
+  (cond
+    (nil? value) (s/maybe s/Any)
+    (integer? value) s/Int
+    (string? value) s/Str
+    (keyword? value) s/Keyword
+    (boolean? value) s/Bool
+    (vector? value) [(coll-element-schema value)]
+    (or (list? value) (seq? value)) [(coll-element-schema value)]
+    (set? value) #{(coll-element-schema value)}
+    (map? value) (map-schema value)
+    (class? value) java.lang.Class
+    :else (class value)))
+
+(defn schema-join*
+  [schemas]
+  (let [schemas (vec (remove nil? schemas))
+        non-bottom (vec (remove #(= % as/Bottom) schemas))]
+    (cond
+      (seq non-bottom) (as/schema-join (set non-bottom))
+      (seq schemas) as/Bottom
+      :else s/Any)))
+
+(defn node-info
+  [node]
+  (select-keys node [:schema :output :arglists :arglist]))
+
+(defn local-binding-ast
+  [idx sym]
+  {:op :binding
+   :name sym
+   :form sym
+   :local :arg
+   :arg-id idx})
+
+(defn var->sym
+  [var]
+  (when (instance? clojure.lang.Var var)
+    (let [m (meta var)]
+      (symbol (str (ns-name (:ns m)) "/" (:name m))))))
+
+(defn qualify-symbol
+  [ns-sym sym]
+  (cond
+    (nil? sym) nil
+    (not (symbol? sym)) sym
+    (namespace sym) sym
+    ns-sym (symbol (str ns-sym "/" sym))
+    :else sym))
+
+(defn lookup-entry
+  [dict ns-sym node]
+  (let [candidates (remove nil?
+                           [(:form node)
+                            (qualify-symbol ns-sym (:form node))
+                            (var->sym (:var node))])]
+    (some (comp normalize-entry dict) candidates)))
+
+(defn default-call-info
+  [arity]
+  {:expected-arglist (vec (repeat arity s/Any))
+   :output s/Any
+   :fn-schema (as/dynamic-fn-schema arity s/Any)})
+
+(defn call-info
+  [fn-node args]
+  (if (:arglists fn-node)
+    (let [converted (ar/convert-arglists args
+                                         {:arglists (:arglists fn-node)
+                                          :output (:output fn-node)})]
+      {:expected-arglist (:arglist converted)
+       :output (:output converted)
+       :fn-schema (:schema converted)})
+    (default-call-info (count args))))
+
+(declare annotate-node)
+
+(defn annotate-children
+  [ctx node]
+  (reduce (fn [acc key]
+            (let [value (get acc key)
+                  annotated (if (vector? value)
+                              (mapv #(annotate-node ctx %) value)
+                              (annotate-node ctx value))]
+              (assoc acc key annotated)))
+          node
+          (:children node)))
+
+(defn annotate-const
+  [_ctx node]
+  (assoc node :schema (schema-of-value (:val node))))
+
+(defn annotate-binding
+  [ctx node]
+  (if-let [init (:init node)]
+    (let [annotated-init (annotate-node ctx init)]
+      (merge node
+             {:init annotated-init}
+             (node-info annotated-init)))
+    node))
+
+(defn annotate-local
+  [{:keys [locals]} node]
+  (merge node
+         (or (normalize-entry (get locals (:form node)))
+             {:schema s/Any})))
+
+(defn annotate-var-like
+  [{:keys [dict ns]} node]
+  (merge node
+         (or (lookup-entry dict ns node)
+             {:schema s/Any})))
+
+(defn annotate-static-call
+  [ctx node]
+  (let [args (mapv #(annotate-node ctx %) (:args node))]
+    (assoc node
+           :args args
+           :actual-arglist (mapv :schema args)
+           :expected-arglist (vec (repeat (count args) s/Any))
+           :schema s/Any)))
+
+(defn annotate-invoke
+  [ctx node]
+  (let [fn-node (annotate-node ctx (:fn node))
+        args (mapv #(annotate-node ctx %) (:args node))
+        {:keys [expected-arglist output fn-schema]} (call-info fn-node args)]
+    (assoc node
+           :fn fn-node
+           :args args
+           :actual-arglist (mapv :schema args)
+           :expected-arglist expected-arglist
+           :schema output
+           :fn-schema fn-schema)))
+
+(defn annotate-do
+  [ctx node]
+  (let [statements (mapv #(annotate-node ctx %) (:statements node))
+        ret (annotate-node ctx (:ret node))]
+    (assoc node
+           :statements statements
+           :ret ret
+           :schema (:schema ret))))
+
+(defn annotate-let
+  [{:keys [locals] :as ctx} node]
+  (let [[bindings final-locals]
+        (reduce (fn [[acc env] binding]
+                  (let [annotated (annotate-binding (assoc ctx :locals env) binding)
+                        env-entry (or (node-info annotated) {:schema s/Any})]
+                    [(conj acc annotated)
+                     (assoc env (:form binding) env-entry)]))
+                [[] locals]
+                (:bindings node))
+        body (annotate-node (assoc ctx :locals final-locals) (:body node))]
+    (assoc node
+           :bindings bindings
+           :body body
+           :schema (:schema body))))
+
+(defn truthy-then-locals
+  [locals test-node]
+  (if (= :local (:op test-node))
+    (update locals
+            (:form test-node)
+            (fn [entry]
+              (when entry
+                (update (normalize-entry entry) :schema as/de-maybe))))
+    locals))
+
+(defn annotate-if
+  [{:keys [locals] :as ctx} node]
+  (let [test-node (annotate-node ctx (:test node))
+        then-node (annotate-node (assoc ctx :locals (truthy-then-locals locals test-node))
+                                 (:then node))
+        else-node (annotate-node ctx (:else node))]
+    (assoc node
+           :test test-node
+           :then then-node
+           :else else-node
+           :schema (schema-join* [(:schema then-node) (:schema else-node)]))))
+
+(defn arg-schema-specs
+  [dict ns-sym name params]
+  (let [entry (when-some [sym name]
+                (or (get dict sym)
+                    (get dict (qualify-symbol ns-sym sym))))
+        arg-specs (get-in entry [:arglists (count params) :schema])]
+    (or arg-specs
+        (mapv (fn [param]
+                {:schema s/Any
+                 :optional? false
+                 :name (:form param)})
+              params))))
+
+(defn annotate-fn-method
+  [{:keys [locals dict name ns] :as ctx} node]
+  (let [param-specs (arg-schema-specs dict ns name (:params node))
+        annotated-params (mapv (fn [param spec]
+                                 (merge param spec))
+                               (:params node)
+                               param-specs)
+        param-locals (into locals
+                           (map (fn [param]
+                                  [(:form param) (node-info param)]))
+                           annotated-params)
+        body (annotate-node (assoc ctx :locals param-locals)
+                            (:body node))]
+    (assoc node
+           :params annotated-params
+           :body body
+           :schema (:schema body)
+           :output (:schema body)
+           :arglist (mapv :name param-specs)
+           :arg-schema param-specs)))
+
+(defn method->arglist-entry
+  [method]
+  {:arglist (:arglist method)
+   :count (count (:arg-schema method))
+   :schema (mapv (fn [{:keys [schema name]}]
+                   {:schema schema
+                    :optional? false
+                    :name name})
+                 (:arg-schema method))})
+
+(defn annotate-fn
+  [ctx node]
+  (let [methods (mapv #(annotate-fn-method ctx %) (:methods node))
+        arglists (into {}
+                       (map (fn [method]
+                              [(count (:arg-schema method))
+                               (method->arglist-entry method)]))
+                       methods)
+        output (schema-join* (map :output methods))]
+    (assoc node
+           :methods methods
+           :output output
+           :arglists arglists
+           :schema (s/make-fn-schema output
+                                     (mapv (fn [method]
+                                             (mapv (fn [{:keys [schema name]}]
+                                                     (s/one schema name))
+                                                   (:arg-schema method)))
+                                           methods)))))
+
+(defn annotate-def
+  [{:keys [locals] :as ctx} node]
+  (let [meta-node (when-some [meta-node (:meta node)]
+                    (annotate-node ctx meta-node))
+        init-node (when-some [init-node (:init node)]
+                    (annotate-node (assoc ctx
+                                          :locals locals
+                                          :name (:name node))
+                                   init-node))]
+    (cond-> (assoc node
+                   :schema (as/variable (or (:schema init-node) s/Any)))
+      meta-node (assoc :meta meta-node)
+      init-node (assoc :init init-node))))
+
+(defn annotate-vector
+  [ctx node]
+  (let [items (mapv #(annotate-node ctx %) (:items node))]
+    (assoc node
+           :items items
+           :schema [(if (seq items)
+                      (schema-join* (map :schema items))
+                      s/Any)])))
+
+(defn annotate-set
+  [ctx node]
+  (let [items (mapv #(annotate-node ctx %) (:items node))]
+    (assoc node
+           :items items
+           :schema #{(if (seq items)
+                       (schema-join* (map :schema items))
+                       s/Any)})))
+
+(defn annotate-map
+  [ctx node]
+  (let [keys (mapv #(annotate-node ctx %) (:keys node))
+        vals (mapv #(annotate-node ctx %) (:vals node))]
+    (assoc node
+           :keys keys
+           :vals vals
+           :schema (into {}
+                         (map (fn [k v]
+                                [(as/valued-schema (:schema k) (:form k))
+                                 (as/valued-schema (:schema v) (:form v))])
+                              keys
+                              vals)))))
+
+(defn annotate-new
+  [ctx node]
+  (let [class-node (annotate-node ctx (:class node))
+        args (mapv #(annotate-node ctx %) (:args node))]
+    (assoc node
+           :class class-node
+           :args args
+           :schema (or (:val class-node) s/Any))))
+
+(defn annotate-with-meta
+  [ctx node]
+  (let [meta-node (annotate-node ctx (:meta node))
+        expr-node (annotate-node ctx (:expr node))]
+    (merge node
+           {:meta meta-node
+            :expr expr-node}
+           (node-info expr-node))))
+
+(defn annotate-throw
+  [ctx node]
+  (let [exception (annotate-node ctx (:exception node))]
+    (assoc node
+           :exception exception
+           :schema as/Bottom)))
+
+(defn annotate-catch
+  [{:keys [locals] :as ctx} node]
+  (let [class-node (annotate-node ctx (:class node))
+        caught-schema (or (:val class-node) s/Any)
+        local-node (merge (:local node) {:schema caught-schema})
+        body (annotate-node (assoc ctx
+                                   :locals (assoc locals (:form (:local node))
+                                                  {:schema caught-schema}))
+                            (:body node))]
+    (assoc node
+           :class class-node
+           :local local-node
+           :body body
+           :schema (:schema body))))
+
+(defn annotate-try
+  [ctx node]
+  (let [body (annotate-node ctx (:body node))
+        catches (mapv #(annotate-catch ctx %) (:catches node))
+        finally-node (when-some [finally-node (:finally node)]
+                       (annotate-node ctx finally-node))]
+    (cond-> (assoc node
+                   :body body
+                   :catches catches
+                   :schema (schema-join* (cons (:schema body)
+                                               (map :schema catches))))
+      finally-node (assoc :finally finally-node))))
+
+(defn annotate-quote
+  [ctx node]
+  (let [expr (annotate-node ctx (:expr node))]
+    (assoc node
+           :expr expr
+           :schema (schema-of-value (-> node :form second)))))
+
+(defn annotate-node
+  [ctx node]
+  (case (:op node)
+    :binding (annotate-binding ctx node)
+    :const (annotate-const ctx node)
+    :def (annotate-def ctx node)
+    :do (annotate-do ctx node)
+    :fn (annotate-fn ctx node)
+    :fn-method (annotate-fn-method ctx node)
+    :if (annotate-if ctx node)
+    :invoke (annotate-invoke ctx node)
+    :let (annotate-let ctx node)
+    :local (annotate-local ctx node)
+    :map (annotate-map ctx node)
+    :new (annotate-new ctx node)
+    :quote (annotate-quote ctx node)
+    :set (annotate-set ctx node)
+    :static-call (annotate-static-call ctx node)
+    :the-var (annotate-var-like ctx node)
+    :throw (annotate-throw ctx node)
+    :try (annotate-try ctx node)
+    :var (annotate-var-like ctx node)
+    :vector (annotate-vector ctx node)
+    :with-meta (annotate-with-meta ctx node)
+    (assoc (annotate-children ctx node)
+           :schema s/Any)))
+
+(defn annotate-ast
+  ([dict ast]
+   (annotate-ast dict ast {}))
+  ([dict ast {:keys [locals name ns]}]
+   (annotate-node {:dict dict
+                   :locals (into {}
+                                 (map (fn [[sym entry]]
+                                        [sym (normalize-entry entry)]))
+                                 locals)
+                   :name name
+                   :ns ns}
+                  ast)))
+
+(defn analyze-form
+  ([form]
+   (analyze-form form {}))
+  ([form {:keys [locals ns source-file]}]
+   (let [target-ns (or (some-> ns the-ns) *ns*)
+         env (binding [*ns* target-ns]
+               (cond-> (assoc (ta/empty-env)
+                              :ns (ns-name target-ns)
+                              :locals (into {}
+                                            (map-indexed (fn [idx sym]
+                                                           [sym (local-binding-ast idx sym)]))
+                                            (keys locals)))
+                 source-file
+                 (assoc :file source-file)))]
+     (binding [*ns* target-ns]
+       (ana.jvm/analyze form env)))))
 
 (defn attach-schema-info-loop
-  [dict
-   expr]
-  (loop [expr-stack [(aa/annotate-expr expr)]
-         results {}]
-    (if (empty? expr-stack)
-      results
-
-      (let [{:keys [dep-callback] :as next} (first expr-stack)
-            rest-stack (rest expr-stack)
-            {:keys [expr idx fn-position? finished?] :as this} (ar/resolve-local-vars
-                                                                results
-                                                                (if dep-callback
-                                                                  (dep-callback results (dissoc next :dep-callback))
-                                                                  next))]
-        ;;(println "@@@" (aa/unannotate-expr expr) "@@@")
-        ;;(doseq [f [seq? coll? symbol? ap/def? ap/do? ap/fn-expr? ap/defn-expr? ap/fn-once? ap/if? ap/try? ap/throw? ap/loop? ap/let?]]
-        ;;  (println f ":" (f expr)))
-        (cond
-          finished?
-          (recur rest-stack (assoc results idx this))
-
-          fn-position?
-          (recur (concat (report-error (analyse-function this)) rest-stack) results)
-
-          (or (not (seq? expr)) (and (seq? expr) (empty? expr)))
-          (cond
-            (coll? expr)
-            (recur (concat (report-error (analyse-coll this)) rest-stack) results)
-
-            (symbol? expr)
-            (recur rest-stack (assoc results idx (report-error (analyse-symbol dict results this))))
-
-            :else
-            (let [{:keys [finished enqueue]} (report-error (analyse-value this))]
-              (recur (concat enqueue (or rest-stack []))
-                     (if finished
-                       (assoc results idx finished)
-                       results))))
-
-          (ap/def? expr)
-          (recur (concat (report-error (analyse-def this)) rest-stack)
-                 results)
-
-          (ap/do? expr)
-          (recur (concat (report-error (analyse-do this)) rest-stack)
-                 results)
-
-          (or (ap/fn-expr? expr) (ap/defn-expr? expr))
-          (recur (concat (report-error (analyse-fn dict this)) rest-stack)
-                 results)
-
-          (ap/fn-once? expr)
-          (recur (concat (report-error (analyse-fn-once dict this)) rest-stack)
-                 results)
-
-          (ap/if? expr)
-          (recur (concat (report-error (analyse-if this)) rest-stack)
-                 results)
-
-          (ap/try? expr)
-          (recur (concat (report-error (analyse-try this)) rest-stack)
-                 results)
-
-          (ap/throw? expr)
-          (recur rest-stack
-                 (assoc results idx (report-error (analyse-throw this))))
-
-          (or (ap/loop? expr) (ap/let? expr))
-          (recur (concat (report-error (analyse-let this)) rest-stack)
-                 results)
-
-          (and (seq? expr) (not (empty? expr)))
-          (recur (concat (report-error (analyse-application this)) rest-stack)
-                 results)
-
-          :else
-          (throw (ex-info "Unknown expression type" this)))))))
-
-;; TODO: do some-> blocks work correctly? Will they check correctly if a function requires a non-nil argument?
-;; TODO: make sure `doto` and `cond->` blocks work appropriately; something introduces an element between `let*` and its vector of assignments
+  ([dict form]
+   (attach-schema-info-loop dict form {}))
+  ([dict form opts]
+   (annotate-ast dict
+                 (analyze-form form opts)
+                 opts)))

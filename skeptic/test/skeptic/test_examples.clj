@@ -1,10 +1,22 @@
 (ns skeptic.test-examples
-  (:require [schema.core :as s]))
+  (:require [schema.core :as s]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
+            [skeptic.schematize :as schematize]
+            [clojure.repl :as repl]
+            [plumbing.core :as pl]))
 
 ;; Note: updating this file while in the REPL may cause functions to break
 ;; if they rely on loading the source code & resolving references. This is why
 ;; it is better to put stable test cases here, then do active work on the tests
 ;; in question in a separate file.
+
+(defn with-analysis
+  [s]
+  (->> s
+       (schematize/get-fn-code {})
+       read-string
+       ana.jvm/analyze+eval))
 
 (s/defn int-add :- s/Int
   ([x :- s/Int]
@@ -17,6 +29,8 @@
     & zs :- [s/Int]]
    (reduce + (+ x y) zs)))
 
+;(with-analysis 'int-add)
+
 (s/defn sample-half-schema-fn
   [x :- s/Int]
   (int-add 1 (int-add 2 x)))
@@ -28,6 +42,8 @@
 (defn sample-fn
   [x]
   (int-add 1 (int-add 2 x)))
+
+;(def sample-analysis (with-analysis 'sample-fn))
 
 (defn sample-namespaced-keyword-fn
   [x]
@@ -52,6 +68,8 @@
   [x]
   (let [y 2]
     (int-add x y)))
+
+;(def sample-let-analysis (with-analysis 'sample-let-fn))
 
 (defn sample-bad-let-fn
   [x]

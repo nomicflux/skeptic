@@ -1,5 +1,49 @@
 (ns skeptic.analysis.annotation
-  (:require [clojure.walk :as walk]))
+  (:require [clojure.walk :as walk]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
+            [skeptic.schematize :as schematize]
+            [clojure.pprint :as pprint]))
+
+(defn apply-paths
+  [paths expr]
+  (reduce
+   (fn [acc [path idx]]
+     (assoc-in acc (conj path :idx) idx))
+   expr
+   paths))
+
+(defn idx-expression
+  [expr]
+  (loop [exprs-with-paths [[[] expr]]
+         paths []
+         n 0]
+    (if (empty? exprs-with-paths)
+      (apply-paths paths expr)
+      (let [[p e] (first exprs-with-paths)
+            r (rest exprs-with-paths)]
+        (if (vector? e)
+          (recur (into (map-indexed (fn [i a] [(conj p i) a]) e) r) paths n)
+          (recur (into (map (fn [c] [(conj p c) (get e c)]) (:children e)) r)
+                 (conj paths [p n])
+                 (inc n)))))))
+
+(defn unanalyze
+  [expr]
+  (letfn [(raw-form-value [raw-forms]
+            (if (and (sequential? raw-forms)
+                     (= 1 (count raw-forms)))
+              (first raw-forms)
+              raw-forms))]
+    (walk/postwalk (fn [el]
+                     (if (map? el)
+                       (cond
+                         (contains? el :raw-forms) (raw-form-value (:raw-forms el))
+                         (contains? el :val) (:val el)
+                         (contains? el :form) (:form el)
+                         :else (dissoc el :meta :env))
+                       el))
+                   expr)))
 
 (defn annotate-expr
   [expr]

@@ -67,9 +67,10 @@
    func-name :- s/Symbol]
   (if-let [code (repl/source-fn func-name)]
     code
-    (do (when (and verbose (not (contains? @lookup-failures func-name)))
-          (println "No code found for" func-name))
-        (swap! lookup-failures conj func-name)
+    (do (when lookup-failures
+          (when (and verbose (not (contains? @lookup-failures func-name)))
+            (println "No code found for" func-name))
+          (swap! lookup-failures conj func-name))
         "")))
 
 (s/defn macroexpand-all
@@ -223,10 +224,11 @@
   [opts ns]
   (let [lookup-failures (atom #{})
         opts (assoc opts :lookup-failures lookup-failures)]
-    (->> ns
-         symbol
-         ns-publics
-         vals
-         (map symbol)
-         (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
-         (reduce merge {}))))
+    (binding [*ns* (the-ns ns)]
+      (->> ns
+           symbol
+           ns-publics
+           vals
+           (map symbol)
+           (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
+           (reduce merge {})))))

@@ -1,7 +1,8 @@
 (ns skeptic.file
-  (:require [clojure.java.io :as io])
-  (:import [java.io File PushbackReader]
-           [clojure.lang LispReader]))
+  (:require [clojure.java.io :as io]
+            [clojure.tools.reader :as tr]
+            [clojure.tools.reader.reader-types :as rt])
+  (:import [java.io File]))
 
 (defn is-ns-block?
   [[field & _]]
@@ -9,11 +10,11 @@
 
 (defn try-read
   [stream]
-  (LispReader/read stream {:eof nil}))
+  (tr/read {:eof nil} stream))
 
 (defn pushback-reader
   [^File file]
-  (-> file io/reader (PushbackReader.)))
+  (rt/source-logging-push-back-reader (io/reader file) 1 (.getPath file)))
 
 (defn ns-for-clojure-file
   [^File file]
@@ -38,15 +39,3 @@
   (-> (.toURI root)
       (.relativize (.toURI (io/file filename)))
       (.getPath)))
-
-;; https://stackoverflow.com/questions/45555191/is-there-a-way-to-get-clojure-files-source-when-a-namespace-provided
-(defn source-clj
-  [ns]
-  (require ns)
-  (some->> ns
-           ns-publics
-           vals
-           first
-           meta
-           :file
-           io/file))

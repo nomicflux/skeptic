@@ -1,13 +1,11 @@
 (ns skeptic.checking
-  (:require [skeptic.inconsistence :as inconsistence]
+  (:require [clojure.tools.analyzer.ast :as ana.ast]
+            [schema.core :as s]
             [skeptic.analysis :as analysis]
             [skeptic.file :as file]
-            [schema.core :as s]
-            [skeptic.schematize :as schematize]
-            [plumbing.core :as p]
-            [skeptic.analysis.annotation :as aa])
-  (:import [schema.core Schema]
-           [java.io File]))
+            [skeptic.inconsistence :as inconsistence])
+  (:import [java.io File]
+           [schema.core Schema]))
 
 (def spy-on false)
 (def spy-only #{})
@@ -28,17 +26,17 @@
   x)
 
 (defn valid-schema?
-  [s]
-  (or (instance? Schema s)
-      (class? s)
-      (and (coll? s) (every? valid-schema? s))))
+  [schema]
+  (or (instance? Schema schema)
+      (class? schema)
+      (and (coll? schema) (every? valid-schema? schema))))
 
 (defmacro assert-schema
-  [s]
+  [schema]
   #_
-  `(do (assert (valid-schema? ~s) (format "Must be valid schema: %s" ~s))
-       ~s)
-  s)
+  `(do (assert (valid-schema? ~schema) (format "Must be valid schema: %s" ~schema))
+       ~schema)
+  schema)
 
 (defmacro assert-has-schema
   [x]
@@ -47,102 +45,393 @@
        ~x)
   x)
 
-;; TODO: what can we assert here? We already either:
-;; 1. Found a matching arglist, in which case we know the counts match; if expected is short, the last arg is
-;;    a vararg and repeats (can we fix this representation? Is there a better one?). Not sure how actual could
-;;    be short.
-;; 2. We didn't find a matching arglist, in which case we assume that we have no valid data to match up; what
-;;    then? (Can this still happen, or will we always get the dynamic fn type `(=> Any [Any])`?)
-(s/defn match-up-arglists
-  [expr expected actual]
+(def invoke-ops
+  #{:instance-call
+    :invoke
+    :keyword-invoke
+    :prim-invoke
+    :protocol-invoke
+    :static-call})
+
+(defn with-form-meta
+  [original rewritten]
+  (if (instance? clojure.lang.IObj rewritten)
+    (with-meta rewritten (meta original))
+    rewritten))
+
+(defn schema-defn-symbol?
+  [sym]
+  (and (symbol? sym)
+       (= "defn" (name sym))
+       (#{"s" "schema.core"} (namespace sym))))
+
+(defn strip-schema-argvec
+  [argvec]
+  (with-form-meta
+    argvec
+    (loop [[x & more] argvec
+           acc []]
+      (cond
+        (nil? x) (vec acc)
+        (= x ':-) (recur (next more) acc)
+        :else (recur more (conj acc x))))))
+
+(defn strip-schema-method
+  [decl]
+  (let [[args & body] decl]
+    (with-form-meta decl
+      (list* (strip-schema-argvec args) body))))
+
+(defn strip-schema-defn
+  [form]
+  (let [[_defn-sym name & more] form
+        [more] (if (= ':- (first more))
+                 [(nnext more)]
+                 [more])
+        [docstring more] (if (string? (first more))
+                           [(first more) (next more)]
+                           [nil more])
+        [attr-map more] (if (map? (first more))
+                          [(first more) (next more)]
+                          [nil more])
+        decls (if (vector? (first more))
+                [(with-form-meta (first more)
+                   (list* (strip-schema-argvec (first more)) (next more)))]
+                (map strip-schema-method more))]
+    (with-form-meta form
+      (list* 'defn
+             name
+             (concat (when docstring [docstring])
+                     (when attr-map [attr-map])
+                     decls)))))
+
+(defn normalize-check-form
+  [form]
+  (if (and (seq? form) (schema-defn-symbol? (first form)))
+    (strip-schema-defn form)
+    form))
+
+(defn source-file-path
+  [source-file]
+  (cond
+    (nil? source-file) nil
+    (instance? File source-file) (.getPath ^File source-file)
+    :else (str source-file)))
+
+(defn merge-location
+  [& locations]
+  (when-let [present (seq (remove nil? locations))]
+    (reduce (fn [acc location]
+              (merge acc (into {}
+                               (remove (comp nil? val))
+                               location)))
+            {}
+            present)))
+
+(defn form-location
+  [source-file form]
+  (merge-location {:file (source-file-path source-file)}
+                  (select-keys (meta form) [:line :column :end-line :end-column])))
+
+(defn form-source
+  [form]
+  (:source (meta form)))
+
+(defn defn-decls
+  [form]
+  (when (and (seq? form)
+             (symbol? (first form))
+             (or (= 'defn (first form))
+                 (schema-defn-symbol? (first form))))
+    (let [[head _name & more] form
+          more (if (and (schema-defn-symbol? head)
+                        (= ':- (first more)))
+                 (nnext more)
+                 more)
+          more (if (string? (first more))
+                 (next more)
+                 more)
+          more (if (map? (first more))
+                 (next more)
+                 more)]
+      (if (vector? (first more))
+        [(with-form-meta (first more)
+           (list* (first more) (next more)))]
+        more))))
+
+(defn method-source-body
+  [decl]
+  (let [[_args & body] decl]
+    (cond
+      (empty? body) nil
+      (= 1 (count body)) (first body)
+      :else (with-form-meta (first body)
+              (list* 'do body)))))
+
+(defn node-location
+  [node]
+  (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
+
+(defn display-expr
+  [node]
+  (let [expr (:form node)
+        source-expression (form-source expr)]
+    {:expr expr
+     :source-expression source-expression
+     :expanded-expression (when (and source-expression
+                                     (not= source-expression (pr-str expr)))
+                            expr)
+     :location (node-location node)}))
+
+(defn distinctv
+  [xs]
+  (reduce (fn [acc x]
+            (if (some #(= % x) acc)
+              acc
+              (conj acc x)))
+          []
+          xs))
+
+(defn child-nodes
+  [node]
+  (mapcat (fn [child]
+            (let [value (get node child)]
+              (cond
+                (vector? value) value
+                (map? value) [value]
+                :else [])))
+          (:children node)))
+
+(defn ast-nodes-preorder
+  [ast]
+  (tree-seq map? child-nodes ast))
+
+(defn node-ref
+  [node]
+  (when node
+    (select-keys node [:form :schema])))
+
+(defn callee-ref
+  [node]
+  (when node
+    (case (:op node)
+      :invoke (node-ref (:fn node))
+      :with-meta (recur (:expr node))
+      nil)))
+
+(defn match-up-arglists
+  [arg-nodes expected actual]
   (spy :match-up-actual-list actual)
   (spy :match-up-expected-list expected)
   (let [size (max (count expected) (count actual))
-        args (vec (drop 1 expr))
         expected-vararg (last expected)]
     (for [n (range 0 size)]
-      [(get args n)
+      [(get arg-nodes n)
        (spy :match-up-expected (get expected n expected-vararg))
        (spy :match-up-actual (get actual n))])))
 
-(s/defn lookup-resolutions
-  [refs]
-  (fn [els]
-    (loop [[{:keys [idx resolution-path] :as el} & rest] els
-           acc []]
-      (cond
-        (nil? el) acc
-        :else (if-let [lookup (get refs idx)]
-                (recur (concat rest
-                               resolution-path
-                               (:resolution-path lookup))
-                       (conj acc (select-keys lookup [:idx :expr :schema])))
-                (recur (concat rest resolution-path)
-                       acc))))))
+(defn binding-index
+  [ast]
+  (reduce (fn [acc node]
+            (if (= :binding (:op node))
+              (assoc acc (:form node) node)
+              acc))
+          {}
+          (ana.ast/nodes ast)))
 
-(s/defn match-up-resolution-paths
-  [refs
-   context]
-  (p/map-vals
-   #(update %
-            :resolution-path
-            (lookup-resolutions refs))
-   context))
+(declare local-resolution-path)
 
-(s/defn match-s-exprs
-  [refs
-   {:keys [expected-arglist actual-arglist expr local-vars path resolution-path] :as to-match}]
-  (when (seq expected-arglist)
-    (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
-            (format "Arglists must not be nil: %s %s\n%s"
-                    expected-arglist actual-arglist to-match))
-    (assert (>= (count actual-arglist) (count expected-arglist))
-            (format "Actual should have at least as many elements as expected: %s %s\n%s"
-                    expected-arglist actual-arglist to-match))
-    (let [cleaned (aa/unannotate-expr expr)
-          matched (spy :matched-arglists (match-up-arglists cleaned
-                                                            (spy :expected-arglist (vec expected-arglist))
-                                                            (spy :actual-arglist (vec actual-arglist))))
-          errors (vec (mapcat (partial apply inconsistence/inconsistent? cleaned) matched))]
-      {:blame cleaned
-       :path path
-       :context {:local-vars (match-up-resolution-paths refs local-vars)
-                 :refs ((lookup-resolutions refs) resolution-path)}
-       :errors errors})))
+(defn local-resolution-path
+  [bindings local-node]
+  (if-let [binding (get bindings (:form local-node))]
+    (if-let [init (:init binding)]
+      (cond-> [(node-ref init)]
+        (callee-ref init)
+        (conj (callee-ref init)))
+      [])
+    []))
 
-(s/defn check-s-expr
-  [dict s-expr {:keys [keep-empty remove-context]}]
-  (try (let [analysed (analysis/attach-schema-info-loop dict s-expr)]
-         (cond->> (->> analysed
-                       vals
-                       (keep (partial match-s-exprs analysed)))
+(defn local-vars-context
+  [bindings node]
+  (->> (ana.ast/nodes node)
+       (filter #(= :local (:op %)))
+       (reduce (fn [acc local-node]
+                 (if (contains? acc (:form local-node))
+                   acc
+                   (assoc acc
+                          (:form local-node)
+                          {:form (:form local-node)
+                           :schema (:schema local-node)
+                           :resolution-path (local-resolution-path bindings local-node)})))
+               {})))
 
-           (not keep-empty)
-           (remove (comp empty? :errors))
+(defn call-refs
+  [bindings node]
+  (let [fn-node (:fn node)]
+    (cond
+      (nil? fn-node) []
+      (= :local (:op fn-node))
+      (into [(node-ref fn-node)]
+            (local-resolution-path bindings fn-node))
+      :else
+      (cond-> []
+        (node-ref fn-node)
+        (conj (node-ref fn-node))))))
 
-           remove-context
-           (map #(dissoc % :context))))
-       (catch Exception e
-         (println "Error parsing expression")
-         (println (pr-str s-expr))
-         (println e)
-         (throw e))))
+(defn call-node?
+  [node]
+  (and (contains? invoke-ops (:op node))
+       (vector? (:args node))
+       (seq (:expected-arglist node))
+       (seq (:actual-arglist node))))
 
-(s/defn normalize-fn-code
-  [opts ns-refs f]
-  (->> f
-       (schematize/get-fn-code opts)
-       (schematize/resolve-code-references ns-refs)))
+(defn qualify-symbol
+  [ns-sym sym]
+  (cond
+    (nil? sym) nil
+    (not (symbol? sym)) sym
+    (namespace sym) sym
+    ns-sym (symbol (str ns-sym "/" sym))
+    :else sym))
 
-(s/defn check-fn
-  ([ns-refs dict f]
-   (check-fn ns-refs dict f {}))
-  ([ns-refs dict f opts]
-   (check-s-expr dict (normalize-fn-code opts ns-refs f) opts)))
+(defn dict-entry
+  [dict ns-sym sym]
+  (or (get dict sym)
+      (get dict (qualify-symbol ns-sym sym))))
 
-(s/defn annotate-fn
-  [ns-refs dict f opts]
-  (->> f (normalize-fn-code opts ns-refs) (analysis/attach-schema-info-loop dict)))
+(defn unwrap-with-meta
+  [node]
+  (if (= :with-meta (:op node))
+    (recur (:expr node))
+    node))
+
+(defn method-output-schema
+  [method]
+  (let [body (:body method)
+        output (:output method)
+        tagged-output (some-> (:tag body) analysis/class->schema)]
+    (if (inconsistence/unknown-output-schema? output)
+      (or tagged-output output)
+      output)))
+
+(defn def-output-results
+  [dict bindings ns-sym source-form enclosing-form node]
+  (let [entry (dict-entry dict ns-sym (:name node))
+        expected-output (:output entry)
+        init-node (some-> node :init unwrap-with-meta)
+        methods (:methods init-node)
+        source-bodies (map method-source-body (defn-decls source-form))]
+    (when (and expected-output (seq methods))
+      (->> (map vector methods source-bodies)
+           (keep (fn [[method source-body]]
+                   (let [actual-output (method-output-schema method)
+                         body (:body method)
+                         source-body-location (when source-body
+                                                (select-keys (meta source-body)
+                                                             [:file :line :column :end-line :end-column]))
+                         source-expression (form-source source-body)
+                         display {:expr (or source-body (:form body))
+                                  :source-expression source-expression
+                                  :expanded-expression (when (or (not= source-body (:form body))
+                                                                 (and source-expression
+                                                                      (not= source-expression (pr-str (:form body)))))
+                                                         (:form body))
+                                  :location source-body-location}]
+                     (when-let [error (inconsistence/mismatched-output-schema
+                                       {:expr (:name node)
+                                        :arg (:expr display)}
+                                       expected-output
+                                       actual-output)]
+                       {:blame (:expr display)
+                        :source-expression (:source-expression display)
+                        :expanded-expression (:expanded-expression display)
+                        :location (:location display)
+                        :enclosing-form enclosing-form
+                        :path nil
+                        :context {:local-vars (local-vars-context bindings body)
+                                  :refs (if (call-node? body)
+                                          (call-refs bindings body)
+                                          [])}
+                        :errors [error]}))))))))
+
+(defn match-s-exprs
+  [bindings enclosing-form node]
+  (when (call-node? node)
+    (let [expected-arglist (vec (:expected-arglist node))
+          actual-arglist (vec (:actual-arglist node))
+          display (display-expr node)]
+      (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
+              (format "Arglists must not be nil: %s %s\n%s"
+                      expected-arglist actual-arglist node))
+      (assert (>= (count actual-arglist) (count expected-arglist))
+              (format "Actual should have at least as many elements as expected: %s %s\n%s"
+                      expected-arglist actual-arglist node))
+      (let [matched (spy :matched-arglists (match-up-arglists (:args node)
+                                                              (spy :expected-arglist expected-arglist)
+                                                              (spy :actual-arglist actual-arglist)))
+            error-groups (keep (fn [[arg-node expected actual]]
+                                 (let [arg-display (when arg-node
+                                                     (display-expr arg-node))
+                                       arg-expr (or (:expr arg-display)
+                                                    (:form arg-node))
+                                       errors (vec (inconsistence/inconsistent? (:expr display)
+                                                                                arg-expr
+                                                                                expected
+                                                                                actual))]
+                                   (when (seq errors)
+                                     {:focus arg-expr
+                                      :focus-source (:source-expression arg-display)
+                                      :errors errors})))
+                               matched)
+            errors (vec (mapcat :errors error-groups))]
+        {:blame (:expr display)
+         :source-expression (:source-expression display)
+         :expanded-expression (:expanded-expression display)
+         :location (:location display)
+         :enclosing-form enclosing-form
+         :focuses (distinctv (keep :focus error-groups))
+         :focus-sources (distinctv (keep :focus-source error-groups))
+         :path nil
+         :context {:local-vars (local-vars-context bindings node)
+                   :refs (call-refs bindings node)}
+         :errors errors}))))
+
+(defn check-s-expr
+  [dict s-expr {:keys [keep-empty remove-context ns source-file] :as opts}]
+  (try
+    (let [normalized (normalize-check-form s-expr)
+          enclosing-form (if (and (seq? s-expr)
+                                  (symbol? (second s-expr))
+                                  (symbol? (first s-expr)))
+                           (qualify-symbol ns (second s-expr))
+                           s-expr)
+          analysed (analysis/attach-schema-info-loop dict
+                                                     normalized
+                                                     (assoc opts :source-file (source-file-path source-file)))
+          bindings (binding-index analysed)]
+      (cond->> (->> (ast-nodes-preorder analysed)
+                    (mapcat (fn [node]
+                              (concat (when-let [call-result (match-s-exprs bindings
+                                                                           enclosing-form
+                                                                           node)]
+                                        [call-result])
+                                      (or (def-output-results dict
+                                                              bindings
+                                                              ns
+                                                              s-expr
+                                                              enclosing-form
+                                                              node)
+                                          [])))))
+        (not keep-empty)
+        (remove (comp empty? :errors))
+
+        remove-context
+        (map #(dissoc % :context))))
+    (catch Exception e
+      (println "Error parsing expression")
+      (println (pr-str s-expr))
+      (println e)
+      (throw e))))
 
 (defmacro block-in-ns
   [ns ^File file & body]
@@ -155,34 +444,20 @@
        res#)))
 
 (defn ns-exprs
-  [ns ^File file]
-  (let [file-reader (file/pushback-reader file)
-        ns-refs (ns-map ns)]
-    (loop [expr (file/try-read file-reader)
-           acc []]
-      (cond
-        (nil? expr) acc
-        (file/is-ns-block? expr) (recur (file/try-read file-reader) acc)
-        :else (recur (file/try-read file-reader) (conj acc (->> expr (mapv (partial schematize/resolve-all ns-refs)))))))))
-;; TODO: dropping initial `ns` block as it isn't relevant to type-checking and complicates matters,
-;; but we should add it back in for checking
-
-(defmacro annotate-ns
-  ([ns file]
-   `(annotate-ns (schematize/ns-schemas ~ns) ~ns ~file))
-  ([dict ns ^File file]
-   `(block-in-ns ~ns (mapcat #(attach-schema-info ~dict %) (ns-exprs ~ns ~file)))))
+  [source-file]
+  (with-open [reader (file/pushback-reader source-file)]
+    (->> (repeatedly #(file/try-read reader))
+         (take-while some?)
+         (remove file/is-ns-block?)
+         doall)))
 
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
-(defmacro check-ns
-  ([ns file]
-   `(check-ns ~ns ~file {}))
-  ([ns file opts]
-   `(check-ns (schematize/ns-schemas ~opts ~ns) ~ns ~file ~opts))
-  ([dict ns ^File file opts]
-   `(do (assert ~ns "Can't have null namespace for check-ns")
-        (block-in-ns ~ns ~file
-                     (let [dict# ~dict]
-                       (mapcat #(check-s-expr dict# % ~opts)
-                               (ns-exprs ~ns ~file)))))))
+(defn check-ns
+  [dict ns source-file opts]
+  (binding [*ns* (the-ns ns)]
+    (let [opts (assoc opts
+                      :ns ns
+                      :source-file source-file)]
+      (mapcat #(check-s-expr dict % opts)
+              (ns-exprs source-file)))))

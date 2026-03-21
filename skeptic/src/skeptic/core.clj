@@ -2,14 +2,40 @@
   (:require [skeptic.checking :as checking]
             [skeptic.file :as file]
             [skeptic.colours :as colours]
+            [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.stacktrace :as stacktrace]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotation :as aa]
-            [skeptic.schematize :as schematize]))
+            [skeptic.schematize :as schematize]
+            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]))
+
+(defn format-location
+  [{:keys [file line column]}]
+  (cond
+    (and file line column) (str file ":" line ":" column)
+    (and file line) (str file ":" line)
+    file file
+    line (str line)
+    :else nil))
+
+(defn format-focuses
+  [focuses]
+  (when (seq focuses)
+    (str/join ", " focuses)))
+
+(defn print-report-field
+  [label value]
+  (let [text (str value)]
+    (if (str/includes? text "\n")
+      (do
+        (println (colours/white label true))
+        (println (colours/white text true)))
+      (println (colours/white (str label text) true)))))
 
 (defn get-project-schemas
-  [{:keys [verbose show-context namespace] :as opts} root & paths]
+  [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
   (let [nss (cond-> (try (->> paths
                               (map (partial file/relative-path (io/file root)))
                               (mapcat file/clojure-files-for-path)
@@ -24,19 +50,31 @@
               (select-keys [(symbol namespace)]))]
     (when verbose (println "Namespaces to check: " (pr-str (keys nss))))
     (let [errored (atom false)]
-      (doseq [[ns file] nss]
+      (doseq [[ns source-file] nss]
        (require ns)
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         ;(when verbose
-         ;  (println "Schema dictionary:")
-         ;  (pprint/pprint (schematize/ns-schemas opts ns)))
-         (doseq [{:keys [blame path errors context]} (checking/check-ns ns file opts)]
+         (let [dict (schematize/ns-schemas opts ns)]
+           ;(when verbose
+           ;  (println "Schema dictionary:")
+           ;  (pprint/pprint dict))
+         (when analyzer
+           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
+         (doseq [{:keys [blame source-expression expanded-expression location enclosing-form focuses focus-sources path errors context]} (checking/check-ns dict ns source-file opts)]
            (println "---------")
            (println (colours/white (str "Namespace: \t\t" ns) true))
-           (println (colours/white (str "Expression: \t\t" (pr-str blame)) true))
-           (when verbose (println "In macro-expanded path: \t" (pr-str path)))
+           (when-let [location-text (format-location location)]
+             (println (colours/white (str "Location: \t\t" location-text) true)))
+           (print-report-field "Expression: \t\t" (or source-expression (pr-str blame)))
+           (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
+             (print-report-field "Affected input: \t" focus-text))
+           (when enclosing-form
+             (println (colours/white (str "In enclosing form: \t" (pr-str enclosing-form)) true)))
+           (when expanded-expression
+             (print-report-field "Analyzed expression: \t" (pr-str expanded-expression)))
+           (when (and verbose path)
+             (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
            (when show-context
              (println "Context:")
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
@@ -48,7 +86,7 @@
            (doseq [error errors]
              (reset! errored true)
              (println "---")
-             (println error "\n")))
+             (println error "\n"))))
          (catch Exception e
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/red (str "Error parsing namespace " ns ": " e) true))
@@ -56,4 +94,5 @@
              (println (stacktrace/print-stack-trace e))))))
       (if @errored
         (System/exit 1)
-        (println "No inconsistencies found")))))
+        (do (println "No inconsistencies found")
+            (System/exit 0))))))
