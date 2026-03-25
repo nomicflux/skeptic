@@ -50,40 +50,20 @@
 (s/defn mismatched-ground-types :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
    expected actual]
-  (when (and (contains? ground-types expected)
-             (contains? ground-types actual)
-             (not= expected actual))
-    (mismatched-ground-type-msg ctx actual expected)))
+  (let [expected (as/canonicalize-schema expected)
+        actual (as/canonicalize-schema actual)]
+    (when (and (contains? ground-types expected)
+               (contains? ground-types actual)
+               (not= expected actual))
+      (mismatched-ground-type-msg ctx actual expected))))
 
 (defn unknown-output-schema?
   [schema]
-  (cond
-    (as/any-schema? schema) true
-    (or (= schema s/Num)
-        (= schema Number)
-        (= schema java.lang.Number)
-        (= schema Object)
-        (= schema java.lang.Object)) true
-    (as/maybe? schema) (unknown-output-schema? (as/de-maybe schema))
-    (as/join? schema) (some unknown-output-schema? (:schemas schema))
-    :else false))
+  (as/unknown-schema? schema))
 
 (defn output-schema-compatible?
   [expected actual]
-  (cond
-    (= actual as/Bottom) true
-    (as/any-schema? expected) true
-    (unknown-output-schema? actual) true
-    (and (as/maybe? expected) (as/maybe? actual))
-    (output-schema-compatible? (as/de-maybe expected) (as/de-maybe actual))
-    (as/maybe? expected)
-    (output-schema-compatible? (as/de-maybe expected) actual)
-    (as/maybe? actual) false
-    (as/join? actual)
-    (every? #(output-schema-compatible? expected %) (:schemas actual))
-    :else
-    (or (= expected actual)
-        (= (as/check-if-schema expected actual) ::as/schema-valid))))
+  (as/schema-compatible? expected actual))
 
 (s/defn mismatched-output-schema :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
@@ -136,67 +116,27 @@
 
 (s/defn get-by-matching-schema
   [m k]
-  (let [matches (->> m
-                     keys
-                     (filter (fn [s] (= (as/check-if-schema s k) ::as/schema-valid)))
-                     (select-keys m))]
-    (cond
-      (empty? matches) nil
-      (> (count matches) 1) (throw (IllegalStateException. (format "Multiple results for key %s and m %s: %s"
-                                                                   k m matches)))
-      :else (-> matches vals first))))
+  (as/get-by-matching-schema m k))
 
 (s/defn valued-get
   [m k]
-  (cond
-    (as/valued-schema? k)
-    (or (get m (:value k))
-        (get-by-matching-schema m (:value k))
-        (get m (:schema k)))
-
-    :else
-    (or (get m k)
-        (get-by-matching-schema m k))))
+  (as/valued-get m k))
 
 (declare matches-map)
 
 (s/defn valued-compare
   [expected actual]
-  (cond
-    (as/valued-schema? expected)
-    (throw (IllegalArgumentException. "Only actual can be a valued schema"))
-
-    (as/valued-schema? actual)
-    (let [v (:value actual)
-          s (:schema actual)
-          e (as/de-maybe expected)]
-      (or (= e v)
-          (= e s)
-          (= e (s/optional-key v))
-          (= e (s/optional-key s))
-          (= (as/check-if-schema e v) ::as/schema-valid)))
-
-    (or (= expected actual)
-        (= expected (s/optional-key actual))
-        (= (as/check-if-schema expected actual) ::as/schema-valid))
-    true
-
-    (and (map? expected) (map? actual))
-    (every? (fn [[k v]] (matches-map expected k v)) actual)
-
-    :else false))
+  (as/valued-compatible? expected actual))
 
 (s/defn matches-map
   [expected actual-k actual-v]
-  (let [possible-keys (filter (fn [x] (valued-compare x actual-k)) (keys expected))
-        expected-vs (map #(valued-get expected %) possible-keys)]
-    (if (empty? expected-vs)
-      false
-      (seq (filter #(valued-compare % actual-v) expected-vs)))))
+  (as/matches-map expected actual-k actual-v))
 
 (s/defn in-set?
   [expected-m actual-k]
-  (let [possible-keys (filter (fn [[k _v]] (valued-compare k (as/flatten-valued-schema-map actual-k))) expected-m)]
+  (let [expected-m (as/canonicalize-schema expected-m)
+        actual-k (-> actual-k as/flatten-valued-schema-map as/canonicalize-schema)
+        possible-keys (filter (fn [[k _v]] (valued-compare k actual-k)) expected-m)]
     (seq possible-keys)))
 
 (s/defn valued-disj
@@ -251,7 +191,8 @@
 
 (s/defn map-schema?
   [s]
-  (instance? clojure.lang.PersistentArrayMap s))
+  (and (map? s)
+       (not (record? s))))
 
 (s/defn mismatched-maps :- [s/Str]
   [ctx mexpected mactual]

@@ -852,3 +852,47 @@
       (is (= :let (:op root)))
       (is (find-projected-node root #(= :if (:op %))))
       (is (= s/Keyword (:schema root))))))
+
+(deftest canonicalized-schema-representation-test
+  (let [raw-symbol-entry {:schema (s/make-fn-schema clojure.lang.Symbol
+                                                    [[(s/one java.lang.String 'arg)]])
+                          :output clojure.lang.Symbol
+                          :arglists {1 {:arglist ['arg]
+                                        :count 1
+                                        :schema [{:schema java.lang.String
+                                                  :optional? false
+                                                  :name 'arg}]}}}
+        raw-keyword-entry {:schema (s/make-fn-schema clojure.lang.Keyword
+                                                     [[(s/one s/Any 'arg)]])
+                           :output clojure.lang.Keyword
+                           :arglists {1 {:arglist ['arg]
+                                         :count 1
+                                         :schema [{:schema s/Any
+                                                   :optional? false
+                                                   :name 'arg}]}}}
+        raw-int-entry {:schema (s/make-fn-schema java.lang.Integer
+                                                 [[(s/one s/Any 'arg)]])
+                       :output java.lang.Integer
+                       :arglists {1 {:arglist ['arg]
+                                     :count 1
+                                     :schema [{:schema s/Any
+                                               :optional? false
+                                               :name 'arg}]}}}
+        symbol-call (project-ast (analyze-form {}
+                                               '(f "x")
+                                               {:ns 'skeptic.analysis-test
+                                                :locals {'f raw-symbol-entry}}))
+        keyword-call (project-ast (analyze-form {}
+                                                '(f :x)
+                                                {:ns 'skeptic.analysis-test
+                                                 :locals {'f raw-keyword-entry}}))
+        int-call (project-ast (analyze-form {}
+                                            '(f :x)
+                                            {:ns 'skeptic.analysis-test
+                                             :locals {'f raw-int-entry}}))
+        quoted-symbol (project-ast (analyze-form '(quote foo)))]
+    (is (= s/Symbol (:schema symbol-call)))
+    (is (= [s/Str] (:expected-arglist symbol-call)))
+    (is (= s/Keyword (:schema keyword-call)))
+    (is (= s/Int (:schema int-call)))
+    (is (= s/Symbol (:schema quoted-symbol)))))

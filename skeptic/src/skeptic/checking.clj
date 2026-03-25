@@ -2,6 +2,7 @@
   (:require [clojure.tools.analyzer.ast :as ana.ast]
             [schema.core :as s]
             [skeptic.analysis :as analysis]
+            [skeptic.analysis.schema :as as]
             [skeptic.file :as file]
             [skeptic.inconsistence :as inconsistence])
   (:import [java.io File]
@@ -311,13 +312,13 @@
         output (:output method)
         tagged-output (some-> (:tag body) analysis/class->schema)]
     (if (inconsistence/unknown-output-schema? output)
-      (or tagged-output output)
-      output)))
+      (as/canonicalize-schema (or tagged-output output))
+      (as/canonicalize-schema output))))
 
 (defn def-output-results
   [dict bindings ns-sym source-form enclosing-form node]
   (let [entry (dict-entry dict ns-sym (:name node))
-        expected-output (:output entry)
+        expected-output (some-> (:output entry) as/canonicalize-schema)
         init-node (some-> node :init unwrap-with-meta)
         methods (:methods init-node)
         source-bodies (map method-source-body (defn-decls source-form))]

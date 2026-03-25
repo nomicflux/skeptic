@@ -34,6 +34,26 @@
   (is (not (nil? (sut/mismatched-ground-types sample-ctx s/Bool s/Symbol))))
   (is (not (nil? (sut/mismatched-ground-types sample-ctx s/Bool s/Int)))))
 
+(deftest canonical-schema-compatibility-test
+  (is (sut/output-schema-compatible? s/Symbol clojure.lang.Symbol))
+  (is (sut/output-schema-compatible? s/Keyword clojure.lang.Keyword))
+  (is (sut/output-schema-compatible? s/Int java.lang.Integer))
+  (is (not (sut/output-schema-compatible? s/Str clojure.lang.Keyword)))
+
+  (is (= 1 (sut/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))
+  (is (= 2 (sut/get-by-matching-schema {s/Int 2} java.lang.Integer)))
+
+  (is (sut/valued-compare {s/Symbol s/Int} {clojure.lang.Symbol s/Int}))
+  (is (sut/valued-compare {s/Keyword s/Int} {clojure.lang.Keyword s/Int}))
+  (is (sut/valued-compare {s/Int s/Str} {java.lang.Integer s/Str}))
+
+  (let [expected {:name s/Str
+                  :schema (s/maybe s/Any)}
+        actual {(schema-or-value s/Keyword :name) (schema-or-value s/Str "x")
+                (schema-or-value s/Keyword :schema) (schema-or-value s/Int 1)}]
+    (is (sut/valued-compare expected actual))
+    (is (sut/output-schema-compatible? expected actual))))
+
 (deftest apply-base-rules-test
   (is (empty? (sut/apply-base-rules sample-ctx s/Int s/Any)))
   (is (seq (sut/apply-base-rules sample-ctx s/Int s/Str)))

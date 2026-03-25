@@ -18,7 +18,7 @@
   [idx one]
   (let [m (try (into {} one)
                (catch Exception _e {}))]
-    {:schema (class->schema (or (:schema m) s/Any))
+    {:schema (as/canonicalize-schema (or (:schema m) s/Any))
      :optional? false
      :name (or (:name m) (symbol (str "arg" idx)))}))
 
@@ -26,17 +26,18 @@
   [schema]
   (when (fn-schema? schema)
     (let [{:keys [input-schemas output-schema]} (into {} schema)]
-      {:output output-schema
-       :arglists (into {}
-                       (map (fn [inputs]
-                              [(count inputs)
-                               {:arglist (mapv (fn [idx one]
-                                                 (:name (one->arg-entry idx one)))
-                                               (range)
-                                               inputs)
-                                :count (count inputs)
-                                :schema (mapv one->arg-entry (range) inputs)}]))
-                       input-schemas)})))
+      (as/canonicalize-entry
+       {:output output-schema
+        :arglists (into {}
+                        (map (fn [inputs]
+                               [(count inputs)
+                                {:arglist (mapv (fn [idx one]
+                                                  (:name (one->arg-entry idx one)))
+                                                (range)
+                                                inputs)
+                                 :count (count inputs)
+                                 :schema (mapv one->arg-entry (range) inputs)}]))
+                        input-schemas)}))))
 
 (defn entry-map?
   [entry]
@@ -52,36 +53,15 @@
     (let [base (if (entry-map? entry)
                  entry
                  {:schema entry})]
-      (merge (schema->callable (:schema base))
-             (cond-> base
-               (:schema base) (update :schema class->schema)
-               (:output base) (update :output class->schema))))))
+      (as/canonicalize-entry
+       (merge (schema->callable (:schema base))
+              (cond-> base
+                (:schema base) (update :schema as/canonicalize-schema)
+                (:output base) (update :output as/canonicalize-schema)))))))
 
 (defn class->schema
   [klass]
-  (cond
-    (or (= klass java.lang.Long)
-        (= klass Long/TYPE)
-        (= klass java.lang.Integer)
-        (= klass Integer/TYPE)
-        (= klass java.lang.Short)
-        (= klass Short/TYPE)
-        (= klass java.lang.Byte)
-        (= klass Byte/TYPE)
-        (= klass java.math.BigInteger))
-    s/Int
-
-    (or (= klass java.lang.String)
-        (= klass clojure.lang.Keyword)
-        (= klass java.lang.Boolean)
-        (= klass Boolean/TYPE))
-    (cond
-      (= klass java.lang.String) s/Str
-      (= klass clojure.lang.Keyword) s/Keyword
-      :else s/Bool)
-
-    :else
-    klass))
+  (as/canonical-scalar-schema klass))
 
 (declare schema-of-value)
 
@@ -93,11 +73,12 @@
 
 (defn map-schema
   [m]
-  (into {}
-        (map (fn [[k v]]
-               [(as/valued-schema (schema-of-value k) k)
-                (as/valued-schema (schema-of-value v) v)]))
-        m))
+  (as/canonicalize-schema
+   (into {}
+         (map (fn [[k v]]
+                [(as/valued-schema (schema-of-value k) k)
+                 (as/valued-schema (schema-of-value v) v)]))
+         m)))
 
 (defn schema-of-value
   [value]
@@ -106,13 +87,14 @@
     (integer? value) s/Int
     (string? value) s/Str
     (keyword? value) s/Keyword
+    (symbol? value) s/Symbol
     (boolean? value) s/Bool
     (vector? value) [(coll-element-schema value)]
     (or (list? value) (seq? value)) [(coll-element-schema value)]
     (set? value) #{(coll-element-schema value)}
     (map? value) (map-schema value)
     (class? value) java.lang.Class
-    :else (class value)))
+    :else (class->schema (class value))))
 
 (defn schema-join*
   [schemas]
@@ -190,7 +172,7 @@
 
 (defn annotate-const
   [_ctx node]
-  (assoc node :schema (schema-of-value (:val node))))
+  (assoc node :schema (as/canonicalize-schema (schema-of-value (:val node)))))
 
 (defn annotate-binding
   [ctx node]
@@ -220,7 +202,7 @@
            :args args
            :actual-arglist (mapv :schema args)
            :expected-arglist (vec (repeat (count args) s/Any))
-           :schema s/Any)))
+           :schema (as/canonicalize-schema s/Any))))
 
 (defn annotate-invoke
   [ctx node]
@@ -230,10 +212,10 @@
     (assoc node
            :fn fn-node
            :args args
-           :actual-arglist (mapv :schema args)
-           :expected-arglist expected-arglist
-           :schema output
-           :fn-schema fn-schema)))
+           :actual-arglist (mapv (comp as/canonicalize-schema :schema) args)
+           :expected-arglist (mapv as/canonicalize-schema expected-arglist)
+           :schema (as/canonicalize-schema output)
+           :fn-schema (as/canonicalize-schema fn-schema))))
 
 (defn annotate-do
   [ctx node]
@@ -242,7 +224,7 @@
     (assoc node
            :statements statements
            :ret ret
-           :schema (:schema ret))))
+           :schema (as/canonicalize-schema (:schema ret)))))
 
 (defn annotate-let
   [{:keys [locals] :as ctx} node]
@@ -280,7 +262,8 @@
            :test test-node
            :then then-node
            :else else-node
-           :schema (schema-join* [(:schema then-node) (:schema else-node)]))))
+           :schema (as/canonicalize-schema
+                    (schema-join* [(:schema then-node) (:schema else-node)])))))
 
 (defn arg-schema-specs
   [dict ns-sym name params]
@@ -311,8 +294,8 @@
     (assoc node
            :params annotated-params
            :body body
-           :schema (:schema body)
-           :output (:schema body)
+           :schema (as/canonicalize-schema (:schema body))
+           :output (as/canonicalize-schema (:schema body))
            :arglist (mapv :name param-specs)
            :arg-schema param-specs)))
 
@@ -337,14 +320,15 @@
         output (schema-join* (map :output methods))]
     (assoc node
            :methods methods
-           :output output
+           :output (as/canonicalize-schema output)
            :arglists arglists
-           :schema (s/make-fn-schema output
-                                     (mapv (fn [method]
-                                             (mapv (fn [{:keys [schema name]}]
-                                                     (s/one schema name))
-                                                   (:arg-schema method)))
-                                           methods)))))
+           :schema (as/canonicalize-schema
+                    (s/make-fn-schema output
+                                      (mapv (fn [method]
+                                              (mapv (fn [{:keys [schema name]}]
+                                                      (s/one schema name))
+                                                    (:arg-schema method)))
+                                            methods))))))
 
 (defn annotate-def
   [{:keys [locals] :as ctx} node]
@@ -356,7 +340,8 @@
                                           :name (:name node))
                                    init-node))]
     (cond-> (assoc node
-                   :schema (as/variable (or (:schema init-node) s/Any)))
+                   :schema (as/canonicalize-schema
+                            (as/variable (or (:schema init-node) s/Any))))
       meta-node (assoc :meta meta-node)
       init-node (assoc :init init-node))))
 
@@ -365,18 +350,20 @@
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :schema [(if (seq items)
-                      (schema-join* (map :schema items))
-                      s/Any)])))
+           :schema (as/canonicalize-schema
+                    [(if (seq items)
+                       (schema-join* (map :schema items))
+                       s/Any)]))))
 
 (defn annotate-set
   [ctx node]
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :schema #{(if (seq items)
-                       (schema-join* (map :schema items))
-                       s/Any)})))
+           :schema (as/canonicalize-schema
+                    #{(if (seq items)
+                        (schema-join* (map :schema items))
+                        s/Any)}))))
 
 (defn annotate-map
   [ctx node]
@@ -385,12 +372,13 @@
     (assoc node
            :keys keys
            :vals vals
-           :schema (into {}
-                         (map (fn [k v]
-                                [(as/valued-schema (:schema k) (:form k))
-                                 (as/valued-schema (:schema v) (:form v))])
-                              keys
-                              vals)))))
+           :schema (as/canonicalize-schema
+                    (into {}
+                          (map (fn [k v]
+                                 [(as/valued-schema (:schema k) (:form k))
+                                  (as/valued-schema (:schema v) (:form v))])
+                               keys
+                               vals))))))
 
 (defn annotate-new
   [ctx node]
@@ -399,7 +387,7 @@
     (assoc node
            :class class-node
            :args args
-           :schema (or (:val class-node) s/Any))))
+           :schema (as/canonicalize-schema (or (:val class-node) s/Any)))))
 
 (defn annotate-with-meta
   [ctx node]
@@ -430,7 +418,7 @@
            :class class-node
            :local local-node
            :body body
-           :schema (:schema body))))
+           :schema (as/canonicalize-schema (:schema body)))))
 
 (defn annotate-try
   [ctx node]
@@ -441,8 +429,9 @@
     (cond-> (assoc node
                    :body body
                    :catches catches
-                   :schema (schema-join* (cons (:schema body)
-                                               (map :schema catches))))
+                   :schema (as/canonicalize-schema
+                            (schema-join* (cons (:schema body)
+                                                (map :schema catches)))))
       finally-node (assoc :finally finally-node))))
 
 (defn annotate-quote
@@ -450,7 +439,8 @@
   (let [expr (annotate-node ctx (:expr node))]
     (assoc node
            :expr expr
-           :schema (schema-of-value (-> node :form second)))))
+           :schema (as/canonicalize-schema
+                    (schema-of-value (-> node :form second))))))
 
 (defn annotate-node
   [ctx node]
@@ -477,7 +467,7 @@
     :vector (annotate-vector ctx node)
     :with-meta (annotate-with-meta ctx node)
     (assoc (annotate-children ctx node)
-           :schema s/Any)))
+           :schema (as/canonicalize-schema s/Any))))
 
 (defn annotate-ast
   ([dict ast]

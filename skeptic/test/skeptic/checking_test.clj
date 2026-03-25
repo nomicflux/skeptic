@@ -17,10 +17,12 @@
 
 (def test-file (File. "test/skeptic/test_examples.clj"))
 (def counterexamples-file (File. "src/skeptic/counterexamples.clj"))
+(def schematize-file (File. "src/skeptic/schematize.clj"))
 (def utils-file (File. "src/skeptic/utils.clj"))
 
 (def test-dict (in-test-examples (schematize/ns-schemas {} 'skeptic.test-examples)))
 (def counterexamples-dict (schematize/ns-schemas {} 'skeptic.counterexamples))
+(def schematize-dict (schematize/ns-schemas {} 'skeptic.schematize))
 (def utils-dict (schematize/ns-schemas {} 'skeptic.utils))
 
 (let [fn-map (atom {})]
@@ -215,6 +217,28 @@
    (is (= ['(int-add nil x)
            [(inconsistence/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-schema-bad-fn))))))
+
+(deftest symbol-output-schema-regression
+  (let [form (->> 'skeptic.schematize/fully-qualify-str
+                  (schematize/get-fn-code {})
+                  read-string)
+        results (vec (sut/check-s-expr schematize-dict
+                                       form
+                                       {:ns 'skeptic.schematize
+                                        :source-file schematize-file
+                                        :remove-context true}))]
+    (is (= [] results))))
+
+(deftest collect-schemas-output-schema-regression
+  (let [form (->> 'skeptic.schematize/collect-schemas
+                  (schematize/get-fn-code {})
+                  read-string)
+        results (vec (sut/check-s-expr schematize-dict
+                                       form
+                                       {:ns 'skeptic.schematize
+                                        :source-file schematize-file
+                                        :remove-context true}))]
+    (is (= [] results))))
 
 (deftest counterexamples-report-callsite-and-output-errors
   (let [results (vec (sut/check-ns counterexamples-dict

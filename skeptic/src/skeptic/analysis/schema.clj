@@ -2,7 +2,7 @@
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
             [schema.spec.leaf :as leaf])
-  (:import [schema.core EqSchema Maybe Schema]))
+  (:import [schema.core EqSchema Maybe One Schema]))
 
 (defn any-schema?
   [s]
@@ -37,6 +37,13 @@
     false ::schema-invalid
     nil ::value))
 
+(defn fn-schema?
+  [schema]
+  (try
+    (boolean (:input-schemas (into {} schema)))
+    (catch Exception _e
+      false)))
+
 (defn maybe?
   [s]
   (instance? Maybe s))
@@ -56,6 +63,11 @@
   (cond-> s
     (eq? s)
     :v))
+
+(declare canonicalize-schema
+         canonicalize-entry-fn-schema
+         variable
+         matches-map)
 
 (defrecord BottomSchema [_]
   ;; This is copied from Any, but in terms of calculating joins of types it works in practically the opposite fashion
@@ -122,6 +134,288 @@
   [s]
   (instance? ValuedSchema s))
 
+(defrecord Variable [schema]
+  Schema
+  (spec [this] (leaf/leaf-spec (spec/precondition this #(and (var? %) (nil? (s/check schema (deref %)))) #(list 'var? schema %))))
+  (explain [_this] (list "#'" (s/explain schema))))
+
+(defn variable
+  [schema]
+  (Variable. schema))
+
+(defn canonical-scalar-schema
+  [schema]
+  (cond
+    (or (= schema s/Int)
+        (= schema java.lang.Long)
+        (= schema Long/TYPE)
+        (= schema java.lang.Integer)
+        (= schema Integer/TYPE)
+        (= schema java.lang.Short)
+        (= schema Short/TYPE)
+        (= schema java.lang.Byte)
+        (= schema Byte/TYPE)
+        (= schema java.math.BigInteger))
+    s/Int
+
+    (or (= schema s/Str)
+        (= schema java.lang.String))
+    s/Str
+
+    (or (= schema s/Keyword)
+        (= schema clojure.lang.Keyword))
+    s/Keyword
+
+    (or (= schema s/Symbol)
+        (= schema clojure.lang.Symbol))
+    s/Symbol
+
+    (or (= schema s/Bool)
+        (= schema java.lang.Boolean)
+        (= schema Boolean/TYPE))
+    s/Bool
+
+    :else schema))
+
+(defn canonicalize-one
+  [one]
+  (let [m (try (into {} one)
+               (catch Exception _e nil))]
+    (if (map? m)
+      (s/one (canonicalize-schema (:schema m))
+             (:name m))
+      one)))
+
+(defn canonicalize-map-key
+  [k]
+  (if (s/optional-key? k)
+    (s/optional-key (canonicalize-schema (:k k)))
+    (canonicalize-schema k)))
+
+(defn canonicalize-entry
+  [entry]
+  (cond
+    (nil? entry) nil
+    (not (map? entry)) entry
+    :else
+    (cond-> entry
+      (contains? entry :schema) (update :schema canonicalize-schema)
+      (contains? entry :output) (update :output canonicalize-schema)
+      (contains? entry :expected-arglist) (update :expected-arglist #(mapv canonicalize-schema %))
+      (contains? entry :actual-arglist) (update :actual-arglist #(mapv canonicalize-schema %))
+      (contains? entry :locals) (update :locals (fn [locals]
+                                                  (into {}
+                                                        (map (fn [[k v]]
+                                                               [k (canonicalize-entry v)]))
+                                                        locals)))
+      (contains? entry :arglists) (update :arglists (fn [arglists]
+                                                      (into {}
+                                                            (map (fn [[k v]]
+                                                                   [k (canonicalize-entry v)]))
+                                                            arglists)))
+      (contains? entry :schema) canonicalize-entry-fn-schema)))
+
+(defn canonicalize-fn-schema
+  [schema]
+  (let [{:keys [input-schemas output-schema]} (into {} schema)]
+    (s/make-fn-schema (canonicalize-schema output-schema)
+                      (mapv (fn [inputs]
+                              (mapv canonicalize-one inputs))
+                            input-schemas))))
+
+(defn canonicalize-entry-fn-schema
+  [entry]
+  (if (and (contains? entry :schema)
+           (fn-schema? (:schema entry)))
+    (assoc entry :schema (canonicalize-fn-schema (:schema entry)))
+    entry))
+
+(defn canonicalize-schema
+  [schema]
+  (cond
+    (nil? schema) nil
+    (fn-schema? schema) (canonicalize-fn-schema schema)
+    (instance? One schema) (canonicalize-one schema)
+    (maybe? schema) (s/maybe (canonicalize-schema (:schema schema)))
+    (join? schema) (schema-join (set (map canonicalize-schema (:schemas schema))))
+    (valued-schema? schema) (valued-schema (canonicalize-schema (:schema schema))
+                                           (:value schema))
+    (instance? Variable schema) (variable (canonicalize-schema (:schema schema)))
+    (contains? #{s/Int s/Str s/Keyword s/Symbol s/Bool}
+               (canonical-scalar-schema schema))
+    (canonical-scalar-schema schema)
+    (record? schema) schema
+    (map? schema) (into {}
+                       (map (fn [[k v]]
+                              [(canonicalize-map-key k)
+                               (canonicalize-schema v)]))
+                       schema)
+    (vector? schema) (mapv canonicalize-schema schema)
+    (set? schema) (into #{} (map canonicalize-schema) schema)
+    (seq? schema) (doall (map canonicalize-schema schema))
+    :else (canonical-scalar-schema schema)))
+
+(defn schema-equivalent?
+  [expected actual]
+  (= (canonicalize-schema expected)
+     (canonicalize-schema actual)))
+
+(defn unknown-schema?
+  [schema]
+  (let [schema (canonicalize-schema schema)]
+    (cond
+      (any-schema? schema) true
+      (or (= schema s/Num)
+          (= schema Number)
+          (= schema java.lang.Number)
+          (= schema Object)
+          (= schema java.lang.Object)) true
+      (maybe? schema) (unknown-schema? (de-maybe schema))
+      (join? schema) (some unknown-schema? (:schemas schema))
+      :else false)))
+
+(declare schema-compatible?)
+
+(defn valued-compatible?
+  [expected actual]
+  (let [expected (canonicalize-schema expected)
+        actual (canonicalize-schema actual)]
+    (cond
+      (valued-schema? expected)
+      (throw (IllegalArgumentException. "Only actual can be a valued schema"))
+
+      (valued-schema? actual)
+      (let [v (:value actual)
+            s (:schema actual)
+            e (de-maybe expected)]
+        (or (schema-equivalent? e v)
+            (schema-equivalent? e s)
+            (schema-equivalent? e (s/optional-key v))
+            (schema-equivalent? e (s/optional-key s))
+            (= (check-if-schema e v) ::schema-valid)))
+
+      (or (schema-equivalent? expected actual)
+          (schema-equivalent? expected (s/optional-key actual))
+          (= (check-if-schema expected actual) ::schema-valid))
+      true
+
+      (and (map? expected) (map? actual))
+      (every? (fn [[k v]] (matches-map expected k v)) actual)
+
+      :else false)))
+
+(defn get-by-matching-schema
+  [m k]
+  (let [m (canonicalize-schema m)
+        k (canonicalize-schema k)
+        matches (->> m
+                     keys
+                     (filter (fn [schema]
+                               (or (schema-equivalent? schema k)
+                                   (= (check-if-schema schema k) ::schema-valid))))
+                     (select-keys m))]
+    (cond
+      (empty? matches) nil
+      (> (count matches) 1) (throw (IllegalStateException. (format "Multiple results for key %s and m %s: %s"
+                                                                   k m matches)))
+      :else (-> matches vals first))))
+
+(defn valued-get
+  [m k]
+  (let [m (canonicalize-schema m)
+        k (canonicalize-schema k)]
+    (cond
+      (valued-schema? k)
+      (or (get m (:value k))
+          (get-by-matching-schema m (:value k))
+          (get m (:schema k)))
+
+      :else
+      (or (get m k)
+          (get-by-matching-schema m k)))))
+
+(declare matches-map)
+
+(defn matches-map
+  [expected actual-k actual-v]
+  (let [expected (canonicalize-schema expected)
+        actual-k (canonicalize-schema actual-k)
+        actual-v (canonicalize-schema actual-v)
+        possible-keys (filter (fn [x] (valued-compatible? x actual-k)) (keys expected))
+        expected-vs (map #(valued-get expected %) possible-keys)]
+    (if (empty? expected-vs)
+      false
+      (seq (filter #(valued-compatible? % actual-v) expected-vs)))))
+
+(defn required-key?
+  [k]
+  (and (not (s/optional-key? k))
+       (or (keyword? k)
+           (valued-schema? k)
+           (schema? k)
+           (map? k))))
+
+(defn map-schema-compatible?
+  [expected actual]
+  (let [expected (canonicalize-schema expected)
+        actual (canonicalize-schema actual)
+        expected-keys (keys expected)
+        actual-keys (keys actual)
+        required-keys (filter required-key? expected-keys)]
+    (and
+     (every? (fn [[actual-k actual-v]]
+               (matches-map expected actual-k actual-v))
+             actual)
+     (every? (fn [expected-k]
+               (some #(valued-compatible? (if (s/optional-key? expected-k) (:k expected-k) expected-k)
+                                          (if (s/optional-key? %) (:k %) %))
+                     actual-keys))
+             required-keys)
+     (every? (fn [actual-k]
+               (some #(valued-compatible? %
+                                          (if (s/optional-key? actual-k) (:k actual-k) actual-k))
+                     expected-keys))
+             actual-keys))))
+
+(defn collection-schema-compatible?
+  [expected actual]
+  (and (= (type expected) (type actual))
+       (= (count expected) (count actual))
+       (every? true? (map schema-compatible? expected actual))))
+
+(defn schema-compatible?
+  [expected actual]
+  (let [expected (canonicalize-schema expected)
+        actual (canonicalize-schema actual)]
+    (cond
+      (= actual Bottom) true
+      (any-schema? expected) true
+      (unknown-schema? actual) true
+      (schema-equivalent? expected actual) true
+      (and (join? expected) (join? actual))
+      (every? (fn [schema]
+                (some #(schema-compatible? % schema) (:schemas expected)))
+              (:schemas actual))
+      (join? expected)
+      (some #(schema-compatible? % actual) (:schemas expected))
+      (join? actual)
+      (every? #(schema-compatible? expected %) (:schemas actual))
+      (and (maybe? expected) (maybe? actual))
+      (schema-compatible? (de-maybe expected) (de-maybe actual))
+      (maybe? expected)
+      (schema-compatible? (de-maybe expected) actual)
+      (maybe? actual) false
+      (and (map? expected) (map? actual))
+      (map-schema-compatible? expected actual)
+      (and (vector? expected) (vector? actual))
+      (collection-schema-compatible? expected actual)
+      (and (set? expected) (set? actual))
+      (collection-schema-compatible? (vec expected) (vec actual))
+      (and (seq? expected) (seq? actual))
+      (collection-schema-compatible? (vec expected) (vec actual))
+      :else
+      (= (check-if-schema expected actual) ::schema-valid))))
+
 (defn cartesian
   [coll1 coll2]
   (for [x coll1
@@ -180,15 +474,6 @@
 (defn dynamic-fn-schema
   [arity output]
   (s/make-fn-schema (or output s/Any) [(vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))]))
-
-(defrecord Variable [schema]
-  Schema
-  (spec [this] (leaf/leaf-spec (spec/precondition this #(and (var? %) (nil? (s/check schema (deref %)))) #(list 'var? schema %))))
-  (explain [_this] (list "#'" (s/explain schema))))
-
-(defn variable
-  [schema]
-  (Variable. schema))
 
 (s/defschema WithPlaceholder
   {s/Keyword s/Any})

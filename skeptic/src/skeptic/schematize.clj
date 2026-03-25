@@ -2,6 +2,7 @@
   (:require [clojure.repl :as repl]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [skeptic.analysis.schema :as as]
             [skeptic.schema :as dschema]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [clojure.tools.analyzer.passes.jvm.emit-form :as e]
@@ -173,34 +174,35 @@
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
   (try
-    (if (or (class? schema) (set? schema) (vector? schema))
-      {:name (str (s/explain schema))
-       :schema schema
-       :output schema
-       :arglists {}}
-      (let [{:keys [input-schemas output-schema]} (into {} schema)
-            inputs (count-map input-schemas)
-            args (arg-map arglists)
-            args-with-schemas (reduce
-                               (fn [acc next]
-                                 (let [input (get inputs next)
-                                       arg (get args next)]
-                                   (assoc acc
-                                          next
-                                          (cond-> {:arglist arg}
-                                            (= next :varargs)
-                                            (assoc :count (:count arg)
-                                                   :arglist (:args arg)
-                                                   :schema (get inputs (:count arg)))
+    (as/canonicalize-entry
+     (if (or (class? schema) (set? schema) (vector? schema))
+       {:name (str (s/explain schema))
+        :schema schema
+        :output schema
+        :arglists {}}
+       (let [{:keys [input-schemas output-schema]} (into {} schema)
+             inputs (count-map input-schemas)
+             args (arg-map arglists)
+             args-with-schemas (reduce
+                                (fn [acc next]
+                                  (let [input (get inputs next)
+                                        arg (get args next)]
+                                    (assoc acc
+                                           next
+                                           (cond-> {:arglist arg}
+                                             (= next :varargs)
+                                             (assoc :count (:count arg)
+                                                    :arglist (:args arg)
+                                                    :schema (get inputs (:count arg)))
 
-                                            (not (nil? input))
-                                            (assoc :schema input)))))
-                               {}
-                               (keys args))]
-        {:name (str ns "/" name)
-         :schema schema
-         :output (or output-schema schema)
-         :arglists args-with-schemas}))
+                                             (not (nil? input))
+                                             (assoc :schema input)))))
+                                {}
+                                (keys args))]
+         {:name (str ns "/" name)
+          :schema schema
+          :output (or output-schema schema)
+          :arglists args-with-schemas})))
     (catch Exception e
       (println "Exception collecting schemas:" (pr-str this))
       (throw e))))
