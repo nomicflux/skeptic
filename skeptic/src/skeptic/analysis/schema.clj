@@ -104,22 +104,58 @@
     (:schemas s)
     #{s}))
 
+(defn flatten-join-members
+  [types]
+  (->> types
+       (map canonicalize-schema)
+       (mapcat (fn [schema]
+                 (if (join? schema)
+                   (:schemas schema)
+                   [schema])))
+       set))
+
+(defn nil-bearing-join
+  [types]
+  (let [types (flatten-join-members types)
+        nil-bearing? (or (contains? types nil)
+                         (some maybe? types))
+        types (disj types nil)
+        {maybe-types true
+         plain-types false} (group-by maybe? types)
+        maybe-bases (->> maybe-types
+                         (map (comp canonicalize-schema de-maybe))
+                         set)
+        maybe-bases (if (and (contains? maybe-bases s/Any)
+                             (seq (concat plain-types
+                                          (disj maybe-bases s/Any))))
+                      (disj maybe-bases s/Any)
+                      maybe-bases)]
+    {:nil-bearing? nil-bearing?
+     :types (into (set plain-types) maybe-bases)}))
+
 (defn schema-join
   ;; Nils treated as an automatic `maybe`; this isn't strictly necessary, as `maybe x` is just `nil || x`, but `nil` analysis is
   ;; important enough that they are treated as a separate case
   [[t1 & _r :as types]]
-  (let [types (cond->> types (not (set? types)) (into #{}))]
+  (let [{:keys [nil-bearing? types]}
+        (nil-bearing-join (cond->> types (not (set? types)) (into #{})))]
     (cond
-      (= 1 (count types)) t1
-
-      (contains? types nil)
-      (s/maybe (schema-join (disj types nil)))
-
       (empty? types)
-      s/Any
+      (if nil-bearing?
+        (s/maybe s/Any)
+        s/Any)
+
+      (= 1 (count types))
+      (let [schema (first types)]
+        (if nil-bearing?
+          (s/maybe schema)
+          schema))
 
       :else
-      (apply join types))))
+      (let [schema (apply join types)]
+        (if nil-bearing?
+          (s/maybe schema)
+          schema)))))
 
 (defrecord ValuedSchema [schema value]
   Schema
@@ -617,7 +653,6 @@
     (cond
       (= actual Bottom) true
       (any-schema? expected) true
-      (unknown-schema? actual) true
       (schema-equivalent? expected actual) true
       (and (join? expected) (join? actual))
       (every? (fn [schema]
@@ -632,6 +667,7 @@
       (maybe? expected)
       (schema-compatible? (de-maybe expected) actual)
       (maybe? actual) false
+      (unknown-schema? actual) true
       (and (map? expected) (map? actual))
       (map-schema-compatible? expected actual)
       (and (vector? expected) (vector? actual))

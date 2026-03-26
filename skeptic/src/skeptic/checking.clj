@@ -622,10 +622,11 @@
                                                      (display-expr arg-node))
                                        arg-expr (or (:expr arg-display)
                                                     (:form arg-node))
-                                       errors (vec (inconsistence/inconsistent? (:expr display)
-                                                                                arg-expr
-                                                                                expected
-                                                                                actual))]
+                                       errors (vec (inconsistence/explain-incompatibility
+                                                    {:expr (:expr display)
+                                                     :arg arg-expr}
+                                                    expected
+                                                    actual))]
                                    (when (seq errors)
                                      {:focus arg-expr
                                       :focus-source (:source-expression arg-display)
@@ -644,37 +645,60 @@
                    :refs (call-refs bindings node)}
          :errors errors}))))
 
+(defn enclosing-form
+  [ns-sym source-form]
+  (if (and (seq? source-form)
+           (symbol? (second source-form))
+           (symbol? (first source-form)))
+    (qualify-symbol ns-sym (second source-form))
+    source-form))
+
+(defn check-resolved-form
+  [dict ns-sym source-form analyzed {:keys [keep-empty remove-context]}]
+  (let [bindings (binding-index analyzed)
+        enclosing-form (enclosing-form ns-sym source-form)]
+    (cond->> (->> (ast-nodes-preorder analyzed)
+                  (mapcat (fn [node]
+                            (concat (when-let [call-result (match-s-exprs bindings
+                                                                         enclosing-form
+                                                                         node)]
+                                      [call-result])
+                                    (or (def-output-results dict
+                                                            bindings
+                                                            ns-sym
+                                                            source-form
+                                                            enclosing-form
+                                                            node)
+                                        [])))))
+      (not keep-empty)
+      (remove (comp empty? :errors))
+
+      remove-context
+      (map #(dissoc % :context)))))
+
+(declare ns-exprs)
+
 (defn check-s-expr
   [dict s-expr {:keys [keep-empty remove-context ns source-file] :as opts}]
   (try
-    (let [normalized (normalize-check-form s-expr)
-          enclosing-form (if (and (seq? s-expr)
-                                  (symbol? (second s-expr))
-                                  (symbol? (first s-expr)))
-                           (qualify-symbol ns (second s-expr))
-                           s-expr)
-          analysed (analysis/attach-schema-info-loop dict
-                                                     normalized
-                                                     (assoc opts :source-file (source-file-path source-file)))
-          bindings (binding-index analysed)]
-      (cond->> (->> (ast-nodes-preorder analysed)
-                    (mapcat (fn [node]
-                              (concat (when-let [call-result (match-s-exprs bindings
-                                                                           enclosing-form
-                                                                           node)]
-                                        [call-result])
-                                      (or (def-output-results dict
-                                                              bindings
-                                                              ns
-                                                              s-expr
-                                                              enclosing-form
-                                                              node)
-                                          [])))))
-        (not keep-empty)
-        (remove (comp empty? :errors))
-
-        remove-context
-        (map #(dissoc % :context))))
+    (binding [*ns* (the-ns ns)]
+      (let [source-form (normalize-check-form s-expr)
+            exprs (if source-file
+                    (ns-exprs source-file)
+                    [source-form])
+            {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)
+            expr-idx (or (first (keep-indexed (fn [idx expr]
+                                                (when (= source-form
+                                                         (normalize-check-form expr))
+                                                  idx))
+                                              exprs))
+                         0)]
+        (check-resolved-form dict
+                             ns
+                             (nth exprs expr-idx)
+                             (nth resolved expr-idx)
+                             {:keep-empty keep-empty
+                              :remove-context remove-context})))
     (catch Exception e
       (println "Error parsing expression")
       (println (pr-str s-expr))
@@ -705,38 +729,8 @@
   [dict ns source-file opts]
   (binding [*ns* (the-ns ns)]
     (let [exprs (ns-exprs source-file)
-          {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)
-          bindings (mapv binding-index resolved)
-          opts (assoc opts
-                      :ns ns
-                      :source-file source-file)]
-      (mapcat (fn [source-form analyzed bindings]
-                (cond->> (->> (ast-nodes-preorder analyzed)
-                              (mapcat (fn [node]
-                                        (concat (when-let [call-result (match-s-exprs bindings
-                                                                                     (if (and (seq? source-form)
-                                                                                              (symbol? (second source-form))
-                                                                                              (symbol? (first source-form)))
-                                                                                       (qualify-symbol ns (second source-form))
-                                                                                       source-form)
-                                                                                     node)]
-                                                  [call-result])
-                                                (or (def-output-results dict
-                                                                        bindings
-                                                                        ns
-                                                                        source-form
-                                                                        (if (and (seq? source-form)
-                                                                                 (symbol? (second source-form))
-                                                                                 (symbol? (first source-form)))
-                                                                          (qualify-symbol ns (second source-form))
-                                                                          source-form)
-                                                                        node)
-                                                    [])))))
-                  (not (:keep-empty opts))
-                  (remove (comp empty? :errors))
-
-                  (:remove-context opts)
-                  (map #(dissoc % :context))))
+          {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)]
+      (mapcat (fn [source-form analyzed]
+                (check-resolved-form dict ns source-form analyzed opts))
               exprs
-              resolved
-              bindings))))
+              resolved))))

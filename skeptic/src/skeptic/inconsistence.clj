@@ -18,6 +18,14 @@
   [s]
   (with-out-str (pprint/pprint s)))
 
+(defn describe-schema
+  [x]
+  (ppr-str
+   (if (or (as/schema? x)
+           (class? x))
+     (s/explain x)
+     x)))
+
 ;; Actual is just (maybe expected), so no need to print it out
 ;; TODO: thread through verbosity flag to output schema when set
 (defn mismatched-nullable-msg
@@ -37,15 +45,27 @@
   [{:keys [expr arg]} output-schema expected-schema]
   (format "%s\n\tin\n\n%s\nis a mismatched type:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (ppr-str (s/explain output-schema)))
-          (colours/yellow (ppr-str (s/explain expected-schema)))))
+          (colours/yellow (describe-schema output-schema))
+          (colours/yellow (describe-schema expected-schema))))
 
 (defn mismatched-output-schema-msg
   [{:keys [expr arg]} output-schema expected-schema]
   (format "%s\n\tin\n\n%s\nhas output schema:\n\n%s\n\nbut declared return schema is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (ppr-str (s/explain output-schema)))
-          (colours/yellow (ppr-str (s/explain expected-schema)))))
+          (colours/yellow (describe-schema output-schema))
+          (colours/yellow (describe-schema expected-schema))))
+
+(defn mismatched-schema-msg
+  [{:keys [expr arg]} actual-schema expected-schema]
+  (format "%s\n\tin\n\n%s\nhas incompatible schema:\n\n%s\n\nbut expected is:\n\n%s"
+          (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
+          (colours/yellow (describe-schema actual-schema))
+          (colours/yellow (describe-schema expected-schema))))
+
+(defn canonical-compatible?
+  [expected actual]
+  (as/schema-compatible? (as/canonicalize-schema expected)
+                         (as/canonicalize-schema actual)))
 
 (s/defn mismatched-ground-types :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
@@ -63,12 +83,15 @@
 
 (defn output-schema-compatible?
   [expected actual]
-  (as/schema-compatible? expected actual))
+  (canonical-compatible? expected actual))
+
+(declare mismatched-maps
+         explain-incompatibility)
 
 (s/defn mismatched-output-schema :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
    expected actual]
-  (when-not (output-schema-compatible? expected actual)
+  (when (seq (explain-incompatibility ctx expected actual))
     (mismatched-output-schema-msg ctx actual expected)))
 
 (def base-mismatch-rules
@@ -78,9 +101,10 @@
 (s/defn apply-base-rules :- [s/Str]
   [ctx :- ErrorMsgCtx
    expected actual]
-  (keep
-   (fn [f] (f ctx expected actual))
-   base-mismatch-rules))
+  (vec
+   (keep
+    (fn [f] (f ctx expected actual))
+    base-mismatch-rules)))
 
 (s/defn missing-key-message :- (s/maybe s/Str)
   [{:keys [expr arg]} :- ErrorMsgCtx
@@ -168,44 +192,68 @@
                  :illegally-nullable #{}
                  :superfluous #{}}
                 (keys actual))]
-
-    (remove nil? [(missing-key-message ctx missing)
-                  (superfluous-key-message ctx superfluous)
-                  (nullable-key-message ctx illegally-nullable)])))
+    (vec
+     (keep identity
+           [(missing-key-message ctx missing)
+            (superfluous-key-message ctx superfluous)
+            (nullable-key-message ctx illegally-nullable)]))))
 
 (s/defn check-for-key-schema :- [s/Str]
   [ctx expected actual ks]
   (let [expected-schemas (->> (as/schema-values ks)
                               (keep (partial get expected)))
-        actual-schemas (->> ks (get actual) as/schema-values)]
-    (vec (when (and (seq expected-schemas) (seq actual-schemas))
-           (let [matches (for [es expected-schemas
-                               as actual-schemas]
-                           (apply-base-rules ctx es as))]
-             (apply concat (filter seq matches)))))))
+        actual-schemas (->> ks (get actual) as/schema-values)
+        pairs (for [expected-schema expected-schemas
+                    actual-schema actual-schemas]
+                [expected-schema actual-schema])]
+    (if (and (seq pairs)
+             (not-any? (fn [[expected-schema actual-schema]]
+                         (canonical-compatible? expected-schema actual-schema))
+                       pairs))
+      (vec
+       (distinct
+        (mapcat (fn [[expected-schema actual-schema]]
+                  (explain-incompatibility ctx expected-schema actual-schema))
+                pairs)))
+      [])))
 
 (s/defn apply-mismatches-by-key :- [s/Str]
   [ctx expected actual]
-  (mapcat (partial check-for-key-schema ctx expected actual)
-          (keys actual)))
+  (vec
+   (mapcat (partial check-for-key-schema ctx expected actual)
+           (keys actual))))
 
 (s/defn map-schema?
   [s]
   (and (map? s)
        (not (record? s))))
 
-(s/defn mismatched-maps :- [s/Str]
+(s/defn mismatched-maps :- s/Any
   [ctx mexpected mactual]
-  (let [expected (->> mexpected as/de-maybe)
+  (let [expected (->> mexpected as/de-maybe as/canonicalize-schema)
         ;; TODO: Under what circumstances would actual be a maybe? If in a collection of combined nils and maps?
-        actual (->> mactual as/de-maybe)]
-    (when (and (map-schema? expected) (map-schema? actual))
-      (keep identity (concat (apply-mismatches-by-key ctx expected actual)
-                             (check-keys ctx expected actual))))))
+        actual (->> mactual as/de-maybe as/canonicalize-schema)]
+    (if (and (map-schema? expected) (map-schema? actual))
+      (let [details (into (apply-mismatches-by-key ctx expected actual)
+                          (check-keys ctx expected actual))]
+        (cond
+          (seq details) details
+          (canonical-compatible? expected actual) []
+          :else [(mismatched-schema-msg ctx actual expected)]))
+      [])))
+
+(s/defn explain-incompatibility :- s/Any
+  [ctx :- ErrorMsgCtx
+   expected actual]
+  (let [expected (as/canonicalize-schema expected)
+        actual (as/canonicalize-schema actual)
+        messages (into (apply-base-rules ctx expected actual)
+                       (mismatched-maps ctx expected actual))]
+    (cond
+      (seq messages) messages
+      (canonical-compatible? expected actual) []
+      :else [(mismatched-schema-msg ctx actual expected)])))
 
 (s/defn inconsistent? :- [s/Str]
   [expr arg expected actual]
-  (let [ctx {:expr expr :arg arg}]
-    (filter seq
-            (concat (apply-base-rules ctx expected actual)
-                    (mismatched-maps ctx expected actual)))))
+  (explain-incompatibility {:expr expr :arg arg} expected actual))

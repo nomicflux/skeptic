@@ -43,7 +43,9 @@
   ([dict f opts]
    (sut/check-s-expr dict
                      (normalize-fn-code opts f)
-                     (assoc opts :ns 'skeptic.test-examples))))
+                     (assoc opts
+                            :ns 'skeptic.test-examples
+                            :source-file test-file))))
 
 (defn result-errors
   [results]
@@ -362,6 +364,22 @@
                                (:enclosing-form %))
                       %)
                     nested-results)))))
+
+(deftest check-s-expr-uses-resolved-helper-schemas
+  (in-test-examples
+   (let [results (vec (check-fn test-dict
+                                'skeptic.test-examples/flat-multi-step-failure
+                                {:remove-context true}))
+         result (first results)]
+     (is (= 1 (count results)))
+     (is (= '(flat-multi-step-takes-str (flat-multi-step-g))
+            (:blame result)))
+     (is (= [(inconsistence/mismatched-ground-type-msg
+               {:expr '(flat-multi-step-takes-str (flat-multi-step-g))
+                :arg '(flat-multi-step-g)}
+               s/Int
+               s/Str)]
+            (:errors result))))))
 
 (deftest check-ns-does-not-mutate-declaration-dicts
   (let [before test-dict]

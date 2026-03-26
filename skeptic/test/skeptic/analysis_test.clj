@@ -989,7 +989,7 @@
       (is (= [s/Int] (:actual-arglist call-node)))
       (is (not (as/join? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output]))))))
 
-  (testing "branch joins stay branch-local and maybe-producing branches keep the old join shape"
+  (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (schematize/ns-schemas {} 'skeptic.test-examples)
           example-dict (schematize/ns-schemas {} 'skeptic.examples)
           test-res (checking/analyze-source-exprs test-dict
@@ -1004,9 +1004,9 @@
              (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output])))
       (is (= s/Int
              (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output])))
-      (is (= (as/schema-join #{s/Int (s/maybe s/Any)})
+      (is (= (s/maybe s/Int)
              (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output])))
-      (is (= {:value (as/schema-join #{s/Int (s/maybe s/Any)})}
+      (is (= {:value (s/maybe s/Int)}
              (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output])))))
 
   (testing "resolved static get feeds final reduced schemas into parent calls"

@@ -222,6 +222,13 @@
        (map collect-schemas)
        (reduce (fn [acc {:keys [name] :as next}] (update acc (symbol name) merge-with next)) {})))
 
+(defn schematized-var?
+  [v]
+  (let [m (meta v)]
+    (or (:schema m)
+        (and (:arglists m)
+             (not (:macro m))))))
+
 (defn ns-schemas
   [opts ns]
   (let [lookup-failures (atom #{})
@@ -229,8 +236,9 @@
     (binding [*ns* (the-ns ns)]
       (->> ns
            symbol
-           ns-publics
+           ns-interns
            vals
+           (filter schematized-var?)
            (map symbol)
            (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
            (reduce merge {})))))
