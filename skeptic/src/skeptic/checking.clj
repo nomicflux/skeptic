@@ -300,11 +300,258 @@
   (or (get dict sym)
       (get dict (qualify-symbol ns-sym sym))))
 
+(defn plain-def-symbol?
+  [sym]
+  (and (symbol? sym)
+       (= "def" (name sym))
+       (let [ns-name (namespace sym)]
+         (or (nil? ns-name)
+             (#{"clojure.core"} ns-name)))))
+
+(defn def-form-symbol
+  [form]
+  (when (and (seq? form)
+             (plain-def-symbol? (first form))
+             (symbol? (second form)))
+    (second form)))
+
+(defn argvec->arglist-entry
+  [argvec]
+  (loop [[x & more] argvec
+         fixed []
+         vararg nil]
+    (cond
+      (nil? x)
+      (if vararg
+        [:varargs {:count (inc (count fixed))
+                   :arglist (vec (concat fixed [vararg]))}]
+        [(count fixed) {:arglist (vec fixed)}])
+
+      (= x '&)
+      (recur (next more) fixed (first more))
+
+      :else
+      (recur more (conj fixed x) vararg))))
+
+(defn source-derived-arglists
+  [form]
+  (when-let [decls (seq (defn-decls form))]
+    (into {}
+          (map (comp argvec->arglist-entry first))
+          decls)))
+
+(defn placeholder-ref
+  [kind sym]
+  [kind sym])
+
+(defn placeholder-entry
+  [qualified-sym base source-arglists]
+  (let [arglists (or (:arglists base)
+                     source-arglists)
+        schema-ref (as/placeholder-schema (placeholder-ref :schema qualified-sym))
+        output-ref (as/placeholder-schema (placeholder-ref :output qualified-sym))]
+    (cond-> {:name (or (:name base) (str qualified-sym))}
+      (some? arglists) (assoc :arglists arglists)
+      true (assoc :schema (or (:schema base) schema-ref))
+      true (assoc :output (or (:output base) output-ref)))))
+
+(defn source-derived-entry
+  [dict ns-sym form]
+  (let [raw-name (or (some-> form def-form-symbol)
+                     (some-> form second ((fn [x]
+                                           (when (and (seq? form)
+                                                      (or (= 'defn (first form))
+                                                          (schema-defn-symbol? (first form)))
+                                                      (symbol? x))
+                                             x)))))
+        qualified-name (when raw-name (qualify-symbol ns-sym raw-name))
+        existing (when qualified-name
+                   (dict-entry dict ns-sym raw-name))
+        source-arglists (source-derived-arglists form)]
+    (when qualified-name
+      (let [entry (placeholder-entry qualified-name existing source-arglists)]
+        {qualified-name entry
+         raw-name entry}))))
+
+(defn source-derived-placeholder-dict
+  [dict ns-sym exprs]
+  (reduce (fn [acc form]
+            (merge acc (or (source-derived-entry dict ns-sym form) {})))
+          dict
+          exprs))
+
 (defn unwrap-with-meta
   [node]
   (if (= :with-meta (:op node))
     (recur (:expr node))
     node))
+
+(defn analyzed-def-entry
+  [ns-sym analyzed]
+  (let [node (unwrap-with-meta analyzed)
+        init-node (some-> node :init unwrap-with-meta)
+        value-node (or (some-> init-node :expr unwrap-with-meta)
+                       init-node)
+        raw-name (some-> (:name node) name symbol)
+        qualified-name (when raw-name
+                         (qualify-symbol ns-sym raw-name))]
+    (when (and (= :def (:op node))
+               qualified-name
+               value-node)
+      [qualified-name
+       (into {}
+             (remove (comp nil? val))
+             {:schema (:schema value-node)
+              :output (:output value-node)
+              :arglists (:arglists value-node)
+              :arglist (:arglist value-node)})])))
+
+(defn resolve-entry-placeholders
+  [entry resolve-schema]
+  (cond
+    (nil? entry) nil
+    (not (map? entry)) entry
+    :else
+    (cond-> entry
+      (contains? entry :schema) (update :schema resolve-schema)
+      (contains? entry :output) (update :output resolve-schema)
+      (contains? entry :arglist) (update :arglist #(mapv resolve-schema %))
+      (contains? entry :expected-arglist) (update :expected-arglist #(mapv resolve-schema %))
+      (contains? entry :actual-arglist) (update :actual-arglist #(mapv resolve-schema %))
+      (contains? entry :fn-schema) (update :fn-schema resolve-schema)
+      (contains? entry :locals) (update :locals (fn [locals]
+                                                  (into {}
+                                                        (map (fn [[k v]]
+                                                               [k (resolve-entry-placeholders v resolve-schema)]))
+                                                        locals)))
+      (contains? entry :arglists) (update :arglists (fn [arglists]
+                                                      (into {}
+                                                            (map (fn [[k v]]
+                                                                   [k (resolve-entry-placeholders v resolve-schema)]))
+                                                            arglists)))
+      (contains? entry :arg-schema) (update :arg-schema #(mapv (fn [arg]
+                                                                 (resolve-entry-placeholders arg resolve-schema))
+                                                               %))
+      (contains? entry :params) (update :params #(mapv (fn [param]
+                                                         (resolve-entry-placeholders param resolve-schema))
+                                                       %)))))
+
+(declare resolve-analyzed-node)
+
+(defn resolve-analyzed-node
+  [node resolve-schema]
+  (if (map? node)
+    (let [resolved-children (reduce (fn [acc child-key]
+                                      (let [value (get acc child-key)
+                                            resolved (cond
+                                                       (vector? value) (mapv #(resolve-analyzed-node % resolve-schema) value)
+                                                       (map? value) (resolve-analyzed-node value resolve-schema)
+                                                       :else value)]
+                                        (assoc acc child-key resolved)))
+                                    node
+                                    (:children node))
+          resolved-entry (resolve-entry-placeholders resolved-children resolve-schema)
+          resolved-entry (cond-> resolved-entry
+                           (vector? (:args resolved-entry))
+                           (assoc :actual-arglist (mapv :schema (:args resolved-entry))))
+          resolved-entry (if (= :invoke (:op resolved-entry))
+                           (let [{:keys [expected-arglist fn-schema]}
+                                 (analysis/call-info (:fn resolved-entry) (:args resolved-entry))]
+                             (cond-> (assoc resolved-entry
+                                            :expected-arglist (mapv as/canonicalize-schema expected-arglist))
+                               fn-schema (assoc :fn-schema (as/canonicalize-schema fn-schema))))
+                           resolved-entry)]
+      (cond
+        (and (= :static-call (:op resolved-entry))
+             (analysis/static-get-call? resolved-entry))
+        (let [[target key-node default-node] (:args resolved-entry)
+              key-schema (as/valued-schema (:schema key-node) (:form key-node))
+              schema (if default-node
+                       (as/map-get-schema (:schema target)
+                                          key-schema
+                                          (:schema default-node))
+                       (as/map-get-schema (:schema target)
+                                          key-schema))]
+          (assoc resolved-entry :schema (as/canonicalize-schema schema)))
+
+        (and (= :static-call (:op resolved-entry))
+             (analysis/static-merge-call? resolved-entry))
+        (assoc resolved-entry
+               :schema (as/canonicalize-schema
+                        (as/merge-map-schemas (map :schema (:args resolved-entry)))))
+
+        (and (= :invoke (:op resolved-entry))
+             (analysis/get-call? (:fn resolved-entry)))
+        (let [[target key-node default-node] (:args resolved-entry)
+              key-schema (as/valued-schema (:schema key-node) (:form key-node))
+              schema (if default-node
+                       (as/map-get-schema (:schema target)
+                                          key-schema
+                                          (:schema default-node))
+                       (as/map-get-schema (:schema target)
+                                          key-schema))]
+          (assoc resolved-entry :schema (as/canonicalize-schema schema)))
+
+        (and (= :invoke (:op resolved-entry))
+             (analysis/merge-call? (:fn resolved-entry)))
+        (assoc resolved-entry
+               :schema (as/canonicalize-schema
+                        (as/merge-map-schemas (map :schema (:args resolved-entry)))))
+
+        :else
+        resolved-entry))
+    node))
+
+(defn namespace-placeholder-resolver
+  [entries]
+  (let [cache (atom {})
+        resolving ::resolving]
+    (letfn [(resolve-entry* [qualified-sym]
+              (let [cached (get @cache qualified-sym ::missing)]
+                (cond
+                  (= cached resolving) {:schema s/Any
+                                        :output s/Any}
+                  (not= cached ::missing) cached
+                  :else
+                  (do
+                    (swap! cache assoc qualified-sym resolving)
+                    (let [entry (get entries qualified-sym)
+                          resolved (when entry
+                                     (resolve-entry-placeholders
+                                      entry
+                                      resolve-schema*))]
+                      (swap! cache assoc qualified-sym resolved)
+                      resolved)))))
+            (resolve-placeholder* [[kind qualified-sym]]
+              (let [entry (resolve-entry* qualified-sym)]
+                (case kind
+                  :schema (:schema entry)
+                  :output (or (:output entry) (:schema entry))
+                  nil)))
+            (resolve-schema* [schema]
+              (as/resolve-placeholders schema resolve-placeholder*))]
+      resolve-schema*)))
+
+(defn analyze-source-exprs
+  [dict ns-sym source-file exprs]
+  (let [analysis-dict (source-derived-placeholder-dict dict ns-sym exprs)
+        analyzed (mapv (fn [expr]
+                         (analysis/attach-schema-info-loop analysis-dict
+                                                            (normalize-check-form expr)
+                                                            {:ns ns-sym
+                                                             :source-file (source-file-path source-file)}))
+                       exprs)
+        analyzed-entries (into {}
+                              (keep #(analyzed-def-entry ns-sym %))
+                              analyzed)
+        resolve-schema (namespace-placeholder-resolver analyzed-entries)
+        resolved (mapv #(resolve-analyzed-node % resolve-schema) analyzed)]
+    {:analysis-dict analysis-dict
+     :analyzed analyzed
+     :resolved resolved
+     :resolved-defs (into {}
+                         (keep #(analyzed-def-entry ns-sym %))
+                         resolved)}))
 
 (defn method-output-schema
   [method]
@@ -457,8 +704,39 @@
 (defn check-ns
   [dict ns source-file opts]
   (binding [*ns* (the-ns ns)]
-    (let [opts (assoc opts
+    (let [exprs (ns-exprs source-file)
+          {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)
+          bindings (mapv binding-index resolved)
+          opts (assoc opts
                       :ns ns
                       :source-file source-file)]
-      (mapcat #(check-s-expr dict % opts)
-              (ns-exprs source-file)))))
+      (mapcat (fn [source-form analyzed bindings]
+                (cond->> (->> (ast-nodes-preorder analyzed)
+                              (mapcat (fn [node]
+                                        (concat (when-let [call-result (match-s-exprs bindings
+                                                                                     (if (and (seq? source-form)
+                                                                                              (symbol? (second source-form))
+                                                                                              (symbol? (first source-form)))
+                                                                                       (qualify-symbol ns (second source-form))
+                                                                                       source-form)
+                                                                                     node)]
+                                                  [call-result])
+                                                (or (def-output-results dict
+                                                                        bindings
+                                                                        ns
+                                                                        source-form
+                                                                        (if (and (seq? source-form)
+                                                                                 (symbol? (second source-form))
+                                                                                 (symbol? (first source-form)))
+                                                                          (qualify-symbol ns (second source-form))
+                                                                          source-form)
+                                                                        node)
+                                                    [])))))
+                  (not (:keep-empty opts))
+                  (remove (comp empty? :errors))
+
+                  (:remove-context opts)
+                  (map #(dissoc % :context))))
+              exprs
+              resolved
+              bindings))))

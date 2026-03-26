@@ -54,6 +54,20 @@
     (is (sut/valued-compare expected actual))
     (is (sut/output-schema-compatible? expected actual))))
 
+(deftest nested-map-compatibility-uses-regular-logic
+  (is (= (sut/output-schema-compatible? s/Str s/Any)
+         (sut/output-schema-compatible? {:a s/Str} {:a s/Any})))
+  (is (= (sut/output-schema-compatible? s/Str s/Any)
+         (sut/output-schema-compatible? {:a s/Str}
+                                        {(schema-or-value s/Keyword :a)
+                                         (schema-or-value s/Any '(or x y))})))
+  (is (= (sut/output-schema-compatible? (s/maybe s/Any) s/Any)
+         (sut/output-schema-compatible? {:a (s/maybe s/Any)} {:a s/Any})))
+  (is (= (sut/output-schema-compatible? (s/maybe s/Any) s/Any)
+         (sut/output-schema-compatible? {:a (s/maybe s/Any)}
+                                        {(schema-or-value s/Keyword :a)
+                                         (schema-or-value s/Any '(or x y))}))))
+
 (deftest apply-base-rules-test
   (is (empty? (sut/apply-base-rules sample-ctx s/Int s/Any)))
   (is (seq (sut/apply-base-rules sample-ctx s/Int s/Str)))
@@ -113,6 +127,7 @@
 (deftest get-matching-schemas
   (is (= 1 (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} 1)))
   (is (= 2 (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} :a)))
+  (is (= s/Int (sut/get-by-matching-schema {:expr s/Int s/Keyword s/Any} :expr)))
   (is (= nil (sut/get-by-matching-schema {s/Int 1 s/Keyword 2} "x")))
   )
 

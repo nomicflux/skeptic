@@ -143,6 +143,24 @@
   [schema]
   (Variable. schema))
 
+(def placeholder-key
+  :skeptic.analysis.resolvers/placeholder)
+
+(defn placeholder-schema
+  [value]
+  {placeholder-key value})
+
+(defn placeholder-schema?
+  [schema]
+  (and (map? schema)
+       (not (record? schema))
+       (= 1 (count schema))
+       (contains? schema placeholder-key)))
+
+(defn placeholder-ref
+  [schema]
+  (get schema placeholder-key))
+
 (defn canonical-scalar-schema
   [schema]
   (cond
@@ -234,6 +252,7 @@
   [schema]
   (cond
     (nil? schema) nil
+    (placeholder-schema? schema) schema
     (fn-schema? schema) (canonicalize-fn-schema schema)
     (instance? One schema) (canonicalize-one schema)
     (maybe? schema) (s/maybe (canonicalize-schema (:schema schema)))
@@ -255,6 +274,144 @@
     (seq? schema) (doall (map canonicalize-schema schema))
     :else (canonical-scalar-schema schema)))
 
+(defn plain-map-schema?
+  [schema]
+  (and (map? schema)
+       (not (record? schema))
+       (not (s/optional-key? schema))))
+
+(defn maybe-schema
+  [schema]
+  (let [schema (canonicalize-schema schema)]
+    (if (maybe? schema)
+      schema
+      (s/maybe schema))))
+
+(declare semantic-value-schema)
+
+(defn semantic-value-schema
+  [schema]
+  (let [schema (canonicalize-schema schema)]
+    (cond
+      (placeholder-schema? schema) schema
+      (valued-schema? schema) (semantic-value-schema (:schema schema))
+      (maybe? schema) (s/maybe (semantic-value-schema (:schema schema)))
+      (join? schema) (schema-join (set (map semantic-value-schema (:schemas schema))))
+      (instance? Variable schema) (variable (semantic-value-schema (:schema schema)))
+      (plain-map-schema? schema) (into {}
+                                     (map (fn [[k v]]
+                                            [(semantic-value-schema k)
+                                             (semantic-value-schema v)]))
+                                     schema)
+      (vector? schema) (mapv semantic-value-schema schema)
+      (set? schema) (into #{} (map semantic-value-schema) schema)
+      (seq? schema) (doall (map semantic-value-schema schema))
+      :else schema)))
+
+(declare schema-compatible?
+         schema-equivalent?
+         valued-compatible?)
+
+(defn nested-value-compatible?
+  [expected actual]
+  (let [actual (canonicalize-schema actual)]
+    (if (valued-schema? actual)
+      (or (schema-compatible? expected (:value actual))
+          (schema-compatible? expected (:schema actual)))
+      (schema-compatible? expected actual))))
+
+(defn exact-key-candidate-groups
+  [k]
+  (let [k (canonicalize-schema k)]
+    (->> (cond
+           (valued-schema? k)
+           [[(:value k)
+             (when (keyword? (:value k))
+               (s/optional-key (:value k)))]
+            [(:schema k)
+             (when (or (keyword? (:schema k))
+                       (schema? (:schema k)))
+               (s/optional-key (:schema k)))]]
+
+           :else
+           [[k
+             (when (keyword? k)
+               (s/optional-key k))]])
+         (mapv (fn [group]
+                 (vec (distinct (remove nil? group)))))
+         (remove empty?))))
+
+(defn matching-map-entry
+  [m k]
+  (let [m (canonicalize-schema m)
+        k (canonicalize-schema k)
+        exact-matches (some (fn [group]
+                              (let [group-set (set group)
+                                    matches (->> m
+                                                 keys
+                                                 (filter #(contains? group-set %))
+                                                 seq)]
+                                (when matches matches)))
+                            (exact-key-candidate-groups k))
+        matches (if (seq exact-matches)
+                  exact-matches
+                  (->> m
+                       keys
+                       (filter #(valued-compatible? % k))))]
+    (cond
+      (empty? matches) nil
+      (> (count matches) 1) (throw (IllegalStateException.
+                                    (format "Multiple results for key %s and m %s: %s"
+                                            k m matches)))
+      :else (let [matched-key (first matches)]
+              [matched-key (get m matched-key)]))))
+
+(def no-default ::no-default)
+
+(defn map-get-schema
+  ([m key]
+   (map-get-schema m key no-default))
+  ([m key default]
+   (let [m (canonicalize-schema m)
+         key (canonicalize-schema key)
+         default-provided? (not= default no-default)
+         default-schema (when default-provided?
+                          (canonicalize-schema default))]
+     (cond
+       (maybe? m)
+       (schema-join
+        [(map-get-schema (de-maybe m) key default)
+         (or default-schema (s/maybe s/Any))])
+
+       (join? m)
+       (schema-join (set (map #(map-get-schema % key default) (:schemas m))))
+
+       (plain-map-schema? m)
+       (if-let [[matched-key matched-value] (matching-map-entry m key)]
+         (let [base-value (semantic-value-schema matched-value)
+               base-value (if (and (s/optional-key? matched-key)
+                                   (not default-provided?))
+                            (maybe-schema base-value)
+                            base-value)]
+           (if default-provided?
+             (schema-join [base-value default-schema])
+             base-value))
+         (if default-provided?
+           default-schema
+           s/Any))
+
+       :else
+       (if default-provided?
+         (schema-join [s/Any default-schema])
+         s/Any)))))
+
+(defn merge-map-schemas
+  [schemas]
+  (let [schemas (mapv canonicalize-schema schemas)]
+    (if (every? plain-map-schema? schemas)
+      (reduce merge {} schemas)
+      s/Any)))
+
 (defn schema-equivalent?
   [expected actual]
   (= (canonicalize-schema expected)
@@ -264,6 +421,7 @@
   [schema]
   (let [schema (canonicalize-schema schema)]
     (cond
+      (placeholder-schema? schema) true
       (any-schema? schema) true
       (or (= schema s/Num)
           (= schema Number)
@@ -274,7 +432,69 @@
       (join? schema) (some unknown-schema? (:schemas schema))
       :else false)))
 
-(declare schema-compatible?)
+(declare resolve-placeholders)
+
+(defn resolve-placeholders
+  [schema resolve-placeholder]
+  (let [schema (canonicalize-schema schema)]
+    (cond
+      (placeholder-schema? schema)
+      (canonicalize-schema (or (resolve-placeholder (placeholder-ref schema))
+                               s/Any))
+
+      (fn-schema? schema)
+      (let [{:keys [input-schemas output-schema]} (into {} schema)]
+        (s/make-fn-schema (resolve-placeholders output-schema resolve-placeholder)
+                          (mapv (fn [inputs]
+                                  (mapv (fn [one]
+                                          (let [m (try (into {} one)
+                                                       (catch Exception _e nil))]
+                                            (if (map? m)
+                                              (s/one (resolve-placeholders (:schema m) resolve-placeholder)
+                                                     (:name m))
+                                              one)))
+                                        inputs))
+                                input-schemas)))
+
+      (instance? One schema)
+      (canonicalize-one (assoc (into {} schema)
+                               :schema (resolve-placeholders (:schema schema)
+                                                            resolve-placeholder)))
+
+      (maybe? schema)
+      (s/maybe (resolve-placeholders (:schema schema) resolve-placeholder))
+
+      (join? schema)
+      (schema-join (set (map #(resolve-placeholders % resolve-placeholder)
+                             (:schemas schema))))
+
+      (valued-schema? schema)
+      (valued-schema (resolve-placeholders (:schema schema) resolve-placeholder)
+                     (:value schema))
+
+      (instance? Variable schema)
+      (variable (resolve-placeholders (:schema schema) resolve-placeholder))
+
+      (record? schema)
+      schema
+
+      (map? schema)
+      (into {}
+            (map (fn [[k v]]
+                   [(resolve-placeholders k resolve-placeholder)
+                    (resolve-placeholders v resolve-placeholder)]))
+            schema)
+
+      (vector? schema)
+      (mapv #(resolve-placeholders % resolve-placeholder) schema)
+
+      (set? schema)
+      (into #{} (map #(resolve-placeholders % resolve-placeholder)) schema)
+
+      (seq? schema)
+      (doall (map #(resolve-placeholders % resolve-placeholder) schema))
+
+      :else schema)))
 
 (defn valued-compatible?
   [expected actual]
@@ -308,12 +528,19 @@
   [m k]
   (let [m (canonicalize-schema m)
         k (canonicalize-schema k)
-        matches (->> m
-                     keys
-                     (filter (fn [schema]
-                               (or (schema-equivalent? schema k)
-                                   (= (check-if-schema schema k) ::schema-valid))))
-                     (select-keys m))]
+        exact-matches (some (fn [group]
+                              (let [group-set (set group)
+                                    matches (select-keys m (filter #(contains? group-set %) (keys m)))]
+                                (when (seq matches) matches)))
+                            (exact-key-candidate-groups k))
+        matches (if (seq exact-matches)
+                  exact-matches
+                  (->> m
+                       keys
+                       (filter (fn [schema]
+                                 (or (schema-equivalent? schema k)
+                                     (= (check-if-schema schema k) ::schema-valid))))
+                       (select-keys m)))]
     (cond
       (empty? matches) nil
       (> (count matches) 1) (throw (IllegalStateException. (format "Multiple results for key %s and m %s: %s"
@@ -345,7 +572,7 @@
         expected-vs (map #(valued-get expected %) possible-keys)]
     (if (empty? expected-vs)
       false
-      (seq (filter #(valued-compatible? % actual-v) expected-vs)))))
+      (seq (filter #(nested-value-compatible? % actual-v) expected-vs)))))
 
 (defn required-key?
   [k]

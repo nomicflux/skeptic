@@ -44,8 +44,7 @@
   (and (map? entry)
        (or (contains? entry :schema)
            (contains? entry :output)
-           (contains? entry :arglists)
-           (contains? entry :name))))
+           (contains? entry :arglists))))
 
 (defn normalize-entry
   [entry]
@@ -109,6 +108,17 @@
   [node]
   (select-keys node [:schema :output :arglists :arglist]))
 
+(defn literal-map-key?
+  [node]
+  (contains? #{:const :quote} (:op node)))
+
+(defn semantic-map-key
+  [node]
+  (as/canonicalize-schema
+   (if (literal-map-key? node)
+     (:form node)
+     (:schema node))))
+
 (defn local-binding-ast
   [idx sym]
   {:op :binding
@@ -145,6 +155,28 @@
   {:expected-arglist (vec (repeat arity s/Any))
    :output s/Any
    :fn-schema (as/dynamic-fn-schema arity s/Any)})
+
+(defn merge-call?
+  [fn-node]
+  (let [resolved (or (var->sym (:var fn-node))
+                     (:form fn-node))]
+    (contains? #{'clojure.core/merge 'merge} resolved)))
+
+(defn get-call?
+  [fn-node]
+  (let [resolved (or (var->sym (:var fn-node))
+                     (:form fn-node))]
+    (contains? #{'clojure.core/get 'get} resolved)))
+
+(defn static-get-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/get 'get} (:method node))))
+
+(defn static-merge-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/merge 'merge} (:method node))))
 
 (defn call-info
   [fn-node args]
@@ -202,13 +234,45 @@
            :args args
            :actual-arglist (mapv :schema args)
            :expected-arglist (vec (repeat (count args) s/Any))
-           :schema (as/canonicalize-schema s/Any))))
+           :schema (as/canonicalize-schema
+                    (cond
+                      (static-get-call? node)
+                      (let [[target key-node default-node] args
+                            key-schema (as/valued-schema (:schema key-node) (:form key-node))]
+                        (if default-node
+                          (as/map-get-schema (:schema target)
+                                             key-schema
+                                             (:schema default-node))
+                          (as/map-get-schema (:schema target)
+                                             key-schema)))
+
+                      (static-merge-call? node)
+                      (as/merge-map-schemas (map :schema args))
+
+                      :else
+                      s/Any)))))
 
 (defn annotate-invoke
   [ctx node]
   (let [fn-node (annotate-node ctx (:fn node))
         args (mapv #(annotate-node ctx %) (:args node))
-        {:keys [expected-arglist output fn-schema]} (call-info fn-node args)]
+        {:keys [expected-arglist output fn-schema]} (call-info fn-node args)
+        output (cond
+                 (get-call? fn-node)
+                 (let [[target key-node default-node] args
+                       key-schema (as/valued-schema (:schema key-node) (:form key-node))]
+                   (if default-node
+                     (as/map-get-schema (:schema target)
+                                        key-schema
+                                        (:schema default-node))
+                     (as/map-get-schema (:schema target)
+                                        key-schema)))
+
+                 (merge-call? fn-node)
+                 (as/merge-map-schemas (map :schema args))
+
+                 :else
+                 output)]
     (assoc node
            :fn fn-node
            :args args
@@ -375,8 +439,8 @@
            :schema (as/canonicalize-schema
                     (into {}
                           (map (fn [k v]
-                                 [(as/valued-schema (:schema k) (:form k))
-                                  (as/valued-schema (:schema v) (:form v))])
+                                 [(semantic-map-key k)
+                                  (:schema v)])
                                keys
                                vals))))))
 

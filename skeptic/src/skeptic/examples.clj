@@ -139,3 +139,57 @@
   [x]
   (let [s "hi"]
     (int-add x s)))
+
+(s/defn maybe-multi-step-takes-str :- (s/maybe s/Str)
+  [x :- (s/maybe s/Str)]
+  x)
+
+(s/defn maybe-multi-step-takes-int :- s/Int
+  [x :- s/Int]
+  x)
+
+(s/defn maybe-multi-step-takes-maybe-int :- (s/maybe s/Int)
+  [x :- (s/maybe s/Int)]
+  x)
+
+(defn flat-maybe-multi-step-f
+  [flag]
+  (when flag
+    1))
+
+(defn flat-maybe-multi-step-g
+  [flag]
+  (flat-maybe-multi-step-f flag))
+
+(defn flat-maybe-base-type-failure
+  [flag]
+  (maybe-multi-step-takes-str (flat-maybe-multi-step-g flag)))
+
+(defn flat-maybe-nil-failure
+  [flag]
+  (maybe-multi-step-takes-int (flat-maybe-multi-step-g flag)))
+
+(defn flat-maybe-success
+  [flag]
+  (maybe-multi-step-takes-maybe-int (flat-maybe-multi-step-g flag)))
+
+(defn nested-maybe-multi-step-f
+  [flag]
+  {:value (when flag
+            1)})
+
+(defn nested-maybe-multi-step-g
+  [flag]
+  (nested-maybe-multi-step-f flag))
+
+(defn nested-maybe-base-type-failure
+  [flag]
+  (maybe-multi-step-takes-str (get (nested-maybe-multi-step-g flag) :value)))
+
+(defn nested-maybe-nil-failure
+  [flag]
+  (maybe-multi-step-takes-int (get (nested-maybe-multi-step-g flag) :value)))
+
+(defn nested-maybe-success
+  [flag]
+  (maybe-multi-step-takes-maybe-int (get (nested-maybe-multi-step-g flag) :value)))

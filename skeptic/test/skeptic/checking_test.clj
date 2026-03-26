@@ -3,9 +3,10 @@
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
             [skeptic.checking :as sut]
-            [skeptic.counterexamples]
+            [skeptic.examples]
             [skeptic.inconsistence :as inconsistence]
             [skeptic.schematize :as schematize]
+            [skeptic.static-call-examples]
             [skeptic.test-examples]
             [skeptic.utils])
   (:import [java.io File]))
@@ -16,13 +17,15 @@
                     ~@body))
 
 (def test-file (File. "test/skeptic/test_examples.clj"))
-(def counterexamples-file (File. "src/skeptic/counterexamples.clj"))
+(def examples-file (File. "src/skeptic/examples.clj"))
 (def schematize-file (File. "src/skeptic/schematize.clj"))
+(def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 (def utils-file (File. "src/skeptic/utils.clj"))
 
 (def test-dict (in-test-examples (schematize/ns-schemas {} 'skeptic.test-examples)))
-(def counterexamples-dict (schematize/ns-schemas {} 'skeptic.counterexamples))
+(def examples-dict (schematize/ns-schemas {} 'skeptic.examples))
 (def schematize-dict (schematize/ns-schemas {} 'skeptic.schematize))
+(def static-call-examples-dict (schematize/ns-schemas {} 'skeptic.static-call-examples))
 (def utils-dict (schematize/ns-schemas {} 'skeptic.utils))
 
 (let [fn-map (atom {})]
@@ -240,73 +243,130 @@
                                         :remove-context true}))]
     (is (= [] results))))
 
-(deftest counterexamples-report-callsite-and-output-errors
-  (let [results (vec (sut/check-ns counterexamples-dict
-                                   'skeptic.counterexamples
-                                   counterexamples-file
+(deftest static-call-examples-check-ns
+  (let [results (vec (sut/check-ns static-call-examples-dict
+                                   'skeptic.static-call-examples
+                                   static-call-examples-file
                                    {:remove-context true}))]
-    (is (= #{['(str "not-an-int:" name)
-              [(inconsistence/mismatched-output-schema-msg {:expr 'claimed-int-but-string
-                                                            :arg '(str "not-an-int:" name)}
-                                                           s/Str
-                                                           s/Int)]]
-             ['(if flag 42 "forty-two")
-              [(inconsistence/mismatched-output-schema-msg {:expr 'claimed-int-with-string-branch
-                                                            :arg '(if flag 42 "forty-two")}
+    (is (= #{['(get counts :count "zero")
+              [(inconsistence/mismatched-output-schema-msg {:expr 'bad-count-default
+                                                            :arg '(get counts :count "zero")}
                                                            (as/join s/Int s/Str)
                                                            s/Int)]]
-             ['(int-add base (maybe-bonus eligible?))
-              [(inconsistence/mismatched-nullable-msg {:expr '(int-add base (maybe-bonus eligible?))
-                                                       :arg '(maybe-bonus eligible?)}
-                                                      (s/maybe s/Any)
-                                                      s/Int)]]
-             ['(int-add base (maybe-penalty missing-payment?))
-              [(inconsistence/mismatched-nullable-msg {:expr '(int-add base (maybe-penalty missing-payment?))
-                                                       :arg '(maybe-penalty missing-payment?)}
-                                                      (s/maybe s/Any)
-                                                      s/Int)]]}
+             ['(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+              [(inconsistence/mismatched-ground-type-msg
+                 {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+                  :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
+                 s/Int
+                 s/Str)]]
+             ['{:name :bad, :nickname (get user :nickname)}
+              [(inconsistence/mismatched-output-schema-msg {:expr 'bad-rebuilt-user
+                                                            :arg '{:name :bad, :nickname (get user :nickname)}}
+                                                           {:name s/Keyword
+                                                            :nickname (s/maybe s/Str)}
+                                                           {:name s/Str
+                                                            :nickname (s/maybe s/Str)})]]}
            (result-pairs results)))
-    (is (= #{['(str "not-an-int:" name)
-              [(inconsistence/mismatched-output-schema-msg {:expr 'claimed-int-but-string
-                                                            :arg '(str "not-an-int:" name)}
-                                                           s/Str
-                                                           s/Int)]]
-             ['(if flag 42 "forty-two")
-              [(inconsistence/mismatched-output-schema-msg {:expr 'claimed-int-with-string-branch
-                                                            :arg '(if flag 42 "forty-two")}
-                                                           (as/join s/Int s/Str)
-                                                           s/Int)]]}
-           (result-pairs
-            (vec (mapcat #(sut/check-s-expr counterexamples-dict
-                                            %
-                                            {:ns 'skeptic.counterexamples
-                                             :remove-context true})
-                         ['(s/defn claimed-int-but-string :- schema.core/Int
-                            [name :- schema.core/Str]
-                            (str "not-an-int:" name))
-                          '(s/defn claimed-int-with-string-branch :- schema.core/Int
-                            [flag :- schema.core/Bool]
-                            (if flag
-                              42
-                              "forty-two"))])))))))
+    (is (not-any? #(contains? #{'skeptic.static-call-examples/required-name
+                                'skeptic.static-call-examples/optional-nickname
+                                'skeptic.static-call-examples/nickname-with-default
+                                'skeptic.static-call-examples/rebuilt-user
+                                'skeptic.static-call-examples/merge-fields
+                                'skeptic.static-call-examples/nested-multi-step-success}
+                              (:enclosing-form %))
+                   results))))
 
-(deftest output-mismatch-reports-source-body-and-expanded-expression
-  (let [results (vec (sut/check-ns utils-dict
-                                   'skeptic.utils
-                                   utils-file
+(deftest output-mismatch-renders-canonical-map-schemas
+  (let [results (vec (sut/check-ns static-call-examples-dict
+                                   'skeptic.static-call-examples
+                                   static-call-examples-file
                                    {:remove-context true}))
-        result (some #(when (= 'skeptic.utils/combine-descs (:enclosing-form %)) %) results)]
-    (is (= '{:name (or n1 n2)
-             :schema (or s1 s2)
-             :output (or o1 o2)
-             :arglists (merge a1 a2)}
-           (:blame result)))
-    (is (= "{:name (or n1 n2)\n   :schema (or s1 s2)\n   :output (or o1 o2)\n   :arglists (merge a1 a2)}"
-           (:source-expression result)))
-    (is (= 'let* (first (:expanded-expression result))))
-    (is (= {:file "src/skeptic/utils.clj"
-            :line 23
-            :column 3}
-           (select-keys (:location result) [:file :line :column])))
-    (is (= 'skeptic.utils/combine-descs
-           (:enclosing-form result)))))
+        result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
+                              (:enclosing-form %))
+                        %)
+                     results)
+        error (first (:errors result))]
+    (is (some? result))
+    (is (.contains error "{:name Keyword, :nickname (maybe Str)}"))
+    (is (.contains error "{:name Str, :nickname (maybe Str)}"))
+    (is (not (.contains error "\":name : Keyword\"")))))
+
+(deftest examples-maybe-multi-step-check-ns
+  (let [results (vec (sut/check-ns examples-dict
+                                   'skeptic.examples
+                                   examples-file
+                                   {:remove-context true}))]
+    (is (some #(when (= 'skeptic.examples/flat-maybe-base-type-failure
+                        (:enclosing-form %))
+                 %)
+              results))
+    (is (some #(when (= 'skeptic.examples/flat-maybe-nil-failure
+                        (:enclosing-form %))
+                 %)
+              results))
+    (is (some #(when (= 'skeptic.examples/nested-maybe-base-type-failure
+                        (:enclosing-form %))
+                 %)
+              results))
+    (is (some #(when (= 'skeptic.examples/nested-maybe-nil-failure
+                        (:enclosing-form %))
+                 %)
+              results))
+    (is (nil? (some #(when (= 'skeptic.examples/flat-maybe-success
+                             (:enclosing-form %))
+                    %)
+                  results)))
+    (is (nil? (some #(when (= 'skeptic.examples/nested-maybe-success
+                             (:enclosing-form %))
+                    %)
+                  results)))))
+
+(deftest resolved-helper-failures-use-final-reduced-schemas
+  (let [flat-results (vec (sut/check-ns test-dict
+                                        'skeptic.test-examples
+                                        test-file
+                                        {:remove-context true}))
+        flat-result (some #(when (= 'skeptic.test-examples/flat-multi-step-failure
+                                    (:enclosing-form %))
+                             %)
+                          flat-results)
+        nested-results (vec (sut/check-ns static-call-examples-dict
+                                          'skeptic.static-call-examples
+                                          static-call-examples-file
+                                          {:remove-context true}))
+        nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
+                                      (:enclosing-form %))
+                               %)
+                            nested-results)]
+    (is (= '(flat-multi-step-takes-str (flat-multi-step-g))
+           (:blame flat-result)))
+    (is (= [(inconsistence/mismatched-ground-type-msg {:expr '(flat-multi-step-takes-str (flat-multi-step-g))
+                                                       :arg '(flat-multi-step-g)}
+                                                      s/Int
+                                                      s/Str)]
+           (:errors flat-result)))
+    (is (nil? (some #(when (= 'skeptic.test-examples/flat-multi-step-success
+                               (:enclosing-form %))
+                      %)
+                    flat-results)))
+
+    (is (= '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+           (:blame nested-result)))
+    (is (= [(inconsistence/mismatched-ground-type-msg
+              {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+               :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
+              s/Int
+              s/Str)]
+           (:errors nested-result)))
+    (is (nil? (some #(when (= 'skeptic.static-call-examples/nested-multi-step-success
+                               (:enclosing-form %))
+                      %)
+                    nested-results)))))
+
+(deftest check-ns-does-not-mutate-declaration-dicts
+  (let [before test-dict]
+    (vec (sut/check-ns test-dict
+                       'skeptic.test-examples
+                       test-file
+                       {:remove-context true}))
+    (is (= before test-dict))))

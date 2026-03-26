@@ -1,11 +1,17 @@
 (ns skeptic.analysis-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.walk :as walk]
             [schema.core :as s]
             [skeptic.analysis :as sut]
             [skeptic.analysis.schema :as as]
-            [skeptic.test-examples :as test-examples]))
+            [skeptic.checking :as checking]
+            [skeptic.examples]
+            [skeptic.schematize :as schematize]
+            [skeptic.static-call-examples]
+            [skeptic.test-examples :as test-examples])
+  (:import [java.io File]))
 
 (defn set-cache-value
   [& _args]
@@ -86,6 +92,17 @@
                   :count 2
                   :schema [{:schema s/Str :optional? false :name 'y}
                            {:schema s/Int :optional? false :name 'z}]}}}})
+
+(def static-call-dict
+  (merge (schematize/ns-schemas {} 'skeptic.static-call-examples)
+         {'user {:schema skeptic.static-call-examples/UserDesc}
+          'counts {:schema skeptic.static-call-examples/MaybeCount}
+          'left {:schema skeptic.static-call-examples/LeftFields}
+          'right {:schema skeptic.static-call-examples/RightFields}}))
+
+(def test-examples-file (File. "test/skeptic/test_examples.clj"))
+(def examples-file (File. "src/skeptic/examples.clj"))
+(def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (defn locals
   [& syms]
@@ -185,6 +202,19 @@
   (->> (:children node)
        (some (fn [[child-key child]]
                (when (= child-key key) child)))))
+
+(defn ast-by-name
+  [asts sym]
+  (some #(when (= sym (:name %)) %) asts))
+
+(defn node-by-form
+  [ast form]
+  (some #(when (= form (:form %)) %) (ana.ast/nodes ast)))
+
+(defmacro source-exprs-in
+  [ns-sym file]
+  `(checking/block-in-ns ~ns-sym ~file
+                         (checking/ns-exprs ~file)))
 
 (deftest structural-analysis-test
   (testing "throw form"
@@ -896,3 +926,95 @@
     (is (= s/Keyword (:schema keyword-call)))
     (is (= s/Int (:schema int-call)))
     (is (= s/Symbol (:schema quoted-symbol)))))
+
+(deftest static-call-analysis-test
+  (testing "get returns field schemas from typed maps"
+    (let [required-get (project-ast (analyze-form static-call-dict
+                                                  '(get user :name)
+                                                  {:ns 'skeptic.analysis-test
+                                                   :locals {'user skeptic.static-call-examples/UserDesc}}))
+          optional-get (project-ast (analyze-form static-call-dict
+                                                  '(get user :nickname)
+                                                  {:ns 'skeptic.analysis-test
+                                                   :locals {'user skeptic.static-call-examples/UserDesc}}))
+          defaulted-get (project-ast (analyze-form static-call-dict
+                                                   '(get counts :count "zero")
+                                                   {:ns 'skeptic.analysis-test
+                                                    :locals {'counts skeptic.static-call-examples/MaybeCount}}))]
+      (is (= s/Str (:schema required-get)))
+      (is (= (s/maybe s/Str) (:schema optional-get)))
+      (is (as/schema-equivalent? (as/join s/Int s/Str)
+                                 (:schema defaulted-get)))))
+
+  (testing "merge returns merged map schemas"
+    (let [merged (project-ast (analyze-form static-call-dict
+                                            '(merge left right)
+                                            {:ns 'skeptic.analysis-test
+                                             :locals {'left skeptic.static-call-examples/LeftFields
+                                                      'right skeptic.static-call-examples/RightFields}}))]
+      (is (= {:a s/Int :b s/Int}
+             (:schema merged)))))
+
+  (testing "rebuilt maps stay in semantic map format"
+    (let [root (project-ast (analyze-form static-call-dict
+                                          '{:name (get user :name)
+                                            :nickname (get user :nickname)}
+                                          {:ns 'skeptic.analysis-test
+                                           :locals {'user skeptic.static-call-examples/UserDesc}}))]
+      (is (= {:name s/Str
+              :nickname (s/maybe s/Str)}
+             (:schema root))))))
+
+(deftest restored-resolution-contract-test
+  (testing "unannotated helper lookup from ns-schemas alone stays plain Any"
+    (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
+          form (->> 'skeptic.test-examples/flat-multi-step-g
+                    (schematize/get-fn-code {})
+                    read-string)
+          ast (sut/attach-schema-info-loop dict form {:ns 'skeptic.test-examples})
+          call-node (node-by-form ast '(flat-multi-step-f))]
+      (is (= s/Any (:schema call-node)))
+      (is (not (as/join? (:schema call-node))))))
+
+  (testing "namespace-local placeholders resolve straight-line helper chains to exact Int"
+    (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
+          {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
+                                                                         'skeptic.test-examples
+                                                                         test-examples-file
+                                                                         (source-exprs-in 'skeptic.test-examples test-examples-file))
+          failure-ast (ast-by-name resolved 'flat-multi-step-failure)
+          call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
+      (is (= s/Int (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-f :output])))
+      (is (= s/Int (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output])))
+      (is (= [s/Int] (:actual-arglist call-node)))
+      (is (not (as/join? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output]))))))
+
+  (testing "branch joins stay branch-local and maybe-producing branches keep the old join shape"
+    (let [test-dict (schematize/ns-schemas {} 'skeptic.test-examples)
+          example-dict (schematize/ns-schemas {} 'skeptic.examples)
+          test-res (checking/analyze-source-exprs test-dict
+                                                 'skeptic.test-examples
+                                                 test-examples-file
+                                                 (source-exprs-in 'skeptic.test-examples test-examples-file))
+          example-res (checking/analyze-source-exprs example-dict
+                                                    'skeptic.examples
+                                                    examples-file
+                                                    (source-exprs-in 'skeptic.examples examples-file))]
+      (is (= (as/join s/Int s/Str)
+             (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output])))
+      (is (= s/Int
+             (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output])))
+      (is (= (as/schema-join #{s/Int (s/maybe s/Any)})
+             (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output])))
+      (is (= {:value (as/schema-join #{s/Int (s/maybe s/Any)})}
+             (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output])))))
+
+  (testing "resolved static get feeds final reduced schemas into parent calls"
+    (let [dict (schematize/ns-schemas {} 'skeptic.static-call-examples)
+          {:keys [resolved]} (checking/analyze-source-exprs dict
+                                                            'skeptic.static-call-examples
+                                                            static-call-examples-file
+                                                            (source-exprs-in 'skeptic.static-call-examples static-call-examples-file))
+          failure-ast (ast-by-name resolved 'nested-multi-step-failure)
+          call-node (node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
+      (is (= [s/Int] (:actual-arglist call-node))))))

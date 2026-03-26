@@ -235,6 +235,30 @@
   ((^{:once true} fn* [y] (int-add y nil))
    x))
 
+(s/defn flat-multi-step-takes-str :- s/Str
+  [x :- s/Str]
+  x)
+
+(s/defn flat-multi-step-takes-int :- s/Int
+  [x :- s/Int]
+  x)
+
+(defn flat-multi-step-f
+  []
+  (int-add 1 2))
+
+(defn flat-multi-step-g
+  []
+  (flat-multi-step-f))
+
+(defn flat-multi-step-failure
+  []
+  (flat-multi-step-takes-str (flat-multi-step-g)))
+
+(defn flat-multi-step-success
+  []
+  (flat-multi-step-takes-int (flat-multi-step-g)))
+
 (def sample-dict
   {'skeptic.test-examples/int-add
    {:name "skeptic.test-examples/int-add"
