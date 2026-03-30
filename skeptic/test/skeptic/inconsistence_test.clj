@@ -199,6 +199,24 @@
   (is (sut/unknown-output-schema? (as/placeholder-schema [:output 'example/f])))
   (is (not (sut/unknown-output-schema? s/Int))))
 
+(deftest semantic-tamper-message-test
+  (let [type-var (as/->TypeVarT 'X)
+        sealed (as/->SealedDynT type-var)
+        inspect-message (sut/cast-result->message sample-ctx
+                                                  {:source-type sealed
+                                                   :target-type (as/schema->type s/Int)
+                                                   :rule :is-tamper
+                                                   :reason :is-tamper})
+        escape-message (sut/cast-result->message sample-ctx
+                                                 {:source-type sealed
+                                                  :target-type type-var
+                                                  :rule :nu-tamper
+                                                  :reason :nu-tamper})]
+    (is (str/includes? inspect-message "inspect a sealed value"))
+    (is (str/includes? inspect-message "(sealed X)"))
+    (is (str/includes? escape-message "move a sealed value out of scope"))
+    (is (str/includes? escape-message "(sealed X)"))))
+
 (deftest union-like-output-cast-report-test
   (doseq [schema [conditional-int-or-str
                   cond-pre-int-or-str

@@ -37,9 +37,7 @@
 
 (defn describe-type
   [type]
-  (some-> type
-          as/type->schema
-          pr-str))
+  (as/render-type type))
 
 (defn report-fields
   [{:keys [location blame-side blame-polarity rule actual-type expected-type

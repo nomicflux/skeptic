@@ -1,24 +1,47 @@
-# Change Log
-All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
+# Changelog
+
+All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
-### Changed
-- Add a new arity to `make-widget-async` to provide a different widget shape.
 
-## [0.1.1] - 2021-12-21
-### Changed
-- Documentation on how to make the widgets.
+### Added
 
-### Removed
-- `make-widget-sync` - we're all async, all the time.
+- An expanded user-facing `README.md` that explains what Skeptic checks, how
+  the plugin works, how to install it, how to interpret its reports, and where
+  to find the algorithm reference.
+- A new `--analyzer` CLI flag to print analyzer output while inspecting a
+  namespace.
+- A new `skeptic/docs/blame-for-all.md` reference document describing the
+  directional blame-style cast algorithm used by the checker.
+- Richer mismatch reports with source expressions, file and line information,
+  enclosing forms, and affected inputs.
+- Output-schema validation for function bodies, so Skeptic now checks declared
+  return schemas in addition to call-site argument compatibility.
+- Static-call coverage and tests for schema-sensitive operations such as `get`
+  and `merge`.
+
+### Changed
+
+- Reworked the checker to analyze forms through `clojure.tools.analyzer` ASTs
+  instead of the older macroexpansion-driven pipeline.
+- Switched mismatch checking to a directional cast engine that reports cast
+  rules, blame side, and blame polarity instead of only undirected schema
+  incompatibility.
+- Switched namespace reading to `clojure.tools.reader` with source logging so
+  reports can preserve source text and location metadata.
+- Canonicalized schema handling across checker internals so built-in classes,
+  Schema aliases, map keys, and maybe types compare more consistently.
+- Expanded namespace schema collection to inspect schematized interned vars
+  instead of only public vars.
 
 ### Fixed
-- Fixed widget maker to keep working when daylight savings switches over.
 
-## 0.1.0 - 2021-12-21
-### Added
-- Files from the new template.
-- Widget maker public API - `make-widget-sync`.
-
-[Unreleased]: https://github.com/your-name/demoing/compare/0.1.1...HEAD
-[0.1.1]: https://github.com/your-name/demoing/compare/0.1.0...0.1.1
+- Preserved auto-resolved keywords from the target namespace when collecting
+  schemas and checking forms.
+- Reduced nested helper calls and map lookups to their final inferred schemas
+  before reporting mismatches.
+- Improved output mismatch rendering for map schemas so reported types are
+  canonical and easier to read.
+- Stabilized self-analysis and internal checking so recursive or self-hosted
+  runs no longer depend on loader-sensitive semantic values embedded in
+  canonical analysis data.

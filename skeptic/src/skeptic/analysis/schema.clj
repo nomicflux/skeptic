@@ -49,9 +49,14 @@
          set-type?
          seq-type?
          var-type?
+         type-var-type?
+         forall-type?
+         sealed-dyn-type?
          placeholder-type?
          value-type?
          semantic-type-value?
+         type-display-form
+         render-type
          matches-map
          plain-map-schema?)
 
@@ -570,6 +575,15 @@
 (def value-type-tag
   ::value-type)
 
+(def type-var-type-tag
+  ::type-var-type)
+
+(def forall-type-tag
+  ::forall-type)
+
+(def sealed-dyn-type-tag
+  ::sealed-dyn-type)
+
 (defn ->DynT
   []
   {semantic-type-tag-key dyn-type-tag})
@@ -649,6 +663,22 @@
   {semantic-type-tag-key value-type-tag
    :inner inner
    :value value})
+
+(defn ->TypeVarT
+  [name]
+  {semantic-type-tag-key type-var-type-tag
+   :name name})
+
+(defn ->ForallT
+  [binder body]
+  {semantic-type-tag-key forall-type-tag
+   :binder binder
+   :body body})
+
+(defn ->SealedDynT
+  [ground]
+  {semantic-type-tag-key sealed-dyn-type-tag
+   :ground ground})
 
 (def Dyn
   (->DynT))
@@ -743,6 +773,13 @@
     (same-class-name? value "skeptic.analysis.schema.ValueT")
     (->ValueT (localize-schema-value (read-instance-field value "inner"))
               (localize-schema-value (read-instance-field value "value")))
+    (type-var-type? value)
+    (->TypeVarT (:name value))
+    (forall-type? value)
+    (->ForallT (:binder value)
+               (localize-schema-value (:body value)))
+    (sealed-dyn-type? value)
+    (->SealedDynT (localize-schema-value (:ground value)))
     (vector? value) (mapv localize-schema-value value)
     (set? value) (into #{} (map localize-schema-value) value)
     (and (map? value) (not (record? value)))
@@ -818,6 +855,18 @@
   [t]
   (or (tagged-map? t semantic-type-tag-key var-type-tag)
       (same-class-name? t "skeptic.analysis.schema.VarT")))
+
+(defn type-var-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key type-var-type-tag))
+
+(defn forall-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key forall-type-tag))
+
+(defn sealed-dyn-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key sealed-dyn-type-tag))
 
 (defn placeholder-type?
   [t]
@@ -901,6 +950,9 @@
     (set-type? schema) schema
     (seq-type? schema) schema
     (var-type? schema) schema
+    (type-var-type? schema) schema
+    (forall-type? schema) schema
+    (sealed-dyn-type? schema) schema
     (placeholder-type? schema) schema
     (value-type? schema) schema
 
@@ -987,6 +1039,9 @@
       (set-type? type) (into #{} (map type->schema) (:members type))
       (seq-type? type) (type-seq->schema-seq (:items type))
       (var-type? type) (variable (type->schema (:inner type)))
+      (type-var-type? type) type
+      (forall-type? type) type
+      (sealed-dyn-type? type) type
       (placeholder-type? type) (placeholder-schema (:ref type))
       (value-type? type) (valued-schema (type->schema (:inner type))
                                         (:value type))
@@ -1015,8 +1070,177 @@
       (set-type? value)
       (seq-type? value)
       (var-type? value)
+      (type-var-type? value)
+      (forall-type? value)
+      (sealed-dyn-type? value)
       (placeholder-type? value)
       (value-type? value)))
+
+(defn schema-roundtrippable-type?
+  [type]
+  (let [type (schema->type type)]
+    (not (or (type-var-type? type)
+             (forall-type? type)
+             (sealed-dyn-type? type)))))
+
+(declare type-display-form)
+
+(defn type-display-form
+  [type]
+  (let [type (schema->type type)]
+    (cond
+      (type-var-type? type) (:name type)
+      (forall-type? type) (list 'forall (:binder type) (type-display-form (:body type)))
+      (sealed-dyn-type? type) (list 'sealed (type-display-form (:ground type)))
+      :else (let [schema (type->schema type)]
+              (if (or (schema? schema)
+                      (class? schema)
+                      (custom-schema? schema))
+                (schema-explain schema)
+                schema)))))
+
+(defn render-type
+  [type]
+  (some-> type
+          type-display-form
+          pr-str))
+
+(defn type-var-name
+  [type]
+  (when (type-var-type? type)
+    (:name type)))
+
+(defn type-free-vars
+  [type]
+  (let [type (schema->type type)]
+    (cond
+      (or (dyn-type? type)
+          (bottom-type? type)
+          (scalar-type? type)
+          (placeholder-type? type))
+      #{}
+
+      (fn-method-type? type)
+      (into (type-free-vars (:output type))
+            (mapcat type-free-vars (:inputs type)))
+
+      (fun-type? type)
+      (into #{} (mapcat type-free-vars (:methods type)))
+
+      (maybe-type? type)
+      (type-free-vars (:inner type))
+
+      (union-type? type)
+      (into #{} (mapcat type-free-vars (:members type)))
+
+      (intersection-type? type)
+      (into #{} (mapcat type-free-vars (:members type)))
+
+      (map-type? type)
+      (reduce (fn [acc [k v]]
+                (into acc (concat (type-free-vars k)
+                                  (type-free-vars v))))
+              #{}
+              (:entries type))
+
+      (vector-type? type)
+      (into #{} (mapcat type-free-vars (:items type)))
+
+      (set-type? type)
+      (into #{} (mapcat type-free-vars (:members type)))
+
+      (seq-type? type)
+      (into #{} (mapcat type-free-vars (:items type)))
+
+      (var-type? type)
+      (type-free-vars (:inner type))
+
+      (value-type? type)
+      (type-free-vars (:inner type))
+
+      (type-var-type? type)
+      #{(:name type)}
+
+      (forall-type? type)
+      (disj (type-free-vars (:body type)) (:binder type))
+
+      (sealed-dyn-type? type)
+      (type-free-vars (:ground type))
+
+      :else
+      #{})))
+
+(defn type-substitute
+  [type binder replacement]
+  (let [type (schema->type type)
+        replacement (schema->type replacement)]
+    (cond
+      (or (dyn-type? type)
+          (bottom-type? type)
+          (scalar-type? type)
+          (placeholder-type? type))
+      type
+
+      (fn-method-type? type)
+      (->FnMethodT (mapv #(type-substitute % binder replacement) (:inputs type))
+                   (type-substitute (:output type) binder replacement)
+                   (:min-arity type)
+                   (:variadic? type))
+
+      (fun-type? type)
+      (->FunT (mapv #(type-substitute % binder replacement) (:methods type)))
+
+      (maybe-type? type)
+      (->MaybeT (type-substitute (:inner type) binder replacement))
+
+      (union-type? type)
+      (->UnionT (set (map #(type-substitute % binder replacement) (:members type))))
+
+      (intersection-type? type)
+      (->IntersectionT (set (map #(type-substitute % binder replacement) (:members type))))
+
+      (map-type? type)
+      (->MapT (into {}
+                     (map (fn [[k v]]
+                            [(type-substitute k binder replacement)
+                             (type-substitute v binder replacement)]))
+                     (:entries type)))
+
+      (vector-type? type)
+      (->VectorT (mapv #(type-substitute % binder replacement) (:items type))
+                 (:homogeneous? type))
+
+      (set-type? type)
+      (->SetT (set (map #(type-substitute % binder replacement) (:members type)))
+               (:homogeneous? type))
+
+      (seq-type? type)
+      (->SeqT (mapv #(type-substitute % binder replacement) (:items type))
+              (:homogeneous? type))
+
+      (var-type? type)
+      (->VarT (type-substitute (:inner type) binder replacement))
+
+      (value-type? type)
+      (->ValueT (type-substitute (:inner type) binder replacement)
+                (:value type))
+
+      (type-var-type? type)
+      (if (= binder (:name type))
+        replacement
+        type)
+
+      (forall-type? type)
+      (if (= binder (:binder type))
+        type
+        (->ForallT (:binder type)
+                   (type-substitute (:body type) binder replacement)))
+
+      (sealed-dyn-type? type)
+      (->SealedDynT (type-substitute (:ground type) binder replacement))
+
+      :else
+      type)))
 
 (def derived-type-keys
   [:type
@@ -1323,6 +1547,83 @@
     :negative :positive
     polarity))
 
+(defn ensure-cast-state
+  [cast-state]
+  (merge {:nu-bindings []
+          :abstract-vars #{}
+          :active-seals #{}}
+         cast-state))
+
+(defn cast-state
+  [opts]
+  (ensure-cast-state (:cast-state opts)))
+
+(defn with-abstract-var
+  [opts binder]
+  (assoc opts :cast-state (update (cast-state opts) :abstract-vars conj binder)))
+
+(defn with-nu-binding
+  [opts binder witness-type]
+  (assoc opts :cast-state (-> (cast-state opts)
+                              (update :nu-bindings conj {:type-var binder
+                                                         :witness-type (schema->type witness-type)})
+                              (update :abstract-vars conj binder))))
+
+(defn register-seal
+  [opts sealed-type]
+  (assoc opts :cast-state (update (cast-state opts) :active-seals conj (schema->type sealed-type))))
+
+(defn sealed-ground-name
+  [type]
+  (some-> type schema->type :ground type-var-name))
+
+(defn contains-sealed-ground?
+  [type binder]
+  (let [type (schema->type type)]
+    (cond
+      (sealed-dyn-type? type)
+      (= binder (sealed-ground-name type))
+
+      (fn-method-type? type)
+      (or (contains-sealed-ground? (:output type) binder)
+          (some #(contains-sealed-ground? % binder) (:inputs type)))
+
+      (fun-type? type)
+      (some #(contains-sealed-ground? % binder) (:methods type))
+
+      (maybe-type? type)
+      (contains-sealed-ground? (:inner type) binder)
+
+      (or (union-type? type)
+          (intersection-type? type))
+      (some #(contains-sealed-ground? % binder) (:members type))
+
+      (map-type? type)
+      (some (fn [[k v]]
+              (or (contains-sealed-ground? k binder)
+                  (contains-sealed-ground? v binder)))
+            (:entries type))
+
+      (or (vector-type? type)
+          (seq-type? type))
+      (some #(contains-sealed-ground? % binder) (:items type))
+
+      (set-type? type)
+      (some #(contains-sealed-ground? % binder) (:members type))
+
+      (var-type? type)
+      (contains-sealed-ground? (:inner type) binder)
+
+      (value-type? type)
+      (contains-sealed-ground? (:inner type) binder)
+
+      (forall-type? type)
+      (and (not= binder (:binder type))
+           (contains-sealed-ground? (:body type) binder))
+
+      :else
+      false)))
+
 (defn cast-result
   [{:keys [ok? source-type target-type rule polarity reason children details]}]
   (cond-> {:ok? ok?
@@ -1367,6 +1668,48 @@
 (defn all-ok?
   [results]
   (every? :ok? results))
+
+(defn check-type-test
+  ([value-type ground-type]
+   (check-type-test value-type ground-type {}))
+  ([value-type ground-type opts]
+   (let [value-type (schema->type value-type)
+         ground-type (schema->type ground-type)]
+     (if (sealed-dyn-type? value-type)
+       (cast-fail value-type
+                  ground-type
+                  :is-tamper
+                  :global
+                  :is-tamper
+                  []
+                  {:cast-state (cast-state opts)})
+       (cast-ok value-type
+                ground-type
+                :dynamic-test
+                []
+                {:matches? (= value-type ground-type)
+                 :cast-state (cast-state opts)})))))
+
+(defn exit-nu-scope
+  ([type binder]
+   (exit-nu-scope type binder {}))
+  ([type binder opts]
+   (let [type (schema->type type)
+         binder (or (type-var-name (schema->type binder))
+                    binder)]
+     (if (contains-sealed-ground? type binder)
+       (cast-fail type
+                  (->TypeVarT binder)
+                  :nu-tamper
+                  :global
+                  :nu-tamper
+                  []
+                  {:cast-state (cast-state opts)})
+       (cast-ok type
+                (->TypeVarT binder)
+                :nu-pass
+                []
+                {:cast-state (cast-state opts)})))))
 
 (defn method-accepts-arity?
   [method arity]
@@ -1467,10 +1810,12 @@
 
 (defn scalar-cast-fallback?
   [source-type target-type]
-  (let [source-schema (canonicalize-schema (type->schema source-type))
-        target-schema (canonicalize-schema (type->schema target-type))]
-    (or (= (check-if-schema target-schema source-schema) ::schema-valid)
-        (= (check-if-schema target-schema (type->schema source-type)) ::schema-valid))))
+  (when (and (schema-roundtrippable-type? source-type)
+             (schema-roundtrippable-type? target-type))
+    (let [source-schema (canonicalize-schema (type->schema source-type))
+          target-schema (canonicalize-schema (type->schema target-type))]
+      (or (= (check-if-schema target-schema source-schema) ::schema-valid)
+          (= (check-if-schema target-schema (type->schema source-type)) ::schema-valid)))))
 
 (defn check-cast
   ([source-type target-type]
@@ -1485,6 +1830,69 @@
 
        (= source-type target-type)
        (cast-ok source-type target-type :exact)
+
+       (forall-type? target-type)
+       (if (contains? (type-free-vars source-type) (:binder target-type))
+         (cast-fail source-type
+                    target-type
+                    :generalize
+                    polarity
+                    :forall-capture
+                    []
+                    {:binder (:binder target-type)
+                     :cast-state (cast-state opts)})
+         (let [child (check-cast source-type
+                                 (:body target-type)
+                                 (with-abstract-var opts (:binder target-type)))]
+           (if (:ok? child)
+             (cast-ok source-type
+                      target-type
+                      :generalize
+                      [child]
+                      {:binder (:binder target-type)
+                       :cast-state (cast-state opts)})
+             (cast-fail source-type
+                        target-type
+                        :generalize
+                        polarity
+                        :generalize-failed
+                        [child]
+                        {:binder (:binder target-type)
+                         :cast-state (cast-state opts)}))))
+
+       (forall-type? source-type)
+       (let [instantiated (type-substitute (:body source-type)
+                                           (:binder source-type)
+                                           Dyn)
+             child (check-cast instantiated target-type
+                               (with-nu-binding opts (:binder source-type) Dyn))]
+         (if (:ok? child)
+           (cast-ok source-type
+                    target-type
+                    :instantiate
+                    [child]
+                    {:binder (:binder source-type)
+                     :instantiated-type instantiated
+                     :cast-state (cast-state opts)})
+           (cast-fail source-type
+                      target-type
+                      :instantiate
+                      polarity
+                      :instantiate-failed
+                      [child]
+                      {:binder (:binder source-type)
+                       :instantiated-type instantiated
+                       :cast-state (cast-state opts)})))
+
+       (and (type-var-type? source-type)
+            (dyn-type? target-type))
+       (let [sealed-type (->SealedDynT source-type)]
+         (cast-ok source-type
+                  target-type
+                  :seal
+                  []
+                  {:sealed-type sealed-type
+                   :cast-state (:cast-state (register-seal opts sealed-type))}))
 
        (dyn-type? target-type)
        (cast-ok source-type target-type :target-dyn)
@@ -1513,7 +1921,8 @@
            (cast-ok source-type target-type :source-intersection children)
            (cast-fail source-type target-type :source-intersection polarity :source-component-failed children)))
 
-       (value-type? source-type)
+       (and (value-type? source-type)
+            (schema-roundtrippable-type? target-type))
        (let [value-schema (:value source-type)
              value-match (or (schema-equivalent? (type->schema target-type) value-schema)
                              (= (check-if-schema (type->schema target-type) value-schema) ::schema-valid))]
@@ -1521,7 +1930,8 @@
            (cast-ok source-type target-type :value-exact)
            (check-cast (:inner source-type) target-type opts)))
 
-       (value-type? target-type)
+       (and (value-type? target-type)
+            (schema-roundtrippable-type? source-type))
        (let [expected-value (:value target-type)
              source-schema (type->schema source-type)]
          (if (or (schema-equivalent? source-schema expected-value)
@@ -1549,6 +1959,58 @@
 
        (var-type? target-type)
        (check-cast source-type (:inner target-type) opts)
+
+       (type-var-type? target-type)
+       (cond
+         (sealed-dyn-type? source-type)
+         (if (= (sealed-ground-name source-type) (type-var-name target-type))
+           (cast-ok source-type
+                    target-type
+                    :sealed-collapse
+                    []
+                    {:cast-state (cast-state opts)})
+           (cast-fail source-type
+                      target-type
+                      :sealed-collapse
+                      polarity
+                      :sealed-ground-mismatch
+                      []
+                      {:cast-state (cast-state opts)}))
+
+         (or (dyn-type? source-type)
+             (placeholder-type? source-type))
+         (cast-ok source-type
+                  target-type
+                  :type-var-target
+                  []
+                  {:cast-state (cast-state opts)})
+
+         :else
+         (cast-fail source-type
+                    target-type
+                    :type-var-target
+                    polarity
+                    :abstract-target-mismatch
+                    []
+                    {:cast-state (cast-state opts)}))
+
+       (type-var-type? source-type)
+       (cast-fail source-type
+                  target-type
+                  :type-var-source
+                  polarity
+                  :abstract-source-mismatch
+                  []
+                  {:cast-state (cast-state opts)})
+
+       (sealed-dyn-type? source-type)
+       (cast-fail source-type
+                  target-type
+                  :sealed-conflict
+                  polarity
+                  :sealed-mismatch
+                  []
+                  {:cast-state (cast-state opts)})
 
        (and (fun-type? source-type) (fun-type? target-type))
        (let [children (mapv (fn [target-method]

@@ -18,11 +18,13 @@
 
 (defn describe-schema
   [x]
-  (ppr-str
-   (if (or (as/schema? x)
-           (class? x))
-     (as/schema-explain x)
-     x)))
+  (if (as/semantic-type-value? x)
+    (as/render-type x)
+    (ppr-str
+     (if (or (as/schema? x)
+             (class? x))
+       (as/schema-explain x)
+       x))))
 
 (defn mismatched-nullable-msg
   [{:keys [expr arg]} _actual-schema _expected-schema]
@@ -69,6 +71,12 @@
   [type]
   (-> type as/type->schema as/canonicalize-schema))
 
+(defn scalar-ground-type?
+  [type]
+  (let [type (as/schema->type type)]
+    (and (as/scalar-type? type)
+         (contains? ground-types (:schema type)))))
+
 (defn cast-leaf-results
   [cast-result]
   (cond
@@ -82,6 +90,8 @@
                       :source-intersection
                       :maybe-both
                       :maybe-target
+                      :generalize
+                      :instantiate
                       :function
                       :function-method
                       :map
@@ -112,6 +122,18 @@
   (let [source-schema (cast-schema (:source-type cast-result))
         target-schema (cast-schema (:target-type cast-result))]
     (case (:reason cast-result)
+      :is-tamper
+      (format "%s\n\tin\n\n%s\nattempts to inspect a sealed value:\n\n%s"
+              (colours/magenta (ppr-str (:arg ctx)) true)
+              (colours/magenta (ppr-str (:expr ctx)))
+              (colours/yellow (describe-schema (:source-type cast-result))))
+
+      :nu-tamper
+      (format "%s\n\tin\n\n%s\nattempts to move a sealed value out of scope:\n\n%s"
+              (colours/magenta (ppr-str (:arg ctx)) true)
+              (colours/magenta (ppr-str (:expr ctx)))
+              (colours/yellow (describe-schema (:source-type cast-result))))
+
       :nullable-source
       (mismatched-nullable-msg ctx source-schema target-schema)
 
@@ -128,8 +150,8 @@
                                       :expected-keys (keys target-schema))
                                #{(superfluous-cast-key (:actual-key cast-result))})
 
-      (if (and (contains? ground-types source-schema)
-               (contains? ground-types target-schema)
+      (if (and (scalar-ground-type? (:source-type cast-result))
+               (scalar-ground-type? (:target-type cast-result))
                (not= source-schema target-schema))
         (mismatched-ground-type-msg ctx source-schema target-schema)
         (mismatched-schema-msg ctx source-schema target-schema)))))
