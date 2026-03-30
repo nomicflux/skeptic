@@ -235,3 +235,17 @@
   (is (not (:ok? (sut/output-cast-report sample-ctx both-int-str s/Keyword))))
   (is (not (:ok? (sut/output-cast-report sample-ctx {:value both-any-int}
                                          {:value s/Str})))))
+
+(deftest constrained-and-eq-compatibility-test
+  (let [non-negative-int (s/constrained s/Int (fn [n] (not (neg? n))))
+        hello (s/eq "hello")]
+    (is (:ok? (as/check-cast s/Int non-negative-int)))
+    (is (:ok? (sut/output-cast-report sample-ctx non-negative-int s/Int)))
+    (is (not (:ok? (as/check-cast s/Str non-negative-int))))
+    (is (not (:ok? (as/check-cast (s/eq -1) non-negative-int))))
+
+    (is (:ok? (as/check-cast s/Str hello)))
+    (is (:ok? (sut/output-cast-report sample-ctx hello s/Str)))
+    (is (not (:ok? (as/check-cast s/Int hello))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx hello s/Int))))
+    (is (not (:ok? (as/check-cast (s/eq "bye") hello))))))

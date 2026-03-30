@@ -528,7 +528,7 @@
 
 (defn canonicalize-output-schema
   [schema]
-  (canonicalize-schema* schema {:constrained->base? true}))
+  (canonicalize-schema* schema {:constrained->base? false}))
 
 (def dyn-type-tag
   ::dyn-type)
@@ -1812,10 +1812,38 @@
   [source-type target-type]
   (when (and (schema-roundtrippable-type? source-type)
              (schema-roundtrippable-type? target-type))
-    (let [source-schema (canonicalize-schema (type->schema source-type))
-          target-schema (canonicalize-schema (type->schema target-type))]
-      (or (= (check-if-schema target-schema source-schema) ::schema-valid)
-          (= (check-if-schema target-schema (type->schema source-type)) ::schema-valid)))))
+    (let [source-type (schema->type source-type)
+          target-type (schema->type target-type)
+          source-schema (canonicalize-schema (type->schema source-type))
+          target-schema (canonicalize-schema (type->schema target-type))
+          exact-value (fn [type]
+                        (cond
+                          (value-type? type) (:value type)
+                          (and (scalar-type? type)
+                               (eq? (:schema type))) (de-eq (:schema type))
+                          :else ::none))
+          base-schema (fn base-schema [schema]
+                        (let [schema (canonicalize-schema schema)]
+                          (cond
+                            (named? schema) (base-schema (de-named schema))
+                            (constrained? schema) (base-schema (de-constrained schema))
+                            (valued-schema? schema) (base-schema (:schema schema))
+                            :else schema)))
+          source-exact (exact-value source-type)
+          target-exact (exact-value target-type)
+          source-base (base-schema source-schema)
+          target-base (base-schema target-schema)]
+      (cond
+        (not= source-exact ::none)
+        (= (check-if-schema target-schema source-exact) ::schema-valid)
+
+        (not= target-exact ::none)
+        (= (check-if-schema source-schema target-exact) ::schema-valid)
+
+        :else
+        (or (= source-base target-base)
+            (= (check-if-schema target-base source-base) ::schema-valid)
+            (= (check-if-schema source-base target-base) ::schema-valid))))))
 
 (defn check-cast
   ([source-type target-type]

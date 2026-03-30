@@ -233,7 +233,7 @@
              {:expr 'sample-bad-constrained-output-fn
               :arg 'x}
              s/Str
-             s/Int)]]
+             (s/constrained s/Int pos?))]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-bad-constrained-output-fn))))))
 
 (deftest symbol-output-schema-regression
