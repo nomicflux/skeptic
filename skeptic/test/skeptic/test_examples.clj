@@ -308,3 +308,169 @@
                 :schema
                 [{:schema s/Any, :optional? false, :name 's}
                  s/Any]}}}})
+
+(s/defschema ConditionalIntOrStr
+  (s/conditional integer? s/Int string? s/Str))
+
+(s/defschema CondPreIntOrStr
+  (s/cond-pre s/Int s/Str))
+
+(s/defschema EitherIntOrStr
+  (s/either s/Int s/Str))
+
+(s/defschema IfIntOrStr
+  (s/if integer? s/Int s/Str))
+
+(s/defschema BothAnyInt
+  (s/both s/Any s/Int))
+
+(s/defschema BothIntStr
+  (s/both s/Int s/Str))
+
+(s/defn takes-conditional-branch :- s/Keyword
+  [x :- ConditionalIntOrStr]
+  :ok)
+
+(s/defn takes-cond-pre-branch :- s/Keyword
+  [x :- CondPreIntOrStr]
+  :ok)
+
+(s/defn takes-either-branch :- s/Keyword
+  [x :- EitherIntOrStr]
+  :ok)
+
+(s/defn takes-if-branch :- s/Keyword
+  [x :- IfIntOrStr]
+  :ok)
+
+(s/defn takes-both-any-int :- s/Keyword
+  [x :- BothAnyInt]
+  :ok)
+
+(s/defn takes-both-int-str :- s/Keyword
+  [x :- BothIntStr]
+  :ok)
+
+(defn conditional-input-int-success
+  []
+  (takes-conditional-branch 1))
+
+(defn conditional-input-str-success
+  []
+  (takes-conditional-branch "hi"))
+
+(defn conditional-input-keyword-failure
+  []
+  (takes-conditional-branch :bad))
+
+(defn cond-pre-input-int-success
+  []
+  (takes-cond-pre-branch 1))
+
+(defn cond-pre-input-str-success
+  []
+  (takes-cond-pre-branch "hi"))
+
+(defn cond-pre-input-keyword-failure
+  []
+  (takes-cond-pre-branch :bad))
+
+(defn either-input-int-success
+  []
+  (takes-either-branch 1))
+
+(defn either-input-str-success
+  []
+  (takes-either-branch "hi"))
+
+(defn either-input-keyword-failure
+  []
+  (takes-either-branch :bad))
+
+(defn if-input-int-success
+  []
+  (takes-if-branch 1))
+
+(defn if-input-str-success
+  []
+  (takes-if-branch "hi"))
+
+(defn if-input-keyword-failure
+  []
+  (takes-if-branch :bad))
+
+(defn both-any-int-input-success
+  []
+  (takes-both-any-int 1))
+
+(defn both-any-int-input-str-failure
+  []
+  (takes-both-any-int "hi"))
+
+(defn both-int-str-input-int-failure
+  []
+  (takes-both-int-str 1))
+
+(defn both-int-str-input-str-failure
+  []
+  (takes-both-int-str "hi"))
+
+(s/defn conditional-output-int-success :- ConditionalIntOrStr
+  []
+  1)
+
+(s/defn conditional-output-str-success :- ConditionalIntOrStr
+  []
+  "hi")
+
+(s/defn conditional-output-keyword-failure :- ConditionalIntOrStr
+  []
+  :bad)
+
+(s/defn cond-pre-output-int-success :- CondPreIntOrStr
+  []
+  1)
+
+(s/defn cond-pre-output-str-success :- CondPreIntOrStr
+  []
+  "hi")
+
+(s/defn cond-pre-output-keyword-failure :- CondPreIntOrStr
+  []
+  :bad)
+
+(s/defn either-output-int-success :- EitherIntOrStr
+  []
+  1)
+
+(s/defn either-output-str-success :- EitherIntOrStr
+  []
+  "hi")
+
+(s/defn either-output-keyword-failure :- EitherIntOrStr
+  []
+  :bad)
+
+(s/defn if-output-int-success :- IfIntOrStr
+  []
+  1)
+
+(s/defn if-output-str-success :- IfIntOrStr
+  []
+  "hi")
+
+(s/defn if-output-keyword-failure :- IfIntOrStr
+  []
+  :bad)
+
+(s/defn both-any-int-output-success :- BothAnyInt
+  []
+  1)
+
+(s/defn both-int-str-output-int-failure :- BothIntStr
+  []
+  1)
+
+(s/defn both-int-str-output-str-failure :- BothIntStr
+  []
+  "hi")

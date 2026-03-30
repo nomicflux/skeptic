@@ -332,3 +332,68 @@
 
 
   )
+
+(def conditional-int-or-str
+  (s/conditional integer? s/Int string? s/Str))
+
+(def cond-pre-int-or-str
+  (s/cond-pre s/Int s/Str))
+
+(def either-int-or-str
+  (s/either s/Int s/Str))
+
+(def if-int-or-str
+  (s/if integer? s/Int s/Str))
+
+(def both-any-int
+  (s/both s/Any s/Int))
+
+(def both-int-str
+  (s/both s/Int s/Str))
+
+(def both-int-and-constrained-int
+  (s/both s/Int (s/constrained s/Int pos?)))
+
+(deftest union-like-schema-compatibility-test
+  (doseq [schema [conditional-int-or-str
+                  cond-pre-int-or-str
+                  either-int-or-str
+                  if-int-or-str]]
+    (is (empty? (sut/explain-incompatibility sample-ctx schema s/Int)))
+    (is (empty? (sut/explain-incompatibility sample-ctx schema s/Str)))
+    (is (seq (sut/explain-incompatibility sample-ctx schema s/Keyword)))
+
+    (is (sut/output-schema-compatible? schema s/Int))
+    (is (sut/output-schema-compatible? schema s/Str))
+    (is (not (sut/output-schema-compatible? schema s/Keyword)))
+
+    (is (sut/output-schema-compatible? s/Any schema))
+    (is (not (sut/output-schema-compatible? s/Int schema)))
+
+    (is (sut/output-schema-compatible? schema (as/join s/Int s/Str)))
+    (is (not (sut/output-schema-compatible? schema
+                                            (as/join s/Int s/Keyword))))))
+
+(deftest both-schema-compatibility-test
+  (is (empty? (sut/explain-incompatibility sample-ctx both-any-int s/Int)))
+  (is (seq (sut/explain-incompatibility sample-ctx both-any-int s/Str)))
+  (is (seq (sut/explain-incompatibility sample-ctx both-int-str s/Int)))
+  (is (seq (sut/explain-incompatibility sample-ctx both-int-str s/Str)))
+  (is (seq (sut/explain-incompatibility sample-ctx both-int-str s/Keyword)))
+
+  (is (sut/output-schema-compatible? both-any-int s/Int))
+  (is (sut/output-schema-compatible? both-int-and-constrained-int s/Int))
+  (is (not (sut/output-schema-compatible? both-int-str s/Int)))
+  (is (not (sut/output-schema-compatible? both-int-str s/Str)))
+  (is (not (sut/output-schema-compatible? both-int-str s/Keyword)))
+
+  (is (sut/output-schema-compatible? s/Any both-int-str))
+  (is (not (sut/output-schema-compatible? s/Int both-int-str)))
+
+  (is (not (sut/output-schema-compatible? both-int-str
+                                          (s/both s/Int s/Keyword))))
+
+  (is (sut/output-schema-compatible? {:value both-any-int}
+                                     {:value s/Int}))
+  (is (not (sut/output-schema-compatible? {:value both-any-int}
+                                          {:value s/Str}))))

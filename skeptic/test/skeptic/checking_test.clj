@@ -401,3 +401,54 @@
                        test-file
                        {:remove-context true}))
     (is (= before test-dict))))
+
+(defn single-failure?
+  [f blame]
+  (let [results (vec (check-fn test-dict f))
+        result (first results)]
+    (and (= 1 (count results))
+         (= blame (:blame result))
+         (seq (:errors result)))))
+
+(deftest checking-conditional-input-schemas
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/conditional-input-int-success
+     'skeptic.test-examples/conditional-input-str-success
+     'skeptic.test-examples/cond-pre-input-int-success
+     'skeptic.test-examples/cond-pre-input-str-success
+     'skeptic.test-examples/either-input-int-success
+     'skeptic.test-examples/either-input-str-success
+     'skeptic.test-examples/if-input-int-success
+     'skeptic.test-examples/if-input-str-success
+     'skeptic.test-examples/both-any-int-input-success)
+
+   (are [f blame] (single-failure? f blame)
+     'skeptic.test-examples/conditional-input-keyword-failure '(takes-conditional-branch :bad)
+     'skeptic.test-examples/cond-pre-input-keyword-failure '(takes-cond-pre-branch :bad)
+     'skeptic.test-examples/either-input-keyword-failure '(takes-either-branch :bad)
+     'skeptic.test-examples/if-input-keyword-failure '(takes-if-branch :bad)
+     'skeptic.test-examples/both-any-int-input-str-failure '(takes-both-any-int "hi")
+     'skeptic.test-examples/both-int-str-input-int-failure '(takes-both-int-str 1)
+     'skeptic.test-examples/both-int-str-input-str-failure '(takes-both-int-str "hi"))))
+
+(deftest checking-conditional-output-schemas
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/conditional-output-int-success
+     'skeptic.test-examples/conditional-output-str-success
+     'skeptic.test-examples/cond-pre-output-int-success
+     'skeptic.test-examples/cond-pre-output-str-success
+     'skeptic.test-examples/either-output-int-success
+     'skeptic.test-examples/either-output-str-success
+     'skeptic.test-examples/if-output-int-success
+     'skeptic.test-examples/if-output-str-success
+     'skeptic.test-examples/both-any-int-output-success)
+
+   (are [f blame] (single-failure? f blame)
+     'skeptic.test-examples/conditional-output-keyword-failure :bad
+     'skeptic.test-examples/cond-pre-output-keyword-failure :bad
+     'skeptic.test-examples/either-output-keyword-failure :bad
+     'skeptic.test-examples/if-output-keyword-failure :bad
+     'skeptic.test-examples/both-int-str-output-int-failure 1
+     'skeptic.test-examples/both-int-str-output-str-failure "hi")))

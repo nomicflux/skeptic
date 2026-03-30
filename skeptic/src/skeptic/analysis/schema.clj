@@ -2,7 +2,7 @@
   (:require [schema.core :as s]
             [schema.spec.core :as spec :include-macros true]
             [schema.spec.leaf :as leaf])
-  (:import [schema.core Constrained EqSchema Maybe NamedSchema One Schema]))
+  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EqSchema Maybe NamedSchema One Schema]))
 
 (defn any-schema?
   [s]
@@ -56,6 +56,22 @@
   [s]
   (instance? Constrained s))
 
+(defn either?
+  [s]
+  (instance? Either s))
+
+(defn conditional-schema?
+  [s]
+  (instance? ConditionalSchema s))
+
+(defn cond-pre?
+  [s]
+  (instance? CondPre s))
+
+(defn both?
+  [s]
+  (instance? Both s))
+
 (defn eq?
   [s]
   (instance? EqSchema s))
@@ -88,6 +104,8 @@
          canonicalize-schema*
          canonicalize-output-schema
          canonicalize-entry-fn-schema
+         union-like-branches
+         both-components
          variable
          matches-map)
 
@@ -324,6 +342,25 @@
                                                                 {:constrained->base? false})
                                           (:postcondition schema)
                                           (:post-name schema)))
+    (either? schema) (apply s/either
+                            (map #(canonicalize-schema* %
+                                                        {:constrained->base? constrained->base?})
+                                 (:schemas schema)))
+    (conditional-schema? schema) (let [branches (mapcat (fn [[pred branch]]
+                                                          [pred (canonicalize-schema* branch
+                                                                                     {:constrained->base? constrained->base?})])
+                                                        (:preds-and-schemas schema))
+                                       args (cond-> (vec branches)
+                                              (:error-symbol schema) (conj (:error-symbol schema)))]
+                                   (apply s/conditional args))
+    (cond-pre? schema) (apply s/cond-pre
+                              (map #(canonicalize-schema* %
+                                                          {:constrained->base? constrained->base?})
+                                   (:schemas schema)))
+    (both? schema) (apply s/both
+                          (map #(canonicalize-schema* %
+                                                      {:constrained->base? constrained->base?})
+                               (:schemas schema)))
     (join? schema) (schema-join (set (map #(canonicalize-schema* %
                                                                 {:constrained->base? constrained->base?})
                                           (:schemas schema))))
@@ -499,6 +536,28 @@
   [expected actual]
   (= (canonicalize-schema expected)
      (canonicalize-schema actual)))
+
+(defn union-like-branches
+  [schema]
+  (let [schema (canonicalize-schema schema)]
+    (cond
+      (either? schema) (set (:schemas schema))
+      (cond-pre? schema) (set (:schemas schema))
+      (conditional-schema? schema) (->> (:preds-and-schemas schema)
+                                        (map second)
+                                        set)
+      :else nil)))
+
+(defn union-like-join
+  [schema]
+  (when-let [branches (union-like-branches schema)]
+    (schema-join branches)))
+
+(defn both-components
+  [schema]
+  (when-let [schema (and (both? schema)
+                         (canonicalize-schema schema))]
+    (set (:schemas schema))))
 
 (defn unknown-schema?
   [schema]
@@ -696,11 +755,28 @@
 (defn schema-compatible?
   [expected actual]
   (let [expected (canonicalize-schema expected)
-        actual (canonicalize-schema actual)]
+        actual (canonicalize-schema actual)
+        expected-union (union-like-join expected)
+        actual-union (union-like-join actual)
+        expected-both (both-components expected)
+        actual-both (both-components actual)]
     (cond
       (= actual Bottom) true
       (any-schema? expected) true
       (schema-equivalent? expected actual) true
+      (and expected-both actual-both)
+      (every? (fn [expected-component]
+                (some #(schema-compatible? expected-component %)
+                      actual-both))
+              expected-both)
+      expected-both
+      (every? #(schema-compatible? % actual) expected-both)
+      actual-both
+      (every? #(schema-compatible? expected %) actual-both)
+      expected-union
+      (schema-compatible? expected-union actual)
+      actual-union
+      (schema-compatible? expected actual-union)
       (and (join? expected) (join? actual))
       (every? (fn [schema]
                 (some #(schema-compatible? % schema) (:schemas expected)))
