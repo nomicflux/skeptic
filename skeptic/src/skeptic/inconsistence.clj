@@ -67,6 +67,11 @@
   (as/schema-compatible? (as/canonicalize-schema expected)
                          (as/canonicalize-schema actual)))
 
+(defn output-compatible-schemas
+  [expected actual]
+  [(as/canonicalize-output-schema expected)
+   (as/canonicalize-output-schema actual)])
+
 (s/defn mismatched-ground-types :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
    expected actual]
@@ -83,7 +88,8 @@
 
 (defn output-schema-compatible?
   [expected actual]
-  (canonical-compatible? expected actual))
+  (let [[expected actual] (output-compatible-schemas expected actual)]
+    (as/schema-compatible? expected actual)))
 
 (declare mismatched-maps
          explain-incompatibility)
@@ -91,8 +97,9 @@
 (s/defn mismatched-output-schema :- (s/maybe s/Str)
   [ctx :- ErrorMsgCtx
    expected actual]
-  (when (seq (explain-incompatibility ctx expected actual))
-    (mismatched-output-schema-msg ctx actual expected)))
+  (let [[expected actual] (output-compatible-schemas expected actual)]
+    (when (seq (explain-incompatibility ctx expected actual))
+      (mismatched-output-schema-msg ctx actual expected))))
 
 (def base-mismatch-rules
   [mismatched-maybe

@@ -60,6 +60,26 @@
   [not-an-int :- s/Str]
   (int-add not-an-int 2))
 
+(s/defn takes-named-int :- s/Int
+  [x :- (s/named s/Int 'age)]
+  x)
+
+(defn sample-named-input-fn
+  []
+  (takes-named-int 1))
+
+(s/defn sample-named-output-fn :- (s/named s/Int 'age)
+  [x :- s/Int]
+  x)
+
+(s/defn sample-constrained-output-fn :- (s/constrained s/Int pos?)
+  [x :- s/Int]
+  x)
+
+(s/defn sample-bad-constrained-output-fn :- (s/constrained s/Int pos?)
+  [x :- s/Str]
+  x)
+
 (defn sample-bad-fn
   [x]
   (int-add 1 (int-add nil x)))

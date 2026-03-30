@@ -39,6 +39,14 @@
   (is (sut/output-schema-compatible? s/Keyword clojure.lang.Keyword))
   (is (sut/output-schema-compatible? s/Int java.lang.Integer))
   (is (not (sut/output-schema-compatible? s/Str clojure.lang.Keyword)))
+  (is (sut/output-schema-compatible? (s/named s/Int 'age) s/Int))
+  (is (empty? (sut/explain-incompatibility sample-ctx (s/named s/Int 'age) s/Int)))
+  (is (sut/output-schema-compatible? (s/constrained s/Int pos?) s/Int))
+  (is (not (sut/output-schema-compatible? (s/constrained s/Int pos?) s/Str)))
+  (is (sut/output-schema-compatible? {:age (s/constrained s/Int pos?)}
+                                     {:age s/Int}))
+  (is (not (sut/output-schema-compatible? {:age (s/constrained s/Int pos?)}
+                                          {:age s/Str})))
 
   (is (= 1 (sut/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))
   (is (= 2 (sut/get-by-matching-schema {s/Int 2} java.lang.Integer)))

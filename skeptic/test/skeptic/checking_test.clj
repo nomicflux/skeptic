@@ -211,7 +211,7 @@
     (is (= ["y"] (:focus-sources result)))
     (is (= "(int-add x y)" (:source-expression result)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 77
+            :line 97
             :column 5}
            (select-keys (:location result) [:file :line :column])))
     (is (= 'skeptic.test-examples/sample-bad-let-fn
@@ -222,6 +222,19 @@
    (is (= ['(int-add nil x)
            [(inconsistence/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-schema-bad-fn))))))
+
+(deftest checking-schema-wrapper-regression
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-named-input-fn)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-named-output-fn)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-constrained-output-fn)))
+   (is (= ['x
+           [(inconsistence/mismatched-output-schema-msg
+             {:expr 'sample-bad-constrained-output-fn
+              :arg 'x}
+             s/Str
+             s/Int)]]
+          (result-errors (check-fn test-dict 'skeptic.test-examples/sample-bad-constrained-output-fn))))))
 
 (deftest symbol-output-schema-regression
   (let [form (->> 'skeptic.schematize/fully-qualify-str
