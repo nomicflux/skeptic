@@ -249,3 +249,20 @@
     (is (not (:ok? (as/check-cast s/Int hello))))
     (is (not (:ok? (sut/output-cast-report sample-ctx hello s/Int))))
     (is (not (:ok? (as/check-cast (s/eq "bye") hello))))))
+
+(deftest enum-compatibility-test
+  (let [hello-or-bye (s/enum "hello" "bye")
+        hello-or-one (s/enum "hello" 1)]
+    (is (:ok? (as/check-cast s/Str hello-or-bye)))
+    (is (:ok? (sut/output-cast-report sample-ctx hello-or-bye s/Str)))
+    (is (not (:ok? (as/check-cast s/Int hello-or-bye))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx hello-or-bye s/Int))))
+
+    (is (:ok? (as/check-cast s/Str hello-or-one)))
+    (is (:ok? (as/check-cast s/Int hello-or-one)))
+    (is (not (:ok? (as/check-cast s/Bool hello-or-one))))
+
+    (is (not (:ok? (as/check-cast hello-or-one s/Str))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx s/Str hello-or-one))))
+    (is (:ok? (as/check-cast hello-or-bye s/Str)))
+    (is (:ok? (sut/output-cast-report sample-ctx s/Str hello-or-bye)))))

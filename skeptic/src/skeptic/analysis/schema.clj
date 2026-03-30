@@ -1,6 +1,6 @@
 (ns skeptic.analysis.schema
   (:require [schema.core :as s])
-  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EqSchema FnSchema Maybe NamedSchema One Schema]))
+  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
 
 (def custom-schema-tag-key
   ::custom-schema)
@@ -132,6 +132,10 @@
   [s]
   (instance? EqSchema s))
 
+(defn enum-schema?
+  [s]
+  (instance? EnumSchema s))
+
 (defn de-maybe
   [s]
   (cond-> s
@@ -155,6 +159,12 @@
   (cond-> s
     (eq? s)
     :v))
+
+(defn de-enum
+  [s]
+  (cond-> s
+    (enum-schema? s)
+    :vs))
 
 (def bottom-schema-tag
   ::bottom-schema)
@@ -980,6 +990,7 @@
           (->FunT methods))
 
         (maybe? schema) (->MaybeT (schema->type (:schema schema)))
+        (enum-schema? schema) (union-type (map s/eq (de-enum schema)))
         (join? schema) (union-type (:schemas schema))
         (either? schema) (union-type (:schemas schema))
         (conditional-schema? schema) (union-type (map second (:preds-and-schemas schema)))
