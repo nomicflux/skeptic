@@ -148,7 +148,7 @@
 
 (def stable-keys
   [:op :form :body? :local :arg-id :variadic? :class :method :validated?
-   :literal? :type :schema :output :arglist :arglists :actual-arglist
+   :literal? :schema :output :arglist :arglists :actual-arglist
    :expected-arglist :raw-forms])
 
 (declare project-node)
@@ -308,11 +308,11 @@
       (is (= :invoke (:op local-invoke)))
       (is (= :invoke (:op nested-invoke)))
       (is (= :const (:op vector-form)))
-      (is (= :vector (:type vector-form)))
+      (is (as/vector-type? (as/schema->type (:schema vector-form))))
       (is (= :const (:op set-form)))
-      (is (= :set (:type set-form)))
+      (is (as/set-type? (as/schema->type (:schema set-form))))
       (is (= :const (:op map-form)))
-      (is (= :map (:type map-form)))
+      (is (as/map-type? (as/schema->type (:schema map-form))))
       (is (= :const (:op nested-vector)))
       (is (= :const (:op nested-map)))))
 
@@ -417,7 +417,7 @@
       (is (= s/Int (:output fn-call)))
       (is (= (as/variable s/Int) (:schema def-form)))
       (is (= 'f (:name defn-form)))
-      (is (instance? skeptic.analysis.schema.Variable (:schema defn-form)))
+      (is (as/variable? (:schema defn-form)))
       (is (= s/Int (-> typed-defn :schema :schema :output-schema)))
       (is (= s/Int (:schema do-form))))))
 
@@ -452,7 +452,7 @@
                                              (skeptic.test-examples/int-add
                                               1
                                               (skeptic.test-examples/int-add nil x)))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add nil x) (:form %))))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add 1 (skeptic.test-examples/int-add nil x))
                                         (:form %))))))
@@ -471,7 +471,7 @@
                                              ((^{:once true} fn* [y] (int-add y nil))
                                               x))
                                            (locals 'int-add)))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= :with-meta (:op %))))))
 
   (testing "local callable from let-bound value stays conservative"
@@ -479,7 +479,7 @@
                                              [x]
                                              (let [f (+ 1 x)]
                                                (f x)))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= '(f x) (:form %))))))
 
   (testing "doto expansion keeps literal map schema"
@@ -489,7 +489,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (= :map (:type %))
+                                          (as/map-type? (as/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest problematic-macroexpansion-analysis-test
@@ -656,11 +656,11 @@
   (testing "original vector literal setup"
     (let [root (project-ast (analyze-form '[1 2 :a "hello"]))]
       (is (= :const (:op root)))
-      (is (= :vector (:type root)))))
+      (is (as/vector-type? (as/schema->type (:schema root))))))
   (testing "original set literal setup"
     (let [root (project-ast (analyze-form '#{1 2 :a "hello"}))]
       (is (= :const (:op root)))
-      (is (= :set (:type root)))))
+      (is (as/set-type? (as/schema->type (:schema root))))))
   (testing "original list literal setup"
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
@@ -669,16 +669,16 @@
   (testing "original map literal setup"
     (let [root (project-ast (analyze-form '{:a 1 :b 2 :c 3}))]
       (is (= :const (:op root)))
-      (is (= :map (:type root)))))
+      (is (as/map-type? (as/schema->type (:schema root))))))
   (testing "original nested vector setup"
     (let [root (project-ast (analyze-form '[1 2 [3 4 [5]]]))]
       (is (= :const (:op root)))
-      (is (= :vector (:type root)))))
+      (is (as/vector-type? (as/schema->type (:schema root))))))
   (testing "original nested map setup"
     (let [root (project-ast (analyze-form '{:a 1 :b [:z "hello" #{1 2}]
                                            :c {:d 7 :e {:f 9}}}))]
       (is (= :const (:op root)))
-      (is (= :map (:type root))))))
+      (is (as/map-type? (as/schema->type (:schema root)))))))
 
 (deftest attach-schema-info-value-test
   (let [root (project-ast (analyze-form {} '1))]
@@ -764,14 +764,14 @@
                                           '(defn f [x y]
                                              (println "something")
                                              (skeptic.test-examples/int-add x y))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (= s/Int (-> root :schema :schema :output-schema)))))
   (testing "original typed defn schema setup"
     (let [root (project-ast (analyze-form sample-dict
                                           '(defn f [y z]
                                              (println y)
                                              z)))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (= s/Int (-> root :schema :schema :output-schema))))))
 
 (deftest attach-schema-info-do-test
@@ -815,7 +815,7 @@
                                              (skeptic.test-examples/int-add
                                               1
                                               (skeptic.test-examples/int-add nil x)))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add nil x) (:form %))))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add 1 (skeptic.test-examples/int-add nil x))
                                         (:form %))))))
@@ -832,7 +832,7 @@
                                              [x]
                                              ((^{:once true} fn* [y] (int-add y nil))
                                               x))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= :with-meta (:op %))))))
   (testing "original sample-path-fn setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -840,7 +840,7 @@
                                              [x]
                                              (let [f (+ 1 x)]
                                                (f x)))))]
-      (is (instance? skeptic.analysis.schema.Variable (:schema root)))
+      (is (as/variable? (:schema root)))
       (is (find-projected-node root #(= '(f x) (:form %))))))
   (testing "original doto component setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -850,7 +850,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (= :map (:type %))
+                                          (as/map-type? (as/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest analyse-problematic-let-test
@@ -968,15 +968,15 @@
 (deftest restored-resolution-contract-test
   (testing "unannotated helper lookup from ns-schemas alone stays plain Any"
     (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
-          form (->> 'skeptic.test-examples/flat-multi-step-g
+          form (->> 'skeptic.test-examples/unannotated-local-helper-g
                     (schematize/get-fn-code {})
                     read-string)
           ast (sut/attach-schema-info-loop dict form {:ns 'skeptic.test-examples})
-          call-node (node-by-form ast '(flat-multi-step-f))]
+          call-node (node-by-form ast '(unannotated-local-helper-f))]
       (is (= s/Any (:schema call-node)))
       (is (not (as/join? (:schema call-node))))))
 
-  (testing "namespace-local placeholders resolve straight-line helper chains to exact Int"
+  (testing "declared helper chains use declared outputs exactly"
     (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
                                                                          'skeptic.test-examples
@@ -1018,3 +1018,14 @@
           failure-ast (ast-by-name resolved 'nested-multi-step-failure)
           call-node (node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
       (is (= [s/Int] (:actual-arglist call-node))))))
+
+(deftest declaration-index-contract-test
+  (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
+        forward-entry (get dict 'skeptic.test-examples/forward-declared-target)
+        recursive-entry (get dict 'skeptic.test-examples/self-recursive-identity)]
+    (is (= [s/Any]
+           (-> forward-entry :arglists (get 1) :schema (->> (mapv :schema)))))
+    (is (= s/Any (:output forward-entry)))
+    (is (= [s/Any]
+           (-> recursive-entry :arglists (get 1) :schema (->> (mapv :schema)))))
+    (is (= s/Any (:output recursive-entry)))))

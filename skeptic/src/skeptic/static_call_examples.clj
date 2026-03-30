@@ -22,6 +22,9 @@
   {:a s/Int
    :b s/Int})
 
+(s/defschema ValueDesc
+  {:value s/Int})
+
 (s/defn required-name :- s/Str
   [user :- UserDesc]
   (get user :name))
@@ -61,11 +64,11 @@
   [x :- s/Int]
   x)
 
-(defn nested-multi-step-f
+(s/defn nested-multi-step-f :- ValueDesc
   []
   {:value 7})
 
-(defn nested-multi-step-g
+(s/defn nested-multi-step-g :- ValueDesc
   []
   (nested-multi-step-f))
 

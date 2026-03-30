@@ -152,12 +152,12 @@
   [x :- (s/maybe s/Int)]
   x)
 
-(defn flat-maybe-multi-step-f
+(s/defn flat-maybe-multi-step-f :- (s/maybe s/Int)
   [flag]
   (when flag
     1))
 
-(defn flat-maybe-multi-step-g
+(s/defn flat-maybe-multi-step-g :- (s/maybe s/Int)
   [flag]
   (flat-maybe-multi-step-f flag))
 
@@ -173,12 +173,15 @@
   [flag]
   (maybe-multi-step-takes-maybe-int (flat-maybe-multi-step-g flag)))
 
-(defn nested-maybe-multi-step-f
+(s/defschema MaybeValueDesc
+  {:value (s/maybe s/Int)})
+
+(s/defn nested-maybe-multi-step-f :- MaybeValueDesc
   [flag]
   {:value (when flag
             1)})
 
-(defn nested-maybe-multi-step-g
+(s/defn nested-maybe-multi-step-g :- MaybeValueDesc
   [flag]
   (nested-maybe-multi-step-f flag))
 

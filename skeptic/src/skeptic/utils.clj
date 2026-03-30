@@ -1,21 +1,18 @@
 (ns skeptic.utils
   (:require
    [skeptic.schema :as dschema]
-   [skeptic.schematize :as schematize]
    [schema.core :as s]))
+
+(defn into-coll
+  [f x]
+  (cond
+    (nil? x) []
+    (coll? x) (mapcat #(into-coll f %) x)
+    :else [(f x)]))
 
 (defn walk-fn?
   [x]
-  (schematize/into-coll fn? x))
-
-(defn try-meta
-  [x]
-  (try (meta (schematize/try-resolve x))
-       (catch Exception _e nil)))
-
-(defn meta-var
-  [x]
-  (meta (intern (quote skeptic.schematize) x)))
+  (into-coll fn? x))
 
 (s/defn combine-descs :- dschema/SchemaDesc
   [{n1 :name s1 :schema o1 :output a1 :arglists} :- dschema/SchemaDesc

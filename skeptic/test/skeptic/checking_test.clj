@@ -306,6 +306,37 @@
     (is (.contains error "{:name Str, :nickname (maybe Str)}"))
     (is (not (.contains error "\":name : Keyword\"")))))
 
+(deftest check-results-carry-cast-metadata
+  (let [results (vec (sut/check-ns static-call-examples-dict
+                                   'skeptic.static-call-examples
+                                   static-call-examples-file
+                                   {:remove-context true}))
+        nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
+                                      (:enclosing-form %))
+                               %)
+                            results)
+        output-result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
+                                      (:enclosing-form %))
+                               %)
+                            results)]
+    (doseq [result [nested-result output-result]]
+      (is (some? result))
+      (is (= :term (:blame-side result)))
+      (is (= :positive (:blame-polarity result)))
+      (is (keyword? (:rule result)))
+      (is (some? (:expected-type result)))
+      (is (some? (:actual-type result)))
+      (is (map? (:cast-result result)))
+      (is (seq (:cast-results result))))
+    (is (= "(nested-multi-step-takes-str (get (nested-multi-step-g) :value))"
+           (:source-expression nested-result)))
+    (is (= {:file "src/skeptic/static_call_examples.clj"
+            :line 77
+            :column 3}
+           (select-keys (:location nested-result) [:file :line :column])))
+    (is (= ["(get (nested-multi-step-g) :value)"]
+           (:focus-sources nested-result)))))
+
 (deftest examples-maybe-multi-step-check-ns
   (let [results (vec (sut/check-ns examples-dict
                                    'skeptic.examples
@@ -393,6 +424,13 @@
                s/Int
                s/Str)]
             (:errors result))))))
+
+(deftest declaration-based-recursion-and-forward-refs
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/forward-declared-caller)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/self-recursive-identity)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/mutual-recursive-left)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/mutual-recursive-right)))))
 
 (deftest check-ns-does-not-mutate-declaration-dicts
   (let [before test-dict]

@@ -300,86 +300,6 @@
   (or (get dict sym)
       (get dict (qualify-symbol ns-sym sym))))
 
-(defn plain-def-symbol?
-  [sym]
-  (and (symbol? sym)
-       (= "def" (name sym))
-       (let [ns-name (namespace sym)]
-         (or (nil? ns-name)
-             (#{"clojure.core"} ns-name)))))
-
-(defn def-form-symbol
-  [form]
-  (when (and (seq? form)
-             (plain-def-symbol? (first form))
-             (symbol? (second form)))
-    (second form)))
-
-(defn argvec->arglist-entry
-  [argvec]
-  (loop [[x & more] argvec
-         fixed []
-         vararg nil]
-    (cond
-      (nil? x)
-      (if vararg
-        [:varargs {:count (inc (count fixed))
-                   :arglist (vec (concat fixed [vararg]))}]
-        [(count fixed) {:arglist (vec fixed)}])
-
-      (= x '&)
-      (recur (next more) fixed (first more))
-
-      :else
-      (recur more (conj fixed x) vararg))))
-
-(defn source-derived-arglists
-  [form]
-  (when-let [decls (seq (defn-decls form))]
-    (into {}
-          (map (comp argvec->arglist-entry first))
-          decls)))
-
-(defn placeholder-ref
-  [kind sym]
-  [kind sym])
-
-(defn placeholder-entry
-  [qualified-sym base source-arglists]
-  (let [arglists (or (:arglists base)
-                     source-arglists)
-        schema-ref (as/placeholder-schema (placeholder-ref :schema qualified-sym))
-        output-ref (as/placeholder-schema (placeholder-ref :output qualified-sym))]
-    (cond-> {:name (or (:name base) (str qualified-sym))}
-      (some? arglists) (assoc :arglists arglists)
-      true (assoc :schema (or (:schema base) schema-ref))
-      true (assoc :output (or (:output base) output-ref)))))
-
-(defn source-derived-entry
-  [dict ns-sym form]
-  (let [raw-name (or (some-> form def-form-symbol)
-                     (some-> form second ((fn [x]
-                                           (when (and (seq? form)
-                                                      (or (= 'defn (first form))
-                                                          (schema-defn-symbol? (first form)))
-                                                      (symbol? x))
-                                             x)))))
-        qualified-name (when raw-name (qualify-symbol ns-sym raw-name))
-        existing (when qualified-name
-                   (dict-entry dict ns-sym raw-name))
-        source-arglists (source-derived-arglists form)]
-    (when qualified-name
-      (let [entry (placeholder-entry qualified-name existing source-arglists)]
-        {qualified-name entry
-         raw-name entry}))))
-
-(defn source-derived-placeholder-dict
-  [dict ns-sym exprs]
-  (reduce (fn [acc form]
-            (merge acc (or (source-derived-entry dict ns-sym form) {})))
-          dict
-          exprs))
-
 (defn unwrap-with-meta
   [node]
   (if (= :with-meta (:op node))
@@ -399,159 +319,29 @@
                qualified-name
                value-node)
       [qualified-name
-       (into {}
-             (remove (comp nil? val))
-             {:schema (:schema value-node)
-              :output (:output value-node)
-              :arglists (:arglists value-node)
-              :arglist (:arglist value-node)})])))
-
-(defn resolve-entry-placeholders
-  [entry resolve-schema]
-  (cond
-    (nil? entry) nil
-    (not (map? entry)) entry
-    :else
-    (cond-> entry
-      (contains? entry :schema) (update :schema resolve-schema)
-      (contains? entry :output) (update :output resolve-schema)
-      (contains? entry :arglist) (update :arglist #(mapv resolve-schema %))
-      (contains? entry :expected-arglist) (update :expected-arglist #(mapv resolve-schema %))
-      (contains? entry :actual-arglist) (update :actual-arglist #(mapv resolve-schema %))
-      (contains? entry :fn-schema) (update :fn-schema resolve-schema)
-      (contains? entry :locals) (update :locals (fn [locals]
-                                                  (into {}
-                                                        (map (fn [[k v]]
-                                                               [k (resolve-entry-placeholders v resolve-schema)]))
-                                                        locals)))
-      (contains? entry :arglists) (update :arglists (fn [arglists]
-                                                      (into {}
-                                                            (map (fn [[k v]]
-                                                                   [k (resolve-entry-placeholders v resolve-schema)]))
-                                                            arglists)))
-      (contains? entry :arg-schema) (update :arg-schema #(mapv (fn [arg]
-                                                                 (resolve-entry-placeholders arg resolve-schema))
-                                                               %))
-      (contains? entry :params) (update :params #(mapv (fn [param]
-                                                         (resolve-entry-placeholders param resolve-schema))
-                                                       %)))))
-
-(declare resolve-analyzed-node)
-
-(defn resolve-analyzed-node
-  [node resolve-schema]
-  (if (map? node)
-    (let [resolved-children (reduce (fn [acc child-key]
-                                      (let [value (get acc child-key)
-                                            resolved (cond
-                                                       (vector? value) (mapv #(resolve-analyzed-node % resolve-schema) value)
-                                                       (map? value) (resolve-analyzed-node value resolve-schema)
-                                                       :else value)]
-                                        (assoc acc child-key resolved)))
-                                    node
-                                    (:children node))
-          resolved-entry (resolve-entry-placeholders resolved-children resolve-schema)
-          resolved-entry (cond-> resolved-entry
-                           (vector? (:args resolved-entry))
-                           (assoc :actual-arglist (mapv :schema (:args resolved-entry))))
-          resolved-entry (if (= :invoke (:op resolved-entry))
-                           (let [{:keys [expected-arglist fn-schema]}
-                                 (analysis/call-info (:fn resolved-entry) (:args resolved-entry))]
-                             (cond-> (assoc resolved-entry
-                                            :expected-arglist (mapv as/canonicalize-schema expected-arglist))
-                               fn-schema (assoc :fn-schema (as/canonicalize-schema fn-schema))))
-                           resolved-entry)]
-      (cond
-        (and (= :static-call (:op resolved-entry))
-             (analysis/static-get-call? resolved-entry))
-        (let [[target key-node default-node] (:args resolved-entry)
-              key-schema (as/valued-schema (:schema key-node) (:form key-node))
-              schema (if default-node
-                       (as/map-get-schema (:schema target)
-                                          key-schema
-                                          (:schema default-node))
-                       (as/map-get-schema (:schema target)
-                                          key-schema))]
-          (assoc resolved-entry :schema (as/canonicalize-schema schema)))
-
-        (and (= :static-call (:op resolved-entry))
-             (analysis/static-merge-call? resolved-entry))
-        (assoc resolved-entry
-               :schema (as/canonicalize-schema
-                        (as/merge-map-schemas (map :schema (:args resolved-entry)))))
-
-        (and (= :invoke (:op resolved-entry))
-             (analysis/get-call? (:fn resolved-entry)))
-        (let [[target key-node default-node] (:args resolved-entry)
-              key-schema (as/valued-schema (:schema key-node) (:form key-node))
-              schema (if default-node
-                       (as/map-get-schema (:schema target)
-                                          key-schema
-                                          (:schema default-node))
-                       (as/map-get-schema (:schema target)
-                                          key-schema))]
-          (assoc resolved-entry :schema (as/canonicalize-schema schema)))
-
-        (and (= :invoke (:op resolved-entry))
-             (analysis/merge-call? (:fn resolved-entry)))
-        (assoc resolved-entry
-               :schema (as/canonicalize-schema
-                        (as/merge-map-schemas (map :schema (:args resolved-entry)))))
-
-        :else
-        resolved-entry))
-    node))
-
-(defn namespace-placeholder-resolver
-  [entries]
-  (let [cache (atom {})
-        resolving ::resolving]
-    (letfn [(resolve-entry* [qualified-sym]
-              (let [cached (get @cache qualified-sym ::missing)]
-                (cond
-                  (= cached resolving) {:schema s/Any
-                                        :output s/Any}
-                  (not= cached ::missing) cached
-                  :else
-                  (do
-                    (swap! cache assoc qualified-sym resolving)
-                    (let [entry (get entries qualified-sym)
-                          resolved (when entry
-                                     (resolve-entry-placeholders
-                                      entry
-                                      resolve-schema*))]
-                      (swap! cache assoc qualified-sym resolved)
-                      resolved)))))
-            (resolve-placeholder* [[kind qualified-sym]]
-              (let [entry (resolve-entry* qualified-sym)]
-                (case kind
-                  :schema (:schema entry)
-                  :output (or (:output entry) (:schema entry))
-                  nil)))
-            (resolve-schema* [schema]
-              (as/resolve-placeholders schema resolve-placeholder*))]
-      resolve-schema*)))
+       (as/strip-derived-types
+        (into {}
+              (remove (comp nil? val))
+              {:schema (:schema value-node)
+               :output (:output value-node)
+               :arglists (:arglists value-node)
+               :arglist (:arglist value-node)}))])))
 
 (defn analyze-source-exprs
   [dict ns-sym source-file exprs]
-  (let [analysis-dict (source-derived-placeholder-dict dict ns-sym exprs)
+  (let [analysis-dict dict
         analyzed (mapv (fn [expr]
                          (analysis/attach-schema-info-loop analysis-dict
                                                             (normalize-check-form expr)
                                                             {:ns ns-sym
                                                              :source-file (source-file-path source-file)}))
-                       exprs)
-        analyzed-entries (into {}
-                              (keep #(analyzed-def-entry ns-sym %))
-                              analyzed)
-        resolve-schema (namespace-placeholder-resolver analyzed-entries)
-        resolved (mapv #(resolve-analyzed-node % resolve-schema) analyzed)]
+                       exprs)]
     {:analysis-dict analysis-dict
      :analyzed analyzed
-     :resolved resolved
+     :resolved analyzed
      :resolved-defs (into {}
                          (keep #(analyzed-def-entry ns-sym %))
-                         resolved)}))
+                         analyzed)}))
 
 (defn method-output-schema
   [method]
@@ -585,22 +375,30 @@
                                                                       (not= source-expression (pr-str (:form body)))))
                                                          (:form body))
                                   :location source-body-location}]
-                     (when-let [error (inconsistence/mismatched-output-schema
-                                       {:expr (:name node)
-                                        :arg (:expr display)}
-                                       expected-output
-                                       actual-output)]
-                       {:blame (:expr display)
-                        :source-expression (:source-expression display)
-                        :expanded-expression (:expanded-expression display)
-                        :location (:location display)
-                        :enclosing-form enclosing-form
-                        :path nil
-                        :context {:local-vars (local-vars-context bindings body)
-                                  :refs (if (call-node? body)
-                                          (call-refs bindings body)
-                                          [])}
-                        :errors [error]}))))))))
+                     (let [report (inconsistence/output-cast-report
+                                   {:expr (:name node)
+                                    :arg (:expr display)}
+                                   expected-output
+                                   actual-output)]
+                       (when-not (:ok? report)
+                         {:blame (:expr display)
+                          :source-expression (:source-expression display)
+                          :expanded-expression (:expanded-expression display)
+                          :location (:location display)
+                          :enclosing-form enclosing-form
+                          :path nil
+                          :context {:local-vars (local-vars-context bindings body)
+                                    :refs (if (call-node? body)
+                                            (call-refs bindings body)
+                                            [])}
+                          :blame-side (:blame-side report)
+                          :blame-polarity (:blame-polarity report)
+                          :rule (:rule report)
+                          :expected-type (:expected-type report)
+                          :actual-type (:actual-type report)
+                          :cast-result (:cast-result report)
+                          :cast-results (:cast-results report)
+                          :errors (:errors report)})))))))))
 
 (defn match-s-exprs
   [bindings enclosing-form node]
@@ -622,16 +420,24 @@
                                                      (display-expr arg-node))
                                        arg-expr (or (:expr arg-display)
                                                     (:form arg-node))
-                                       errors (vec (inconsistence/explain-incompatibility
-                                                    {:expr (:expr display)
-                                                     :arg arg-expr}
-                                                    expected
-                                                    actual))]
-                                   (when (seq errors)
+                                       report (inconsistence/cast-report
+                                               {:expr (:expr display)
+                                                :arg arg-expr}
+                                               expected
+                                               actual)]
+                                   (when (seq (:errors report))
                                      {:focus arg-expr
                                       :focus-source (:source-expression arg-display)
-                                      :errors errors})))
+                                      :blame-side (:blame-side report)
+                                      :blame-polarity (:blame-polarity report)
+                                      :rule (:rule report)
+                                      :expected-type (:expected-type report)
+                                      :actual-type (:actual-type report)
+                                      :cast-result (:cast-result report)
+                                      :cast-results (:cast-results report)
+                                      :errors (:errors report)})))
                                matched)
+            primary-group (first error-groups)
             errors (vec (mapcat :errors error-groups))]
         {:blame (:expr display)
          :source-expression (:source-expression display)
@@ -641,6 +447,13 @@
          :focuses (distinctv (keep :focus error-groups))
          :focus-sources (distinctv (keep :focus-source error-groups))
          :path nil
+         :blame-side (or (:blame-side primary-group) :none)
+         :blame-polarity (or (:blame-polarity primary-group) :none)
+         :rule (:rule primary-group)
+         :expected-type (:expected-type primary-group)
+         :actual-type (:actual-type primary-group)
+         :cast-result (:cast-result primary-group)
+         :cast-results (vec (mapcat :cast-results error-groups))
          :context {:local-vars (local-vars-context bindings node)
                    :refs (call-refs bindings node)}
          :errors errors}))))

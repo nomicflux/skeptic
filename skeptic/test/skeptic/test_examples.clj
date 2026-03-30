@@ -263,11 +263,11 @@
   [x :- s/Int]
   x)
 
-(defn flat-multi-step-f
+(s/defn flat-multi-step-f :- s/Int
   []
   (int-add 1 2))
 
-(defn flat-multi-step-g
+(s/defn flat-multi-step-g :- s/Int
   []
   (flat-multi-step-f))
 
@@ -278,6 +278,48 @@
 (defn flat-multi-step-success
   []
   (flat-multi-step-takes-int (flat-multi-step-g)))
+
+(defn unannotated-local-helper-f
+  []
+  1)
+
+(defn unannotated-local-helper-g
+  []
+  (unannotated-local-helper-f))
+
+(defn unannotated-local-helper-use
+  []
+  (flat-multi-step-takes-int (unannotated-local-helper-g)))
+
+(declare forward-declared-target
+         mutual-recursive-left
+         mutual-recursive-right)
+
+(defn forward-declared-caller
+  [x]
+  (forward-declared-target x))
+
+(defn forward-declared-target
+  [x]
+  x)
+
+(defn self-recursive-identity
+  [x]
+  (if x
+    x
+    (self-recursive-identity x)))
+
+(defn mutual-recursive-left
+  [x]
+  (if x
+    x
+    (mutual-recursive-right x)))
+
+(defn mutual-recursive-right
+  [x]
+  (if x
+    x
+    (mutual-recursive-left x)))
 
 (def sample-dict
   {'skeptic.test-examples/int-add

@@ -1,11 +1,8 @@
 (ns skeptic.schematize
   (:require [clojure.repl :as repl]
             [clojure.string :as str]
-            [clojure.walk :as walk]
             [skeptic.analysis.schema :as as]
             [skeptic.schema :as dschema]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
-            [clojure.tools.analyzer.passes.jvm.emit-form :as e]
             [schema.core :as s]))
 
 (defn get-fn-schemas*
@@ -20,48 +17,12 @@
   [f]
   `(get-fn-schemas* '~f))
 
-(defn try-resolve
-  [ns-refs x]
-  (if (symbol? x)
-    (let [ns-ref (get ns-refs x)
-          resolved (try (requiring-resolve x) (catch Exception _e nil))]
-      (cond
-        (and resolved (class? resolved))
-        resolved
-
-        (and ns-ref (class? ns-ref))
-        ns-ref
-
-        (and resolved (var? resolved))
-        (try (symbol resolved)
-             (catch Exception e
-               (println (type resolved) resolved)
-               (throw e)))
-
-        ns-ref
-        (try (symbol ns-ref)
-             (catch Exception e
-               (println (type ns-ref) ns-ref)
-               (throw e)))
-
-        :else
-        x))
-    x))
-
 (defn into-coll
   [f x]
   (cond
     (nil? x) []
     (coll? x) (mapcat #(into-coll f %) x)
     :else [(f x)]))
-
-(defn get-meta
-  [x]
-  (into-coll (fn [y] (try {:meta (meta (requiring-resolve y))
-                          :var y}
-                         (catch Exception _e
-                           {:no-meta y})))
-             x))
 
 (s/defn get-fn-code :- s/Str
   [{:keys [verbose lookup-failures]}
@@ -73,57 +34,6 @@
             (println "No code found for" func-name))
           (swap! lookup-failures conj func-name))
         "")))
-
-(s/defn macroexpand-all
-  [f]
-  (walk/postwalk (fn [x] (try (macroexpand x)
-                             (catch Exception _e
-                               x)))
-                 f))
-
-(s/defn resolve-once
-  [ns-refs f]
-  (->> f
-       macroexpand-all
-       (walk/postwalk (partial try-resolve ns-refs))))
-
-(s/defn resolve-all
-  ([ns-refs f]
-   ;; 16 is completely arbitrary. The goal is just to cut off any sort of infinite regression,
-   ;; and if we have to resolve more than 16 times, we should look into what is going wrong.
-   (resolve-all ns-refs f 16))
-  ([ns-refs f n]
-   (loop [f f
-          n n]
-     (let [resolved (resolve-once ns-refs f)]
-       (if (or (identical? resolved f) (zero? n))
-         f
-         (recur resolved (dec n)))))))
-
-(s/defn resolve-code-references
-  [ns-refs fn-code :- s/Str]
-  (try (->> fn-code
-            read-string
-            (resolve-all ns-refs))
-       (catch Exception e
-         ;(println "Can't resolve" fn-code e)
-         nil)))
-
-(s/defn get-own-schema
-  [ns-refs fn-name :- s/Symbol]
-  (->> fn-name
-       (try-resolve ns-refs)
-       get-meta))
-
-(s/defn get-schema-lookup
-  [opts ns-refs fn-name :- s/Symbol]
-  (remove :no-meta
-          (concat
-           (->> fn-name
-                (get-fn-code opts)
-                (resolve-code-references ns-refs)
-                get-meta)
-           (get-own-schema ns-refs fn-name))))
 
 (s/defn count-map
   [x :- [s/Any]]
@@ -214,31 +124,66 @@
       resolve
       symbol))
 
-(s/defn attach-schema-info-to-qualified-symbol
-  [opts ns-refs f :- s/Symbol]
-  (->> f
-       (get-schema-lookup opts ns-refs)
-       (map :meta)
-       (map collect-schemas)
-       (reduce (fn [acc {:keys [name] :as next}] (update acc (symbol name) merge-with next)) {})))
-
-(defn schematized-var?
+(defn qualified-var-symbol
   [v]
-  (let [m (meta v)]
-    (or (:schema m)
-        (and (:arglists m)
-             (not (:macro m))))))
+  (let [{:keys [ns name]} (meta v)]
+    (when (and ns name)
+      (symbol (str (ns-name ns) "/" name)))))
+
+(defn dynamic-arg-entry
+  [arg]
+  {:schema s/Any
+   :optional? false
+   :name arg})
+
+(defn dynamic-arglists
+  [arglists]
+  (->> arglists
+       arg-map
+       (map (fn [[k {:keys [args count] :as arglist}]]
+              [k (cond-> {:arglist (or args arglist)}
+                    (= k :varargs)
+                    (assoc :count count
+                           :arglist args
+                           :schema (vec (concat (map dynamic-arg-entry (butlast args))
+                                                [s/Any])))
+
+                    (not= k :varargs)
+                    (assoc :schema (mapv dynamic-arg-entry arglist)))]))
+       (into {})))
+
+(defn dynamic-desc
+  [v]
+  (let [m (meta v)
+        qualified-sym (qualified-var-symbol v)
+        arglists (when (and (:arglists m)
+                            (not (:macro m)))
+                   (dynamic-arglists (:arglists m)))]
+    (as/canonicalize-entry
+     {:name (str qualified-sym)
+      :schema s/Any
+      :output s/Any
+      :arglists (or arglists {})})))
+
+(defn var-schema-desc
+  [v]
+  (let [{:keys [schema ns name arglists macro]} (meta v)]
+    (when (not macro)
+      (if schema
+        (collect-schemas {:schema schema
+                          :ns (ns-name ns)
+                          :name name
+                          :arglists arglists})
+        (dynamic-desc v)))))
 
 (defn ns-schemas
   [opts ns]
-  (let [lookup-failures (atom #{})
-        opts (assoc opts :lookup-failures lookup-failures)]
-    (binding [*ns* (the-ns ns)]
-      (->> ns
-           symbol
-           ns-interns
-           vals
-           (filter schematized-var?)
-           (map symbol)
-           (map (partial attach-schema-info-to-qualified-symbol opts (ns-map ns)))
-           (reduce merge {})))))
+  (binding [*ns* (the-ns ns)]
+    (->> ns
+         symbol
+         ns-interns
+         vals
+         (keep (fn [v]
+                 (when-let [qualified-sym (qualified-var-symbol v)]
+                   [qualified-sym (var-schema-desc v)])))
+         (into {}))))

@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.analysis.schema :as as]
             [skeptic.colours :as colours]
-            [plumbing.core :as pl]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
 
@@ -11,7 +10,6 @@
    :arg s/Any
    s/Keyword s/Any})
 
-;; TODO: Add Keyword back in once resolution of keyword in fn position is in place
 (def ground-types #{s/Int s/Str s/Bool s/Symbol})
 
 (defn ppr-str
@@ -23,23 +21,13 @@
   (ppr-str
    (if (or (as/schema? x)
            (class? x))
-     (s/explain x)
+     (as/schema-explain x)
      x)))
 
-;; Actual is just (maybe expected), so no need to print it out
-;; TODO: thread through verbosity flag to output schema when set
 (defn mismatched-nullable-msg
   [{:keys [expr arg]} _actual-schema _expected-schema]
   (format "%s\n\tin\n\n%s\nis nullable, but expected is not"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))))
-
-(s/defn mismatched-maybe :- (s/maybe s/Str)
-  [ctx :- ErrorMsgCtx
-   expected actual]
-  (when (and (as/maybe? actual)
-             (not (as/maybe? expected))
-             (not (as/any-schema? expected))) ;; Technically, an Any could be a (maybe _)
-    (mismatched-nullable-msg ctx actual expected)))
 
 (defn mismatched-ground-type-msg
   [{:keys [expr arg]} output-schema expected-schema]
@@ -62,56 +50,143 @@
           (colours/yellow (describe-schema actual-schema))
           (colours/yellow (describe-schema expected-schema))))
 
-(defn canonical-compatible?
-  [expected actual]
-  (as/schema-compatible? (as/canonicalize-schema expected)
-                         (as/canonicalize-schema actual)))
-
 (defn output-compatible-schemas
   [expected actual]
   [(as/canonicalize-output-schema expected)
    (as/canonicalize-output-schema actual)])
 
-(s/defn mismatched-ground-types :- (s/maybe s/Str)
-  [ctx :- ErrorMsgCtx
-   expected actual]
-  (let [expected (as/canonicalize-schema expected)
-        actual (as/canonicalize-schema actual)]
-    (when (and (contains? ground-types expected)
-               (contains? ground-types actual)
-               (not= expected actual))
-      (mismatched-ground-type-msg ctx actual expected))))
-
 (defn unknown-output-schema?
   [schema]
   (as/unknown-schema? schema))
 
-(defn output-schema-compatible?
-  [expected actual]
-  (let [[expected actual] (output-compatible-schemas expected actual)]
-    (as/schema-compatible? expected actual)))
+(declare output-cast-report
+         plain-key
+         missing-key-message
+         nullable-key-message
+         superfluous-key-message)
 
-(declare mismatched-maps
-         explain-incompatibility)
+(defn cast-schema
+  [type]
+  (-> type as/type->schema as/canonicalize-schema))
 
-(s/defn mismatched-output-schema :- (s/maybe s/Str)
-  [ctx :- ErrorMsgCtx
-   expected actual]
-  (let [[expected actual] (output-compatible-schemas expected actual)]
-    (when (seq (explain-incompatibility ctx expected actual))
-      (mismatched-output-schema-msg ctx actual expected))))
+(defn cast-leaf-results
+  [cast-result]
+  (cond
+    (or (nil? cast-result) (:ok? cast-result))
+    []
 
-(def base-mismatch-rules
-  [mismatched-maybe
-   mismatched-ground-types])
+    (and (seq (:children cast-result))
+         (contains? #{:target-union
+                      :source-union
+                      :target-intersection
+                      :source-intersection
+                      :maybe-both
+                      :maybe-target
+                      :function
+                      :function-method
+                      :map
+                      :vector
+                      :seq
+                      :set}
+                    (:rule cast-result)))
+    (->> (:children cast-result)
+         (mapcat cast-leaf-results)
+         vec)
 
-(s/defn apply-base-rules :- [s/Str]
-  [ctx :- ErrorMsgCtx
-   expected actual]
-  (vec
-   (keep
-    (fn [f] (f ctx expected actual))
-    base-mismatch-rules)))
+    :else
+    [cast-result]))
+
+(defn primary-cast-failure
+  [cast-result]
+  (or (first (cast-leaf-results cast-result))
+      cast-result))
+
+(defn superfluous-cast-key
+  [actual-key]
+  (let [plain-key (plain-key actual-key)]
+    {:orig-key actual-key
+     :cleaned-key (as/flatten-valued-schema-map plain-key)}))
+
+(defn cast-result->message
+  [ctx cast-result]
+  (let [source-schema (cast-schema (:source-type cast-result))
+        target-schema (cast-schema (:target-type cast-result))]
+    (case (:reason cast-result)
+      :nullable-source
+      (mismatched-nullable-msg ctx source-schema target-schema)
+
+      :missing-key
+      (missing-key-message ctx #{(:expected-key cast-result)})
+
+      :nullable-key
+      (nullable-key-message (assoc ctx
+                                   :expected-keys (keys target-schema))
+                            #{(:actual-key cast-result)})
+
+      :unexpected-key
+      (superfluous-key-message (assoc ctx
+                                      :expected-keys (keys target-schema))
+                               #{(superfluous-cast-key (:actual-key cast-result))})
+
+      (if (and (contains? ground-types source-schema)
+               (contains? ground-types target-schema)
+               (not= source-schema target-schema))
+        (mismatched-ground-type-msg ctx source-schema target-schema)
+        (mismatched-schema-msg ctx source-schema target-schema)))))
+
+(defn cast-report-metadata
+  [cast-result]
+  (let [primary (primary-cast-failure cast-result)]
+    {:cast-result cast-result
+     :cast-results (vec (cast-leaf-results cast-result))
+     :blame-side (:blame-side primary)
+     :blame-polarity (:blame-polarity primary)
+     :rule (:rule primary)
+     :expected-type (:target-type primary)
+     :actual-type (:source-type primary)}))
+
+(defn cast-report
+  [ctx expected actual]
+  (let [expected (as/canonicalize-schema expected)
+        actual (as/canonicalize-schema actual)
+        cast-result (as/check-cast (as/schema->type actual)
+                                   (as/schema->type expected))]
+    (if (:ok? cast-result)
+      {:ok? true
+       :errors []
+       :cast-result cast-result
+       :cast-results []
+       :blame-side :none
+       :blame-polarity :none
+       :rule (:rule cast-result)
+       :expected-type (:target-type cast-result)
+       :actual-type (:source-type cast-result)}
+      (let [errors (->> (cast-leaf-results cast-result)
+                        (map #(cast-result->message ctx %))
+                        distinct
+                        vec)]
+        (merge {:ok? false
+                :errors errors}
+               (cast-report-metadata cast-result))))))
+
+(defn output-cast-report
+  [ctx expected actual]
+  (let [[expected actual] (output-compatible-schemas expected actual)
+        cast-result (as/check-cast (as/schema->type actual)
+                                   (as/schema->type expected))]
+    (if (:ok? cast-result)
+      {:ok? true
+       :errors []
+       :cast-result cast-result
+       :cast-results []
+       :blame-side :none
+       :blame-polarity :none
+       :rule (:rule cast-result)
+       :expected-type (:target-type cast-result)
+       :actual-type (:source-type cast-result)}
+      (merge {:ok? false
+              :errors [(mismatched-output-schema-msg ctx actual expected)]}
+             (cast-report-metadata cast-result)))))
 
 (s/defn missing-key-message :- (s/maybe s/Str)
   [{:keys [expr arg]} :- ErrorMsgCtx
@@ -144,123 +219,3 @@
   (cond-> k
     (s/optional-key? k)
     :k))
-
-(s/defn get-by-matching-schema
-  [m k]
-  (as/get-by-matching-schema m k))
-
-(s/defn valued-get
-  [m k]
-  (as/valued-get m k))
-
-(declare matches-map)
-
-(s/defn valued-compare
-  [expected actual]
-  (as/valued-compatible? expected actual))
-
-(s/defn matches-map
-  [expected actual-k actual-v]
-  (as/matches-map expected actual-k actual-v))
-
-(s/defn in-set?
-  [expected-m actual-k]
-  (let [expected-m (as/canonicalize-schema expected-m)
-        actual-k (-> actual-k as/flatten-valued-schema-map as/canonicalize-schema)
-        possible-keys (filter (fn [[k _v]] (valued-compare k actual-k)) expected-m)]
-    (seq possible-keys)))
-
-(s/defn valued-disj
-  [m k]
-  (if (as/valued-schema? k)
-    (-> m
-        (disj (:value k))
-        (disj (:schema k)))
-    (disj m k)))
-
-(s/defn check-keys :- [s/Str]
-  [ctx expected actual]
-  (let [req-expected (->> expected keys (filter s/required-key?) (map plain-key) set)
-        opt-expected (->> expected keys (filter s/optional-key?) (map plain-key) set)
-        ctx (assoc ctx :expected-keys (keys expected))
-        {:keys [missing illegally-nullable superfluous]}
-        (reduce (fn [{:keys [missing illegally-nullable superfluous]} actual-key]
-                  {:missing (valued-disj missing (plain-key actual-key))
-                   :illegally-nullable (cond-> illegally-nullable
-                                         (and (s/optional-key? actual-key)
-                                              (not (contains? opt-expected (plain-key actual-key))))
-                                         (conj actual-key))
-                   :superfluous (let [match (in-set? expected (plain-key actual-key))]
-                                  (cond-> superfluous
-                                    (nil? match)
-                                    (conj {:orig-key actual-key
-                                           :cleaned-key (-> actual-key plain-key as/flatten-valued-schema-map)})))})
-                {:missing req-expected
-                 :illegally-nullable #{}
-                 :superfluous #{}}
-                (keys actual))]
-    (vec
-     (keep identity
-           [(missing-key-message ctx missing)
-            (superfluous-key-message ctx superfluous)
-            (nullable-key-message ctx illegally-nullable)]))))
-
-(s/defn check-for-key-schema :- [s/Str]
-  [ctx expected actual ks]
-  (let [expected-schemas (->> (as/schema-values ks)
-                              (keep (partial get expected)))
-        actual-schemas (->> ks (get actual) as/schema-values)
-        pairs (for [expected-schema expected-schemas
-                    actual-schema actual-schemas]
-                [expected-schema actual-schema])]
-    (if (and (seq pairs)
-             (not-any? (fn [[expected-schema actual-schema]]
-                         (canonical-compatible? expected-schema actual-schema))
-                       pairs))
-      (vec
-       (distinct
-        (mapcat (fn [[expected-schema actual-schema]]
-                  (explain-incompatibility ctx expected-schema actual-schema))
-                pairs)))
-      [])))
-
-(s/defn apply-mismatches-by-key :- [s/Str]
-  [ctx expected actual]
-  (vec
-   (mapcat (partial check-for-key-schema ctx expected actual)
-           (keys actual))))
-
-(s/defn map-schema?
-  [s]
-  (and (map? s)
-       (not (record? s))))
-
-(s/defn mismatched-maps :- s/Any
-  [ctx mexpected mactual]
-  (let [expected (->> mexpected as/de-maybe as/canonicalize-schema)
-        ;; TODO: Under what circumstances would actual be a maybe? If in a collection of combined nils and maps?
-        actual (->> mactual as/de-maybe as/canonicalize-schema)]
-    (if (and (map-schema? expected) (map-schema? actual))
-      (let [details (into (apply-mismatches-by-key ctx expected actual)
-                          (check-keys ctx expected actual))]
-        (cond
-          (seq details) details
-          (canonical-compatible? expected actual) []
-          :else [(mismatched-schema-msg ctx actual expected)]))
-      [])))
-
-(s/defn explain-incompatibility :- s/Any
-  [ctx :- ErrorMsgCtx
-   expected actual]
-  (let [expected (as/canonicalize-schema expected)
-        actual (as/canonicalize-schema actual)
-        messages (into (apply-base-rules ctx expected actual)
-                       (mismatched-maps ctx expected actual))]
-    (cond
-      (seq messages) messages
-      (canonical-compatible? expected actual) []
-      :else [(mismatched-schema-msg ctx actual expected)])))
-
-(s/defn inconsistent? :- [s/Str]
-  [expr arg expected actual]
-  (explain-incompatibility {:expr expr :arg arg} expected actual))

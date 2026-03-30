@@ -3,14 +3,12 @@
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.analysis.resolvers :as ar]
-            [skeptic.analysis.schema :as as]))
+            [skeptic.analysis.schema :as as])
+  (:import [schema.core FnSchema]))
 
 (defn fn-schema?
   [schema]
-  (try
-    (boolean (:input-schemas (into {} schema)))
-    (catch Exception _e
-      false)))
+  (instance? FnSchema schema))
 
 (declare class->schema)
 
@@ -52,11 +50,12 @@
     (let [base (if (entry-map? entry)
                  entry
                  {:schema entry})]
-      (as/canonicalize-entry
-       (merge (schema->callable (:schema base))
-              (cond-> base
-                (:schema base) (update :schema as/canonicalize-schema)
-                (:output base) (update :output as/canonicalize-schema)))))))
+      (as/strip-derived-types
+       (as/canonicalize-entry
+        (merge (schema->callable (:schema base))
+               (cond-> base
+                 (:schema base) (update :schema as/canonicalize-schema)
+                 (:output base) (update :output as/canonicalize-schema))))))))
 
 (defn class->schema
   [klass]
@@ -106,7 +105,7 @@
 
 (defn node-info
   [node]
-  (select-keys node [:schema :output :arglists :arglist]))
+  (select-keys node [:schema :output :arglists :arglist :expected-arglist :actual-arglist :fn-schema]))
 
 (defn literal-map-key?
   [node]
@@ -151,10 +150,20 @@
     (some (comp normalize-entry dict) candidates)))
 
 (defn default-call-info
-  [arity]
+  [arity output]
   {:expected-arglist (vec (repeat arity s/Any))
-   :output s/Any
-   :fn-schema (as/dynamic-fn-schema arity s/Any)})
+   :output (or output s/Any)
+   :fn-schema (as/dynamic-fn-schema arity (or output s/Any))})
+
+(defn typed-arglist-entry?
+  [{:keys [schema]}]
+  (boolean (seq schema)))
+
+(defn typed-callable?
+  [fn-node]
+  (and (:arglists fn-node)
+       (some typed-arglist-entry?
+             (vals (:arglists fn-node)))))
 
 (defn merge-call?
   [fn-node]
@@ -180,14 +189,14 @@
 
 (defn call-info
   [fn-node args]
-  (if (:arglists fn-node)
+  (if (typed-callable? fn-node)
     (let [converted (ar/convert-arglists args
                                          {:arglists (:arglists fn-node)
-                                          :output (:output fn-node)})]
+                                          :output (or (:output fn-node) s/Any)})]
       {:expected-arglist (:arglist converted)
-       :output (:output converted)
+       :output (or (:output converted) s/Any)
        :fn-schema (:schema converted)})
-    (default-call-info (count args))))
+    (default-call-info (count args) (:output fn-node))))
 
 (declare annotate-node)
 
@@ -508,30 +517,31 @@
 
 (defn annotate-node
   [ctx node]
-  (case (:op node)
-    :binding (annotate-binding ctx node)
-    :const (annotate-const ctx node)
-    :def (annotate-def ctx node)
-    :do (annotate-do ctx node)
-    :fn (annotate-fn ctx node)
-    :fn-method (annotate-fn-method ctx node)
-    :if (annotate-if ctx node)
-    :invoke (annotate-invoke ctx node)
-    :let (annotate-let ctx node)
-    :local (annotate-local ctx node)
-    :map (annotate-map ctx node)
-    :new (annotate-new ctx node)
-    :quote (annotate-quote ctx node)
-    :set (annotate-set ctx node)
-    :static-call (annotate-static-call ctx node)
-    :the-var (annotate-var-like ctx node)
-    :throw (annotate-throw ctx node)
-    :try (annotate-try ctx node)
-    :var (annotate-var-like ctx node)
-    :vector (annotate-vector ctx node)
-    :with-meta (annotate-with-meta ctx node)
-    (assoc (annotate-children ctx node)
-           :schema (as/canonicalize-schema s/Any))))
+  (as/strip-derived-types
+   (case (:op node)
+     :binding (annotate-binding ctx node)
+     :const (annotate-const ctx node)
+     :def (annotate-def ctx node)
+     :do (annotate-do ctx node)
+     :fn (annotate-fn ctx node)
+     :fn-method (annotate-fn-method ctx node)
+     :if (annotate-if ctx node)
+     :invoke (annotate-invoke ctx node)
+     :let (annotate-let ctx node)
+     :local (annotate-local ctx node)
+     :map (annotate-map ctx node)
+     :new (annotate-new ctx node)
+     :quote (annotate-quote ctx node)
+     :set (annotate-set ctx node)
+     :static-call (annotate-static-call ctx node)
+     :the-var (annotate-var-like ctx node)
+     :throw (annotate-throw ctx node)
+     :try (annotate-try ctx node)
+     :var (annotate-var-like ctx node)
+     :vector (annotate-vector ctx node)
+     :with-meta (annotate-with-meta ctx node)
+     (assoc (annotate-children ctx node)
+            :schema (as/canonicalize-schema s/Any)))))
 
 (defn annotate-ast
   ([dict ast]

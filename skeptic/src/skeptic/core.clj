@@ -1,5 +1,6 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
+            [skeptic.analysis.schema :as as]
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.string :as str]
@@ -32,7 +33,38 @@
       (do
         (println (colours/white label true))
         (println (colours/white text true)))
-      (println (colours/white (str label text) true)))))
+	      (println (colours/white (str label text) true)))))
+
+(defn describe-type
+  [type]
+  (some-> type
+          as/type->schema
+          pr-str))
+
+(defn report-fields
+  [{:keys [location blame-side blame-polarity rule actual-type expected-type
+           source-expression blame focus-sources focuses enclosing-form
+           expanded-expression]}]
+  (remove nil?
+          [(when-let [location-text (format-location location)]
+             ["Location: \t\t" location-text])
+           (when (and blame-side blame-polarity
+                      (not= blame-side :none)
+                      (not= blame-polarity :none))
+             ["Blame: \t\t" (str (name blame-side) " / " (name blame-polarity))])
+           (when rule
+             ["Cast rule: \t\t" (name rule)])
+           (when-let [actual-text (describe-type actual-type)]
+             ["Actual type: \t\t" actual-text])
+           (when-let [expected-text (describe-type expected-type)]
+             ["Expected type: \t" expected-text])
+           ["Expression: \t\t" (or source-expression (pr-str blame))]
+           (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
+             ["Affected input: \t" focus-text])
+           (when enclosing-form
+             ["In enclosing form: \t" (pr-str enclosing-form)])
+           (when expanded-expression
+             ["Analyzed expression: \t" (pr-str expanded-expression)])]))
 
 (defn get-project-schemas
   [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
@@ -59,22 +91,26 @@
            ;(when verbose
            ;  (println "Schema dictionary:")
            ;  (pprint/pprint dict))
-         (when analyzer
-           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-         (doseq [{:keys [blame source-expression expanded-expression location enclosing-form focuses focus-sources path errors context]} (checking/check-ns dict ns source-file opts)]
-           (println "---------")
-           (println (colours/white (str "Namespace: \t\t" ns) true))
-           (when-let [location-text (format-location location)]
-             (println (colours/white (str "Location: \t\t" location-text) true)))
-           (print-report-field "Expression: \t\t" (or source-expression (pr-str blame)))
-           (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
-             (print-report-field "Affected input: \t" focus-text))
-           (when enclosing-form
-             (println (colours/white (str "In enclosing form: \t" (pr-str enclosing-form)) true)))
-           (when expanded-expression
-             (print-report-field "Analyzed expression: \t" (pr-str expanded-expression)))
-           (when (and verbose path)
-             (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
+	         (when analyzer
+	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
+	         (doseq [{:keys [blame source-expression expanded-expression location enclosing-form focuses focus-sources path errors context blame-side blame-polarity rule expected-type actual-type]} (checking/check-ns dict ns source-file opts)]
+	           (println "---------")
+	           (println (colours/white (str "Namespace: \t\t" ns) true))
+	           (doseq [[label value] (report-fields {:location location
+	                                                :blame-side blame-side
+	                                                :blame-polarity blame-polarity
+	                                                :rule rule
+	                                                :actual-type actual-type
+	                                                :expected-type expected-type
+	                                                :source-expression source-expression
+	                                                :blame blame
+	                                                :focus-sources focus-sources
+	                                                :focuses focuses
+	                                                :enclosing-form enclosing-form
+	                                                :expanded-expression expanded-expression})]
+	             (print-report-field label value))
+	           (when (and verbose path)
+	             (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
            (when show-context
              (println "Context:")
              (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
