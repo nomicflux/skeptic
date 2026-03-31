@@ -1,5 +1,6 @@
 (ns skeptic.analysis.schema
-  (:require [schema.core :as s])
+  (:require [clojure.set :as set]
+            [schema.core :as s])
   (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
 
 (def custom-schema-tag-key
@@ -22,68 +23,6 @@
   `(binding [*error-context* (merge *error-context*
                                     (compact-context-map ~context))]
      ~@body))
-
-(defn error-location-text
-  [{:keys [file line column]}]
-  (cond
-    (and file line column) (str file ":" line ":" column)
-    (and file line) (str file ":" line)
-    file file
-    line (str line)
-    :else nil))
-
-(declare render-type
-         ->MapT)
-
-(defn user-facing-type-text
-  [type]
-  (or (render-type type)
-      (pr-str type)))
-
-(defn user-facing-entry
-  [{:keys [key value kind]}]
-  {:key (user-facing-type-text key)
-   :value (user-facing-type-text value)
-   :level (some-> kind name)})
-
-(defn user-facing-entry-text
-  [idx entry]
-  (format "%d. level=%s key=%s value=%s"
-          idx
-          (:level entry)
-          (:key entry)
-          (:value entry)))
-
-(defn ambiguous-map-entry-ex-info
-  [actual-key entries matches ambiguous]
-  (let [context (compact-context-map *error-context*)
-        location-text (some-> context :location error-location-text)
-        expr-text (or (:source-expression context)
-                      (some-> (:expr context) pr-str))
-        lookup-key-text (user-facing-type-text actual-key)
-        map-type-text (user-facing-type-text (->MapT entries))
-        candidate-entries (mapv user-facing-entry matches)
-        ambiguous-entries (mapv user-facing-entry ambiguous)
-        candidate-lines (map-indexed (fn [idx entry]
-                                       (user-facing-entry-text (inc idx) entry))
-                                     candidate-entries)
-        message-lines (cond-> ["Ambiguous map key match."
-                               (str "Key: " lookup-key-text)
-                               (str "Lookup location: " (or location-text "<unknown>"))]
-                        expr-text (conj (str "Lookup expression: " expr-text))
-                        true (conj "Candidate matches:")
-                        true (into candidate-lines)
-                        true (conj (str "Map type: " map-type-text)))]
-    (ex-info (clojure.string/join "\n" message-lines)
-             (merge {:error ::ambiguous-map-entry
-                     :lookup-key lookup-key-text
-                     :lookup-location location-text
-                     :lookup-expression expr-text
-                     :map-type map-type-text
-                     :matching-entries candidate-entries
-                     :ambiguous-entries ambiguous-entries}
-                    (when (seq context)
-                      {:context context})))))
 
 (defn tagged-map?
   [value tag-key tag]
@@ -1091,7 +1030,6 @@
 
 (declare schema->type
          check-cast
-         type-compatible-key?
          type-compatible-map-value?)
 
 (defn normalize-type-members
@@ -1575,10 +1513,245 @@
       (seq? schema) (doall (map semantic-value-schema schema))
       :else schema)))
 
+(declare optional-key-inner
+         map-entry-kind
+         value-satisfies-type?
+         leaf-overlap?)
+
+(defn finite-exact-key-values
+  [type]
+  (let [type (optional-key-inner (schema->type type))]
+    (cond
+      (value-type? type)
+      #{(:value type)}
+
+      (union-type? type)
+      (let [member-values (map finite-exact-key-values (:members type))]
+        (when (every? set? member-values)
+          (apply set/union member-values)))
+
+      :else
+      nil)))
+
+(def map-key-query-tag
+  ::map-key-query)
+
+(defn map-key-query?
+  [query]
+  (tagged-map? query map-key-query-tag true))
+
+(defn exact-key-query
+  ([schema value]
+   (exact-key-query schema value nil))
+  ([schema value source-form]
+   {map-key-query-tag true
+    :kind :exact
+    :schema (canonicalize-schema schema)
+    :value value
+    :source-form source-form}))
+
+(defn domain-key-query
+  ([schema]
+   (domain-key-query schema nil))
+  ([schema source-form]
+   {map-key-query-tag true
+    :kind :domain
+    :schema (canonicalize-schema schema)
+    :source-form source-form}))
+
+(defn exact-key-query?
+  [query]
+  (and (map-key-query? query)
+       (= :exact (:kind query))))
+
+(defn map-key-query
+  ([key]
+   (map-key-query key nil))
+  ([key source-form]
+   (let [key (localize-schema-value key)]
+     (cond
+       (map-key-query? key)
+       (update key :schema canonicalize-schema)
+
+       (valued-schema? key)
+       (exact-key-query (:schema key) (:value key) (:value key))
+
+       :else
+       (let [exact-values (finite-exact-key-values key)]
+         (if (and exact-values
+                  (= 1 (count exact-values)))
+           (exact-key-query key (first exact-values) source-form)
+           (domain-key-query key source-form)))))))
+
+(defn query-key-type
+  [query]
+  (if (exact-key-query? query)
+    (exact-value-import-type (:value query))
+    (schema->type (:schema query))))
+
+(defn exact-entry-kind
+  [key-type]
+  (if (optional-key-type? key-type)
+    :optional-explicit
+    :required-explicit))
+
+(defn descriptor-entry
+  [entry-key entry-value kind]
+  (let [entry-key (canonicalize-schema entry-key)
+        entry-value (canonicalize-schema entry-value)
+        key-type (schema->type entry-key)
+        inner-key-type (optional-key-inner key-type)]
+    {:key entry-key
+     :value entry-value
+     :kind kind
+     :key-type key-type
+     :inner-key-type inner-key-type
+     :exact-value (when (value-type? inner-key-type)
+                    (:value inner-key-type))}))
+
+(defn add-descriptor-entry
+  [descriptor entry]
+  (if-let [exact-value (:exact-value entry)]
+    (case (:kind entry)
+      :required-explicit (assoc-in descriptor [:required-exact exact-value] entry)
+      :optional-explicit (assoc-in descriptor [:optional-exact exact-value] entry)
+      (update descriptor :schema-entries conj entry))
+    (update descriptor :schema-entries conj entry)))
+
+(defn map-entry-descriptor
+  [entries]
+  (let [entries (canonicalize-schema entries)]
+    (reduce (fn [descriptor [entry-key entry-value]]
+              (let [entry-key (canonicalize-schema entry-key)
+                    entry-value (canonicalize-schema entry-value)
+                    key-type (schema->type entry-key)]
+                (if-let [exact-values (finite-exact-key-values key-type)]
+                  (reduce (fn [desc exact-value]
+                            (add-descriptor-entry
+                              desc
+                              (descriptor-entry (exact-value-import-type exact-value)
+                                                entry-value
+                                                (exact-entry-kind key-type))))
+                          descriptor
+                          exact-values)
+                  (add-descriptor-entry
+                    descriptor
+                    (descriptor-entry entry-key
+                                      entry-value
+                                      (map-entry-kind entries entry-key))))))
+            {:entries entries
+             :required-exact {}
+             :optional-exact {}
+             :schema-entries []}
+            entries)))
+
+(defn effective-exact-entries
+  [descriptor]
+  (concat (vals (:required-exact descriptor))
+          (->> (:optional-exact descriptor)
+               (remove (fn [[value _entry]]
+                         (contains? (:required-exact descriptor) value)))
+               (map val))))
+
+(defn exact-key-entry
+  [descriptor exact-value]
+  (or (get-in descriptor [:required-exact exact-value])
+      (get-in descriptor [:optional-exact exact-value])))
+
 (declare schema-compatible?
          schema-equivalent?
-         valued-compatible?
-         matching-map-entry)
+         valued-compatible?)
+
+(defn key-domain-covered?
+  [source-key target-key]
+  (let [source-key (optional-key-inner (schema->type source-key))
+        target-key (optional-key-inner (schema->type target-key))]
+    (cond
+      (value-type? source-key)
+      (value-satisfies-type? (:value source-key) target-key)
+
+      (union-type? source-key)
+      (every? #(key-domain-covered? % target-key) (:members source-key))
+
+      (union-type? target-key)
+      (some #(key-domain-covered? source-key %) (:members target-key))
+
+      (maybe-type? source-key)
+      (key-domain-covered? (:inner source-key) target-key)
+
+      (maybe-type? target-key)
+      (key-domain-covered? source-key (:inner target-key))
+
+      (value-type? target-key)
+      false
+
+      :else
+      (:ok? (check-cast source-key target-key)))))
+
+(defn key-domain-overlap?
+  [source-key target-key]
+  (let [source-key (optional-key-inner (schema->type source-key))
+        target-key (optional-key-inner (schema->type target-key))]
+    (cond
+      (or (dyn-type? source-key)
+          (dyn-type? target-key)
+          (placeholder-type? source-key)
+          (placeholder-type? target-key))
+      true
+
+      (value-type? source-key)
+      (value-satisfies-type? (:value source-key) target-key)
+
+      (value-type? target-key)
+      (value-satisfies-type? (:value target-key) source-key)
+
+      (union-type? source-key)
+      (some #(key-domain-overlap? % target-key) (:members source-key))
+
+      (union-type? target-key)
+      (some #(key-domain-overlap? source-key %) (:members target-key))
+
+      (maybe-type? source-key)
+      (key-domain-overlap? (:inner source-key) target-key)
+
+      (maybe-type? target-key)
+      (key-domain-overlap? source-key (:inner target-key))
+
+      :else
+      (or (:ok? (check-cast source-key target-key))
+          (:ok? (check-cast target-key source-key))
+          (leaf-overlap? source-key target-key)))))
+
+(defn exact-key-candidates
+  [descriptor exact-value]
+  (if-let [entry (exact-key-entry descriptor exact-value)]
+    [entry]
+    (->> (:schema-entries descriptor)
+         (filter #(value-satisfies-type? exact-value (:inner-key-type %)))
+         vec)))
+
+(defn domain-key-candidates
+  [descriptor key-type]
+  (let [key-type (optional-key-inner (schema->type key-type))]
+    (vec
+      (concat
+        (filter #(value-satisfies-type? (:exact-value %) key-type)
+                (effective-exact-entries descriptor))
+        (filter #(key-domain-overlap? key-type (:inner-key-type %))
+                (:schema-entries descriptor))))))
+
+(defn map-lookup-candidates
+  [entries key-query]
+  (let [descriptor (map-entry-descriptor entries)
+        key-query (map-key-query key-query)]
+    (if (exact-key-query? key-query)
+      (exact-key-candidates descriptor (:value key-query))
+      (domain-key-candidates descriptor (query-key-type key-query)))))
+
+(defn candidate-value-schema
+  [candidates]
+  (when (seq candidates)
+    (schema-join (set (map (comp semantic-value-schema :value) candidates)))))
 
 (defn nested-value-compatible?
   [expected actual]
@@ -1595,23 +1768,25 @@
    (map-get-schema m key no-default))
   ([m key default]
    (let [m (canonicalize-schema m)
-         key (canonicalize-schema key)
+         key-query (map-key-query key)
          default-provided? (not= default no-default)
          default-schema (when default-provided?
                           (canonicalize-schema default))]
      (cond
        (maybe? m)
        (schema-join
-        [(map-get-schema (de-maybe m) key default)
+        [(map-get-schema (de-maybe m) key-query default)
          (or default-schema (s/maybe s/Any))])
 
        (join? m)
-       (schema-join (set (map #(map-get-schema % key default) (:schemas m))))
+       (schema-join (set (map #(map-get-schema % key-query default) (:schemas m))))
 
        (plain-map-schema? m)
-       (if-let [{:keys [value kind]} (matching-map-entry m key)]
-         (let [base-value (semantic-value-schema value)
-               base-value (if (and (= kind :optional-explicit)
+       (if-let [candidates (seq (map-lookup-candidates m key-query))]
+         (let [base-value (candidate-value-schema candidates)
+               base-value (if (and (exact-key-query? key-query)
+                                   (= 1 (count candidates))
+                                   (= :optional-explicit (:kind (first candidates)))
                                    (not default-provided?))
                             (maybe-schema base-value)
                             base-value)]
@@ -1959,11 +2134,6 @@
   [type]
   (value-type? (schema->type type)))
 
-(def map-entry-kind-order
-  {:required-explicit 0
-   :optional-explicit 1
-   :extra-schema 2})
-
 (defn map-entry-kind
   ([entry-key]
    (let [entry-key (canonicalize-schema entry-key)]
@@ -1987,6 +2157,13 @@
            (exact-value-type? inner)
            :required-explicit
 
+           (and (optional-key-type? entry-type)
+                (finite-exact-key-values inner))
+           :optional-explicit
+
+           (finite-exact-key-values inner)
+           :required-explicit
+
            :else
            :extra-schema)))))
   ([entries entry-key]
@@ -2000,10 +2177,6 @@
            :extra-schema
            (map-entry-kind entry-key)))
        (map-entry-kind entry-key)))))
-
-(defn required-map-key-type?
-  [type]
-  (= :required-explicit (map-entry-kind type)))
 
 (defn path-key
   [type]
@@ -2019,47 +2192,17 @@
        :key path-value})
     cast-result))
 
-(defn type-compatible-key?
-  [actual-key target-key]
-  (:ok? (check-cast (optional-key-inner actual-key)
-                    (optional-key-inner target-key))))
-
-(defn map-entry-rank
-  [entries entry-key]
-  [(get map-entry-kind-order (map-entry-kind entries entry-key) 99)])
-
-(defn matching-map-entry
-  [entries actual-key]
-  (let [entries (canonicalize-schema entries)
-        actual-key-type (schema->type actual-key)
-        matches (->> entries
-                     (map (fn [[entry-key entry-value]]
-                            (when (type-compatible-key? actual-key-type (schema->type entry-key))
-                              {:key entry-key
-                               :value entry-value
-                               :kind (map-entry-kind entries entry-key)})))
-                     (remove nil?)
-                     (sort-by (fn [{:keys [key]}]
-                                (map-entry-rank entries key))))]
-    (when-let [matched-entry (first matches)]
-      (let [best-rank (map-entry-rank entries (:key matched-entry))
-            ambiguous (->> matches
-                           (take-while #(= best-rank
-                                           (map-entry-rank entries (:key %))))
-                           vec)]
-        (when (> (count ambiguous) 1)
-          (throw (ambiguous-map-entry-ex-info actual-key entries matches ambiguous)))
-        matched-entry))))
-
 (defn map-contains-key-classification
   [type key]
-  (let [key-type (exact-value-import-type key)
-        entries (:entries (schema->type type))]
-    (if-let [{:keys [kind]} (matching-map-entry entries key-type)]
-      (if (= kind :required-explicit)
+  (let [descriptor (map-entry-descriptor (:entries (schema->type type)))
+        exact-entry (exact-key-entry descriptor key)]
+    (if exact-entry
+      (if (= :required-explicit (:kind exact-entry))
         :always
         :unknown)
-      :never)))
+      (if (seq (exact-key-candidates descriptor key))
+        :unknown
+        :never))))
 
 (defn contains-key-classification
   [schema key]
@@ -2158,16 +2301,18 @@
 (defn map-value-satisfies-type?
   [value map-type]
   (and (map? value)
-       (let [entries (:entries (schema->type map-type))
-             required-missing (atom (->> entries keys (filter required-map-key-type?) set))]
+       (let [descriptor (map-entry-descriptor (:entries (schema->type map-type)))
+             required-missing (atom (set (keys (:required-exact descriptor))))]
          (and
           (every? (fn [[k v]]
-                    (let [actual-key (exact-value-import-type k)]
-                      (if-let [{:keys [key value]} (matching-map-entry entries actual-key)]
-                        (do
-                          (swap! required-missing disj key)
-                          (value-satisfies-type? v value))
-                        false)))
+                    (if-let [exact-entry (exact-key-entry descriptor k)]
+                      (do
+                        (swap! required-missing disj k)
+                        (value-satisfies-type? v (:value exact-entry)))
+                      (let [candidates (exact-key-candidates descriptor k)]
+                        (and (seq candidates)
+                             (some #(value-satisfies-type? v (:value %))
+                                   candidates)))))
                   value)
           (empty? @required-missing)))))
 
@@ -2235,58 +2380,153 @@
 
 (declare check-cast)
 
+(defn candidate-value-cast-results
+  [source-value target-entries path-key opts]
+  (let [results (mapv (fn [target-entry]
+                        (with-map-path
+                          (check-cast source-value (:value target-entry) opts)
+                          path-key))
+                      target-entries)]
+    (if-let [success (some #(when (:ok? %) %) results)]
+      [success]
+      results)))
+
+(defn exact-target-entry-cast-results
+  [source-type target-type source-descriptor target-entry opts]
+  (let [exact-value (:exact-value target-entry)
+        source-candidates (exact-key-candidates source-descriptor exact-value)
+        source-exact-entry (exact-key-entry source-descriptor exact-value)
+        value-results (mapv (fn [source-entry]
+                              (with-map-path
+                                (check-cast (:value source-entry) (:value target-entry) opts)
+                                (:key target-entry)))
+                            source-candidates)
+        nullable-result (when (and (= :required-explicit (:kind target-entry))
+                                   (= :optional-explicit (:kind source-exact-entry)))
+                          (with-map-path
+                            (cast-fail source-type
+                                       target-type
+                                       :map-nullable-key
+                                       (:polarity opts)
+                                       :nullable-key
+                                       []
+                                       {:actual-key (:key source-exact-entry)
+                                        :expected-key (:key target-entry)})
+                            (:key target-entry)))]
+    (cond
+      (empty? source-candidates)
+      (if (= :required-explicit (:kind target-entry))
+        [(with-map-path
+           (cast-fail source-type
+                      target-type
+                      :map-missing-key
+                      (:polarity opts)
+                      :missing-key
+                      []
+                      {:expected-key (:key target-entry)})
+           (:key target-entry))]
+        [])
+
+      :else
+      (cond-> value-results
+        nullable-result (conj nullable-result)))))
+
+(defn exact-source-entry-cast-results
+  [source-type target-type source-entry target-schema-entries opts]
+  (let [target-candidates (->> target-schema-entries
+                               (filter #(key-domain-covered? (exact-value-import-type (:exact-value source-entry))
+                                                             (:inner-key-type %)))
+                               vec)]
+    (cond
+      (empty? target-candidates)
+      [(with-map-path
+         (cast-fail source-type
+                    target-type
+                    :map-unexpected-key
+                    (:polarity opts)
+                    :unexpected-key
+                    []
+                    {:actual-key (:key source-entry)})
+         (:key source-entry))]
+
+      :else
+      (candidate-value-cast-results (:value source-entry)
+                                    target-candidates
+                                    nil
+                                    opts))))
+
+(defn schema-domain-entry-cast-results
+  [source-type target-type source-entry target-schema-entries opts]
+  (let [source-key-type (:inner-key-type source-entry)]
+    (cond
+      (union-type? source-key-type)
+      (mapcat (fn [member]
+                (schema-domain-entry-cast-results source-type
+                                                  target-type
+                                                  (assoc source-entry
+                                                         :key member
+                                                         :key-type member
+                                                         :inner-key-type member
+                                                         :exact-value nil)
+                                                  target-schema-entries
+                                                  opts))
+              (:members source-key-type))
+
+      :else
+      (let [target-candidates (->> target-schema-entries
+                                   (filter #(key-domain-covered? source-key-type
+                                                                 (:inner-key-type %)))
+                                   vec)]
+        (cond
+          (empty? target-candidates)
+          [(cast-fail source-type
+                      target-type
+                      :map-key-domain
+                      (:polarity opts)
+                      :map-key-domain-not-covered
+                      []
+                      {:actual-key (:key source-entry)
+                       :source-key-domain source-key-type})]
+
+          :else
+          (candidate-value-cast-results (:value source-entry)
+                                        target-candidates
+                                        nil
+                                        opts))))))
+
 (defn map-cast-children
   [source-type target-type opts]
-  (let [source-entries (:entries (schema->type source-type))
-        target-entries (:entries (schema->type target-type))
-        required-missing (atom (->> target-entries keys
-                                    (filter required-map-key-type?)
-                                    set))
-        children (reduce (fn [acc [actual-k actual-v]]
-                           (if-let [{:keys [key value kind]} (matching-map-entry target-entries actual-k)]
-                             (let [_ (swap! required-missing disj key)
-                                   value-result (with-map-path
-                                                  (check-cast actual-v value opts)
-                                                  key)
-                                   nullable-result (when (and (optional-key-type? actual-k)
-                                                               (= kind :required-explicit))
-                                                     (with-map-path
-                                                       (cast-fail source-type
-                                                                  target-type
-                                                                  :map-nullable-key
-                                                                  (:polarity opts)
-                                                                  :nullable-key
-                                                                  []
-                                                                  {:actual-key actual-k
-                                                                   :expected-key key})
-                                                       key))]
-                               (cond-> acc
-                                 true (conj value-result)
-                                 nullable-result (conj nullable-result)))
-                             (conj acc
-                                   (with-map-path
-                                     (cast-fail source-type
-                                                target-type
-                                                :map-unexpected-key
-                                                (:polarity opts)
-                                                :unexpected-key
-                                                []
-                                                {:actual-key actual-k})
-                                     actual-k))))
-                         []
-                         source-entries)]
-    (into children
-          (map (fn [missing-k]
-                 (with-map-path
-                   (cast-fail source-type
-                              target-type
-                              :map-missing-key
-                              (:polarity opts)
-                              :missing-key
-                              []
-                              {:expected-key missing-k})
-                   missing-k)))
-          @required-missing)))
+  (let [source-descriptor (map-entry-descriptor (:entries (schema->type source-type)))
+        target-descriptor (map-entry-descriptor (:entries (schema->type target-type)))
+        target-exact-entries (vec (effective-exact-entries target-descriptor))
+        target-exact-values (set (map :exact-value target-exact-entries))
+        target-schema-entries (vec (:schema-entries target-descriptor))
+        source-exact-entries (vec (effective-exact-entries source-descriptor))
+        source-extra-exact-entries (->> source-exact-entries
+                                        (remove #(contains? target-exact-values
+                                                            (:exact-value %)))
+                                        vec)
+        source-schema-entries (vec (:schema-entries source-descriptor))]
+    (vec
+      (concat
+        (mapcat #(exact-target-entry-cast-results source-type
+                                                  target-type
+                                                  source-descriptor
+                                                  %
+                                                  opts)
+                target-exact-entries)
+        (mapcat #(exact-source-entry-cast-results source-type
+                                                  target-type
+                                                  %
+                                                  target-schema-entries
+                                                  opts)
+                source-extra-exact-entries)
+        (mapcat #(schema-domain-entry-cast-results source-type
+                                                   target-type
+                                                   %
+                                                   target-schema-entries
+                                                   opts)
+                source-schema-entries)))))
 
 (defn collection-cast-children
   [segment-kind source-items target-items opts]
@@ -2656,7 +2896,7 @@
 
 (defn get-by-matching-schema
   [m k]
-  (some-> (matching-map-entry m k) :value))
+  (candidate-value-schema (map-lookup-candidates m (map-key-query k))))
 
 (defn valued-get
   [m k]
@@ -2668,9 +2908,18 @@
   [expected actual-k actual-v]
   (let [expected (canonicalize-schema expected)
         actual-v (canonicalize-schema actual-v)
-        matched-entry (matching-map-entry expected actual-k)]
-    (when matched-entry
-      (nested-value-compatible? (:value matched-entry) actual-v))))
+        descriptor (map-entry-descriptor expected)
+        key-query (map-key-query actual-k)]
+    (if (exact-key-query? key-query)
+      (every? (fn [exact-value]
+                (some #(nested-value-compatible? (:value %) actual-v)
+                      (exact-key-candidates descriptor exact-value)))
+              [(:value key-query)])
+      (some #(nested-value-compatible? (:value %) actual-v)
+            (filter (fn [entry]
+                      (key-domain-covered? (query-key-type key-query)
+                                           (:inner-key-type entry)))
+                    (:schema-entries descriptor))))))
 
 (defn required-key?
   [k]

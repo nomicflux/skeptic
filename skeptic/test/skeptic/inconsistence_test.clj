@@ -409,6 +409,22 @@
   (is (= :unknown
          (as/contains-key-classification {:a s/Int s/Keyword s/Any} :b))))
 
+(deftest broad-key-map-cast-regression-test
+  (let [failing-report (sut/cast-report sample-ctx
+                                        {:a s/Int
+                                         :b s/Int}
+                                        {s/Keyword s/Int})
+        successful-cast (as/check-cast {s/Keyword s/Int}
+                                       {:a s/Int
+                                        s/Keyword s/Int})]
+    (is (not (:ok? failing-report)))
+    (is (some #(= :map-key-domain-not-covered (:reason %))
+              (:cast-results failing-report)))
+    (run! assert-no-ui-internals (:errors failing-report))
+
+    (is (:ok? successful-cast))
+    (is (= :map (:rule successful-cast)))))
+
 (deftest unknown-output-schema-test
   (is (sut/unknown-output-schema? s/Any))
   (is (sut/unknown-output-schema? (s/maybe s/Any)))

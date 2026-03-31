@@ -185,3 +185,14 @@
     (is (as/value-satisfies-type? [1 2 3] triple-int))
     (is (not (as/value-satisfies-type? [1 2 3] pair-int)))
     (is (not (as/value-satisfies-type? [1 2 3] quad-int)))))
+
+(deftest non-literal-get-uses-key-domain-regression-test
+  (let [schema {:a s/Int
+                s/Keyword s/Str}
+        literal-result (as/map-get-schema schema
+                                          (as/exact-key-query s/Keyword :a :a))
+        domain-result (as/map-get-schema schema
+                                         (as/domain-key-query s/Keyword 'k))]
+    (is (= s/Int literal-result))
+    (is (as/schema-equivalent? (as/join s/Int s/Str)
+                               domain-result))))

@@ -118,6 +118,12 @@
      (:form node)
      (:schema node))))
 
+(defn get-key-query
+  [node]
+  (if (literal-map-key? node)
+    (as/exact-key-query (:schema node) (:form node) (:form node))
+    (as/domain-key-query (:schema node) (:form node))))
+
 (defn local-binding-ast
   [idx sym]
   {:op :binding
@@ -434,7 +440,7 @@
                     (cond
                       (static-get-call? node)
                       (let [[target key-node default-node] args
-                            key-schema (as/valued-schema (:schema key-node) (:form key-node))]
+                            key-schema (get-key-query key-node)]
                         (if default-node
                           (as/map-get-schema (:schema target)
                                              key-schema
@@ -459,7 +465,7 @@
         output (cond
                  (get-call? fn-node)
                  (let [[target key-node default-node] args
-                       key-schema (as/valued-schema (:schema key-node) (:form key-node))]
+                       key-schema (get-key-query key-node)]
                    (if default-node
                      (as/map-get-schema (:schema target)
                                         key-schema
