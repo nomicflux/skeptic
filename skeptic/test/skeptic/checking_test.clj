@@ -4,6 +4,7 @@
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
             [skeptic.checking :as sut]
+            [skeptic.core :as core]
             [skeptic.examples]
             [skeptic.inconsistence :as inconsistence]
             [skeptic.schematize :as schematize]
@@ -55,6 +56,21 @@
 (defn result-pairs
   [results]
   (set (map (juxt :blame :errors) results)))
+
+(def ui-internal-markers
+  [":skeptic.analysis.schema/"
+   "placeholder-type"
+   "group-type"
+   ":ref "
+   "source union branch"
+   "target union branch"
+   "source intersection branch"
+   "target intersection branch"])
+
+(defn assert-no-ui-internals
+  [text]
+  (doseq [marker ui-internal-markers]
+    (is (not (str/includes? (str text) marker)))))
 
 (deftest resolution-path-resolutions
   (in-test-examples
@@ -200,7 +216,7 @@
                             :location))
                  results)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 42
+            :line 40
             :column 5}
            (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
                     (select-keys (:location %) [:file :line :column]))
@@ -216,7 +232,7 @@
     (is (= ["y"] (:focus-sources result)))
     (is (= "(int-add x y)" (:source-expression result)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 121
+            :line 119
             :column 5}
            (select-keys (:location result) [:file :line :column])))
     (is (= 'skeptic.test-examples/sample-bad-let-fn
@@ -484,6 +500,20 @@
      (is (= [{:kind :vector-index :index 1}]
             (-> result :cast-results first :path))))))
 
+(deftest printer-path-renders-only-user-facing-data
+  (in-test-examples
+   (let [result (first (check-fn test-dict 'skeptic.test-examples/nested-map-input-failure
+                                 {:remove-context true}))
+         summary (inconsistence/report-summary result)
+         printed (str/join "\n"
+                           (concat (map (fn [[label value]]
+                                          (str label value))
+                                        (core/report-fields summary))
+                                   (:errors summary)))]
+     (is (some? result))
+     (is (str/includes? printed "[:user :name]"))
+     (assert-no-ui-internals printed))))
+
 (deftest declaration-based-recursion-and-forward-refs
   (in-test-examples
    (is (= [] (check-fn test-dict 'skeptic.test-examples/forward-declared-caller)))
@@ -550,6 +580,15 @@
      'skeptic.test-examples/both-int-str-output-int-failure 1
      'skeptic.test-examples/both-int-str-output-str-failure "hi")))
 
-(deftest conditional-schema-cond-thread-currently-needs-refinement
+(deftest conditional-schema-contains-key-refinement
   (in-test-examples
-   (is (= 2 (count (check-fn test-dict 'skeptic.test-examples/conditional-map-cond-thread-success))))))
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/conditional-map-if-a-success
+     'skeptic.test-examples/conditional-map-if-b-success
+     'skeptic.test-examples/conditional-map-alias-success
+     'skeptic.test-examples/conditional-map-cond-thread-success)
+
+   (are [f blame] (single-failure? f blame)
+     'skeptic.test-examples/conditional-map-if-a-bad-branch '(takes-has-b x)
+     'skeptic.test-examples/conditional-map-if-b-bad-branch '(takes-has-a x)
+     'skeptic.test-examples/optional-map-contains-does-not-refine '(takes-has-a x))))

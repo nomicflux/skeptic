@@ -34,6 +34,21 @@
 (def both-int-and-constrained-int
   (s/both s/Int (s/constrained s/Int pos?)))
 
+(def ui-internal-markers
+  [":skeptic.analysis.schema/"
+   "placeholder-type"
+   "group-type"
+   ":ref "
+   "source union branch"
+   "target union branch"
+   "source intersection branch"
+   "target intersection branch"])
+
+(defn assert-no-ui-internals
+  [text]
+  (doseq [marker ui-internal-markers]
+    (is (not (str/includes? (str text) marker)))))
+
 (deftest cast-report-basic-failures-test
   (let [success (sut/cast-report sample-ctx s/Int s/Int)
         nullable (sut/cast-report sample-ctx s/Int (s/maybe s/Int))
@@ -100,11 +115,13 @@
                                      :c s/Int})]
     (is (not (:ok? missing)))
     (is (some #(= :missing-key (:reason %)) (:cast-results missing)))
-    (is (some #(str/includes? % "missing keys") (:errors missing)))
+    (is (some #(str/includes? % "[:b] is missing") (:errors missing)))
 
     (is (not (:ok? unexpected)))
     (is (some #(= :unexpected-key (:reason %)) (:cast-results unexpected)))
-    (is (some #(str/includes? % "disallowed keys") (:errors unexpected)))))
+    (is (some #(str/includes? % "[:c] is not allowed by the expected schema") (:errors unexpected)))
+    (run! assert-no-ui-internals (concat (:errors missing)
+                                         (:errors unexpected)))))
 
 (deftest nested-map-key-errors-include-full-path-test
   (let [missing (sut/cast-report sample-ctx
@@ -128,7 +145,23 @@
            (-> nullable :cast-results first :path)))
     (is (some #(str/includes? % "[:user :name]") (:errors missing)))
     (is (some #(str/includes? % "[:user :age]") (:errors unexpected)))
-    (is (some #(str/includes? % "[:user :name]") (:errors nullable)))))
+    (is (some #(str/includes? % "[:user :name]") (:errors nullable)))
+    (run! assert-no-ui-internals (concat (:errors missing)
+                                         (:errors unexpected)
+                                         (:errors nullable)))))
+
+(deftest non-literal-map-key-path-stops-at-last-code-segment-test
+  (let [report (sut/cast-report sample-ctx
+                                {:account {:state {s/Keyword s/Int}}}
+                                {:account {:state {}}})
+        [leaf] (:cast-results report)
+        [error] (:errors report)]
+    (is (not (:ok? report)))
+    (is (= [{:kind :map-key :key :account}
+            {:kind :map-key :key :state}]
+           (:path leaf)))
+    (is (str/includes? error "[:account :state] is missing required key matching Keyword"))
+    (assert-no-ui-internals error)))
 
 (deftest map-nullable-key-message-test
   (let [message (sut/cast-result->message
@@ -164,7 +197,7 @@
                   :path [{:kind :source-union-branch :index 1}
                          {:kind :map-key :key :name}]})]
     (is (str/includes? message "[:name]"))
-    (is (not (str/includes? message "source union branch")))))
+    (assert-no-ui-internals message)))
 
 (deftest nested-output-cast-report-includes-summary-and-path-details-test
   (let [report (sut/output-cast-report
@@ -181,7 +214,21 @@
     (is (str/includes? error "declared return schema"))
     (is (str/includes? error "{:user {:name Keyword}}"))
     (is (str/includes? error "{:user {:name Str}}"))
-    (is (not (str/includes? error "Problem fields:")))))
+    (is (not (str/includes? error "Problem fields:")))
+    (assert-no-ui-internals error)))
+
+(deftest placeholder-heavy-output-summary-renders-public-names-only
+  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+        message (sut/mismatched-output-schema-msg
+                 {:expr 'for-birthday
+                  :arg '[g r b]}
+                 (as/->VectorT [(as/->SetT #{(as/->VectorT [placeholder placeholder placeholder]
+                                                      false)}
+                                            false)]
+                               true)
+                 [s/Any])]
+    (is (str/includes? message "Threal"))
+    (assert-no-ui-internals message)))
 
 (deftest nested-dynamic-map-cast-stays-structural-test
   (let [compatible (sut/output-cast-report sample-ctx {:a s/Int} {:a s/Any})

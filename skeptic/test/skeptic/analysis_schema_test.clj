@@ -5,6 +5,12 @@
             [skeptic.analysis :as analysis]
             [skeptic.analysis.schema :as as]))
 
+(declare UnboundSchemaRef)
+
+(def BoundSchemaRef s/Int)
+
+(def RecursiveSchemaRef [#'RecursiveSchemaRef])
+
 (deftest tagged-polymorphic-type-helpers-test
   (let [type-var (as/->TypeVarT 'X)
         forall (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
@@ -122,3 +128,33 @@
     (is (thrown-with-msg? IllegalArgumentException
                           #"Not a valid Schema-domain value"
                           (as/render-schema-form polymorphic-map)))))
+
+(deftest raw-schema-var-normalization-test
+  (testing "bound vars are dereferenced during schema localization"
+    (is (= s/Int
+           (as/canonicalize-schema #'BoundSchemaRef)))
+    (is (= "Int"
+           (as/render-type (as/schema->type #'BoundSchemaRef)))))
+
+  (testing "unbound vars become placeholders instead of leaking into schema conversion"
+    (is (= (as/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
+           (as/canonicalize-schema #'UnboundSchemaRef)))
+    (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
+           (-> #'UnboundSchemaRef
+               as/schema->type
+               :ref)))
+    (let [unbound-root (.getRawRoot ^clojure.lang.Var #'UnboundSchemaRef)]
+      (is (= (as/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
+             (as/canonicalize-schema unbound-root)))
+      (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
+             (-> unbound-root
+                 as/schema->type
+                 :ref)))))
+
+  (testing "recursive vars fall back to placeholders instead of recursing forever"
+    (is (= [(as/placeholder-schema 'skeptic.analysis-schema-test/RecursiveSchemaRef)]
+           (as/canonicalize-schema #'RecursiveSchemaRef)))
+    (let [recursive-type (as/schema->type #'RecursiveSchemaRef)]
+      (is (as/vector-type? recursive-type))
+      (is (= 'skeptic.analysis-schema-test/RecursiveSchemaRef
+             (-> recursive-type :items first :ref))))))

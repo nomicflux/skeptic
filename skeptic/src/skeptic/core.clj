@@ -36,51 +36,9 @@
         (println (colours/white text true)))
 	      (println (colours/white (str label text) true)))))
 
-(defn describe-type
-  [type]
-  (as/render-type type))
-
-(defn output-detail-line
-  [{:keys [reason path source-type target-type]}]
-  (when-let [path-text (some-> path
-                               inconsistence/visible-path
-                               seq
-                               inconsistence/render-path)]
-    (case reason
-      :missing-key
-      (str path-text " is missing")
-
-      :nullable-key
-      (str path-text " is potentially nullable, but the schema doesn't allow that")
-
-      :unexpected-key
-      (str path-text " is not allowed by the declared schema")
-
-      :nullable-source
-      (str path-text " is nullable, but expected is not")
-
-      (str path-text " has "
-           (describe-type source-type)
-           " but expected "
-           (describe-type target-type)))))
-
-(defn render-errors
-  [{:keys [report-kind errors cast-results]}]
-  (if (= :output report-kind)
-    (let [detail-lines (->> cast-results
-                            (keep output-detail-line)
-                            distinct
-                            vec)
-          summary (first errors)]
-      [(if (seq detail-lines)
-         (str summary
-              "\n\nProblem fields:\n\n\t- "
-              (str/join "\n\t- " (map #(colours/yellow %) detail-lines)))
-         summary)])
-    errors))
-
 (defn report-fields
-  [{:keys [location blame-side blame-polarity rule actual-type expected-type
+  [{:keys [location blame-side blame-polarity rule rule-text
+           actual-type actual-type-text expected-type expected-type-text
            source-expression blame focus-sources focuses enclosing-form
            expanded-expression]}]
   (remove nil?
@@ -90,11 +48,13 @@
                       (not= blame-side :none)
                       (not= blame-polarity :none))
              ["Blame: \t\t" (str (name blame-side) " / " (name blame-polarity))])
-           (when rule
-             ["Cast rule: \t\t" (name rule)])
-           (when-let [actual-text (describe-type actual-type)]
+           (when-let [rule-text (or rule-text (some-> rule name))]
+             ["Cast rule: \t\t" rule-text])
+           (when-let [actual-text (or actual-type-text
+                                      (some-> actual-type as/render-type))]
              ["Actual type: \t\t" actual-text])
-           (when-let [expected-text (describe-type expected-type)]
+           (when-let [expected-text (or expected-type-text
+                                        (some-> expected-type as/render-type))]
              ["Expected type: \t" expected-text])
            ["Expression: \t\t" (or source-expression (pr-str blame))]
            (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
@@ -131,36 +91,27 @@
            ;  (pprint/pprint dict))
 	         (when analyzer
 	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-	         (doseq [{:keys [blame report-kind source-expression expanded-expression location enclosing-form focuses focus-sources path errors context blame-side blame-polarity rule expected-type actual-type cast-results] :as result} (checking/check-ns dict ns source-file opts)]
+	         (doseq [result (checking/check-ns dict ns source-file opts)]
 	           (println "---------")
-	           (println (colours/white (str "Namespace: \t\t" ns) true))
-	           (doseq [[label value] (report-fields {:location location
-	                                                :blame-side blame-side
-	                                                :blame-polarity blame-polarity
-	                                                :rule rule
-	                                                :actual-type actual-type
-	                                                :expected-type expected-type
-	                                                :source-expression source-expression
-	                                                :blame blame
-	                                                :focus-sources focus-sources
-	                                                :focuses focuses
-	                                                :enclosing-form enclosing-form
-	                                                :expanded-expression expanded-expression})]
-	             (print-report-field label value))
-	           (when (and verbose path)
-	             (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
-           (when show-context
-             (println "Context:")
-             (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
-               (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str schema))))
-               (doseq [{:keys [expr schema]} resolution-path]
-                 (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str schema))))))
-             (doseq [{:keys [expr schema]} (:refs context)]
-               (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str schema))))))
-           (doseq [error (render-errors result)]
-             (reset! errored true)
-             (println "---")
-             (println error "\n"))))
+	           (let [{:keys [path context]} result
+	                 summary (inconsistence/report-summary result)]
+	             (println (colours/white (str "Namespace: \t\t" ns) true))
+	             (doseq [[label value] (report-fields summary)]
+	               (print-report-field label value))
+	             (when (and verbose path)
+	               (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
+               (when show-context
+                 (println "Context:")
+                 (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
+                   (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str schema))))
+                   (doseq [{:keys [expr schema]} resolution-path]
+                     (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str schema))))))
+                 (doseq [{:keys [expr schema]} (:refs context)]
+                   (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str schema))))))
+	             (doseq [error (:errors summary)]
+	               (reset! errored true)
+	               (println "---")
+	               (println error "\n")))))
          (catch Exception e
            (println (colours/white (str "Namespace: \t\t" ns) true))
            (println (colours/red (str "Error parsing namespace " ns ": " e) true))

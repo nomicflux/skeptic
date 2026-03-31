@@ -1,7 +1,5 @@
 (ns skeptic.test-examples
-  (:require [schema.core :as s]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
-            [skeptic.schematize :as schematize]))
+  (:require [schema.core :as s]))
 
 ;; Note: updating this file while in the REPL may cause functions to break
 ;; if they rely on loading the source code & resolving references. This is why
@@ -557,3 +555,43 @@
   (cond-> x
     (contains? x :a) takes-has-a
     (contains? x :b) takes-has-b))
+
+(s/defn conditional-map-if-a-success :- HasAOrB
+  [x :- HasAOrB]
+  (if (contains? x :a)
+    (takes-has-a x)
+    x))
+
+(s/defn conditional-map-if-b-success :- HasAOrB
+  [x :- HasAOrB]
+  (if (contains? x :b)
+    (takes-has-b x)
+    x))
+
+(s/defn conditional-map-if-a-bad-branch :- HasAOrB
+  [x :- HasAOrB]
+  (if (contains? x :a)
+    (takes-has-b x)
+    x))
+
+(s/defn conditional-map-if-b-bad-branch :- HasAOrB
+  [x :- HasAOrB]
+  (if (contains? x :b)
+    (takes-has-a x)
+    x))
+
+(s/defn conditional-map-alias-success :- HasAOrB
+  [x :- HasAOrB]
+  (let [y x]
+    (if (contains? x :a)
+      (takes-has-a y)
+      y)))
+
+(s/defschema MaybeHasA
+  {(s/optional-key :a) s/Int})
+
+(s/defn optional-map-contains-does-not-refine
+  [x :- MaybeHasA]
+  (if (contains? x :a)
+    (takes-has-a x)
+    x))

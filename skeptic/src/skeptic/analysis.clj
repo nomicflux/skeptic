@@ -105,7 +105,7 @@
 
 (defn node-info
   [node]
-  (select-keys node [:schema :output :arglists :arglist :expected-arglist :actual-arglist :fn-schema]))
+  (select-keys node [:schema :output :arglists :arglist :expected-arglist :actual-arglist :fn-schema :origin]))
 
 (defn literal-map-key?
   [node]
@@ -171,6 +171,12 @@
                      (:form fn-node))]
     (contains? #{'clojure.core/merge 'merge} resolved)))
 
+(defn contains-call?
+  [fn-node]
+  (let [resolved (or (var->sym (:var fn-node))
+                     (:form fn-node))]
+    (contains? #{'clojure.core/contains? 'contains? 'contains} resolved)))
+
 (defn get-call?
   [fn-node]
   (let [resolved (or (var->sym (:var fn-node))
@@ -187,6 +193,11 @@
   (and (= clojure.lang.RT (:class node))
        (contains? #{'clojure.core/merge 'merge} (:method node))))
 
+(defn static-contains-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/contains? 'contains? 'contains} (:method node))))
+
 (defn call-info
   [fn-node args]
   (if (typed-callable? fn-node)
@@ -198,7 +209,9 @@
        :fn-schema (:schema converted)})
     (default-call-info (count args) (:output fn-node))))
 
-(declare annotate-node)
+(declare annotate-node
+         node-origin
+         effective-entry)
 
 (defn annotate-children
   [ctx node]
@@ -215,6 +228,179 @@
   [_ctx node]
   (assoc node :schema (as/canonicalize-schema (schema-of-value (:val node)))))
 
+(defn root-origin
+  [sym schema]
+  {:kind :root
+   :sym sym
+   :schema (as/canonicalize-schema schema)})
+
+(defn opaque-origin
+  [schema]
+  {:kind :opaque
+   :schema (as/canonicalize-schema schema)})
+
+(defn entry-origin
+  [sym entry]
+  (or (:origin entry)
+      (when-let [schema (:schema entry)]
+        (root-origin sym schema))))
+
+(defn node-origin
+  [node]
+  (or (:origin node)
+      (when-let [schema (:schema node)]
+        (opaque-origin schema))))
+
+(defn opposite-polarity
+  [assumption]
+  (update assumption :polarity not))
+
+(defn same-assumption?
+  [left right]
+  (and (= (:kind left) (:kind right))
+       (= (get-in left [:root :sym]) (get-in right [:root :sym]))
+       (= (:key left) (:key right))
+       (= (:polarity left) (:polarity right))))
+
+(defn opposite-assumption?
+  [left right]
+  (same-assumption? left (opposite-polarity right)))
+
+(defn assumption-root?
+  [assumption root]
+  (= (get-in assumption [:root :sym]) (:sym root)))
+
+(defn apply-assumption-to-root-schema
+  [schema assumption]
+  (case (:kind assumption)
+    :truthy-local
+    (if (:polarity assumption)
+      (as/de-maybe schema)
+      schema)
+
+    :contains-key
+    (as/refine-schema-by-contains-key schema (:key assumption) (:polarity assumption))
+
+    schema))
+
+(defn refine-root-schema
+  [root assumptions]
+  (reduce (fn [schema assumption]
+            (if (assumption-root? assumption root)
+              (apply-assumption-to-root-schema schema assumption)
+              schema))
+          (:schema root)
+          assumptions))
+
+(defn assumption-base-schema
+  [assumption assumptions]
+  (let [same-proposition? (fn [candidate]
+                            (and (= (:kind candidate) (:kind assumption))
+                                 (= (get-in candidate [:root :sym]) (get-in assumption [:root :sym]))
+                                 (= (:key candidate) (:key assumption))))]
+    (refine-root-schema (:root assumption)
+                        (remove same-proposition? assumptions))))
+
+(defn assumption-truth
+  [assumption assumptions]
+  (cond
+    (some #(same-assumption? assumption %) assumptions) :true
+    (some #(opposite-assumption? assumption %) assumptions) :false
+
+    :else
+    (case (:kind assumption)
+      :contains-key
+      (case (as/contains-key-classification (assumption-base-schema assumption assumptions)
+                                            (:key assumption))
+        :always (if (:polarity assumption) :true :false)
+        :never (if (:polarity assumption) :false :true)
+        :unknown :unknown)
+
+      :truthy-local
+      :unknown
+
+      :unknown)))
+
+(defn origin-schema
+  [origin assumptions]
+  (case (:kind origin)
+    :root (refine-root-schema origin assumptions)
+    :opaque (:schema origin)
+    :branch (case (assumption-truth (:test origin) assumptions)
+              :true (origin-schema (:then-origin origin) assumptions)
+              :false (origin-schema (:else-origin origin) assumptions)
+              (schema-join* [(origin-schema (:then-origin origin) assumptions)
+                             (origin-schema (:else-origin origin) assumptions)]))
+    (:schema origin)))
+
+(defn effective-entry
+  [sym entry assumptions]
+  (let [entry (normalize-entry entry)
+        origin (entry-origin sym entry)
+        schema (or (some-> origin (origin-schema assumptions))
+                   (:schema entry)
+                   s/Any)]
+    (cond-> (or entry {:schema s/Any})
+      true (assoc :schema (as/canonicalize-schema schema))
+      origin (assoc :origin origin))))
+
+(defn local-root-origin
+  [node]
+  (let [origin (node-origin node)]
+    (when (= :root (:kind origin))
+      origin)))
+
+(defn contains-key-test-assumption
+  [target-node key]
+  (when-let [root (local-root-origin target-node)]
+    {:kind :contains-key
+     :root root
+     :key key
+     :polarity true}))
+
+(defn test->assumption
+  [test-node]
+  (cond
+    (= :local (:op test-node))
+    (when-let [root (local-root-origin test-node)]
+      {:kind :truthy-local
+       :root root
+       :polarity true})
+
+    (and (= :invoke (:op test-node))
+         (contains-call? (:fn test-node)))
+    (let [[target-node key-node] (:args test-node)]
+      (when (keyword? (:form key-node))
+        (contains-key-test-assumption target-node (:form key-node))))
+
+    (and (= :static-call (:op test-node))
+         (static-contains-call? test-node))
+    (let [[target-node key-node] (:args test-node)]
+      (when (keyword? (:form key-node))
+        (contains-key-test-assumption target-node (:form key-node))))
+
+    :else
+    nil))
+
+(defn refine-locals-for-assumption
+  [locals assumptions]
+  (into {}
+        (map (fn [[sym entry]]
+               [sym (effective-entry sym entry assumptions)]))
+        locals))
+
+(defn branch-local-envs
+  [locals assumptions assumption]
+  (let [then-assumptions (cond-> (vec assumptions)
+                           assumption (conj assumption))
+        else-assumption (some-> assumption opposite-polarity)
+        else-assumptions (cond-> (vec assumptions)
+                           else-assumption (conj else-assumption))]
+    {:then-locals (refine-locals-for-assumption locals then-assumptions)
+     :then-assumptions then-assumptions
+     :else-locals (refine-locals-for-assumption locals else-assumptions)
+     :else-assumptions else-assumptions}))
+
 (defn annotate-binding
   [ctx node]
   (if-let [init (:init node)]
@@ -225,10 +411,11 @@
     node))
 
 (defn annotate-local
-  [{:keys [locals]} node]
+  [{:keys [locals assumptions]} node]
   (merge node
-         (or (normalize-entry (get locals (:form node)))
-             {:schema s/Any})))
+         (if-let [entry (get locals (:form node))]
+           (effective-entry (:form node) entry assumptions)
+           {:schema s/Any})))
 
 (defn annotate-var-like
   [{:keys [dict ns]} node]
@@ -258,6 +445,9 @@
                       (static-merge-call? node)
                       (as/merge-map-schemas (map :schema args))
 
+                      (static-contains-call? node)
+                      s/Bool
+
                       :else
                       s/Any)))))
 
@@ -279,6 +469,9 @@
 
                  (merge-call? fn-node)
                  (as/merge-map-schemas (map :schema args))
+
+                 (contains-call? fn-node)
+                 s/Bool
 
                  :else
                  output)]
@@ -315,28 +508,33 @@
            :body body
            :schema (:schema body))))
 
-(defn truthy-then-locals
-  [locals test-node]
-  (if (= :local (:op test-node))
-    (update locals
-            (:form test-node)
-            (fn [entry]
-              (when entry
-                (update (normalize-entry entry) :schema as/de-maybe))))
-    locals))
-
 (defn annotate-if
-  [{:keys [locals] :as ctx} node]
+  [{:keys [locals assumptions] :as ctx} node]
   (let [test-node (annotate-node ctx (:test node))
-        then-node (annotate-node (assoc ctx :locals (truthy-then-locals locals test-node))
+        assumption (test->assumption test-node)
+        {:keys [then-locals then-assumptions else-locals else-assumptions]}
+        (branch-local-envs locals assumptions assumption)
+        then-node (annotate-node (assoc ctx
+                                        :locals then-locals
+                                        :assumptions then-assumptions)
                                  (:then node))
-        else-node (annotate-node ctx (:else node))]
+        else-node (annotate-node (assoc ctx
+                                        :locals else-locals
+                                        :assumptions else-assumptions)
+                                 (:else node))
+        schema (as/canonicalize-schema
+                (schema-join* [(:schema then-node) (:schema else-node)]))
+        origin (when assumption
+                 {:kind :branch
+                  :test assumption
+                  :then-origin (node-origin then-node)
+                  :else-origin (node-origin else-node)})]
     (assoc node
            :test test-node
            :then then-node
            :else else-node
-           :schema (as/canonicalize-schema
-                    (schema-join* [(:schema then-node) (:schema else-node)])))))
+           :schema schema
+           :origin (or origin (opaque-origin schema)))))
 
 (defn arg-schema-specs
   [dict ns-sym name params]
@@ -546,12 +744,13 @@
 (defn annotate-ast
   ([dict ast]
    (annotate-ast dict ast {}))
-  ([dict ast {:keys [locals name ns]}]
+  ([dict ast {:keys [locals name ns assumptions]}]
    (annotate-node {:dict dict
                    :locals (into {}
                                  (map (fn [[sym entry]]
                                         [sym (normalize-entry entry)]))
                                  locals)
+                   :assumptions (vec assumptions)
                    :name name
                    :ns ns}
                   ast)))

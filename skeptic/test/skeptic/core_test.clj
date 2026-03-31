@@ -1,8 +1,25 @@
 (ns skeptic.core-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
-            [skeptic.core :as sut]))
+            [skeptic.core :as sut]
+            [skeptic.inconsistence :as inconsistence]))
+
+(def ui-internal-markers
+  [":skeptic.analysis.schema/"
+   "placeholder-type"
+   "group-type"
+   ":ref "
+   "source union branch"
+   "target union branch"
+   "source intersection branch"
+   "target intersection branch"])
+
+(defn assert-no-ui-internals
+  [text]
+  (doseq [marker ui-internal-markers]
+    (is (not (str/includes? (str text) marker)))))
 
 (deftest report-fields-include-blame-metadata
   (let [fields (sut/report-fields
@@ -39,27 +56,97 @@
     (is (some #{["Actual type: \t\t" "(sealed X)"]} fields))
     (is (some #{["Expected type: \t" "(forall X X)"]} fields))))
 
-(deftest render-errors-collapses-output-report-into-single-entry
-  (let [summary "summary"
-        rendered (sut/render-errors
-                  {:report-kind :output
-                   :errors [summary]
-                   :cast-results [{:reason :leaf-mismatch
-                                   :path [{:kind :map-key :key :name}]
-                                   :source-type (as/schema->type s/Keyword)
-                                   :target-type (as/schema->type s/Str)}]})]
-    (is (= 1 (count rendered)))
-    (is (some-> rendered first (.contains summary)))
-    (is (some-> rendered first (.contains "Problem fields:")))
-    (is (some-> rendered first (.contains "[:name] has Keyword but expected Str")))))
+(deftest report-summary-collapses-output-into-single-entry
+  (let [summary (inconsistence/report-summary
+                 {:report-kind :output
+                  :cast-result {:source-type (as/schema->type {:name s/Keyword})
+                                :target-type (as/schema->type {:name s/Str})}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :path [{:kind :map-key :key :name}]
+                                  :source-type (as/schema->type s/Keyword)
+                                  :target-type (as/schema->type s/Str)}]})]
+    (is (= 1 (count (:errors summary))))
+    (is (some-> summary :errors first (.contains "has output schema:")))
+    (is (some-> summary :errors first (.contains "Problem fields:")))
+    (is (some-> summary :errors first (.contains "[:name] has Keyword but expected Str")))
+    (assert-no-ui-internals (first (:errors summary)))))
 
-(deftest render-errors-hides-internal-cast-branches
-  (let [rendered (sut/render-errors
-                  {:report-kind :output
-                   :errors ["summary"]
-                   :cast-results [{:reason :missing-key
-                                   :path [{:kind :source-union-branch :index 1}
-                                          {:kind :map-key :key :b}]}]})]
-    (is (= 1 (count rendered)))
-    (is (some-> rendered first (.contains "[:b] is missing")))
-    (is (not (some-> rendered first (.contains "source union branch"))))))
+(deftest report-summary-hides-internal-cast-branches
+  (let [summary (inconsistence/report-summary
+                 {:report-kind :output
+                  :cast-result {:source-type (as/schema->type {:b s/Int})
+                                :target-type (as/schema->type {:b s/Int})}
+                  :cast-results [{:reason :missing-key
+                                  :path [{:kind :source-union-branch :index 1}
+                                         {:kind :map-key :key :b}]}]})]
+    (is (= 1 (count (:errors summary))))
+    (is (some-> summary :errors first (.contains "[:b] is missing")))
+    (assert-no-ui-internals (first (:errors summary)))))
+
+(deftest report-summary-collapses-input-union-branches
+  (let [summary (inconsistence/report-summary
+                 {:report-kind :input
+                  :blame '(takes-either-branch :bad)
+                  :focuses [:bad]
+                  :errors ["err-1" "err-2"]
+                  :cast-results [{:reason :leaf-mismatch
+                                  :source-type (as/schema->type s/Keyword)
+                                  :target-type (as/schema->type s/Int)
+                                  :path [{:kind :target-union-branch :index 0}]}
+                                 {:reason :leaf-mismatch
+                                  :source-type (as/schema->type s/Keyword)
+                                  :target-type (as/schema->type s/Str)
+                                  :path [{:kind :target-union-branch :index 1}]}]})]
+    (is (= 1 (count (:errors summary))))
+    (is (some-> summary :errors first (.contains "has incompatible schema:")))
+    (is (some-> summary :errors first (.contains "Keyword does not match any of: Int, Str")))
+    (assert-no-ui-internals (first (:errors summary)))))
+
+(deftest report-summary-and-fields-sanitize-placeholder-heavy-types
+  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+        summary (inconsistence/report-summary
+                 {:report-kind :input
+                  :blame '(simplify gt_fn [g r b])
+                  :focuses ['[g r b]]
+                  :cast-result {:rule :vector
+                                :source-type (as/schema->type [s/Any])
+                                :target-type (as/->VectorT [(as/->SetT #{(as/->VectorT [placeholder placeholder placeholder]
+                                                                             false)}
+                                                                       false)]
+                                                           true)}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :source-type (as/schema->type s/Any)
+                                  :target-type placeholder
+                                  :path [{:kind :vector-index :index 0}]}]})
+        fields (sut/report-fields summary)
+        printed (str/join "\n"
+                          (concat (map (fn [[label value]]
+                                         (str label value))
+                                       fields)
+                                  (:errors summary)))]
+    (is (some #{["Actual type: \t\t" "[Any]"]} fields))
+    (is (some (fn [[label value]]
+                (and (= "Expected type: \t" label)
+                     (str/includes? value "Threal")))
+              fields))
+    (assert-no-ui-internals printed)))
+
+(deftest report-fields-prefer-top-level-cast-metadata
+  (let [fields (sut/report-fields
+                (inconsistence/report-summary
+                 {:rule :leaf-overlap
+                  :actual-type (as/schema->type s/Keyword)
+                  :expected-type (as/schema->type s/Int)
+                  :cast-result {:rule :target-union
+                                :source-type (as/schema->type s/Keyword)
+                                :target-type (as/schema->type (s/either s/Int s/Str))}
+                  :source-expression "(takes-either-branch :bad)"
+                  :errors ["err"]
+                  :cast-results []}))]
+    (is (some #{["Cast rule: \t\t" "target-union"]} fields))
+    (is (some #{["Actual type: \t\t" "Keyword"]} fields))
+    (is (some (fn [[label value]]
+                (and (= "Expected type: \t" label)
+                     (.contains value "Int")
+                     (.contains value "Str")))
+              fields))))

@@ -402,6 +402,12 @@
   [schema]
   (get schema placeholder-key))
 
+(defn qualified-var-symbol
+  [v]
+  (let [{:keys [ns name]} (meta v)]
+    (when (and ns name)
+      (symbol (str (ns-name ns) "/" name)))))
+
 (defn canonical-scalar-schema
   [schema]
   (cond
@@ -774,25 +780,40 @@
 (def BottomType
   (->BottomT))
 
+(declare localize-schema-value*)
+
 (defn localize-schema-value
   [value]
+  (localize-schema-value* value #{}))
+
+(defn localize-schema-value*
+  [value seen-vars]
   (cond
     (nil? value) nil
+    (same-class-name? value "clojure.lang.Var$Unbound")
+    (localize-schema-value* (read-instance-field value "v") seen-vars)
+    (instance? clojure.lang.Var value)
+    (let [var-ref (or (qualified-var-symbol value) value)]
+      (cond
+        (contains? seen-vars var-ref) (placeholder-schema var-ref)
+        (bound? value) (localize-schema-value* @value (conj seen-vars var-ref))
+        :else (placeholder-schema var-ref)))
     (bottom-schema? value) Bottom
     (join? value)
-    (apply join (localize-schema-value (:schemas value)))
+    (apply join (map #(localize-schema-value* % seen-vars) (:schemas value)))
     (same-class-name? value "skeptic.analysis.schema.Join")
-    (apply join (localize-schema-value (read-instance-field value "schemas")))
+    (apply join (map #(localize-schema-value* % seen-vars)
+                     (read-instance-field value "schemas")))
     (valued-schema? value)
-    (valued-schema (localize-schema-value (:schema value))
-                   (localize-schema-value (:value value)))
+    (valued-schema (localize-schema-value* (:schema value) seen-vars)
+                   (localize-schema-value* (:value value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.ValuedSchema")
-    (valued-schema (localize-schema-value (read-instance-field value "schema"))
-                   (localize-schema-value (read-instance-field value "value")))
+    (valued-schema (localize-schema-value* (read-instance-field value "schema") seen-vars)
+                   (localize-schema-value* (read-instance-field value "value") seen-vars))
     (variable? value)
-    (variable (localize-schema-value (:schema value)))
+    (variable (localize-schema-value* (:schema value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.Variable")
-    (variable (localize-schema-value (read-instance-field value "schema")))
+    (variable (localize-schema-value* (read-instance-field value "schema") seen-vars))
     (dyn-type? value) Dyn
     (bottom-type? value) BottomType
     (ground-type? value)
@@ -801,95 +822,95 @@
     (->GroundT (read-instance-field value "ground")
                (read-instance-field value "display_form"))
     (refinement-type? value)
-    (->RefinementT (localize-schema-value (:base value))
+    (->RefinementT (localize-schema-value* (:base value) seen-vars)
                    (:display-form value)
                    (:accepts? value)
-                   (localize-schema-value (:adapter-data value)))
+                   (localize-schema-value* (:adapter-data value) seen-vars))
     (adapter-leaf-type? value)
     (->AdapterLeafT (:adapter value)
                     (:display-form value)
                     (:accepts? value)
-                    (localize-schema-value (:adapter-data value)))
+                    (localize-schema-value* (:adapter-data value) seen-vars))
     (optional-key-type? value)
-    (->OptionalKeyT (localize-schema-value (:inner value)))
+    (->OptionalKeyT (localize-schema-value* (:inner value) seen-vars))
     (fn-method-type? value)
-    (->FnMethodT (localize-schema-value (:inputs value))
-                 (localize-schema-value (:output value))
+    (->FnMethodT (localize-schema-value* (:inputs value) seen-vars)
+                 (localize-schema-value* (:output value) seen-vars)
                  (:min-arity value)
                  (:variadic? value))
     (same-class-name? value "skeptic.analysis.schema.FnMethodT")
-    (->FnMethodT (localize-schema-value (read-instance-field value "inputs"))
-                 (localize-schema-value (read-instance-field value "output"))
+    (->FnMethodT (localize-schema-value* (read-instance-field value "inputs") seen-vars)
+                 (localize-schema-value* (read-instance-field value "output") seen-vars)
                  (read-instance-field value "min_arity")
                  (read-instance-field value "variadic_QMARK_"))
     (fun-type? value)
-    (->FunT (localize-schema-value (:methods value)))
+    (->FunT (localize-schema-value* (:methods value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.FunT")
-    (->FunT (localize-schema-value (read-instance-field value "methods")))
+    (->FunT (localize-schema-value* (read-instance-field value "methods") seen-vars))
     (maybe-type? value)
-    (->MaybeT (localize-schema-value (:inner value)))
+    (->MaybeT (localize-schema-value* (:inner value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.MaybeT")
-    (->MaybeT (localize-schema-value (read-instance-field value "inner")))
+    (->MaybeT (localize-schema-value* (read-instance-field value "inner") seen-vars))
     (union-type? value)
-    (->UnionT (localize-schema-value (:members value)))
+    (->UnionT (localize-schema-value* (:members value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.UnionT")
-    (->UnionT (localize-schema-value (read-instance-field value "members")))
+    (->UnionT (localize-schema-value* (read-instance-field value "members") seen-vars))
     (intersection-type? value)
-    (->IntersectionT (localize-schema-value (:members value)))
+    (->IntersectionT (localize-schema-value* (:members value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.IntersectionT")
-    (->IntersectionT (localize-schema-value (read-instance-field value "members")))
+    (->IntersectionT (localize-schema-value* (read-instance-field value "members") seen-vars))
     (map-type? value)
-    (->MapT (localize-schema-value (:entries value)))
+    (->MapT (localize-schema-value* (:entries value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.MapT")
-    (->MapT (localize-schema-value (read-instance-field value "entries")))
+    (->MapT (localize-schema-value* (read-instance-field value "entries") seen-vars))
     (vector-type? value)
-    (->VectorT (localize-schema-value (:items value))
+    (->VectorT (localize-schema-value* (:items value) seen-vars)
                (:homogeneous? value))
     (same-class-name? value "skeptic.analysis.schema.VectorT")
-    (->VectorT (localize-schema-value (read-instance-field value "items"))
+    (->VectorT (localize-schema-value* (read-instance-field value "items") seen-vars)
                (read-instance-field value "homogeneous_QMARK_"))
     (set-type? value)
-    (->SetT (localize-schema-value (:members value))
+    (->SetT (localize-schema-value* (:members value) seen-vars)
             (:homogeneous? value))
     (same-class-name? value "skeptic.analysis.schema.SetT")
-    (->SetT (localize-schema-value (read-instance-field value "members"))
+    (->SetT (localize-schema-value* (read-instance-field value "members") seen-vars)
             (read-instance-field value "homogeneous_QMARK_"))
     (seq-type? value)
-    (->SeqT (localize-schema-value (:items value))
+    (->SeqT (localize-schema-value* (:items value) seen-vars)
             (:homogeneous? value))
     (same-class-name? value "skeptic.analysis.schema.SeqT")
-    (->SeqT (localize-schema-value (read-instance-field value "items"))
+    (->SeqT (localize-schema-value* (read-instance-field value "items") seen-vars)
             (read-instance-field value "homogeneous_QMARK_"))
     (var-type? value)
-    (->VarT (localize-schema-value (:inner value)))
+    (->VarT (localize-schema-value* (:inner value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.VarT")
-    (->VarT (localize-schema-value (read-instance-field value "inner")))
+    (->VarT (localize-schema-value* (read-instance-field value "inner") seen-vars))
     (placeholder-type? value)
-    (->PlaceholderT (localize-schema-value (:ref value)))
+    (->PlaceholderT (localize-schema-value* (:ref value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.PlaceholderT")
-    (->PlaceholderT (localize-schema-value (read-instance-field value "ref")))
+    (->PlaceholderT (localize-schema-value* (read-instance-field value "ref") seen-vars))
     (value-type? value)
-    (->ValueT (localize-schema-value (:inner value))
-              (localize-schema-value (:value value)))
+    (->ValueT (localize-schema-value* (:inner value) seen-vars)
+              (localize-schema-value* (:value value) seen-vars))
     (same-class-name? value "skeptic.analysis.schema.ValueT")
-    (->ValueT (localize-schema-value (read-instance-field value "inner"))
-              (localize-schema-value (read-instance-field value "value")))
+    (->ValueT (localize-schema-value* (read-instance-field value "inner") seen-vars)
+              (localize-schema-value* (read-instance-field value "value") seen-vars))
     (type-var-type? value)
     (->TypeVarT (:name value))
     (forall-type? value)
     (->ForallT (:binder value)
-               (localize-schema-value (:body value)))
+               (localize-schema-value* (:body value) seen-vars))
     (sealed-dyn-type? value)
-    (->SealedDynT (localize-schema-value (:ground value)))
-    (vector? value) (mapv localize-schema-value value)
-    (set? value) (into #{} (map localize-schema-value) value)
+    (->SealedDynT (localize-schema-value* (:ground value) seen-vars))
+    (vector? value) (mapv #(localize-schema-value* % seen-vars) value)
+    (set? value) (into #{} (map #(localize-schema-value* % seen-vars)) value)
     (and (map? value) (not (record? value)))
     (into {}
           (map (fn [[k v]]
-                 [(localize-schema-value k)
-                  (localize-schema-value v)]))
+                 [(localize-schema-value* k seen-vars)
+                  (localize-schema-value* v seen-vars)]))
           value)
-    (seq? value) (doall (map localize-schema-value value))
+    (seq? value) (doall (map #(localize-schema-value* % seen-vars) value))
     :else value))
 
 (defn dyn-type?
@@ -1600,6 +1621,7 @@
   [schema]
   (let [schema (canonicalize-schema schema)]
     (cond
+      (join? schema) (set (:schemas schema))
       (either? schema) (set (:schemas schema))
       (cond-pre? schema) (set (:schemas schema))
       (conditional-schema? schema) (->> (:preds-and-schemas schema)
@@ -1922,9 +1944,16 @@
 (defn path-key
   [type]
   (let [type (optional-key-inner type)]
-    (if (exact-value-type? type)
-      (:value type)
-      type)))
+    (when (exact-value-type? type)
+      (:value type))))
+
+(defn with-map-path
+  [cast-result key]
+  (if-let [path-value (path-key key)]
+    (with-cast-path cast-result
+      {:kind :map-key
+       :key path-value})
+    cast-result))
 
 (defn type-compatible-key?
   [actual-key target-key]
@@ -1946,6 +1975,57 @@
                      (sort-by map-key-rank))]
     (when-let [matched-key (first matches)]
       [matched-key (get entries matched-key)])))
+
+(defn matching-map-entry-keys
+  [entries actual-key]
+  (->> entries
+       keys
+       (filter #(type-compatible-key? actual-key %))
+       vec))
+
+(defn map-contains-key-classification
+  [type key]
+  (let [key-type (exact-value-import-type key)
+        matches (matching-map-entry-keys (:entries (schema->type type)) key-type)]
+    (cond
+      (empty? matches) :never
+      (every? required-map-key-type? matches) :always
+      :else :unknown)))
+
+(defn contains-key-classification
+  [schema key]
+  (let [type (schema->type schema)]
+    (cond
+      (bottom-type? type) :never
+
+      (maybe-type? type)
+      (case (contains-key-classification (:inner type) key)
+        :never :never
+        :always :unknown
+        :unknown :unknown)
+
+      (map-type? type)
+      (map-contains-key-classification type key)
+
+      :else
+      :unknown)))
+
+(defn refine-schema-by-contains-key
+  [schema key polarity]
+  (let [schema (canonicalize-schema schema)
+        branches (or (union-like-branches schema) #{schema})
+        kept (->> branches
+                  (keep (fn [branch]
+                          (let [classification (contains-key-classification branch key)]
+                            (case [polarity classification]
+                              [true :never] nil
+                              [false :always] nil
+                              branch))))
+                  set)]
+    (cond
+      (empty? kept) Bottom
+      (= 1 (count kept)) (first kept)
+      :else (schema-join kept))))
 
 (defn ground-accepts-value?
   [type value]
@@ -2093,13 +2173,12 @@
         children (reduce (fn [acc [actual-k actual-v]]
                            (if-let [[matched-key matched-value] (matching-map-entry target-entries actual-k)]
                              (let [_ (swap! required-missing disj matched-key)
-                                   value-result (with-cast-path
+                                   value-result (with-map-path
                                                   (check-cast actual-v matched-value opts)
-                                                  {:kind :map-key
-                                                   :key (path-key matched-key)})
+                                                  matched-key)
                                    nullable-result (when (and (optional-key-type? actual-k)
                                                                (required-map-key-type? matched-key))
-                                                     (with-cast-path
+                                                     (with-map-path
                                                        (cast-fail source-type
                                                                   target-type
                                                                   :map-nullable-key
@@ -2108,13 +2187,12 @@
                                                                   []
                                                                   {:actual-key actual-k
                                                                    :expected-key matched-key})
-                                                       {:kind :map-key
-                                                        :key (path-key matched-key)}))]
+                                                       matched-key))]
                                (cond-> acc
                                  true (conj value-result)
                                  nullable-result (conj nullable-result)))
                              (conj acc
-                                   (with-cast-path
+                                   (with-map-path
                                      (cast-fail source-type
                                                 target-type
                                                 :map-unexpected-key
@@ -2122,13 +2200,12 @@
                                                 :unexpected-key
                                                 []
                                                 {:actual-key actual-k})
-                                     {:kind :map-key
-                                      :key (path-key actual-k)}))))
+                                     actual-k))))
                          []
                          source-entries)]
     (into children
           (map (fn [missing-k]
-                 (with-cast-path
+                 (with-map-path
                    (cast-fail source-type
                               target-type
                               :map-missing-key
@@ -2136,8 +2213,7 @@
                               :missing-key
                               []
                               {:expected-key missing-k})
-                   {:kind :map-key
-                    :key (path-key missing-k)})))
+                   missing-k)))
           @required-missing)))
 
 (defn collection-cast-children
