@@ -182,6 +182,14 @@
                             expr)
      :location (node-location node)}))
 
+(defn node-error-context
+  [node enclosing-form]
+  (let [{:keys [expr source-expression location]} (display-expr node)]
+    {:expr expr
+     :source-expression source-expression
+     :location location
+     :enclosing-form enclosing-form}))
+
 (defn distinctv
   [xs]
   (reduce (fn [acc x]
@@ -472,17 +480,19 @@
         enclosing-form (enclosing-form ns-sym source-form)]
     (cond->> (->> (ast-nodes-preorder analyzed)
                   (mapcat (fn [node]
-                            (concat (when-let [call-result (match-s-exprs bindings
-                                                                         enclosing-form
-                                                                         node)]
-                                      [call-result])
-                                    (or (def-output-results dict
-                                                            bindings
-                                                            ns-sym
-                                                            source-form
-                                                            enclosing-form
-                                                            node)
-                                        [])))))
+                            (as/with-error-context (node-error-context node enclosing-form)
+                              (doall
+                               (concat (when-let [call-result (match-s-exprs bindings
+                                                                            enclosing-form
+                                                                            node)]
+                                         [call-result])
+                                       (or (def-output-results dict
+                                                               bindings
+                                                               ns-sym
+                                                               source-form
+                                                               enclosing-form
+                                                               node)
+                                           [])))))))
       (not keep-empty)
       (remove (comp empty? :errors))
 

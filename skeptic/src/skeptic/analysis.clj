@@ -713,33 +713,46 @@
            :schema (as/canonicalize-schema
                     (schema-of-value (-> node :form second))))))
 
+(defn node-location
+  [node]
+  (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
+
+(defn node-error-context
+  [node]
+  (let [expr (:form node)
+        source-expression (:source (meta expr))]
+    {:expr expr
+     :source-expression source-expression
+     :location (node-location node)}))
+
 (defn annotate-node
   [ctx node]
-  (as/strip-derived-types
-   (case (:op node)
-     :binding (annotate-binding ctx node)
-     :const (annotate-const ctx node)
-     :def (annotate-def ctx node)
-     :do (annotate-do ctx node)
-     :fn (annotate-fn ctx node)
-     :fn-method (annotate-fn-method ctx node)
-     :if (annotate-if ctx node)
-     :invoke (annotate-invoke ctx node)
-     :let (annotate-let ctx node)
-     :local (annotate-local ctx node)
-     :map (annotate-map ctx node)
-     :new (annotate-new ctx node)
-     :quote (annotate-quote ctx node)
-     :set (annotate-set ctx node)
-     :static-call (annotate-static-call ctx node)
-     :the-var (annotate-var-like ctx node)
-     :throw (annotate-throw ctx node)
-     :try (annotate-try ctx node)
-     :var (annotate-var-like ctx node)
-     :vector (annotate-vector ctx node)
-     :with-meta (annotate-with-meta ctx node)
-     (assoc (annotate-children ctx node)
-            :schema (as/canonicalize-schema s/Any)))))
+  (as/with-error-context (node-error-context node)
+    (as/strip-derived-types
+     (case (:op node)
+       :binding (annotate-binding ctx node)
+       :const (annotate-const ctx node)
+       :def (annotate-def ctx node)
+       :do (annotate-do ctx node)
+       :fn (annotate-fn ctx node)
+       :fn-method (annotate-fn-method ctx node)
+       :if (annotate-if ctx node)
+       :invoke (annotate-invoke ctx node)
+       :let (annotate-let ctx node)
+       :local (annotate-local ctx node)
+       :map (annotate-map ctx node)
+       :new (annotate-new ctx node)
+       :quote (annotate-quote ctx node)
+       :set (annotate-set ctx node)
+       :static-call (annotate-static-call ctx node)
+       :the-var (annotate-var-like ctx node)
+       :throw (annotate-throw ctx node)
+       :try (annotate-try ctx node)
+       :var (annotate-var-like ctx node)
+       :vector (annotate-vector ctx node)
+       :with-meta (annotate-with-meta ctx node)
+       (assoc (annotate-children ctx node)
+              :schema (as/canonicalize-schema s/Any))))))
 
 (defn annotate-ast
   ([dict ast]

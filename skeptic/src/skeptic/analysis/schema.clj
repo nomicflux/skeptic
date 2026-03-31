@@ -8,6 +8,50 @@
 (def semantic-type-tag-key
   ::semantic-type)
 
+(def ^:dynamic *error-context*
+  nil)
+
+(defn compact-context-map
+  [m]
+  (into {}
+        (remove (comp nil? val))
+        m))
+
+(defmacro with-error-context
+  [context & body]
+  `(binding [*error-context* (merge *error-context*
+                                    (compact-context-map ~context))]
+     ~@body))
+
+(defn error-location-text
+  [{:keys [file line column]}]
+  (cond
+    (and file line column) (str file ":" line ":" column)
+    (and file line) (str file ":" line)
+    file file
+    line (str line)
+    :else nil))
+
+(defn ambiguous-map-entry-ex-info
+  [actual-key entries ambiguous]
+  (let [context (compact-context-map *error-context*)
+        location-text (some-> context :location error-location-text)
+        expr-text (or (:source-expression context)
+                      (some-> (:expr context) pr-str))
+        message (cond-> (format "Multiple results for key %s and m %s: %s"
+                                actual-key
+                                entries
+                                (mapv :key ambiguous))
+                  location-text (str "\nLocation: " location-text)
+                  expr-text (str "\nExpression: " expr-text))]
+    (ex-info message
+             (merge {:error ::ambiguous-map-entry
+                     :actual-key actual-key
+                     :entries entries
+                     :ambiguous-keys (mapv :key ambiguous)}
+                    (when (seq context)
+                      {:context context})))))
+
 (defn tagged-map?
   [value tag-key tag]
   (and (map? value)
@@ -1971,9 +2015,7 @@
                                            (map-entry-rank entries (:key %))))
                            vec)]
         (when (> (count ambiguous) 1)
-          (throw (IllegalStateException.
-                  (format "Multiple results for key %s and m %s: %s"
-                          actual-key entries (mapv :key ambiguous)))))
+          (throw (ambiguous-map-entry-ex-info actual-key entries ambiguous)))
         matched-entry))))
 
 (defn map-contains-key-classification
