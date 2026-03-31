@@ -21,22 +21,40 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
-(deftest report-fields-include-blame-metadata
-  (let [fields (sut/report-fields
-                {:location {:file "src/example.clj"
-                            :line 12
-                            :column 3}
-                 :blame-side :term
-                 :blame-polarity :positive
-                 :rule :function
-                 :actual-type (as/schema->type s/Int)
-                 :expected-type (as/schema->type s/Str)
-                 :source-expression "(takes-str x)"
-                 :focus-sources ["x"]
-                 :enclosing-form 'example/takes-str
-                 :expanded-expression '(takes-str x)})]
+(def report-summary
+  {:location {:file "src/example.clj"
+              :line 12
+              :column 3}
+   :blame-side :term
+   :blame-polarity :positive
+   :rule :function
+   :actual-type (as/schema->type s/Int)
+   :expected-type (as/schema->type s/Str)
+   :source-expression "(takes-str x)"
+   :focus-sources ["x"]
+   :enclosing-form 'example/takes-str
+   :expanded-expression '(takes-str x)})
+
+(deftest report-fields-hide-detail-fields-when-not-verbose
+  (let [fields (sut/report-fields report-summary)]
     (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
-    (is (some #{["Blame: \t\t" "term / positive"]} fields))
+    (is (some #{["Blame: \t\t\t"
+                 "this expression or returned value does not match what the surrounding code expects"]}
+              fields))
+    (is (not (some #{["Cast rule: \t\t" "function"]} fields)))
+    (is (not (some #{["Actual type: \t\t" "Int"]} fields)))
+    (is (not (some #{["Expected type: \t" "Str"]} fields)))
+    (is (not (some #{["Expression: \t\t" "(takes-str x)"]} fields)))
+    (is (not (some #{["Affected input: \t" "x"]} fields)))
+    (is (not (some #{["In enclosing form: \t" "example/takes-str"]} fields)))
+    (is (not (some #{["Analyzed expression: \t" "(takes-str x)"]} fields)))))
+
+(deftest report-fields-include-detail-fields-when-verbose
+  (let [fields (sut/report-fields report-summary true)]
+    (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
+    (is (some #{["Blame: \t\t\t"
+                 "this expression or returned value does not match what the surrounding code expects"]}
+              fields))
     (is (some #{["Cast rule: \t\t" "function"]} fields))
     (is (some #{["Actual type: \t\t" "Int"]} fields))
     (is (some #{["Expected type: \t" "Str"]} fields))
@@ -45,13 +63,26 @@
     (is (some #{["In enclosing form: \t" "example/takes-str"]} fields))
     (is (some #{["Analyzed expression: \t" "(takes-str x)"]} fields))))
 
-(deftest report-fields-render-semantic-polymorphic-types
+(deftest report-fields-render-user-friendly-blame-for-context-and-global-cases
+  (let [context-fields (sut/report-fields {:blame-side :context
+                                           :blame-polarity :negative})
+        global-fields (sut/report-fields {:blame-side :global
+                                          :blame-polarity :global})]
+    (is (some #{["Blame: \t\t\t"
+                 "the surrounding code is using this value in a way its schema does not allow"]}
+              context-fields))
+    (is (some #{["Blame: \t\t\t"
+                 "an abstract value was inspected or escaped the scope where it is valid"]}
+              global-fields))))
+
+(deftest report-fields-render-semantic-polymorphic-types-in-verbose-mode
   (let [type-var (as/->TypeVarT 'X)
         fields (sut/report-fields
                 {:rule :generalize
                  :actual-type (as/->SealedDynT type-var)
                  :expected-type (as/->ForallT 'X type-var)
-                 :source-expression "(poly x)"})]
+                 :source-expression "(poly x)"}
+                true)]
     (is (some #{["Cast rule: \t\t" "generalize"]} fields))
     (is (some #{["Actual type: \t\t" "(sealed X)"]} fields))
     (is (some #{["Expected type: \t" "(forall X X)"]} fields))))
@@ -125,14 +156,18 @@
                                          (str label value))
                                        fields)
                                   (:errors summary)))]
-    (is (some #{["Actual type: \t\t" "[Any]"]} fields))
-    (is (some (fn [[label value]]
-                (and (= "Expected type: \t" label)
-                     (str/includes? value "Threal")))
-              fields))
+    (is (not-any? (fn [[label _]]
+                    (#{"Actual type: \t\t" "Expected type: \t"} label))
+                  fields))
+    (let [verbose-fields (sut/report-fields summary true)]
+      (is (some #{["Actual type: \t\t" "[Any]"]} verbose-fields))
+      (is (some (fn [[label value]]
+                  (and (= "Expected type: \t" label)
+                       (str/includes? value "Threal")))
+                verbose-fields)))
     (assert-no-ui-internals printed)))
 
-(deftest report-fields-prefer-top-level-cast-metadata
+(deftest report-fields-prefer-top-level-cast-metadata-in-verbose-mode
   (let [fields (sut/report-fields
                 (inconsistence/report-summary
                  {:rule :leaf-overlap
@@ -143,7 +178,8 @@
                                 :target-type (as/schema->type (s/either s/Int s/Str))}
                   :source-expression "(takes-either-branch :bad)"
                   :errors ["err"]
-                  :cast-results []}))]
+                  :cast-results []})
+                true)]
     (is (some #{["Cast rule: \t\t" "target-union"]} fields))
     (is (some #{["Actual type: \t\t" "Keyword"]} fields))
     (is (some (fn [[label value]]
@@ -152,7 +188,7 @@
                      (.contains value "Str")))
               fields))))
 
-(deftest output-report-fields-prefer-actionable-leaf-metadata
+(deftest output-report-fields-prefer-actionable-leaf-metadata-in-verbose-mode
   (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
         triple (as/->VectorT [placeholder placeholder placeholder] false)
         slot (as/->SetT #{triple} false)
@@ -180,7 +216,7 @@
                                   :target-type expected-result
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :result}]}]})
-        fields (sut/report-fields summary)]
+        fields (sut/report-fields summary true)]
     (is (some #{["Cast rule: \t\t" "leaf-overlap"]} fields))
     (is (some (fn [[label value]]
                 (and (= "Actual type: \t\t" label)

@@ -11,6 +11,10 @@
 
 (def RecursiveSchemaRef [#'RecursiveSchemaRef])
 
+(defn T
+  [schema]
+  (as/schema->type schema))
+
 (deftest tagged-polymorphic-type-helpers-test
   (let [type-var (as/->TypeVarT 'X)
         forall (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
@@ -29,7 +33,10 @@
     (is (as/semantic-type-value? forall))
     (is (= forall (get localized :poly)))
     (is (= sealed (get localized :sealed)))
-    (is (= {:schema s/Int} stripped))
+    (is (= {:schema s/Int
+            :type forall
+            :output-type sealed}
+           stripped))
     (is (= #{'Y} (as/type-free-vars (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
                                                                                 (as/->TypeVarT 'Y)
                                                                                 1
@@ -108,26 +115,25 @@
                                               '(let [id (fn [x] x)]
                                                  (id 1))
                                               {:ns 'skeptic.analysis-schema-test})
-        node-schemas (keep :schema (ana.ast/nodes ast))]
-    (is (seq node-schemas))
-    (is (not-any? (comp as/forall-type? as/schema->type) node-schemas))
-    (is (not-any? (comp as/type-var-type? as/schema->type) node-schemas))
-    (is (not-any? (comp as/sealed-dyn-type? as/schema->type) node-schemas))))
+        node-types (keep :type (ana.ast/nodes ast))]
+    (is (seq node-types))
+    (is (not-any? as/forall-type? node-types))
+    (is (not-any? as/type-var-type? node-types))
+    (is (not-any? as/sealed-dyn-type? node-types))))
 
-(deftest renderers-keep-type-and-schema-domains-separate-test
+(deftest display-keeps-type-and-schema-domains-separate-test
   (let [type-var (as/->TypeVarT 'X)
         polymorphic-map (as/->MapT {(as/->GroundT :keyword 'Keyword)
                                     (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
                                                                                (as/->SealedDynT type-var)
                                                                                1
                                                                                false)]))})]
-    (is (= "{Keyword (forall X (=> (sealed X) X))}"
-           (as/render-type polymorphic-map)))
-    (is (= "\"hello\""
-           (as/render-type (as/schema->type (s/eq "hello")))))
-    (is (thrown-with-msg? IllegalArgumentException
-                          #"Not a valid Schema-domain value"
-                          (as/render-schema-form polymorphic-map)))))
+    (is (= '{Keyword (forall X (=> (sealed X) X))}
+           (as/display-form polymorphic-map)))
+    (is (= "hello"
+           (as/display-form (T (s/eq "hello")))))
+    (is (= 'Int
+           (as/display-form s/Int)))))
 
 (deftest raw-schema-var-normalization-test
   (testing "bound vars are dereferenced during schema localization"

@@ -10,37 +10,93 @@
   [schema]
   (instance? FnSchema schema))
 
-(declare class->schema)
+(declare class->schema
+         type-of-value
+         schema-of-value)
+
+(defn normalize-declared-type
+  [value]
+  (when (some? value)
+    (if (as/type-domain-value? value)
+      (as/normalize-type value)
+      (as/import-schema-type value))))
+
+(defn compat-schema
+  [type]
+  (some-> type as/type->schema-compat))
+
+(defn compat-schemas
+  [types]
+  (mapv compat-schema types))
 
 (defn one->arg-entry
   [idx one]
   (let [m (try (into {} one)
                (catch Exception _e {}))]
-    {:schema (as/canonicalize-schema (or (:schema m) s/Any))
+    (let [type (normalize-declared-type (or (:type m) (:schema m) s/Any))]
+      {:type type
+       :schema (compat-schema type)
      :optional? false
-     :name (or (:name m) (symbol (str "arg" idx)))}))
+       :name (or (:name m) (symbol (str "arg" idx)))})))
+
+(defn arg-entry-map?
+  [entry]
+  (and (map? entry)
+       (or (contains? entry :type)
+           (contains? entry :schema)
+           (contains? entry :optional?)
+           (contains? entry :name))))
+
+(defn normalize-arg-entry
+  [entry]
+  (let [base (if (arg-entry-map? entry) entry {:schema entry})
+        type (normalize-declared-type (or (:type base)
+                                          (:schema base)
+                                          s/Any))]
+    {:type type
+     :schema (compat-schema type)
+     :optional? (boolean (:optional? base))
+     :name (:name base)}))
+
+(defn normalize-arglist-entry
+  [entry]
+  (let [types (mapv normalize-arg-entry (or (:types entry)
+                                            (:schema entry)
+                                            []))]
+    (cond-> (-> entry
+                (dissoc :types :schema)
+                (assoc :types types
+                       :schema types))
+      (not (contains? entry :count))
+      (assoc :count (count types)))))
 
 (defn schema->callable
   [schema]
   (when (fn-schema? schema)
-    (let [{:keys [input-schemas output-schema]} (into {} schema)]
-      (as/canonicalize-entry
-       {:output output-schema
-        :arglists (into {}
-                        (map (fn [inputs]
-                               [(count inputs)
-                                {:arglist (mapv (fn [idx one]
-                                                  (:name (one->arg-entry idx one)))
-                                                (range)
-                                                inputs)
-                                 :count (count inputs)
-                                 :schema (mapv one->arg-entry (range) inputs)}]))
-                        input-schemas)}))))
+    (let [{:keys [input-schemas output-schema]} (into {} schema)
+          output-type (normalize-declared-type output-schema)
+          arglists (into {}
+                         (map (fn [inputs]
+                                (let [types (mapv one->arg-entry (range) inputs)]
+                                  [(count inputs)
+                                   {:arglist (mapv :name types)
+                                    :count (count inputs)
+                                    :types types
+                                    :schema types}])))
+                         input-schemas)
+          fn-type (normalize-declared-type schema)]
+      {:type fn-type
+       :schema (compat-schema fn-type)
+       :output-type output-type
+       :output (compat-schema output-type)
+       :arglists arglists})))
 
 (defn entry-map?
   [entry]
   (and (map? entry)
-       (or (contains? entry :schema)
+       (or (contains? entry :type)
+           (contains? entry :schema)
+           (contains? entry :output-type)
            (contains? entry :output)
            (contains? entry :arglists))))
 
@@ -49,19 +105,37 @@
   (when (some? entry)
     (let [base (if (entry-map? entry)
                  entry
-                 {:schema entry})]
-      (as/strip-derived-types
-       (as/canonicalize-entry
-        (merge (schema->callable (:schema base))
-               (cond-> base
-                 (:schema base) (update :schema as/canonicalize-schema)
-                 (:output base) (update :output as/canonicalize-schema))))))))
+                 {:schema entry})
+          callable (or (when-let [schema (:schema base)]
+                         (schema->callable schema))
+                       {})
+          type (normalize-declared-type (or (:type base)
+                                            (:type callable)
+                                            (:schema base)
+                                            (:schema callable)))
+          output-type (normalize-declared-type (or (:output-type base)
+                                                   (:output-type callable)
+                                                   (:output base)
+                                                   (:output callable)))
+          arglists (some-> (or (:arglists base)
+                               (:arglists callable))
+                           ((fn [arglists]
+                              (into {}
+                                    (map (fn [[k v]]
+                                           [k (normalize-arglist-entry v)]))
+                                    arglists))))]
+       (as/strip-derived-types
+       (cond-> (merge callable
+                      (dissoc base :schema :output :type :output-type :arglists)
+                      {:type (or type as/Dyn)
+                       :schema (compat-schema (or type as/Dyn))})
+         output-type (assoc :output-type output-type
+                            :output (compat-schema output-type))
+         arglists (assoc :arglists arglists))))))
 
 (defn class->schema
   [klass]
   (as/canonical-scalar-schema klass))
-
-(declare schema-of-value)
 
 (defn coll-element-schema
   [values]
@@ -94,18 +168,23 @@
     (class? value) java.lang.Class
     :else (class->schema (class value))))
 
-(defn schema-join*
-  [schemas]
-  (let [schemas (vec (remove nil? schemas))
-        non-bottom (vec (remove #(= % as/Bottom) schemas))]
+(defn type-of-value
+  [value]
+  (normalize-declared-type (schema-of-value value)))
+
+(defn type-join*
+  [types]
+  (let [types (vec (remove nil? (map as/normalize-type types)))
+        non-bottom (vec (remove as/bottom-type? types))]
     (cond
-      (seq non-bottom) (as/schema-join (set non-bottom))
-      (seq schemas) as/Bottom
-      :else s/Any)))
+      (seq non-bottom) (as/union-type non-bottom)
+      (seq types) as/BottomType
+      :else as/Dyn)))
 
 (defn node-info
   [node]
-  (select-keys node [:schema :output :arglists :arglist :expected-arglist :actual-arglist :fn-schema :origin]))
+  (select-keys node [:type :output-type :arglists :arglist :expected-argtypes :actual-argtypes :fn-type
+                     :schema :output :expected-arglist :actual-arglist :fn-schema :origin]))
 
 (defn literal-map-key?
   [node]
@@ -113,16 +192,16 @@
 
 (defn semantic-map-key
   [node]
-  (as/canonicalize-schema
+  (as/normalize-type
    (if (literal-map-key? node)
      (:form node)
-     (:schema node))))
+     (:type node))))
 
 (defn get-key-query
   [node]
   (if (literal-map-key? node)
-    (as/exact-key-query (:schema node) (:form node) (:form node))
-    (as/domain-key-query (:schema node) (:form node))))
+    (as/exact-key-query (:type node) (:form node) (:form node))
+    (as/domain-key-query (:type node) (:form node))))
 
 (defn local-binding-ast
   [idx sym]
@@ -157,13 +236,19 @@
 
 (defn default-call-info
   [arity output]
-  {:expected-arglist (vec (repeat arity s/Any))
-   :output (or output s/Any)
-   :fn-schema (as/dynamic-fn-schema arity (or output s/Any))})
+  (let [output-type (or output as/Dyn)
+        expected-argtypes (vec (repeat arity as/Dyn))
+        fn-type (normalize-declared-type (as/dynamic-fn-schema arity s/Any))]
+    {:expected-argtypes expected-argtypes
+     :expected-arglist (compat-schemas expected-argtypes)
+     :output-type output-type
+     :output (compat-schema output-type)
+     :fn-type fn-type
+     :fn-schema (compat-schema fn-type)}))
 
 (defn typed-arglist-entry?
-  [{:keys [schema]}]
-  (boolean (seq schema)))
+  [{:keys [types]}]
+  (boolean (seq types)))
 
 (defn typed-callable?
   [fn-node]
@@ -209,11 +294,14 @@
   (if (typed-callable? fn-node)
     (let [converted (ar/convert-arglists args
                                          {:arglists (:arglists fn-node)
-                                          :output (or (:output fn-node) s/Any)})]
-      {:expected-arglist (:arglist converted)
-       :output (or (:output converted) s/Any)
-       :fn-schema (:schema converted)})
-    (default-call-info (count args) (:output fn-node))))
+                                          :output-type (or (:output-type fn-node) as/Dyn)})]
+      {:expected-argtypes (:argtypes converted)
+       :expected-arglist (compat-schemas (:argtypes converted))
+       :output-type (or (:output-type converted) as/Dyn)
+       :output (compat-schema (or (:output-type converted) as/Dyn))
+       :fn-type (:type converted)
+       :fn-schema (compat-schema (:type converted))})
+    (default-call-info (count args) (:output-type fn-node))))
 
 (declare annotate-node
          node-origin
@@ -232,30 +320,33 @@
 
 (defn annotate-const
   [_ctx node]
-  (assoc node :schema (as/canonicalize-schema (schema-of-value (:val node)))))
+  (let [type (type-of-value (:val node))]
+    (assoc node
+           :type type
+           :schema (compat-schema type))))
 
 (defn root-origin
-  [sym schema]
+  [sym type]
   {:kind :root
    :sym sym
-   :schema (as/canonicalize-schema schema)})
+   :type (as/normalize-type type)})
 
 (defn opaque-origin
-  [schema]
+  [type]
   {:kind :opaque
-   :schema (as/canonicalize-schema schema)})
+   :type (as/normalize-type type)})
 
 (defn entry-origin
   [sym entry]
   (or (:origin entry)
-      (when-let [schema (:schema entry)]
-        (root-origin sym schema))))
+      (when-let [type (:type entry)]
+        (root-origin sym type))))
 
 (defn node-origin
   [node]
   (or (:origin node)
-      (when-let [schema (:schema node)]
-        (opaque-origin schema))))
+      (when-let [type (:type node)]
+        (opaque-origin type))))
 
 (defn opposite-polarity
   [assumption]
@@ -276,36 +367,36 @@
   [assumption root]
   (= (get-in assumption [:root :sym]) (:sym root)))
 
-(defn apply-assumption-to-root-schema
-  [schema assumption]
+(defn apply-assumption-to-root-type
+  [type assumption]
   (case (:kind assumption)
     :truthy-local
     (if (:polarity assumption)
-      (as/de-maybe schema)
-      schema)
+      (as/de-maybe-type type)
+      type)
 
     :contains-key
-    (as/refine-schema-by-contains-key schema (:key assumption) (:polarity assumption))
+    (as/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
 
-    schema))
+    type))
 
-(defn refine-root-schema
+(defn refine-root-type
   [root assumptions]
-  (reduce (fn [schema assumption]
+  (reduce (fn [type assumption]
             (if (assumption-root? assumption root)
-              (apply-assumption-to-root-schema schema assumption)
-              schema))
-          (:schema root)
+              (apply-assumption-to-root-type type assumption)
+              type))
+          (:type root)
           assumptions))
 
-(defn assumption-base-schema
+(defn assumption-base-type
   [assumption assumptions]
   (let [same-proposition? (fn [candidate]
                             (and (= (:kind candidate) (:kind assumption))
                                  (= (get-in candidate [:root :sym]) (get-in assumption [:root :sym]))
                                  (= (:key candidate) (:key assumption))))]
-    (refine-root-schema (:root assumption)
-                        (remove same-proposition? assumptions))))
+    (refine-root-type (:root assumption)
+                      (remove same-proposition? assumptions))))
 
 (defn assumption-truth
   [assumption assumptions]
@@ -316,8 +407,8 @@
     :else
     (case (:kind assumption)
       :contains-key
-      (case (as/contains-key-classification (assumption-base-schema assumption assumptions)
-                                            (:key assumption))
+      (case (as/contains-key-type-classification (assumption-base-type assumption assumptions)
+                                                 (:key assumption))
         :always (if (:polarity assumption) :true :false)
         :never (if (:polarity assumption) :false :true)
         :unknown :unknown)
@@ -327,27 +418,29 @@
 
       :unknown)))
 
-(defn origin-schema
+(defn origin-type
   [origin assumptions]
   (case (:kind origin)
-    :root (refine-root-schema origin assumptions)
-    :opaque (:schema origin)
+    :root (refine-root-type origin assumptions)
+    :opaque (:type origin)
     :branch (case (assumption-truth (:test origin) assumptions)
-              :true (origin-schema (:then-origin origin) assumptions)
-              :false (origin-schema (:else-origin origin) assumptions)
-              (schema-join* [(origin-schema (:then-origin origin) assumptions)
-                             (origin-schema (:else-origin origin) assumptions)]))
-    (:schema origin)))
+              :true (origin-type (:then-origin origin) assumptions)
+              :false (origin-type (:else-origin origin) assumptions)
+              (type-join* [(origin-type (:then-origin origin) assumptions)
+                           (origin-type (:else-origin origin) assumptions)]))
+    (:type origin)))
 
 (defn effective-entry
   [sym entry assumptions]
   (let [entry (normalize-entry entry)
         origin (entry-origin sym entry)
-        schema (or (some-> origin (origin-schema assumptions))
-                   (:schema entry)
-                   s/Any)]
-    (cond-> (or entry {:schema s/Any})
-      true (assoc :schema (as/canonicalize-schema schema))
+        type (or (some-> origin (origin-type assumptions))
+                 (:type entry)
+                 as/Dyn)]
+    (cond-> (or entry {:type as/Dyn
+                       :schema (compat-schema as/Dyn)})
+      true (assoc :type (as/normalize-type type)
+                  :schema (compat-schema (as/normalize-type type)))
       origin (assoc :origin origin))))
 
 (defn local-root-origin
@@ -421,73 +514,84 @@
   (merge node
          (if-let [entry (get locals (:form node))]
            (effective-entry (:form node) entry assumptions)
-           {:schema s/Any})))
+           {:type as/Dyn
+            :schema (compat-schema as/Dyn)})))
 
 (defn annotate-var-like
   [{:keys [dict ns]} node]
   (merge node
          (or (lookup-entry dict ns node)
-             {:schema s/Any})))
+             {:type as/Dyn
+              :schema (compat-schema as/Dyn)})))
 
 (defn annotate-static-call
   [ctx node]
   (let [args (mapv #(annotate-node ctx %) (:args node))]
-    (assoc node
-           :args args
-           :actual-arglist (mapv :schema args)
-           :expected-arglist (vec (repeat (count args) s/Any))
-           :schema (as/canonicalize-schema
-                    (cond
-                      (static-get-call? node)
-                      (let [[target key-node default-node] args
-                            key-schema (get-key-query key-node)]
-                        (if default-node
-                          (as/map-get-schema (:schema target)
-                                             key-schema
-                                             (:schema default-node))
-                          (as/map-get-schema (:schema target)
-                                             key-schema)))
+    (let [actual-argtypes (mapv :type args)
+          expected-argtypes (vec (repeat (count args) as/Dyn))
+          type (cond
+                 (static-get-call? node)
+                 (let [[target key-node default-node] args
+                       key-type (get-key-query key-node)]
+                   (if default-node
+                     (as/map-get-type (:type target)
+                                      key-type
+                                      (:type default-node))
+                     (as/map-get-type (:type target)
+                                      key-type)))
 
-                      (static-merge-call? node)
-                      (as/merge-map-schemas (map :schema args))
+                 (static-merge-call? node)
+                 (as/merge-map-types (map :type args))
 
-                      (static-contains-call? node)
-                      s/Bool
+                 (static-contains-call? node)
+                 (normalize-declared-type s/Bool)
 
-                      :else
-                      s/Any)))))
+                 :else
+                 as/Dyn)]
+      (assoc node
+             :args args
+             :actual-argtypes actual-argtypes
+             :actual-arglist (compat-schemas actual-argtypes)
+             :expected-argtypes expected-argtypes
+             :expected-arglist (compat-schemas expected-argtypes)
+             :type type
+             :schema (compat-schema type)))))
 
 (defn annotate-invoke
   [ctx node]
   (let [fn-node (annotate-node ctx (:fn node))
         args (mapv #(annotate-node ctx %) (:args node))
-        {:keys [expected-arglist output fn-schema]} (call-info fn-node args)
-        output (cond
+        {:keys [expected-argtypes output-type fn-type]} (call-info fn-node args)
+        output-type (cond
                  (get-call? fn-node)
                  (let [[target key-node default-node] args
-                       key-schema (get-key-query key-node)]
+                       key-type (get-key-query key-node)]
                    (if default-node
-                     (as/map-get-schema (:schema target)
-                                        key-schema
-                                        (:schema default-node))
-                     (as/map-get-schema (:schema target)
-                                        key-schema)))
+                     (as/map-get-type (:type target)
+                                      key-type
+                                      (:type default-node))
+                     (as/map-get-type (:type target)
+                                      key-type)))
 
                  (merge-call? fn-node)
-                 (as/merge-map-schemas (map :schema args))
+                 (as/merge-map-types (map :type args))
 
                  (contains-call? fn-node)
-                 s/Bool
+                 (normalize-declared-type s/Bool)
 
                  :else
-                 output)]
+                 output-type)]
     (assoc node
            :fn fn-node
            :args args
-           :actual-arglist (mapv (comp as/canonicalize-schema :schema) args)
-           :expected-arglist (mapv as/canonicalize-schema expected-arglist)
-           :schema (as/canonicalize-schema output)
-           :fn-schema (as/canonicalize-schema fn-schema))))
+           :actual-argtypes (mapv :type args)
+           :actual-arglist (compat-schemas (mapv :type args))
+           :expected-argtypes (mapv as/normalize-type expected-argtypes)
+           :expected-arglist (compat-schemas (mapv as/normalize-type expected-argtypes))
+           :type (as/normalize-type output-type)
+           :schema (compat-schema (as/normalize-type output-type))
+           :fn-type (as/normalize-type fn-type)
+           :fn-schema (compat-schema (as/normalize-type fn-type)))))
 
 (defn annotate-do
   [ctx node]
@@ -496,23 +600,26 @@
     (assoc node
            :statements statements
            :ret ret
-           :schema (as/canonicalize-schema (:schema ret)))))
+           :type (:type ret)
+           :schema (compat-schema (:type ret)))))
 
 (defn annotate-let
   [{:keys [locals] :as ctx} node]
   (let [[bindings final-locals]
         (reduce (fn [[acc env] binding]
                   (let [annotated (annotate-binding (assoc ctx :locals env) binding)
-                        env-entry (or (node-info annotated) {:schema s/Any})]
+                        env-entry (or (node-info annotated) {:type as/Dyn
+                                                             :schema as/Dyn})]
                     [(conj acc annotated)
-                     (assoc env (:form binding) env-entry)]))
+                    (assoc env (:form binding) env-entry)]))
                 [[] locals]
                 (:bindings node))
         body (annotate-node (assoc ctx :locals final-locals) (:body node))]
     (assoc node
            :bindings bindings
            :body body
-           :schema (:schema body))))
+           :type (:type body)
+           :schema (compat-schema (:type body)))))
 
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
@@ -528,8 +635,7 @@
                                         :locals else-locals
                                         :assumptions else-assumptions)
                                  (:else node))
-        schema (as/canonicalize-schema
-                (schema-join* [(:schema then-node) (:schema else-node)]))
+        type (type-join* [(:type then-node) (:type else-node)])
         origin (when assumption
                  {:kind :branch
                   :test assumption
@@ -539,18 +645,20 @@
            :test test-node
            :then then-node
            :else else-node
-           :schema schema
-           :origin (or origin (opaque-origin schema)))))
+           :type type
+           :schema (compat-schema type)
+           :origin (or origin (opaque-origin type)))))
 
 (defn arg-schema-specs
   [dict ns-sym name params]
   (let [entry (when-some [sym name]
                 (or (get dict sym)
                     (get dict (qualify-symbol ns-sym sym))))
-        arg-specs (get-in entry [:arglists (count params) :schema])]
+        arg-specs (get-in (normalize-entry entry) [:arglists (count params) :types])]
     (or arg-specs
         (mapv (fn [param]
-                {:schema s/Any
+                {:type as/Dyn
+                 :schema (compat-schema as/Dyn)
                  :optional? false
                  :name (:form param)})
               params))))
@@ -571,8 +679,10 @@
     (assoc node
            :params annotated-params
            :body body
-           :schema (as/canonicalize-schema (:schema body))
-           :output (as/canonicalize-schema (:schema body))
+           :type (:type body)
+           :schema (compat-schema (:type body))
+           :output-type (:type body)
+           :output (compat-schema (:type body))
            :arglist (mapv :name param-specs)
            :arg-schema param-specs)))
 
@@ -580,8 +690,15 @@
   [method]
   {:arglist (:arglist method)
    :count (count (:arg-schema method))
-   :schema (mapv (fn [{:keys [schema name]}]
-                   {:schema schema
+   :types (mapv (fn [{:keys [type name]}]
+                  {:type type
+                   :schema (compat-schema type)
+                    :optional? false
+                    :name name})
+                (:arg-schema method))
+   :schema (mapv (fn [{:keys [type name]}]
+                   {:type type
+                    :schema (compat-schema type)
                     :optional? false
                     :name name})
                  (:arg-schema method))})
@@ -594,18 +711,21 @@
                               [(count (:arg-schema method))
                                (method->arglist-entry method)]))
                        methods)
-        output (schema-join* (map :output methods))]
+        output-type (type-join* (map :output-type methods))
+        fn-type (as/->FunT
+                 (mapv (fn [method]
+                         (as/->FnMethodT (mapv :type (:arg-schema method))
+                                         (:output-type method)
+                                         (count (:arg-schema method))
+                                         false))
+                       methods))]
     (assoc node
            :methods methods
-           :output (as/canonicalize-schema output)
+           :output-type output-type
+           :output (compat-schema output-type)
            :arglists arglists
-           :schema (as/canonicalize-schema
-                    (s/make-fn-schema output
-                                      (mapv (fn [method]
-                                              (mapv (fn [{:keys [schema name]}]
-                                                      (s/one schema name))
-                                                    (:arg-schema method)))
-                                            methods))))))
+           :type fn-type
+           :schema (compat-schema fn-type))))
 
 (defn annotate-def
   [{:keys [locals] :as ctx} node]
@@ -617,8 +737,8 @@
                                           :name (:name node))
                                    init-node))]
     (cond-> (assoc node
-                   :schema (as/canonicalize-schema
-                            (as/variable (or (:schema init-node) s/Any))))
+                   :type (as/->VarT (or (:type init-node) as/Dyn))
+                   :schema (compat-schema (as/->VarT (or (:type init-node) as/Dyn))))
       meta-node (assoc :meta meta-node)
       init-node (assoc :init init-node))))
 
@@ -627,20 +747,30 @@
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :schema (as/canonicalize-schema
-                    (mapv (fn [item]
-                            (or (:schema item) s/Any))
-                          items)))))
+           :type (as/normalize-type
+                  (mapv (fn [item]
+                          (or (:type item) as/Dyn))
+                        items))
+           :schema (compat-schema
+                    (as/normalize-type
+                     (mapv (fn [item]
+                             (or (:type item) as/Dyn))
+                           items))))))
 
 (defn annotate-set
   [ctx node]
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :schema (as/canonicalize-schema
-                    #{(if (seq items)
-                        (schema-join* (map :schema items))
-                        s/Any)}))))
+           :type (as/normalize-type
+                  #{(if (seq items)
+                      (type-join* (map :type items))
+                      as/Dyn)})
+           :schema (compat-schema
+                    (as/normalize-type
+                     #{(if (seq items)
+                         (type-join* (map :type items))
+                         as/Dyn)})))))
 
 (defn annotate-map
   [ctx node]
@@ -649,13 +779,21 @@
     (assoc node
            :keys keys
            :vals vals
-           :schema (as/canonicalize-schema
-                    (into {}
-                          (map (fn [k v]
-                                 [(semantic-map-key k)
-                                  (:schema v)])
-                               keys
-                               vals))))))
+           :type (as/normalize-type
+                  (into {}
+                        (map (fn [k v]
+                               [(semantic-map-key k)
+                                (:type v)])
+                             keys
+                             vals)))
+           :schema (compat-schema
+                    (as/normalize-type
+                     (into {}
+                           (map (fn [k v]
+                                  [(semantic-map-key k)
+                                   (:type v)])
+                                keys
+                                vals)))))))
 
 (defn annotate-new
   [ctx node]
@@ -664,7 +802,8 @@
     (assoc node
            :class class-node
            :args args
-           :schema (as/canonicalize-schema (or (:val class-node) s/Any)))))
+           :type (normalize-declared-type (or (:val class-node) s/Any))
+           :schema (compat-schema (normalize-declared-type (or (:val class-node) s/Any))))))
 
 (defn annotate-with-meta
   [ctx node]
@@ -680,22 +819,27 @@
   (let [exception (annotate-node ctx (:exception node))]
     (assoc node
            :exception exception
-           :schema as/Bottom)))
+           :type as/BottomType
+           :schema (compat-schema as/BottomType))))
 
 (defn annotate-catch
   [{:keys [locals] :as ctx} node]
   (let [class-node (annotate-node ctx (:class node))
-        caught-schema (or (:val class-node) s/Any)
-        local-node (merge (:local node) {:schema caught-schema})
+        caught-type (normalize-declared-type (or (:val class-node) s/Any))
+        local-node (merge (:local node)
+                          {:type caught-type
+                           :schema (compat-schema caught-type)})
         body (annotate-node (assoc ctx
                                    :locals (assoc locals (:form (:local node))
-                                                  {:schema caught-schema}))
+                                                  {:type caught-type
+                                                   :schema (compat-schema caught-type)}))
                             (:body node))]
     (assoc node
            :class class-node
            :local local-node
            :body body
-           :schema (as/canonicalize-schema (:schema body)))))
+           :type (:type body)
+           :schema (compat-schema (:type body)))))
 
 (defn annotate-try
   [ctx node]
@@ -706,9 +850,11 @@
     (cond-> (assoc node
                    :body body
                    :catches catches
-                   :schema (as/canonicalize-schema
-                            (schema-join* (cons (:schema body)
-                                                (map :schema catches)))))
+                   :type (type-join* (cons (:type body)
+                                           (map :type catches)))
+                   :schema (compat-schema
+                            (type-join* (cons (:type body)
+                                              (map :type catches)))))
       finally-node (assoc :finally finally-node))))
 
 (defn annotate-quote
@@ -716,8 +862,8 @@
   (let [expr (annotate-node ctx (:expr node))]
     (assoc node
            :expr expr
-           :schema (as/canonicalize-schema
-                    (schema-of-value (-> node :form second))))))
+           :type (type-of-value (-> node :form second))
+           :schema (compat-schema (type-of-value (-> node :form second))))))
 
 (defn node-location
   [node]
@@ -758,7 +904,8 @@
        :vector (annotate-vector ctx node)
        :with-meta (annotate-with-meta ctx node)
        (assoc (annotate-children ctx node)
-              :schema (as/canonicalize-schema s/Any))))))
+              :type as/Dyn
+              :schema (compat-schema as/Dyn))))))
 
 (defn annotate-ast
   ([dict ast]

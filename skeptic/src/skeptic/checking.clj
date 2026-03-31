@@ -216,7 +216,7 @@
 (defn node-ref
   [node]
   (when node
-    (select-keys node [:form :schema])))
+    (select-keys node [:form :type])))
 
 (defn callee-ref
   [node]
@@ -268,7 +268,7 @@
                    (assoc acc
                           (:form local-node)
                           {:form (:form local-node)
-                           :schema (:schema local-node)
+                           :type (:type local-node)
                            :resolution-path (local-resolution-path bindings local-node)})))
                {})))
 
@@ -289,8 +289,8 @@
   [node]
   (and (contains? invoke-ops (:op node))
        (vector? (:args node))
-       (seq (:expected-arglist node))
-       (seq (:actual-arglist node))))
+       (seq (:expected-argtypes node))
+       (seq (:actual-argtypes node))))
 
 (defn qualify-symbol
   [ns-sym sym]
@@ -328,8 +328,8 @@
        (as/strip-derived-types
         (into {}
               (remove (comp nil? val))
-              {:schema (:schema value-node)
-               :output (:output value-node)
+              {:type (:type value-node)
+               :output-type (:output-type value-node)
                :arglists (:arglists value-node)
                :arglist (:arglist value-node)}))])))
 
@@ -349,26 +349,27 @@
                          (keep #(analyzed-def-entry ns-sym %))
                          analyzed)}))
 
-(defn method-output-schema
+(defn method-output-type
   [method]
   (let [body (:body method)
-        output (:output method)
-        tagged-output (some-> (:tag body) analysis/class->schema)]
-    (if (inconsistence/unknown-output-schema? output)
-      (as/canonicalize-schema (or tagged-output output))
-      (as/canonicalize-schema output))))
+        output-type (:output-type method)
+        tagged-output (some-> (:tag body) analysis/class->schema as/import-schema-type)]
+    (if (inconsistence/unknown-output-schema? output-type)
+      (as/normalize-type (or tagged-output output-type))
+      (as/normalize-type output-type))))
 
 (defn def-output-results
   [dict bindings ns-sym source-form enclosing-form node]
-  (let [entry (dict-entry dict ns-sym (:name node))
-        expected-output (some-> (:output entry) as/canonicalize-schema)
+  (let [entry (some-> (dict-entry dict ns-sym (:name node))
+                      analysis/normalize-entry)
+        expected-output (some-> (:output-type entry) as/normalize-type)
         init-node (some-> node :init unwrap-with-meta)
         methods (:methods init-node)
         source-bodies (map method-source-body (defn-decls source-form))]
     (when (and expected-output (seq methods))
       (->> (map vector methods source-bodies)
            (keep (fn [[method source-body]]
-                   (let [actual-output (method-output-schema method)
+                   (let [actual-output (method-output-type method)
                          body (:body method)
                          source-body-location (when source-body
                                                 (select-keys (meta source-body)
@@ -410,8 +411,8 @@
 (defn match-s-exprs
   [bindings enclosing-form node]
   (when (call-node? node)
-    (let [expected-arglist (vec (:expected-arglist node))
-          actual-arglist (vec (:actual-arglist node))
+    (let [expected-arglist (vec (:expected-argtypes node))
+          actual-arglist (vec (:actual-argtypes node))
           display (display-expr node)]
       (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
               (format "Arglists must not be nil: %s %s\n%s"

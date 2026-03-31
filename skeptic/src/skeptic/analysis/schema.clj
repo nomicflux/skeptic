@@ -75,6 +75,7 @@
          sealed-dyn-type?
          placeholder-type?
          value-type?
+         de-maybe-type
          semantic-type-value?
          render-type-form
          render-type
@@ -188,6 +189,26 @@
   (cond-> s
     (maybe? s)
     :schema))
+
+(declare normalize-type
+         union-type)
+
+(defn de-maybe-type
+  [type]
+  (let [type (normalize-type type)]
+    (cond
+      (maybe-type? type)
+      (:inner type)
+
+      (union-type? type)
+      (union-type (map (fn [member]
+                         (if (maybe-type? member)
+                           (:inner member)
+                           member))
+                       (:members type)))
+
+      :else
+      type)))
 
 (defn de-named
   [s]
@@ -1028,24 +1049,40 @@
   (or (tagged-map? t semantic-type-tag-key value-type-tag)
       (same-class-name? t "skeptic.analysis.schema.ValueT")))
 
-(declare schema->type
+(declare type-domain-value?
+         normalize-type
+         import-schema-type
+         schema->type
          check-cast
          type-compatible-map-value?)
 
-(defn normalize-type-members
+(defn nil-bearing-type-members
   [members]
   (->> members
-       (map schema->type)
+       (map normalize-type)
        (mapcat (fn [member]
                  (cond
                    (union-type? member) (:members member)
                    :else [member])))
-       set))
+       ((fn [members]
+          (let [nil-bearing? (some maybe-type? members)
+                {maybe-members true
+                 plain-members false} (group-by maybe-type? members)
+                maybe-bases (->> maybe-members
+                                 (map :inner)
+                                 set)
+                maybe-bases (if (and (contains? maybe-bases Dyn)
+                                     (seq (concat plain-members
+                                                  (disj maybe-bases Dyn))))
+                              (disj maybe-bases Dyn)
+                              maybe-bases)]
+            {:nil-bearing? (boolean nil-bearing?)
+             :members (into (set plain-members) maybe-bases)})))))
 
 (defn normalize-intersection-members
   [members]
   (->> members
-       (map schema->type)
+       (map normalize-type)
        (mapcat (fn [member]
                  (cond
                    (intersection-type? member) (:members member)
@@ -1054,11 +1091,14 @@
 
 (defn union-type
   [members]
-  (let [members (normalize-type-members members)]
-    (cond
-      (empty? members) Dyn
-      (= 1 (count members)) (first members)
-      :else (->UnionT members))))
+  (let [{:keys [nil-bearing? members]} (nil-bearing-type-members members)
+        base (cond
+               (empty? members) Dyn
+               (= 1 (count members)) (first members)
+               :else (->UnionT members))]
+    (if nil-bearing?
+      (->MaybeT base)
+      base)))
 
 (defn intersection-type
   [members]
@@ -1078,7 +1118,7 @@
                    java.lang.Object])
              schema))
 
-(defn render-schema-form
+(defn- schema-display-form
   [schema]
   (let [schema (canonicalize-schema schema)]
     (when-not (schema? schema)
@@ -1089,12 +1129,12 @@
 (defn render-schema
   [schema]
   (some-> schema
-          render-schema-form
+          schema-display-form
           pr-str))
 
-(defn import-display-form
+(defn- import-display-form
   [schema]
-  (render-schema-form schema))
+  (schema-display-form schema))
 
 (defn primitive-ground-type
   [schema]
@@ -1124,6 +1164,46 @@
   [value]
   (->ValueT (or (literal-ground-type value) Dyn) value))
 
+(defn type-domain-value?
+  [value]
+  (let [value (localize-schema-value value)]
+    (cond
+      (placeholder-schema? value) false
+      (semantic-type-value? value) true
+      (nil? value) true
+      (schema-literal? value) true
+      (s/optional-key? value) (type-domain-value? (:k value))
+      (and (map? value)
+           (not (record? value))
+           (not (contains? value custom-schema-tag-key)))
+      (every? (fn [[k v]]
+                (and (type-domain-value? k)
+                     (type-domain-value? v)))
+              value)
+      (vector? value) (every? type-domain-value? value)
+      (set? value) (every? type-domain-value? value)
+      (seq? value) (every? type-domain-value? value)
+      :else false)))
+
+(defn normalize-type
+  [value]
+  (let [value (localize-schema-value value)]
+    (cond
+      (semantic-type-value? value) value
+      (nil? value) (->MaybeT Dyn)
+      (schema-literal? value) (exact-value-import-type value)
+      (s/optional-key? value) (->OptionalKeyT (normalize-type (:k value)))
+      (and (map? value) (not (record? value)))
+      (->MapT (into {}
+                    (map (fn [[k v]]
+                           [(normalize-type k)
+                            (normalize-type v)]))
+                    value))
+      (vector? value) (->VectorT (mapv normalize-type value) (= 1 (count value)))
+      (set? value) (->SetT (into #{} (map normalize-type) value) (= 1 (count value)))
+      (seq? value) (->SeqT (mapv normalize-type value) (= 1 (count value)))
+      :else value)))
+
 (defn refinement-import-type
   [schema]
   (->RefinementT (schema->type (de-constrained schema))
@@ -1141,56 +1221,35 @@
                     (= (check-if-schema schema value) ::schema-valid))
                   {:source-schema schema}))
 
-(defn schema->type
+(defn import-schema-type
   [schema]
   (let [schema (localize-schema-value schema)]
-    (cond
-    (dyn-type? schema) schema
-    (bottom-type? schema) schema
-    (ground-type? schema) schema
-    (refinement-type? schema) schema
-    (adapter-leaf-type? schema) schema
-    (optional-key-type? schema) schema
-    (fn-method-type? schema) schema
-    (fun-type? schema) schema
-    (maybe-type? schema) schema
-    (union-type? schema) schema
-    (intersection-type? schema) schema
-    (map-type? schema) schema
-    (vector-type? schema) schema
-    (set-type? schema) schema
-    (seq-type? schema) schema
-    (var-type? schema) schema
-    (type-var-type? schema) schema
-    (forall-type? schema) schema
-    (sealed-dyn-type? schema) schema
-    (placeholder-type? schema) schema
-    (value-type? schema) schema
-
-    :else
+    (when-not (schema? schema)
+      (throw (IllegalArgumentException.
+              (format "Expected Schema-domain value: %s" (pr-str schema)))))
     (let [schema (canonicalize-schema schema)]
       (cond
         (nil? schema) (->MaybeT Dyn)
         (= schema Bottom) BottomType
         (placeholder-schema? schema) (->PlaceholderT (placeholder-ref schema))
         (broad-dynamic-schema? schema) Dyn
-        (instance? One schema) (schema->type (or (:schema (try (into {} schema)
-                                                              (catch Exception _e {})))
-                                                s/Any))
+        (instance? One schema) (import-schema-type (or (:schema (try (into {} schema)
+                                                                     (catch Exception _e {})))
+                                                       s/Any))
         (schema-literal? schema) (exact-value-import-type schema)
-        (s/optional-key? schema) (->OptionalKeyT (schema->type (:k schema)))
+        (s/optional-key? schema) (->OptionalKeyT (import-schema-type (:k schema)))
         (eq? schema) (exact-value-import-type (de-eq schema))
         (constrained? schema) (refinement-import-type schema)
         (primitive-ground-type schema) (primitive-ground-type schema)
 
         (fn-schema? schema)
         (let [{:keys [input-schemas output-schema]} (into {} schema)
-              output-type (schema->type output-schema)
+              output-type (import-schema-type output-schema)
               methods (mapv (fn [inputs]
                               (->FnMethodT (mapv (fn [one]
                                                    (let [m (try (into {} one)
                                                                 (catch Exception _e {}))]
-                                                     (schema->type (or (:schema m) s/Any))))
+                                                     (import-schema-type (or (:schema m) s/Any))))
                                                  inputs)
                                            output-type
                                            (count inputs)
@@ -1198,34 +1257,55 @@
                             input-schemas)]
           (->FunT methods))
 
-        (maybe? schema) (->MaybeT (schema->type (:schema schema)))
+        (maybe? schema) (->MaybeT (import-schema-type (:schema schema)))
         (enum-schema? schema) (union-type (map exact-value-import-type (de-enum schema)))
-        (join? schema) (union-type (:schemas schema))
-        (either? schema) (union-type (:schemas schema))
-        (conditional-schema? schema) (union-type (map second (:preds-and-schemas schema)))
-        (cond-pre? schema) (union-type (:schemas schema))
-        (both? schema) (intersection-type (:schemas schema))
-        (valued-schema? schema) (->ValueT (schema->type (:schema schema)) (:value schema))
-        (variable? schema) (->VarT (schema->type (:schema schema)))
+        (join? schema) (union-type (map import-schema-type (:schemas schema)))
+        (either? schema) (union-type (map import-schema-type (:schemas schema)))
+        (conditional-schema? schema) (union-type (map (comp import-schema-type second) (:preds-and-schemas schema)))
+        (cond-pre? schema) (union-type (map import-schema-type (:schemas schema)))
+        (both? schema) (intersection-type (map import-schema-type (:schemas schema)))
+        (valued-schema? schema) (->ValueT (import-schema-type (:schema schema)) (:value schema))
+        (variable? schema) (->VarT (import-schema-type (:schema schema)))
 
         (plain-map-schema? schema)
         (->MapT (into {}
                        (map (fn [[k v]]
-                              [(schema->type k)
-                               (schema->type v)]))
+                              [(import-schema-type k)
+                               (import-schema-type v)]))
                        schema))
 
         (vector? schema)
-        (->VectorT (mapv schema->type schema) (= 1 (count schema)))
+        (->VectorT (mapv import-schema-type schema) (= 1 (count schema)))
 
         (set? schema)
-        (->SetT (into #{} (map schema->type) schema) (= 1 (count schema)))
+        (->SetT (into #{} (map import-schema-type) schema) (= 1 (count schema)))
 
         (seq? schema)
-        (->SeqT (mapv schema->type schema) (= 1 (count schema)))
+        (->SeqT (mapv import-schema-type schema) (= 1 (count schema)))
 
         :else
-        (adapter-leaf-import-type schema))))))
+        (adapter-leaf-import-type schema)))))
+
+(defn schema->type
+  [value]
+  (let [value (localize-schema-value value)]
+    (cond
+      (placeholder-schema? value) (import-schema-type value)
+      (type-domain-value? value) (normalize-type value)
+      (schema? value) (import-schema-type value)
+      (and (map? value) (not (record? value)))
+      (->MapT (into {}
+                    (map (fn [[k v]]
+                           [(schema->type k)
+                            (schema->type v)]))
+                    value))
+      (vector? value) (->VectorT (mapv schema->type value) (= 1 (count value)))
+      (set? value) (->SetT (into #{} (map schema->type) value) (= 1 (count value)))
+      (seq? value) (->SeqT (mapv schema->type value) (= 1 (count value)))
+      :else
+      (throw (IllegalArgumentException.
+              (format "Not a valid type-domain or Schema-domain value: %s"
+                      (pr-str value)))))))
 
 (defn semantic-type-value?
   [value]
@@ -1261,9 +1341,20 @@
               ['& (drop (:min-arity method) inputs)])
       inputs)))
 
+(defn placeholder-display-form
+  [ref]
+  (cond
+    (symbol? ref) ref
+    (and (vector? ref)
+         (seq (filter symbol? ref)))
+    (last (filter symbol? ref))
+    (keyword? ref) (symbol (name ref))
+    (string? ref) (symbol ref)
+    :else 'Unknown))
+
 (defn render-type-form
   [type]
-  (let [type (schema->type type)]
+  (let [type (normalize-type type)]
     (cond
       (dyn-type? type) 'Any
       (bottom-type? type) 'Bottom
@@ -1293,6 +1384,7 @@
       (set-type? type) (into #{} (map render-type-form) (:members type))
       (seq-type? type) (doall (map render-type-form (:items type)))
       (var-type? type) (list 'var (render-type-form (:inner type)))
+      (placeholder-type? type) (placeholder-display-form (:ref type))
       :else type)))
 
 (defn render-type
@@ -1300,6 +1392,92 @@
   (some-> type
           render-type-form
           pr-str))
+
+(defn display-form
+  [value]
+  (let [value (localize-schema-value value)]
+    (cond
+      (schema? value) (schema-display-form value)
+      :else (render-type-form (schema->type value)))))
+
+(defn display
+  [value]
+  (some-> value
+          display-form
+          pr-str))
+
+(declare type->schema-compat)
+
+(defn fn-method->schema-compat
+  [method]
+  (mapv (fn [idx input]
+          (s/one (type->schema-compat input)
+                 (symbol (str "arg" idx))))
+        (range)
+        (:inputs method)))
+
+(defn type->schema-compat
+  [type]
+  (let [type (normalize-type type)]
+    (cond
+      (dyn-type? type) s/Any
+      (bottom-type? type) Bottom
+      (ground-type? type)
+      (let [ground (:ground type)]
+        (cond
+          (= ground :int) s/Int
+          (= ground :str) s/Str
+          (= ground :keyword) s/Keyword
+          (= ground :symbol) s/Symbol
+          (= ground :bool) s/Bool
+          (and (map? ground) (:class ground)) (:class ground)
+          :else ground))
+
+      (refinement-type? type)
+      (or (get-in type [:adapter-data :source-schema])
+          (type->schema-compat (:base type)))
+
+      (adapter-leaf-type? type)
+      (or (get-in type [:adapter-data :source-schema])
+          s/Any)
+
+      (optional-key-type? type)
+      (s/optional-key (type->schema-compat (:inner type)))
+
+      (value-type? type)
+      (let [value (:value type)
+            inner (type->schema-compat (:inner type))]
+        (if (schema-literal? value)
+          value
+          (valued-schema inner value)))
+
+      (type-var-type? type) type
+      (forall-type? type) type
+      (sealed-dyn-type? type) type
+
+      (fn-method-type? type)
+      (s/make-fn-schema (type->schema-compat (:output type))
+                        [(fn-method->schema-compat type)])
+
+      (fun-type? type)
+      (s/make-fn-schema (type->schema-compat (:output (first (:methods type))))
+                        (mapv fn-method->schema-compat (:methods type)))
+
+      (maybe-type? type) (s/maybe (type->schema-compat (:inner type)))
+      (union-type? type) (apply join (map type->schema-compat (:members type)))
+      (intersection-type? type) (apply s/both (map type->schema-compat (:members type)))
+      (map-type? type)
+      (into {}
+            (map (fn [[k v]]
+                   [(type->schema-compat k)
+                    (type->schema-compat v)]))
+            (:entries type))
+      (vector-type? type) (mapv type->schema-compat (:items type))
+      (set-type? type) (into #{} (map type->schema-compat) (:members type))
+      (seq-type? type) (doall (map type->schema-compat (:items type)))
+      (var-type? type) (variable (type->schema-compat (:inner type)))
+      (placeholder-type? type) (placeholder-schema (:ref type))
+      :else type)))
 
 (defn type-var-name
   [type]
@@ -1447,12 +1625,7 @@
       type)))
 
 (def derived-type-keys
-  [:type
-   :node-type
-   :output-type
-   :expected-argtypes
-   :actual-argtypes
-   :fn-type])
+  [:node-type])
 
 (defn strip-derived-types
   [entry]
@@ -1802,12 +1975,63 @@
          (schema-join [s/Any default-schema])
          s/Any)))))
 
+(defn candidate-value-type
+  [candidates]
+  (when (seq candidates)
+    (union-type (map :value candidates))))
+
+(defn map-get-type
+  ([m key]
+   (map-get-type m key no-default))
+  ([m key default]
+   (let [m (schema->type m)
+         key-query (map-key-query key)
+         default-provided? (not= default no-default)
+         default-type (when default-provided?
+                        (schema->type default))]
+     (cond
+       (maybe-type? m)
+       (union-type
+        [(map-get-type (:inner m) key-query default)
+         (or default-type (->MaybeT Dyn))])
+
+       (union-type? m)
+       (union-type (map #(map-get-type % key-query default) (:members m)))
+
+       (map-type? m)
+       (if-let [candidates (seq (map-lookup-candidates (:entries m) key-query))]
+         (let [base-value (candidate-value-type candidates)
+               base-value (if (and (exact-key-query? key-query)
+                                   (= 1 (count candidates))
+                                   (= :optional-explicit (:kind (first candidates)))
+                                   (not default-provided?))
+                            (->MaybeT base-value)
+                            base-value)]
+           (if default-provided?
+             (union-type [base-value default-type])
+             base-value))
+         (if default-provided?
+           default-type
+           Dyn))
+
+       :else
+       (if default-provided?
+         (union-type [Dyn default-type])
+         Dyn)))))
+
 (defn merge-map-schemas
   [schemas]
   (let [schemas (mapv canonicalize-schema schemas)]
     (if (every? plain-map-schema? schemas)
       (reduce merge {} schemas)
       s/Any)))
+
+(defn merge-map-types
+  [types]
+  (let [types (mapv schema->type types)]
+    (if (every? map-type? types)
+      (->MapT (apply merge (map :entries types)))
+      Dyn)))
 
 (defn schema-equivalent?
   [expected actual]
@@ -2222,6 +2446,18 @@
       :else
       :unknown)))
 
+(defn contains-key-type-classification
+  [type key]
+  (let [type (schema->type type)]
+    (if (union-type? type)
+      (let [classifications (set (map #(contains-key-type-classification % key)
+                                      (:members type)))]
+        (cond
+          (= #{:always} classifications) :always
+          (= #{:never} classifications) :never
+          :else :unknown))
+      (contains-key-classification type key))))
+
 (defn refine-schema-by-contains-key
   [schema key polarity]
   (let [schema (canonicalize-schema schema)
@@ -2238,6 +2474,25 @@
       (empty? kept) Bottom
       (= 1 (count kept)) (first kept)
       :else (schema-join kept))))
+
+(defn refine-type-by-contains-key
+  [type key polarity]
+  (let [type (schema->type type)
+        branches (if (union-type? type)
+                   (:members type)
+                   #{type})
+        kept (->> branches
+                  (keep (fn [branch]
+                          (let [classification (contains-key-type-classification branch key)]
+                            (case [polarity classification]
+                              [true :never] nil
+                              [false :always] nil
+                              branch))))
+                  set)]
+    (cond
+      (empty? kept) BottomType
+      (= 1 (count kept)) (first kept)
+      :else (union-type kept))))
 
 (defn ground-accepts-value?
   [type value]

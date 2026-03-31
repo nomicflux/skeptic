@@ -27,6 +27,23 @@
   (when (seq focuses)
     (str/join ", " focuses)))
 
+(defn format-blame
+  [blame-side blame-polarity]
+  (case [blame-side blame-polarity]
+    [:term :positive]
+    "this expression or returned value does not match what the surrounding code expects"
+
+    [:context :negative]
+    "the surrounding code is using this value in a way its schema does not allow"
+
+    [:global :global]
+    "an abstract value was inspected or escaped the scope where it is valid"
+
+    (when (and blame-side blame-polarity
+               (not= blame-side :none)
+               (not= blame-polarity :none))
+      (str (name blame-side) " / " (name blame-polarity)))))
+
 (defn print-report-field
   [label value]
   (let [text (str value)]
@@ -37,32 +54,38 @@
 	      (println (colours/white (str label text) true)))))
 
 (defn report-fields
-  [{:keys [location blame-side blame-polarity rule rule-text
-           actual-type actual-type-text expected-type expected-type-text
-           source-expression blame focus-sources focuses enclosing-form
-           expanded-expression]}]
-  (remove nil?
-          [(when-let [location-text (format-location location)]
-             ["Location: \t\t" location-text])
-           (when (and blame-side blame-polarity
-                      (not= blame-side :none)
-                      (not= blame-polarity :none))
-             ["Blame: \t\t" (str (name blame-side) " / " (name blame-polarity))])
-           (when-let [rule-text (or rule-text (some-> rule name))]
-             ["Cast rule: \t\t" rule-text])
-           (when-let [actual-text (or actual-type-text
-                                      (some-> actual-type as/render-type))]
-             ["Actual type: \t\t" actual-text])
-           (when-let [expected-text (or expected-type-text
-                                        (some-> expected-type as/render-type))]
-             ["Expected type: \t" expected-text])
-           ["Expression: \t\t" (or source-expression (pr-str blame))]
-           (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
-             ["Affected input: \t" focus-text])
-           (when enclosing-form
-             ["In enclosing form: \t" (pr-str enclosing-form)])
-           (when expanded-expression
-             ["Analyzed expression: \t" (pr-str expanded-expression)])]))
+  ([summary]
+   (report-fields summary false))
+  ([{:keys [location blame-side blame-polarity rule rule-text
+            actual-type actual-type-text expected-type expected-type-text
+            source-expression blame focus-sources focuses enclosing-form
+            expanded-expression]}
+    verbose]
+   (remove nil?
+           [(when-let [location-text (format-location location)]
+              ["Location: \t\t" location-text])
+            (when-let [blame-text (format-blame blame-side blame-polarity)]
+              ["Blame: \t\t\t" blame-text])
+            (when (and verbose
+                       (or rule-text rule))
+              ["Cast rule: \t\t" (or rule-text (some-> rule name))])
+            (when verbose
+              (when-let [actual-text (or actual-type-text
+                                         (some-> actual-type as/display))]
+                ["Actual type: \t\t" actual-text]))
+            (when verbose
+              (when-let [expected-text (or expected-type-text
+                                           (some-> expected-type as/display))]
+                ["Expected type: \t" expected-text]))
+            (when verbose
+              ["Expression: \t\t" (or source-expression (pr-str blame))])
+            (when verbose
+              (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
+                ["Affected input: \t" focus-text]))
+            (when (and verbose enclosing-form)
+              ["In enclosing form: \t" (pr-str enclosing-form)])
+            (when (and verbose expanded-expression)
+              ["Analyzed expression: \t" (pr-str expanded-expression)])])))
 
 (defn get-project-schemas
   [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
@@ -96,18 +119,18 @@
 	           (let [{:keys [path context]} result
 	                 summary (inconsistence/report-summary result)]
 	             (println (colours/white (str "Namespace: \t\t" ns) true))
-	             (doseq [[label value] (report-fields summary)]
+	             (doseq [[label value] (report-fields summary verbose)]
 	               (print-report-field label value))
 	             (when (and verbose path)
 	               (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
                (when show-context
-                 (println "Context:")
-                 (doseq [[k {:keys [schema resolution-path]}] (:local-vars context)]
-                   (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str schema))))
-                   (doseq [{:keys [expr schema]} resolution-path]
-                     (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str schema))))))
-                 (doseq [{:keys [expr schema]} (:refs context)]
-                   (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str schema))))))
+               (println "Context:")
+                 (doseq [[k {:keys [type resolution-path]}] (:local-vars context)]
+                   (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str type))))
+                   (doseq [{:keys [expr type]} resolution-path]
+                     (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str type))))))
+                 (doseq [{:keys [expr type]} (:refs context)]
+                   (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str type))))))
 	             (doseq [error (:errors summary)]
 	               (reset! errored true)
 	               (println "---")

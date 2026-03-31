@@ -38,9 +38,13 @@
 (def z nil)
 (def cache nil)
 
+(defn T
+  [schema]
+  (as/schema->type schema))
+
 (defn arg-entry
   [[name schema]]
-  {:schema schema
+  {:type (T schema)
    :optional? false
    :name name})
 
@@ -48,22 +52,23 @@
   [args]
   {:arglist (mapv first args)
    :count (count args)
-   :schema (mapv arg-entry args)})
+   :types (mapv arg-entry args)})
 
 (defn fn-entry
   [sym output & arities]
-  {:name (str sym)
-   :schema (s/make-fn-schema output
-                             (mapv (fn [args]
-                                     (mapv (fn [[name schema]]
-                                             (s/one schema name))
-                                           args))
-                                   arities))
-   :output output
-   :arglists (into {}
-                   (map (fn [args]
-                          [(count args) (arity-entry args)]))
-                   arities)})
+  (let [fn-schema (s/make-fn-schema output
+                                    (mapv (fn [args]
+                                            (mapv (fn [[name schema]]
+                                                    (s/one schema name))
+                                                  args))
+                                          arities))]
+    {:name (str sym)
+     :type (T fn-schema)
+     :output-type (T output)
+     :arglists (into {}
+                     (map (fn [args]
+                            [(count args) (arity-entry args)]))
+                     arities)}))
 
 (def analysis-dict
   (merge test-examples/sample-dict
@@ -83,22 +88,22 @@
 (def sample-dict
   {'f
    {:name "f"
-    :schema (s/=> s/Int s/Int)
-    :output s/Int
+    :type (T (s/=> s/Int s/Int))
+    :output-type (T s/Int)
     :arglists {1 {:arglist ['x]
                    :count 1
-                   :schema [{:schema s/Int :optional? false :name 'x}]}
+                   :types [{:type (T s/Int) :optional? false :name 'x}]}
                2 {:arglist ['y 'z]
                   :count 2
-                  :schema [{:schema s/Str :optional? false :name 'y}
-                           {:schema s/Int :optional? false :name 'z}]}}}})
+                  :types [{:type (T s/Str) :optional? false :name 'y}
+                          {:type (T s/Int) :optional? false :name 'z}]}}}})
 
 (def static-call-dict
   (merge (schematize/ns-schemas {} 'skeptic.static-call-examples)
-         {'user {:schema skeptic.static-call-examples/UserDesc}
-          'counts {:schema skeptic.static-call-examples/MaybeCount}
-          'left {:schema skeptic.static-call-examples/LeftFields}
-          'right {:schema skeptic.static-call-examples/RightFields}}))
+         {'user {:type (T skeptic.static-call-examples/UserDesc)}
+          'counts {:type (T skeptic.static-call-examples/MaybeCount)}
+          'left {:type (T skeptic.static-call-examples/LeftFields)}
+          'right {:type (T skeptic.static-call-examples/RightFields)}}))
 
 (def test-examples-file (File. "test/skeptic/test_examples.clj"))
 (def examples-file (File. "src/skeptic/examples.clj"))
@@ -107,7 +112,7 @@
 (defn locals
   [& syms]
   {:locals (into {}
-                 (map (fn [sym] [sym s/Any]))
+                 (map (fn [sym] [sym (T s/Any)]))
                  syms)})
 
 (defn local-schemas
@@ -148,8 +153,13 @@
 
 (def stable-keys
   [:op :form :body? :local :arg-id :variadic? :class :method :validated?
-   :literal? :schema :output :arglist :arglists :actual-arglist
+   :literal? :type :output-type :fn-type :types :arglist :arglists
+   :actual-argtypes :expected-argtypes :schema :output :actual-arglist
    :expected-arglist :raw-forms])
+
+(defn arglist-types
+  [root arity]
+  (-> root :arglists (get arity) :types (->> (mapv :type))))
 
 (declare project-node)
 
@@ -345,11 +355,11 @@
   (testing "application schemas"
     (let [dynamic-call (project-ast (analyze-form '(+ 1 2)))
           known-call (project-ast (analyze-form '(skeptic.test-examples/int-add 1 2)))]
-      (is (= [s/Int s/Int] (:actual-arglist dynamic-call)))
-      (is (= s/Any (:schema dynamic-call)))
-      (is (= [s/Int s/Int] (:actual-arglist known-call)))
-      (is (= [s/Int s/Int] (:expected-arglist known-call)))
-      (is (= s/Int (:schema known-call))))))
+      (is (= [(T s/Int) (T s/Int)] (:actual-argtypes dynamic-call)))
+      (is (= (T s/Any) (:type dynamic-call)))
+      (is (= [(T s/Int) (T s/Int)] (:actual-argtypes known-call)))
+      (is (= [(T s/Int) (T s/Int)] (:expected-argtypes known-call)))
+      (is (= (T s/Int) (:type known-call))))))
 
 (deftest schema-binding-and-flow-test
   (testing "let-driven flow"
@@ -359,11 +369,11 @@
           or-let (project-ast (analyze-form '(let [y nil
                                                    x (or y 1)]
                                                (skeptic.test-examples/int-add x 2))))]
-      (is (= s/Int (:schema empty-let)))
-      (is (= s/Int (:schema bound-let)))
-      (is (= s/Int (:schema or-let)))
+      (is (= (T s/Int) (:type empty-let)))
+      (is (= (T s/Int) (:type bound-let)))
+      (is (= (T s/Int) (:type or-let)))
       (is (find-projected-node or-let #(and (= :if (:op %))
-                                            (= (as/join s/Any s/Int) (:schema %)))))))
+                                            (= (T (as/join s/Any s/Int)) (:type %)))))))
 
   (testing "if refinement and joins"
     (let [literal-if (project-ast (analyze-form '(if (even? 2) true "hello")))
@@ -371,11 +381,11 @@
                                               (locals 'x)))
           maybe-if (project-ast (analyze-form '(let [x nil] (if x x 1))))
           or-form (project-ast (analyze-form '(or nil 1)))]
-      (is (= (as/join s/Bool s/Str) (:schema literal-if)))
-      (is (= s/Int (:schema local-if)))
-      (is (= (as/join s/Any s/Int) (:schema maybe-if)))
+      (is (= (T (as/join s/Bool s/Str)) (:type literal-if)))
+      (is (= (T s/Int) (:type local-if)))
+      (is (= (T (as/join s/Any s/Int)) (:type maybe-if)))
       (is (= :let (:op or-form)))
-      (is (= (as/join s/Any s/Int) (:schema or-form))))))
+      (is (= (T (as/join s/Any s/Int)) (:type or-form))))))
 
 (deftest schema-functions-and-defs-test
   (testing "anonymous and named fn schemas"
@@ -724,35 +734,35 @@
                                           '(let [y nil
                                                  x (or y 1)]
                                              (skeptic.test-examples/int-add x 2))))]
-      (is (= s/Int (:schema root)))
+      (is (= (T s/Int) (:type root)))
       (is (find-projected-node root #(and (= :if (:op %))
-                                          (= (as/join s/Any s/Int) (:schema %))))))))
+                                          (= (T (as/join s/Any s/Int)) (:type %))))))))
 
 (deftest attach-schema-info-if-test
   (testing "original literal if schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(if (even? 2) true "hello")))]
-      (is (= (as/join s/Bool s/Str) (:schema root)))))
+      (is (= (T (as/join s/Bool s/Str)) (:type root)))))
   (testing "original symbol if schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(if (pos? x) 1 -1)))]
-      (is (= s/Int (:schema root)))))
+      (is (= (T s/Int) (:type root)))))
   (testing "original maybe-refinement if setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(let [x nil] (if x x 1))))]
-      (is (= (as/join s/Any s/Int) (:schema root)))))
+      (is (= (T (as/join s/Any s/Int)) (:type root)))))
   (testing "original or macro schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(or nil 1)))]
       (is (= :let (:op root)))
-      (is (= (as/join s/Any s/Int) (:schema root))))))
+      (is (= (T (as/join s/Any s/Int)) (:type root))))))
 
 (deftest attach-schema-info-fn-test
   (let [root (project-ast (analyze-form test-examples/sample-dict
                                         '(fn [x] (skeptic.test-examples/int-add 1 2))))]
     (is (= :fn (:op root)))
-    (is (= s/Int (:output root)))
-    (is (= [s/Any] (-> root :arglists (get 1) :schema (->> (mapv :schema)))))))
+    (is (= (T s/Int) (:output-type root)))
+    (is (= [(T s/Any)] (arglist-types root 1)))))
 
 (deftest attach-schema-info-def-test
   (testing "original def schema setup"
@@ -973,8 +983,8 @@
                     read-string)
           ast (sut/attach-schema-info-loop dict form {:ns 'skeptic.test-examples})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
-      (is (= s/Any (:schema call-node)))
-      (is (not (as/join? (:schema call-node))))))
+      (is (= (T s/Any) (:type call-node)))
+      (is (not (as/union-type? (:type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
     (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
@@ -984,10 +994,10 @@
                                                                          (source-exprs-in 'skeptic.test-examples test-examples-file))
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is (= s/Int (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-f :output])))
-      (is (= s/Int (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output])))
-      (is (= [s/Int] (:actual-arglist call-node)))
-      (is (not (as/join? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output]))))))
+      (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-f :output-type])))
+      (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type])))
+      (is (= [(T s/Int)] (:actual-argtypes call-node)))
+      (is (not (as/union-type? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type]))))))
 
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (schematize/ns-schemas {} 'skeptic.test-examples)
@@ -1000,14 +1010,14 @@
                                                     'skeptic.examples
                                                     examples-file
                                                     (source-exprs-in 'skeptic.examples examples-file))]
-      (is (= (as/join s/Int s/Str)
-             (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output])))
-      (is (= s/Int
-             (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output])))
-      (is (= (s/maybe s/Int)
-             (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output])))
-      (is (= {:value (s/maybe s/Int)}
-             (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output])))))
+      (is (= (T (as/join s/Int s/Str))
+             (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output-type])))
+      (is (= (T s/Int)
+             (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output-type])))
+      (is (= (T (s/maybe s/Int))
+             (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output-type])))
+      (is (= (T {:value (s/maybe s/Int)})
+             (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output-type])))))
 
   (testing "resolved static get feeds final reduced schemas into parent calls"
     (let [dict (schematize/ns-schemas {} 'skeptic.static-call-examples)
@@ -1017,15 +1027,15 @@
                                                             (source-exprs-in 'skeptic.static-call-examples static-call-examples-file))
           failure-ast (ast-by-name resolved 'nested-multi-step-failure)
           call-node (node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
-      (is (= [s/Int] (:actual-arglist call-node))))))
+      (is (= [(T s/Int)] (:actual-argtypes call-node))))))
 
 (deftest declaration-index-contract-test
   (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
-        forward-entry (get dict 'skeptic.test-examples/forward-declared-target)
-        recursive-entry (get dict 'skeptic.test-examples/self-recursive-identity)]
-    (is (= [s/Any]
-           (-> forward-entry :arglists (get 1) :schema (->> (mapv :schema)))))
-    (is (= s/Any (:output forward-entry)))
-    (is (= [s/Any]
-           (-> recursive-entry :arglists (get 1) :schema (->> (mapv :schema)))))
-    (is (= s/Any (:output recursive-entry)))))
+        forward-entry (sut/normalize-entry (get dict 'skeptic.test-examples/forward-declared-target))
+        recursive-entry (sut/normalize-entry (get dict 'skeptic.test-examples/self-recursive-identity))]
+    (is (= [(T s/Any)]
+           (-> forward-entry :arglists (get 1) :types (->> (mapv :type)))))
+    (is (= (T s/Any) (:output-type forward-entry)))
+    (is (= [(T s/Any)]
+           (-> recursive-entry :arglists (get 1) :types (->> (mapv :type)))))
+    (is (= (T s/Any) (:output-type recursive-entry)))))

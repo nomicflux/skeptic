@@ -72,6 +72,10 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
+(defn T
+  [schema]
+  (as/schema->type schema))
+
 (deftest resolution-path-resolutions
   (in-test-examples
    (let [results (check-fn test-dict 'skeptic.test-examples/sample-let-bad-fn {:keep-empty true})
@@ -79,19 +83,19 @@
          local-vars (get-in call-result [:context :local-vars])]
      (is (some? call-result))
      (is (= [] (:errors call-result)))
-     (is (= s/Any (get-in local-vars ['x :schema])))
+     (is (= (T s/Any) (get-in local-vars ['x :type])))
      (is (= [] (get-in local-vars ['x :resolution-path])))
-     (is (= s/Int (get-in local-vars ['y :schema])))
+     (is (= (T s/Int) (get-in local-vars ['y :type])))
      (is (= ['(int-add 1 nil) 'int-add]
             (mapv :form (get-in local-vars ['y :resolution-path]))))
-     (is (= s/Int (-> local-vars (get 'y) :resolution-path first :schema)))
-     (is (= s/Int (get-in local-vars ['z :schema])))
+     (is (= (T s/Int) (-> local-vars (get 'y) :resolution-path first :type)))
+     (is (= (T s/Int) (get-in local-vars ['z :type])))
      (is (= ['(int-add 2 3) 'int-add]
             (mapv :form (get-in local-vars ['z :resolution-path]))))
-     (is (= s/Int (-> local-vars (get 'z) :resolution-path first :schema)))
+     (is (= (T s/Int) (-> local-vars (get 'z) :resolution-path first :type)))
      (is (= ['int-add]
             (mapv :form (get-in call-result [:context :refs]))))
-     (is (every? some? (mapv :schema (get-in call-result [:context :refs])))))))
+     (is (every? some? (mapv :type (get-in call-result [:context :refs])))))))
 
 (deftest working-functions
   (in-test-examples
@@ -302,8 +306,9 @@
                                          results)]
     (is (= [(inconsistence/mismatched-output-schema-msg {:expr 'bad-count-default
                                                          :arg '(get counts :count "zero")}
-                                                        (as/join s/Int s/Str)
-                                                        s/Int)]
+                                                        (as/union-type [(T s/Int)
+                                                                        (T s/Str)])
+                                                        (T s/Int))]
            (:errors count-result)))
     (is (= [(inconsistence/mismatched-ground-type-msg
               {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))

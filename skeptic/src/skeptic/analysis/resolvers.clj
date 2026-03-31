@@ -4,34 +4,49 @@
             [plumbing.core :as p]
             [skeptic.analysis.annotation :as aa]))
 
-(defn arglist->input-schema
-  [{:keys [schema name] :as s}]
-  (s/one (or schema s s/Any) name))
+(defn arglist-entry-type
+  [{:keys [type schema] :as entry}]
+  (or type schema entry as/Dyn))
 
-(defn arglist-entry-schema
-  [{:keys [schema] :as entry}]
-  (or schema entry s/Any))
+(defn arglist->input-schema
+  [{:keys [type schema name] :as entry}]
+  (s/one (or schema type entry s/Any) name))
 
 (defn convert-arglists
-  [args {:keys [arglists output]}]
+  [args {:keys [arglists output-type]}]
   (let [arity (count args)
         direct-res (get arglists arity)
-        {:keys [count] :as varargs-res} (get arglists :varargs)]
-    (if (or (and count varargs-res)
+        {:keys [count] :as varargs-res} (get arglists :varargs)
+        min-count count]
+    (if (or (and min-count varargs-res)
             direct-res)
-      (let [res (if (and count (>= arity count)) varargs-res direct-res)
-            arglist (mapv arglist-entry-schema
-                          (or (:schema res)
-                              (vec (repeat (or arity 0) s/Any))))
-            schemas (mapv arglist->input-schema arglist)]
-        {:schema (if (and output (seq schemas))
-                   (s/make-fn-schema output [schemas])
-                   (as/dynamic-fn-schema arity output))
-         :output (or output s/Any)
-         :arglist arglist})
-      (let [schema (as/dynamic-fn-schema arity output)]
-        {:schema schema
-         :output (or output s/Any)}))))
+      (let [res (if (and min-count (>= arity min-count)) varargs-res direct-res)
+            argtypes (mapv arglist-entry-type
+                           (or (:types res)
+                               (:schema res)
+                               (vec (repeat (or arity 0) as/Dyn))))
+            fn-type (as/->FunT [(as/->FnMethodT argtypes
+                                               (or output-type as/Dyn)
+                                               (clojure.core/count argtypes)
+                                               false)])]
+        {:type fn-type
+         :schema fn-type
+         :fn-type fn-type
+         :output-type (or output-type as/Dyn)
+         :output (or output-type as/Dyn)
+         :argtypes argtypes
+         :arglist argtypes})
+      (let [fn-type (as/->FunT [(as/->FnMethodT (vec (repeat (or arity 0) as/Dyn))
+                                               (or output-type as/Dyn)
+                                               (or arity 0)
+                                               false)])]
+        {:type fn-type
+         :schema fn-type
+         :fn-type fn-type
+         :output-type (or output-type as/Dyn)
+         :output (or output-type as/Dyn)
+         :argtypes (vec (repeat (or arity 0) as/Dyn))
+         :arglist (vec (repeat (or arity 0) as/Dyn))}))))
 
 ;; TODO: There has to be a cleaner way to do this than copying all of this resolution code everywhere.
 (def resolve-map-schema

@@ -109,49 +109,8 @@
 
 (defn user-type-form
   [type]
-  (let [raw-type (or (when (and (map? type)
-                                (contains? type as/semantic-type-tag-key)
-                                (not (as/semantic-type-value? type)))
-                         (or (:display-form type)
-                             (some-> type :ref public-ref-form)
-                             (some-> type :value literal-form)
-                             'Unknown))
-                       type)
-        type (as/schema->type raw-type)]
-    (cond
-      (as/dyn-type? type) 'Any
-      (as/bottom-type? type) 'Bottom
-      (as/ground-type? type) (:display-form type)
-      (as/refinement-type? type) (:display-form type)
-      (as/adapter-leaf-type? type) (:display-form type)
-      (as/optional-key-type? type) (user-type-form (:inner type))
-      (as/value-type? type) (or (literal-form (:value type))
-                                (user-type-form (:inner type)))
-      (as/type-var-type? type) (:name type)
-      (as/forall-type? type) (list 'forall (:binder type) (user-type-form (:body type)))
-      (as/sealed-dyn-type? type) (list 'sealed (user-type-form (:ground type)))
-      (as/fn-method-type? type) (list* '=>
-                                      (user-type-form (:output type))
-                                      (user-fn-input-form type))
-      (as/fun-type? type)
-      (if (= 1 (count (:methods type)))
-        (user-type-form (first (:methods type)))
-        (list* '=>* (map user-type-form (:methods type))))
-      (as/maybe-type? type) (list 'maybe (user-type-form (:inner type)))
-      (as/union-type? type) (list* 'union (map user-type-form (sort-by pr-str (:members type))))
-      (as/intersection-type? type) (list* 'intersection (map user-type-form (sort-by pr-str (:members type))))
-      (as/map-type? type)
-      (into {}
-            (map (fn [[k v]]
-                   [(user-type-form k)
-                    (user-type-form v)]))
-            (:entries type))
-      (as/vector-type? type) (mapv user-type-form (:items type))
-      (as/set-type? type) (into #{} (map user-type-form) (:members type))
-      (as/seq-type? type) (doall (map user-type-form (:items type)))
-      (as/var-type? type) (user-type-form (:inner type))
-      (as/placeholder-type? type) (public-ref-form (:ref type))
-      :else 'Unknown)))
+  (or (some-> type as/display-form)
+      'Unknown))
 
 (defn user-display-form
   [x]
@@ -163,7 +122,8 @@
     (user-display-form (:k x))
 
     :else
-    (user-type-form x)))
+    (or (some-> x as/display-form)
+        'Unknown)))
 
 (defn describe-type
   [type]
