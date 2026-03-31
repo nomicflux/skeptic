@@ -232,7 +232,7 @@
     (is (= ["y"] (:focus-sources result)))
     (is (= "(int-add x y)" (:source-expression result)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 119
+            :line 153
             :column 5}
            (select-keys (:location result) [:file :line :column])))
     (is (= 'skeptic.test-examples/sample-bad-let-fn
@@ -499,6 +499,24 @@
      (is (some #(str/includes? % "[1]") (:errors result)))
      (is (= [{:kind :vector-index :index 1}]
             (-> result :cast-results first :path))))))
+
+(deftest vector-literal-tuples-derive-homogeneous-views-at-check-boundary
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/vector-triple-to-homogeneous-success)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/vector-triple-to-fixed-success)))
+   (let [pair-result (first (check-fn test-dict
+                                      'skeptic.test-examples/vector-triple-to-pair-failure
+                                      {:remove-context true}))
+         quad-result (first (check-fn test-dict
+                                      'skeptic.test-examples/vector-triple-to-quad-failure
+                                      {:remove-context true}))]
+     (is (some? pair-result))
+     (is (= '(takes-int-pair [x y z]) (:blame pair-result)))
+     (is (= :vector-arity-mismatch (-> pair-result :cast-result :reason)))
+
+     (is (some? quad-result))
+     (is (= '(takes-int-quad [x y z]) (:blame quad-result)))
+     (is (= :vector-arity-mismatch (-> quad-result :cast-result :reason))))))
 
 (deftest printer-path-renders-only-user-facing-data
   (in-test-examples

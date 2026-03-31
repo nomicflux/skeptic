@@ -1500,7 +1500,8 @@
 
 (declare schema-compatible?
          schema-equivalent?
-         valued-compatible?)
+         valued-compatible?
+         matching-map-entry)
 
 (defn nested-value-compatible?
   [expected actual]
@@ -1509,62 +1510,6 @@
       (or (schema-compatible? expected (:value actual))
           (schema-compatible? expected (:schema actual)))
       (schema-compatible? expected actual))))
-
-(defn exact-key-candidate-groups
-  [k]
-  (let [k (canonicalize-schema k)]
-    (->> (cond
-           (valued-schema? k)
-           [[(:value k)
-             (when (keyword? (:value k))
-               (s/optional-key (:value k)))]
-            [(:schema k)
-             (when (or (keyword? (:schema k))
-                       (schema? (:schema k)))
-               (s/optional-key (:schema k)))]]
-
-           :else
-           [[k
-             (when (keyword? k)
-               (s/optional-key k))]])
-         (mapv (fn [group]
-                 (vec (distinct (remove nil? group)))))
-         (remove empty?))))
-
-(defn map-key-candidates
-  [k]
-  (let [groups (exact-key-candidate-groups k)]
-    (if (seq groups)
-      (->> groups
-           (mapcat identity)
-           (remove nil?)
-           set)
-      #{k})))
-
-(defn matching-map-entry
-  [m k]
-  (let [m (canonicalize-schema m)
-        k (canonicalize-schema k)
-        exact-matches (some (fn [group]
-                              (let [group-set (set group)
-                                    matches (->> m
-                                                 keys
-                                                 (filter #(contains? group-set %))
-                                                 seq)]
-                                (when matches matches)))
-                            (exact-key-candidate-groups k))
-        matches (if (seq exact-matches)
-                  exact-matches
-                  (->> m
-                       keys
-                       (filter #(valued-compatible? % k))))]
-    (cond
-      (empty? matches) nil
-      (> (count matches) 1) (throw (IllegalStateException.
-                                    (format "Multiple results for key %s and m %s: %s"
-                                            k m matches)))
-      :else (let [matched-key (first matches)]
-              [matched-key (get m matched-key)]))))
 
 (def no-default ::no-default)
 
@@ -1587,9 +1532,9 @@
        (schema-join (set (map #(map-get-schema % key default) (:schemas m))))
 
        (plain-map-schema? m)
-       (if-let [[matched-key matched-value] (matching-map-entry m key)]
-         (let [base-value (semantic-value-schema matched-value)
-               base-value (if (and (s/optional-key? matched-key)
+       (if-let [{:keys [value kind]} (matching-map-entry m key)]
+         (let [base-value (semantic-value-schema value)
+               base-value (if (and (= kind :optional-explicit)
                                    (not default-provided?))
                             (maybe-schema base-value)
                             base-value)]
@@ -1933,13 +1878,55 @@
     (:inner type)
     type))
 
-(defn required-map-key-type?
-  [type]
-  (not (optional-key-type? (schema->type type))))
-
 (defn exact-value-type?
   [type]
   (value-type? (schema->type type)))
+
+(def map-entry-kind-order
+  {:required-explicit 0
+   :optional-explicit 1
+   :extra-schema 2})
+
+(defn map-entry-kind
+  ([entry-key]
+   (let [entry-key (canonicalize-schema entry-key)]
+     (cond
+       (and (not (semantic-type-value? entry-key))
+            (s/optional-key? entry-key))
+       :optional-explicit
+
+       (and (not (semantic-type-value? entry-key))
+            (s/specific-key? entry-key))
+       :required-explicit
+
+       :else
+       (let [entry-type (schema->type entry-key)
+             inner (optional-key-inner entry-type)]
+         (cond
+           (and (optional-key-type? entry-type)
+                (exact-value-type? inner))
+           :optional-explicit
+
+           (exact-value-type? inner)
+           :required-explicit
+
+           :else
+           :extra-schema)))))
+  ([entries entry-key]
+   (let [entries (canonicalize-schema entries)
+         entry-key (canonicalize-schema entry-key)
+         typed-entries? (every? semantic-type-value? (keys entries))]
+     (if (and (plain-map-schema? entries)
+              (not typed-entries?))
+       (let [extra-key (s/find-extra-keys-schema entries)]
+         (if (= entry-key extra-key)
+           :extra-schema
+           (map-entry-kind entry-key)))
+       (map-entry-kind entry-key)))))
+
+(defn required-map-key-type?
+  [type]
+  (= :required-explicit (map-entry-kind type)))
 
 (defn path-key
   [type]
@@ -1960,37 +1947,44 @@
   (:ok? (check-cast (optional-key-inner actual-key)
                     (optional-key-inner target-key))))
 
-(defn map-key-rank
-  [type]
-  (let [type (schema->type type)
-        plain (optional-key-inner type)]
-    [(if (exact-value-type? plain) 0 1)
-     (if (optional-key-type? type) 1 0)]))
+(defn map-entry-rank
+  [entries entry-key]
+  [(get map-entry-kind-order (map-entry-kind entries entry-key) 99)])
 
 (defn matching-map-entry
   [entries actual-key]
-  (let [matches (->> entries
-                     (map key)
-                     (filter #(type-compatible-key? actual-key %))
-                     (sort-by map-key-rank))]
-    (when-let [matched-key (first matches)]
-      [matched-key (get entries matched-key)])))
-
-(defn matching-map-entry-keys
-  [entries actual-key]
-  (->> entries
-       keys
-       (filter #(type-compatible-key? actual-key %))
-       vec))
+  (let [entries (canonicalize-schema entries)
+        actual-key-type (schema->type actual-key)
+        matches (->> entries
+                     (map (fn [[entry-key entry-value]]
+                            (when (type-compatible-key? actual-key-type (schema->type entry-key))
+                              {:key entry-key
+                               :value entry-value
+                               :kind (map-entry-kind entries entry-key)})))
+                     (remove nil?)
+                     (sort-by (fn [{:keys [key]}]
+                                (map-entry-rank entries key))))]
+    (when-let [matched-entry (first matches)]
+      (let [best-rank (map-entry-rank entries (:key matched-entry))
+            ambiguous (->> matches
+                           (take-while #(= best-rank
+                                           (map-entry-rank entries (:key %))))
+                           vec)]
+        (when (> (count ambiguous) 1)
+          (throw (IllegalStateException.
+                  (format "Multiple results for key %s and m %s: %s"
+                          actual-key entries (mapv :key ambiguous)))))
+        matched-entry))))
 
 (defn map-contains-key-classification
   [type key]
   (let [key-type (exact-value-import-type key)
-        matches (matching-map-entry-keys (:entries (schema->type type)) key-type)]
-    (cond
-      (empty? matches) :never
-      (every? required-map-key-type? matches) :always
-      :else :unknown)))
+        entries (:entries (schema->type type))]
+    (if-let [{:keys [kind]} (matching-map-entry entries key-type)]
+      (if (= kind :required-explicit)
+        :always
+        :unknown)
+      :never)))
 
 (defn contains-key-classification
   [schema key]
@@ -2094,10 +2088,10 @@
          (and
           (every? (fn [[k v]]
                     (let [actual-key (exact-value-import-type k)]
-                      (if-let [[matched-key matched-value] (matching-map-entry entries actual-key)]
+                      (if-let [{:keys [key value]} (matching-map-entry entries actual-key)]
                         (do
-                          (swap! required-missing disj matched-key)
-                          (value-satisfies-type? v matched-value))
+                          (swap! required-missing disj key)
+                          (value-satisfies-type? v value))
                         false)))
                   value)
           (empty? @required-missing)))))
@@ -2144,8 +2138,11 @@
 
       (vector-type? type)
       (and (vector? value)
-           (= (count value) (count (:items type)))
-           (every? true? (map value-satisfies-type? value (:items type))))
+           (if (:homogeneous? type)
+             (every? #(value-satisfies-type? % (or (first (:items type)) Dyn))
+                     value)
+             (and (= (count value) (count (:items type)))
+                  (every? true? (map value-satisfies-type? value (:items type))))))
 
       (seq-type? type)
       (and (sequential? value)
@@ -2171,13 +2168,13 @@
                                     (filter required-map-key-type?)
                                     set))
         children (reduce (fn [acc [actual-k actual-v]]
-                           (if-let [[matched-key matched-value] (matching-map-entry target-entries actual-k)]
-                             (let [_ (swap! required-missing disj matched-key)
+                           (if-let [{:keys [key value kind]} (matching-map-entry target-entries actual-k)]
+                             (let [_ (swap! required-missing disj key)
                                    value-result (with-map-path
-                                                  (check-cast actual-v matched-value opts)
-                                                  matched-key)
+                                                  (check-cast actual-v value opts)
+                                                  key)
                                    nullable-result (when (and (optional-key-type? actual-k)
-                                                               (required-map-key-type? matched-key))
+                                                               (= kind :required-explicit))
                                                      (with-map-path
                                                        (cast-fail source-type
                                                                   target-type
@@ -2186,8 +2183,8 @@
                                                                   :nullable-key
                                                                   []
                                                                   {:actual-key actual-k
-                                                                   :expected-key matched-key})
-                                                       matched-key))]
+                                                                   :expected-key key})
+                                                       key))]
                                (cond-> acc
                                  true (conj value-result)
                                  nullable-result (conj nullable-result)))
@@ -2225,6 +2222,26 @@
         (range)
         source-items
         target-items))
+
+(defn expand-vector-items
+  [type slot-count]
+  (let [items (:items type)]
+    (if (:homogeneous? type)
+      (vec (repeat slot-count (or (first items) Dyn)))
+      items)))
+
+(defn vector-cast-slot-count
+  [source-type target-type]
+  (let [source-count (count (:items source-type))
+        target-count (count (:items target-type))
+        source-homogeneous? (:homogeneous? source-type)
+        target-homogeneous? (:homogeneous? target-type)]
+    (cond
+      (and source-homogeneous? target-homogeneous?) 1
+      target-homogeneous? source-count
+      source-homogeneous? target-count
+      (= source-count target-count) source-count
+      :else nil)))
 
 (defn set-cast-children
   [source-members target-members opts]
@@ -2491,14 +2508,14 @@
            (cast-fail source-type target-type :map polarity :map-cast-failed children)))
 
        (and (vector-type? source-type) (vector-type? target-type))
-       (let [source-items (:items source-type)
-             target-items (:items target-type)]
-         (if (= (count source-items) (count target-items))
-           (let [children (collection-cast-children :vector-index source-items target-items opts)]
-             (if (all-ok? children)
-               (cast-ok source-type target-type :vector children)
-               (cast-fail source-type target-type :vector polarity :vector-element-failed children)))
-           (cast-fail source-type target-type :vector polarity :vector-arity-mismatch)))
+       (if-let [slot-count (vector-cast-slot-count source-type target-type)]
+         (let [source-items (expand-vector-items source-type slot-count)
+               target-items (expand-vector-items target-type slot-count)
+               children (collection-cast-children :vector-index source-items target-items opts)]
+           (if (all-ok? children)
+             (cast-ok source-type target-type :vector children)
+             (cast-fail source-type target-type :vector polarity :vector-element-failed children)))
+         (cast-fail source-type target-type :vector polarity :vector-arity-mismatch))
 
        (and (seq-type? source-type) (seq-type? target-type))
        (let [source-items (:items source-type)
@@ -2564,61 +2581,25 @@
 
 (defn get-by-matching-schema
   [m k]
-  (let [m (canonicalize-schema m)
-        k (canonicalize-schema k)
-        exact-matches (some (fn [group]
-                              (let [group-set (set group)
-                                    matches (select-keys m (filter #(contains? group-set %) (keys m)))]
-                                (when (seq matches) matches)))
-                            (exact-key-candidate-groups k))
-        matches (if (seq exact-matches)
-                  exact-matches
-                  (->> m
-                       keys
-                       (filter (fn [schema]
-                                 (or (schema-equivalent? schema k)
-                                     (= (check-if-schema schema k) ::schema-valid))))
-                       (select-keys m)))]
-    (cond
-      (empty? matches) nil
-      (> (count matches) 1) (throw (IllegalStateException. (format "Multiple results for key %s and m %s: %s"
-                                                                   k m matches)))
-      :else (-> matches vals first))))
+  (some-> (matching-map-entry m k) :value))
 
 (defn valued-get
   [m k]
-  (let [m (canonicalize-schema m)
-        k (canonicalize-schema k)]
-    (cond
-      (valued-schema? k)
-      (or (get m (:value k))
-          (get-by-matching-schema m (:value k))
-          (get m (:schema k)))
-
-      :else
-      (or (get m k)
-          (get-by-matching-schema m k)))))
+  (get-by-matching-schema m k))
 
 (declare matches-map)
 
 (defn matches-map
   [expected actual-k actual-v]
   (let [expected (canonicalize-schema expected)
-        actual-k (canonicalize-schema actual-k)
         actual-v (canonicalize-schema actual-v)
-        possible-keys (filter (fn [x] (valued-compatible? x actual-k)) (keys expected))
-        expected-vs (map #(valued-get expected %) possible-keys)]
-    (if (empty? expected-vs)
-      false
-      (seq (filter #(nested-value-compatible? % actual-v) expected-vs)))))
+        matched-entry (matching-map-entry expected actual-k)]
+    (when matched-entry
+      (nested-value-compatible? (:value matched-entry) actual-v))))
 
 (defn required-key?
   [k]
-  (and (not (s/optional-key? k))
-       (or (keyword? k)
-           (valued-schema? k)
-           (schema? k)
-           (map? k))))
+  (= :required-explicit (map-entry-kind k)))
 
 (defn schema-compatible?
   [expected actual]

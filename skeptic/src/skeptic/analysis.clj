@@ -87,7 +87,7 @@
     (keyword? value) s/Keyword
     (symbol? value) s/Symbol
     (boolean? value) s/Bool
-    (vector? value) [(coll-element-schema value)]
+    (vector? value) (mapv schema-of-value value)
     (or (list? value) (seq? value)) [(coll-element-schema value)]
     (set? value) #{(coll-element-schema value)}
     (map? value) (map-schema value)
@@ -622,9 +622,9 @@
     (assoc node
            :items items
            :schema (as/canonicalize-schema
-                    [(if (seq items)
-                       (schema-join* (map :schema items))
-                       s/Any)]))))
+                    (mapv (fn [item]
+                            (or (:schema item) s/Any))
+                          items)))))
 
 (defn annotate-set
   [ctx node]

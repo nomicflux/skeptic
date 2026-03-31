@@ -74,6 +74,12 @@
 (s/defschema IntPair
   [s/Int s/Int])
 
+(s/defschema IntTriple
+  [s/Int s/Int s/Int])
+
+(s/defschema IntQuad
+  [s/Int s/Int s/Int s/Int])
+
 (s/defn takes-nested-name :- s/Keyword
   [x :- NestedNameDesc]
   :ok)
@@ -90,6 +96,18 @@
   [xs :- IntPair]
   :ok)
 
+(s/defn takes-int-vec :- s/Keyword
+  [xs :- [s/Int]]
+  :ok)
+
+(s/defn takes-int-triple :- s/Keyword
+  [xs :- IntTriple]
+  :ok)
+
+(s/defn takes-int-quad :- s/Keyword
+  [xs :- IntQuad]
+  :ok)
+
 (s/defn bad-int-pair-helper :- [s/Int s/Str]
   []
   [1 "oops"])
@@ -101,6 +119,22 @@
 (defn vector-input-success
   []
   (takes-int-pair [1 2]))
+
+(defn vector-triple-to-homogeneous-success
+  [x y z]
+  (takes-int-vec [x y z]))
+
+(defn vector-triple-to-fixed-success
+  [x y z]
+  (takes-int-triple [x y z]))
+
+(defn vector-triple-to-pair-failure
+  [x y z]
+  (takes-int-pair [x y z]))
+
+(defn vector-triple-to-quad-failure
+  [x y z]
+  (takes-int-quad [x y z]))
 
 (defn sample-bad-fn
   [x]

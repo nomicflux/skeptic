@@ -158,3 +158,30 @@
       (is (as/vector-type? recursive-type))
       (is (= 'skeptic.analysis-schema-test/RecursiveSchemaRef
              (-> recursive-type :items first :ref))))))
+
+(deftest vector-cast-kernel-honors-homogeneous-targets-test
+  (let [tuple-any [s/Any s/Any s/Any]
+        homogeneous-int [s/Int]
+        triple-int [s/Int s/Int s/Int]
+        pair-int [s/Int s/Int]
+        quad-int [s/Int s/Int s/Int s/Int]
+        homogeneous-cast (as/check-cast tuple-any homogeneous-int)
+        triple-cast (as/check-cast tuple-any triple-int)
+        pair-cast (as/check-cast tuple-any pair-int)
+        quad-cast (as/check-cast tuple-any quad-int)]
+    (is (:ok? homogeneous-cast))
+    (is (= :vector (:rule homogeneous-cast)))
+
+    (is (:ok? triple-cast))
+    (is (= :vector (:rule triple-cast)))
+
+    (is (not (:ok? pair-cast)))
+    (is (= :vector-arity-mismatch (:reason pair-cast)))
+
+    (is (not (:ok? quad-cast)))
+    (is (= :vector-arity-mismatch (:reason quad-cast)))
+
+    (is (as/value-satisfies-type? [1 2 3] homogeneous-int))
+    (is (as/value-satisfies-type? [1 2 3] triple-int))
+    (is (not (as/value-satisfies-type? [1 2 3] pair-int)))
+    (is (not (as/value-satisfies-type? [1 2 3] quad-int)))))

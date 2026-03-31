@@ -338,9 +338,9 @@
           nested-form (project-ast (analyze-form '[1 {:a 2 :b {:c #{3 4}}} 5]))]
       (is (= s/Int (:schema scalar)))
       (is (= [s/Any] (:schema empty-list)))
-      (is (= [s/Int] (:schema vector-form)))
+      (is (= [s/Int s/Int] (:schema vector-form)))
       (is (vector? (:schema nested-form)))
-      (is (= 1 (count (:schema nested-form))))))
+      (is (= 3 (count (:schema nested-form))))))
 
   (testing "application schemas"
     (let [dynamic-call (project-ast (analyze-form '(+ 1 2)))
@@ -690,11 +690,11 @@
       (is (= [s/Any] (:schema root)))))
   (testing "original simple vector schema setup"
     (let [root (project-ast (analyze-form {} '[1 2]))]
-      (is (= [s/Int] (:schema root)))))
+      (is (= [s/Int s/Int] (:schema root)))))
   (testing "original nested vector/map schema setup"
     (let [root (project-ast (analyze-form {} '[1 {:a 2 :b {:c #{3 4}}} 5]))]
       (is (vector? (:schema root)))
-      (is (= 1 (count (:schema root)))))))
+      (is (= 3 (count (:schema root)))))))
 
 (deftest attach-schema-info-application-test
   (testing "original generic application schema setup"
