@@ -41,36 +41,47 @@
       (pr-str type)))
 
 (defn user-facing-entry
-  [{:keys [key value]}]
+  [{:keys [key value kind]}]
   {:key (user-facing-type-text key)
-   :value (user-facing-type-text value)})
+   :value (user-facing-type-text value)
+   :level (some-> kind name)})
 
 (defn user-facing-entry-text
-  [entry]
-  (str (:key entry) " -> " (:value entry)))
+  [idx entry]
+  (format "%d. level=%s key=%s value=%s"
+          idx
+          (:level entry)
+          (:key entry)
+          (:value entry)))
 
 (defn ambiguous-map-entry-ex-info
-  [actual-key entries ambiguous]
+  [actual-key entries matches ambiguous]
   (let [context (compact-context-map *error-context*)
         location-text (some-> context :location error-location-text)
         expr-text (or (:source-expression context)
                       (some-> (:expr context) pr-str))
         lookup-key-text (user-facing-type-text actual-key)
         map-type-text (user-facing-type-text (->MapT entries))
+        candidate-entries (mapv user-facing-entry matches)
         ambiguous-entries (mapv user-facing-entry ambiguous)
-        message (cond-> (str "Ambiguous map key match."
-                             "\nLookup key: " lookup-key-text
-                             "\nMap type: " map-type-text
-                             "\nMatching entries: "
-                             (clojure.string/join ", "
-                                                  (map user-facing-entry-text ambiguous-entries)))
-                  location-text (str "\nLocation: " location-text)
-                  expr-text (str "\nExpression: " expr-text))]
-    (ex-info message
+        candidate-lines (map-indexed (fn [idx entry]
+                                       (user-facing-entry-text (inc idx) entry))
+                                     candidate-entries)
+        message-lines (cond-> ["Ambiguous map key match."
+                               (str "Key: " lookup-key-text)
+                               (str "Lookup location: " (or location-text "<unknown>"))]
+                        expr-text (conj (str "Lookup expression: " expr-text))
+                        true (conj "Candidate matches:")
+                        true (into candidate-lines)
+                        true (conj (str "Map type: " map-type-text)))]
+    (ex-info (clojure.string/join "\n" message-lines)
              (merge {:error ::ambiguous-map-entry
                      :lookup-key lookup-key-text
+                     :lookup-location location-text
+                     :lookup-expression expr-text
                      :map-type map-type-text
-                     :matching-entries ambiguous-entries}
+                     :matching-entries candidate-entries
+                     :ambiguous-entries ambiguous-entries}
                     (when (seq context)
                       {:context context})))))
 
@@ -2037,7 +2048,7 @@
                                            (map-entry-rank entries (:key %))))
                            vec)]
         (when (> (count ambiguous) 1)
-          (throw (ambiguous-map-entry-ex-info actual-key entries ambiguous)))
+          (throw (ambiguous-map-entry-ex-info actual-key entries matches ambiguous)))
         matched-entry))))
 
 (defn map-contains-key-classification
