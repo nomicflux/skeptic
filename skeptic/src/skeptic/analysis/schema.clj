@@ -32,23 +32,45 @@
     line (str line)
     :else nil))
 
+(declare render-type
+         ->MapT)
+
+(defn user-facing-type-text
+  [type]
+  (or (render-type type)
+      (pr-str type)))
+
+(defn user-facing-entry
+  [{:keys [key value]}]
+  {:key (user-facing-type-text key)
+   :value (user-facing-type-text value)})
+
+(defn user-facing-entry-text
+  [entry]
+  (str (:key entry) " -> " (:value entry)))
+
 (defn ambiguous-map-entry-ex-info
   [actual-key entries ambiguous]
   (let [context (compact-context-map *error-context*)
         location-text (some-> context :location error-location-text)
         expr-text (or (:source-expression context)
                       (some-> (:expr context) pr-str))
-        message (cond-> (format "Multiple results for key %s and m %s: %s"
-                                actual-key
-                                entries
-                                (mapv :key ambiguous))
+        lookup-key-text (user-facing-type-text actual-key)
+        map-type-text (user-facing-type-text (->MapT entries))
+        ambiguous-entries (mapv user-facing-entry ambiguous)
+        message (cond-> (str "Ambiguous map key match."
+                             "\nLookup key: " lookup-key-text
+                             "\nMap type: " map-type-text
+                             "\nMatching entries: "
+                             (clojure.string/join ", "
+                                                  (map user-facing-entry-text ambiguous-entries)))
                   location-text (str "\nLocation: " location-text)
                   expr-text (str "\nExpression: " expr-text))]
     (ex-info message
              (merge {:error ::ambiguous-map-entry
-                     :actual-key actual-key
-                     :entries entries
-                     :ambiguous-keys (mapv :key ambiguous)}
+                     :lookup-key lookup-key-text
+                     :map-type map-type-text
+                     :matching-entries ambiguous-entries}
                     (when (seq context)
                       {:context context})))))
 
