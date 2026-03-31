@@ -1833,6 +1833,20 @@
                  :children children
                  :details details})))
 
+(defn with-cast-path
+  [result segment]
+  (cond-> result
+    (some? segment) (update :path (fnil conj []) segment)))
+
+(defn indexed-cast-children
+  [segment-kind build-child xs]
+  (mapv (fn [idx x]
+          (with-cast-path (build-child x)
+            {:kind segment-kind
+             :index idx}))
+        (range)
+        xs))
+
 (defn all-ok?
   [results]
   (every? :ok? results))
@@ -1904,6 +1918,13 @@
 (defn exact-value-type?
   [type]
   (value-type? (schema->type type)))
+
+(defn path-key
+  [type]
+  (let [type (optional-key-inner type)]
+    (if (exact-value-type? type)
+      (:value type)
+      type)))
 
 (defn type-compatible-key?
   [actual-key target-key]
@@ -2072,44 +2093,62 @@
         children (reduce (fn [acc [actual-k actual-v]]
                            (if-let [[matched-key matched-value] (matching-map-entry target-entries actual-k)]
                              (let [_ (swap! required-missing disj matched-key)
-                                   value-result (check-cast actual-v matched-value opts)
+                                   value-result (with-cast-path
+                                                  (check-cast actual-v matched-value opts)
+                                                  {:kind :map-key
+                                                   :key (path-key matched-key)})
                                    nullable-result (when (and (optional-key-type? actual-k)
-                                                              (required-map-key-type? matched-key))
-                                                     (cast-fail source-type
-                                                                target-type
-                                                                :map-nullable-key
-                                                                (:polarity opts)
-                                                                :nullable-key
-                                                                []
-                                                                {:actual-key actual-k
-                                                                 :expected-key matched-key}))]
+                                                               (required-map-key-type? matched-key))
+                                                     (with-cast-path
+                                                       (cast-fail source-type
+                                                                  target-type
+                                                                  :map-nullable-key
+                                                                  (:polarity opts)
+                                                                  :nullable-key
+                                                                  []
+                                                                  {:actual-key actual-k
+                                                                   :expected-key matched-key})
+                                                       {:kind :map-key
+                                                        :key (path-key matched-key)}))]
                                (cond-> acc
                                  true (conj value-result)
                                  nullable-result (conj nullable-result)))
                              (conj acc
-                                   (cast-fail source-type
-                                              target-type
-                                              :map-unexpected-key
-                                              (:polarity opts)
-                                              :unexpected-key
-                                              []
-                                              {:actual-key actual-k}))))
+                                   (with-cast-path
+                                     (cast-fail source-type
+                                                target-type
+                                                :map-unexpected-key
+                                                (:polarity opts)
+                                                :unexpected-key
+                                                []
+                                                {:actual-key actual-k})
+                                     {:kind :map-key
+                                      :key (path-key actual-k)}))))
                          []
                          source-entries)]
     (into children
           (map (fn [missing-k]
-                 (cast-fail source-type
-                            target-type
-                            :map-missing-key
-                            (:polarity opts)
-                            :missing-key
-                            []
-                            {:expected-key missing-k})))
+                 (with-cast-path
+                   (cast-fail source-type
+                              target-type
+                              :map-missing-key
+                              (:polarity opts)
+                              :missing-key
+                              []
+                              {:expected-key missing-k})
+                   {:kind :map-key
+                    :key (path-key missing-k)})))
           @required-missing)))
 
 (defn collection-cast-children
-  [source-items target-items opts]
-  (mapv #(check-cast %1 %2 opts) source-items target-items))
+  [segment-kind source-items target-items opts]
+  (mapv (fn [idx source-item target-item]
+          (with-cast-path (check-cast source-item target-item opts)
+            {:kind segment-kind
+             :index idx}))
+        (range)
+        source-items
+        target-items))
 
 (defn set-cast-children
   [source-members target-members opts]
@@ -2121,11 +2160,14 @@
                                  target-members)]
               (conj acc match)
               (conj acc
-                    (cast-fail source-member
-                               (or (first target-members) Dyn)
-                               :set-element
-                               (:polarity opts)
-                               :element-mismatch))))
+                    (with-cast-path
+                      (cast-fail source-member
+                                 (or (first target-members) Dyn)
+                                 :set-element
+                                 (:polarity opts)
+                                 :element-mismatch)
+                      {:kind :set-member
+                       :member source-member}))))
           []
           source-members))
 
@@ -2210,25 +2252,33 @@
        (cast-ok source-type target-type :target-dyn)
 
        (union-type? target-type)
-       (let [children (mapv #(check-cast source-type % opts) (:members target-type))]
+       (let [children (indexed-cast-children :target-union-branch
+                                             #(check-cast source-type % opts)
+                                             (:members target-type))]
          (if-let [success (some #(when (:ok? %) %) children)]
            (cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
            (cast-fail source-type target-type :target-union polarity :no-union-branch children)))
 
        (union-type? source-type)
-       (let [children (mapv #(check-cast % target-type opts) (:members source-type))]
+       (let [children (indexed-cast-children :source-union-branch
+                                             #(check-cast % target-type opts)
+                                             (:members source-type))]
          (if (all-ok? children)
            (cast-ok source-type target-type :source-union children)
            (cast-fail source-type target-type :source-union polarity :source-branch-failed children)))
 
        (intersection-type? target-type)
-       (let [children (mapv #(check-cast source-type % opts) (:members target-type))]
+       (let [children (indexed-cast-children :target-intersection-branch
+                                             #(check-cast source-type % opts)
+                                             (:members target-type))]
          (if (all-ok? children)
            (cast-ok source-type target-type :target-intersection children)
            (cast-fail source-type target-type :target-intersection polarity :target-component-failed children)))
 
        (intersection-type? source-type)
-       (let [children (mapv #(check-cast % target-type opts) (:members source-type))]
+       (let [children (indexed-cast-children :source-intersection-branch
+                                             #(check-cast % target-type opts)
+                                             (:members source-type))]
          (if (all-ok? children)
            (cast-ok source-type target-type :source-intersection children)
            (cast-fail source-type target-type :source-intersection polarity :source-component-failed children)))
@@ -2244,13 +2294,15 @@
            (cast-fail source-type target-type :target-value polarity :target-value-mismatch))
 
        (and (maybe-type? source-type) (maybe-type? target-type))
-       (let [child (check-cast (:inner source-type) (:inner target-type) opts)]
+       (let [child (with-cast-path (check-cast (:inner source-type) (:inner target-type) opts)
+                     {:kind :maybe-value})]
          (if (:ok? child)
            (cast-ok source-type target-type :maybe-both [child])
            (cast-fail source-type target-type :maybe-both polarity :maybe-inner-failed [child])))
 
        (maybe-type? target-type)
-       (let [child (check-cast source-type (:inner target-type) opts)]
+       (let [child (with-cast-path (check-cast source-type (:inner target-type) opts)
+                     {:kind :maybe-value})]
          (if (:ok? child)
            (cast-ok source-type target-type :maybe-target [child])
            (cast-fail source-type target-type :maybe-target polarity :maybe-target-inner-failed [child])))
@@ -2325,15 +2377,21 @@
        (and (fun-type? source-type) (fun-type? target-type))
        (let [children (mapv (fn [target-method]
                               (if-let [source-method (matching-source-method source-type target-method)]
-                                (let [domain-results (mapv (fn [target-input source-input]
-                                                             (check-cast target-input
-                                                                         source-input
-                                                                         (update opts :polarity flip-polarity)))
+                                (let [domain-results (mapv (fn [idx target-input source-input]
+                                                             (with-cast-path
+                                                               (check-cast target-input
+                                                                           source-input
+                                                                           (update opts :polarity flip-polarity))
+                                                               {:kind :function-domain
+                                                                :index idx}))
+                                                           (range)
                                                            (:inputs target-method)
                                                            (:inputs source-method))
-                                      range-result (check-cast (:output source-method)
-                                                               (:output target-method)
-                                                               opts)
+                                      range-result (with-cast-path
+                                                     (check-cast (:output source-method)
+                                                                 (:output target-method)
+                                                                 opts)
+                                                     {:kind :function-range})
                                       method-children (conj domain-results range-result)]
                                   (if (all-ok? method-children)
                                     (cast-ok source-method target-method :function-method method-children)
@@ -2360,7 +2418,7 @@
        (let [source-items (:items source-type)
              target-items (:items target-type)]
          (if (= (count source-items) (count target-items))
-           (let [children (collection-cast-children source-items target-items opts)]
+           (let [children (collection-cast-children :vector-index source-items target-items opts)]
              (if (all-ok? children)
                (cast-ok source-type target-type :vector children)
                (cast-fail source-type target-type :vector polarity :vector-element-failed children)))
@@ -2370,7 +2428,7 @@
        (let [source-items (:items source-type)
              target-items (:items target-type)]
          (if (= (count source-items) (count target-items))
-           (let [children (collection-cast-children source-items target-items opts)]
+           (let [children (collection-cast-children :seq-index source-items target-items opts)]
              (if (all-ok? children)
                (cast-ok source-type target-type :seq children)
                (cast-fail source-type target-type :seq polarity :seq-element-failed children)))

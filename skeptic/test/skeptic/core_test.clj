@@ -38,3 +38,28 @@
     (is (some #{["Cast rule: \t\t" "generalize"]} fields))
     (is (some #{["Actual type: \t\t" "(sealed X)"]} fields))
     (is (some #{["Expected type: \t" "(forall X X)"]} fields))))
+
+(deftest render-errors-collapses-output-report-into-single-entry
+  (let [summary "summary"
+        rendered (sut/render-errors
+                  {:report-kind :output
+                   :errors [summary]
+                   :cast-results [{:reason :leaf-mismatch
+                                   :path [{:kind :map-key :key :name}]
+                                   :source-type (as/schema->type s/Keyword)
+                                   :target-type (as/schema->type s/Str)}]})]
+    (is (= 1 (count rendered)))
+    (is (some-> rendered first (.contains summary)))
+    (is (some-> rendered first (.contains "Problem fields:")))
+    (is (some-> rendered first (.contains "[:name] has Keyword but expected Str")))))
+
+(deftest render-errors-hides-internal-cast-branches
+  (let [rendered (sut/render-errors
+                  {:report-kind :output
+                   :errors ["summary"]
+                   :cast-results [{:reason :missing-key
+                                   :path [{:kind :source-union-branch :index 1}
+                                          {:kind :map-key :key :b}]}]})]
+    (is (= 1 (count rendered)))
+    (is (some-> rendered first (.contains "[:b] is missing")))
+    (is (not (some-> rendered first (.contains "source union branch"))))))

@@ -74,6 +74,19 @@
     (is (str/includes? error "{:name Keyword, :nickname (maybe Str)}"))
     (is (str/includes? error "{:name Str, :nickname (maybe Str)}"))))
 
+(deftest nested-map-cast-report-includes-field-path-test
+  (let [report (sut/cast-report sample-ctx
+                                {:user {:name s/Str}}
+                                {:user {:name s/Keyword}})
+        leaf (first (:cast-results report))
+        error (first (:errors report))]
+    (is (not (:ok? report)))
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :name}]
+           (:path leaf)))
+    (is (str/includes? error "Path:"))
+    (is (str/includes? error "[:user :name]"))))
+
 (deftest map-cast-report-key-errors-test
   (let [missing (sut/cast-report {:expr '{:a 1}
                                   :arg '{:a 1}}
@@ -93,6 +106,30 @@
     (is (some #(= :unexpected-key (:reason %)) (:cast-results unexpected)))
     (is (some #(str/includes? % "disallowed keys") (:errors unexpected)))))
 
+(deftest nested-map-key-errors-include-full-path-test
+  (let [missing (sut/cast-report sample-ctx
+                                 {:user {:name s/Str}}
+                                 {:user {}})
+        unexpected (sut/cast-report sample-ctx
+                                    {:user {:name s/Str}}
+                                    {:user {:name s/Str
+                                            :age s/Int}})
+        nullable (sut/cast-report sample-ctx
+                                  {:user {:name s/Str}}
+                                  {:user {(s/optional-key :name) s/Str}})]
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :name}]
+           (-> missing :cast-results first :path)))
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :age}]
+           (-> unexpected :cast-results first :path)))
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :name}]
+           (-> nullable :cast-results first :path)))
+    (is (some #(str/includes? % "[:user :name]") (:errors missing)))
+    (is (some #(str/includes? % "[:user :age]") (:errors unexpected)))
+    (is (some #(str/includes? % "[:user :name]") (:errors nullable)))))
+
 (deftest map-nullable-key-message-test
   (let [message (sut/cast-result->message
                  {:expr '{:a 1}
@@ -104,6 +141,47 @@
                   :actual-key (s/optional-key :a)
                   :expected-key :a})]
     (is (str/includes? message "potentially nullable"))))
+
+(deftest vector-cast-report-includes-index-path-test
+  (let [report (sut/cast-report sample-ctx
+                                [s/Int s/Int]
+                                [s/Int s/Str])
+        leaf (first (:cast-results report))
+        error (first (:errors report))]
+    (is (not (:ok? report)))
+    (is (= [{:kind :vector-index :index 1}]
+           (:path leaf)))
+    (is (str/includes? error "Path:"))
+    (is (str/includes? error "[1]"))))
+
+(deftest rendered-path-hides-internal-cast-branches
+  (let [message (sut/cast-result->message
+                 sample-ctx
+                 {:source-type (as/schema->type s/Int)
+                  :target-type (as/schema->type s/Str)
+                  :rule :leaf-overlap
+                  :reason :leaf-mismatch
+                  :path [{:kind :source-union-branch :index 1}
+                         {:kind :map-key :key :name}]})]
+    (is (str/includes? message "[:name]"))
+    (is (not (str/includes? message "source union branch")))))
+
+(deftest nested-output-cast-report-includes-summary-and-path-details-test
+  (let [report (sut/output-cast-report
+                {:expr 'bad-user
+                 :arg '{:user {:name :bad}}}
+                {:user {:name s/Str}}
+                {:user {:name s/Keyword}})
+        [error] (:errors report)]
+    (is (not (:ok? report)))
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :name}]
+           (-> report :cast-results first :path)))
+    (is (= 1 (count (:errors report))))
+    (is (str/includes? error "declared return schema"))
+    (is (str/includes? error "{:user {:name Keyword}}"))
+    (is (str/includes? error "{:user {:name Str}}"))
+    (is (not (str/includes? error "Problem fields:")))))
 
 (deftest nested-dynamic-map-cast-stays-structural-test
   (let [compatible (sut/output-cast-report sample-ctx {:a s/Int} {:a s/Any})

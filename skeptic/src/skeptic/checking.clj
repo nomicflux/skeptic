@@ -380,6 +380,7 @@
                                    actual-output)]
                        (when-not (:ok? report)
                          {:blame (:expr display)
+                          :report-kind :output
                           :source-expression (:source-expression display)
                           :expanded-expression (:expanded-expression display)
                           :location (:location display)
@@ -438,6 +439,7 @@
             primary-group (first error-groups)
             errors (vec (mapcat :errors error-groups))]
         {:blame (:expr display)
+         :report-kind :input
          :source-expression (:source-expression display)
          :expanded-expression (:expanded-expression display)
          :location (:location display)

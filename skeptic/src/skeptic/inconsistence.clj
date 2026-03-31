@@ -16,13 +16,19 @@
 
 (defn describe-type
   [type]
-  (or (as/render-type type)
-      (ppr-str type)))
+  (try
+    (or (as/render-type type)
+        (ppr-str type))
+    (catch Exception _e
+      (ppr-str type))))
 
 (defn describe-schema
   [x]
-  (or (some-> x as/render-schema)
-      (ppr-str x)))
+  (try
+    (or (some-> x as/render-schema)
+        (ppr-str x))
+    (catch Exception _e
+      (ppr-str x))))
 
 (defn describe-item
   [x]
@@ -72,39 +78,43 @@
   (as/unknown-schema? schema))
 
 (declare output-cast-report
+         cast-result->message
          plain-key
          missing-key-message
          nullable-key-message
          superfluous-key-message)
 
 (defn cast-leaf-results
-  [cast-result]
-  (cond
-    (or (nil? cast-result) (:ok? cast-result))
-    []
+  ([cast-result]
+   (cast-leaf-results cast-result []))
+  ([cast-result parent-path]
+   (let [path (into (vec parent-path) (or (:path cast-result) []))]
+     (cond
+       (or (nil? cast-result) (:ok? cast-result))
+       []
 
-    (and (seq (:children cast-result))
-         (contains? #{:target-union
-                      :source-union
-                      :target-intersection
-                      :source-intersection
-                      :maybe-both
-                      :maybe-target
-                      :generalize
-                      :instantiate
-                      :function
-                      :function-method
-                      :map
-                      :vector
-                      :seq
-                      :set}
-                    (:rule cast-result)))
-    (->> (:children cast-result)
-         (mapcat cast-leaf-results)
-         vec)
+       (and (seq (:children cast-result))
+            (contains? #{:target-union
+                         :source-union
+                         :target-intersection
+                         :source-intersection
+                         :maybe-both
+                         :maybe-target
+                         :generalize
+                         :instantiate
+                         :function
+                         :function-method
+                         :map
+                         :vector
+                         :seq
+                         :set}
+                       (:rule cast-result)))
+       (->> (:children cast-result)
+            (mapcat #(cast-leaf-results % path))
+            vec)
 
-    :else
-    [cast-result]))
+       :else
+       [(assoc cast-result :path path)]))))
 
 (defn primary-cast-failure
   [cast-result]
@@ -117,44 +127,113 @@
     {:orig-key actual-key
      :cleaned-key plain-key}))
 
+(defn simple-path-token
+  [{:keys [kind key index]}]
+  (case kind
+    :map-key (plain-key key)
+    :vector-index index
+    :seq-index index
+    nil))
+
+(defn render-path-segment
+  [{:keys [kind key index member]}]
+  (case kind
+    :map-key (str "field " (describe-item (plain-key key)))
+    :vector-index (str "index " index)
+    :seq-index (str "index " index)
+    :set-member (str "set element " (describe-item member))
+    :function-domain (str "argument " (inc index))
+    :function-range "return value"
+    :maybe-value "non-nil value"
+    :target-union-branch (str "target union branch " (inc index))
+    :source-union-branch (str "source union branch " (inc index))
+    :target-intersection-branch (str "target intersection branch " (inc index))
+    :source-intersection-branch (str "source intersection branch " (inc index))
+    (pr-str {:kind kind
+             :key key
+             :index index
+             :member member})))
+
+(defn render-path
+  [path]
+  (when (seq path)
+    (let [simple-tokens (mapv simple-path-token path)]
+      (if (every? some? simple-tokens)
+        (pr-str simple-tokens)
+        (str/join " -> " (map render-path-segment path))))))
+
+(defn structural-path?
+  [path]
+  (some #(contains? #{:map-key
+                      :vector-index
+                      :seq-index
+                      :set-member
+                      :function-domain
+                      :function-range}
+                    (:kind %))
+        path))
+
+(defn visible-path
+  [path]
+  (->> path
+       (filter #(contains? #{:map-key
+                             :vector-index
+                             :seq-index
+                             :set-member
+                             :function-domain
+                             :function-range}
+                           (:kind %)))
+       vec))
+
+(defn with-path-detail
+  [message cast-result]
+  (if-let [path-text (some-> (:path cast-result)
+                             visible-path
+                             seq
+                             render-path)]
+    (str message "\n\nPath:\n\n" (colours/yellow path-text))
+    message))
+
 (defn cast-result->message
   [ctx cast-result]
   (let [source-type (:source-type cast-result)
         target-type (:target-type cast-result)]
-    (case (:reason cast-result)
-      :is-tamper
-      (format "%s\n\tin\n\n%s\nattempts to inspect a sealed value:\n\n%s"
-              (colours/magenta (ppr-str (:arg ctx)) true)
-              (colours/magenta (ppr-str (:expr ctx)))
-              (colours/yellow (describe-type source-type)))
+    (with-path-detail
+      (case (:reason cast-result)
+        :is-tamper
+        (format "%s\n\tin\n\n%s\nattempts to inspect a sealed value:\n\n%s"
+                (colours/magenta (ppr-str (:arg ctx)) true)
+                (colours/magenta (ppr-str (:expr ctx)))
+                (colours/yellow (describe-type source-type)))
 
-      :nu-tamper
-      (format "%s\n\tin\n\n%s\nattempts to move a sealed value out of scope:\n\n%s"
-              (colours/magenta (ppr-str (:arg ctx)) true)
-              (colours/magenta (ppr-str (:expr ctx)))
-              (colours/yellow (describe-type source-type)))
+        :nu-tamper
+        (format "%s\n\tin\n\n%s\nattempts to move a sealed value out of scope:\n\n%s"
+                (colours/magenta (ppr-str (:arg ctx)) true)
+                (colours/magenta (ppr-str (:expr ctx)))
+                (colours/yellow (describe-type source-type)))
 
-      :nullable-source
-      (mismatched-nullable-msg ctx source-type target-type)
+        :nullable-source
+        (mismatched-nullable-msg ctx source-type target-type)
 
-      :missing-key
-      (missing-key-message ctx #{(:expected-key cast-result)})
+        :missing-key
+        (missing-key-message ctx #{(:expected-key cast-result)})
 
-      :nullable-key
-      (nullable-key-message (assoc ctx
-                                   :expected-keys (keys (:entries target-type)))
-                            #{(:actual-key cast-result)})
+        :nullable-key
+        (nullable-key-message (assoc ctx
+                                     :expected-keys (keys (:entries target-type)))
+                              #{(:actual-key cast-result)})
 
-      :unexpected-key
-      (superfluous-key-message (assoc ctx
-                                      :expected-keys (keys (:entries target-type)))
-                               #{(superfluous-cast-key (:actual-key cast-result))})
+        :unexpected-key
+        (superfluous-key-message (assoc ctx
+                                        :expected-keys (keys (:entries target-type)))
+                                 #{(superfluous-cast-key (:actual-key cast-result))})
 
-      (if (and (as/ground-type? source-type)
-               (as/ground-type? target-type)
-               (not= source-type target-type))
-        (mismatched-ground-type-msg ctx source-type target-type)
-        (mismatched-schema-msg ctx source-type target-type)))))
+        (if (and (as/ground-type? source-type)
+                 (as/ground-type? target-type)
+                 (not= source-type target-type))
+          (mismatched-ground-type-msg ctx source-type target-type)
+          (mismatched-schema-msg ctx source-type target-type)))
+      cast-result)))
 
 (defn cast-report-metadata
   [cast-result]

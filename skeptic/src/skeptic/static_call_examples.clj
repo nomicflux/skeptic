@@ -25,6 +25,9 @@
 (s/defschema ValueDesc
   {:value s/Int})
 
+(s/defschema NestedUserDesc
+  {:user {:name s/Str}})
+
 (s/defn required-name :- s/Str
   [user :- UserDesc]
   (get user :name))
@@ -50,6 +53,14 @@
   [user :- UserDesc]
   {:name :bad
    :nickname (get user :nickname)})
+
+(s/defn rebuilt-nested-user :- NestedUserDesc
+  [user :- NestedUserDesc]
+  {:user {:name (get (get user :user) :name)}})
+
+(s/defn bad-rebuilt-nested-user :- NestedUserDesc
+  [user :- NestedUserDesc]
+  {:user {:name :bad}})
 
 (s/defn merge-fields :- BothFields
   [left :- LeftFields

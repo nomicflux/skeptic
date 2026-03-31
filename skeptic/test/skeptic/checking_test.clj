@@ -1,5 +1,6 @@
 (ns skeptic.checking-test
-  (:require [clojure.test :refer [are deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
             [skeptic.checking :as sut]
@@ -215,7 +216,7 @@
     (is (= ["y"] (:focus-sources result)))
     (is (= "(int-add x y)" (:source-expression result)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 87
+            :line 121
             :column 5}
            (select-keys (:location result) [:file :line :column])))
     (is (= 'skeptic.test-examples/sample-bad-let-fn
@@ -266,30 +267,44 @@
   (let [results (vec (sut/check-ns static-call-examples-dict
                                    'skeptic.static-call-examples
                                    static-call-examples-file
-                                   {:remove-context true}))]
-    (is (= #{['(get counts :count "zero")
-              [(inconsistence/mismatched-output-schema-msg {:expr 'bad-count-default
-                                                            :arg '(get counts :count "zero")}
-                                                           (as/join s/Int s/Str)
-                                                           s/Int)]]
-             ['(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
-              [(inconsistence/mismatched-ground-type-msg
-                 {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
-                  :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
-                 s/Int
-                 s/Str)]]
-             ['{:name :bad, :nickname (get user :nickname)}
-              [(inconsistence/mismatched-output-schema-msg {:expr 'bad-rebuilt-user
-                                                            :arg '{:name :bad, :nickname (get user :nickname)}}
-                                                           {:name s/Keyword
-                                                            :nickname (s/maybe s/Str)}
-                                                           {:name s/Str
-                                                            :nickname (s/maybe s/Str)})]]}
-           (result-pairs results)))
+                                   {:remove-context true}))
+        count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
+                                      (:enclosing-form %))
+                              %)
+                           results)
+        nested-call-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
+                                            (:enclosing-form %))
+                                    %)
+                                 results)
+        rebuilt-user-result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
+                                             (:enclosing-form %))
+                                     %)
+                                  results)
+        rebuilt-nested-user-result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
+                                                    (:enclosing-form %))
+                                            %)
+                                         results)]
+    (is (= [(inconsistence/mismatched-output-schema-msg {:expr 'bad-count-default
+                                                         :arg '(get counts :count "zero")}
+                                                        (as/join s/Int s/Str)
+                                                        s/Int)]
+           (:errors count-result)))
+    (is (= [(inconsistence/mismatched-ground-type-msg
+              {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+               :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
+              s/Int
+              s/Str)]
+           (:errors nested-call-result)))
+    (is (some #(str/includes? % "{:name Keyword, :nickname (maybe Str)}")
+              (:errors rebuilt-user-result)))
+    (is (= 1 (count (:errors rebuilt-user-result))))
+    (is (not-any? #(str/includes? % "Problem fields:") (:errors rebuilt-user-result)))
+    (is (not-any? #(str/includes? % "[:user :name]") (:errors rebuilt-nested-user-result)))
     (is (not-any? #(contains? #{'skeptic.static-call-examples/required-name
                                 'skeptic.static-call-examples/optional-nickname
                                 'skeptic.static-call-examples/nickname-with-default
                                 'skeptic.static-call-examples/rebuilt-user
+                                'skeptic.static-call-examples/rebuilt-nested-user
                                 'skeptic.static-call-examples/merge-fields
                                 'skeptic.static-call-examples/nested-multi-step-success}
                               (:enclosing-form %))
@@ -309,6 +324,23 @@
     (is (.contains error "{:name Keyword, :nickname (maybe Str)}"))
     (is (.contains error "{:name Str, :nickname (maybe Str)}"))
     (is (not (.contains error "\":name : Keyword\"")))))
+
+(deftest nested-output-mismatch-renders-field-paths
+  (let [results (vec (sut/check-ns static-call-examples-dict
+                                   'skeptic.static-call-examples
+                                   static-call-examples-file
+                                   {:remove-context true}))
+        result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
+                              (:enclosing-form %))
+                        %)
+                     results)]
+    (is (some? result))
+    (is (some #(str/includes? % "declared return schema") (:errors result)))
+    (is (= 1 (count (:errors result))))
+    (is (not-any? #(str/includes? % "[:user :name]") (:errors result)))
+    (is (= [{:kind :map-key :key :user}
+            {:kind :map-key :key :name}]
+           (-> result :cast-results first :path)))))
 
 (deftest check-results-carry-cast-metadata
   (let [results (vec (sut/check-ns static-call-examples-dict
@@ -335,7 +367,7 @@
     (is (= "(nested-multi-step-takes-str (get (nested-multi-step-g) :value))"
            (:source-expression nested-result)))
     (is (= {:file "src/skeptic/static_call_examples.clj"
-            :line 77
+            :line 88
             :column 3}
            (select-keys (:location nested-result) [:file :line :column])))
     (is (= ["(get (nested-multi-step-g) :value)"]
@@ -428,6 +460,29 @@
                s/Int
                s/Str)]
             (:errors result))))))
+
+(deftest nested-call-mismatch-renders-field-paths
+  (in-test-examples
+   (let [result (first (check-fn test-dict 'skeptic.test-examples/nested-map-input-failure
+                                 {:remove-context true}))]
+     (is (some? result))
+     (is (= '(takes-nested-name {:user {:name :bad}})
+            (:blame result)))
+     (is (some #(str/includes? % "[:user :name]") (:errors result)))
+     (is (= [{:kind :map-key :key :user}
+             {:kind :map-key :key :name}]
+            (-> result :cast-results first :path))))))
+
+(deftest vector-call-mismatch-renders-index-paths
+  (in-test-examples
+   (let [result (first (check-fn test-dict 'skeptic.test-examples/vector-input-failure
+                                 {:remove-context true}))]
+     (is (some? result))
+     (is (= '(takes-int-pair (bad-int-pair-helper))
+            (:blame result)))
+     (is (some #(str/includes? % "[1]") (:errors result)))
+     (is (= [{:kind :vector-index :index 1}]
+            (-> result :cast-results first :path))))))
 
 (deftest declaration-based-recursion-and-forward-refs
   (in-test-examples

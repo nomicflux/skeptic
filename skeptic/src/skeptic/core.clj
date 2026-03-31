@@ -1,6 +1,7 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
             [skeptic.analysis.schema :as as]
+            [skeptic.inconsistence :as inconsistence]
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.string :as str]
@@ -38,6 +39,45 @@
 (defn describe-type
   [type]
   (as/render-type type))
+
+(defn output-detail-line
+  [{:keys [reason path source-type target-type]}]
+  (when-let [path-text (some-> path
+                               inconsistence/visible-path
+                               seq
+                               inconsistence/render-path)]
+    (case reason
+      :missing-key
+      (str path-text " is missing")
+
+      :nullable-key
+      (str path-text " is potentially nullable, but the schema doesn't allow that")
+
+      :unexpected-key
+      (str path-text " is not allowed by the declared schema")
+
+      :nullable-source
+      (str path-text " is nullable, but expected is not")
+
+      (str path-text " has "
+           (describe-type source-type)
+           " but expected "
+           (describe-type target-type)))))
+
+(defn render-errors
+  [{:keys [report-kind errors cast-results]}]
+  (if (= :output report-kind)
+    (let [detail-lines (->> cast-results
+                            (keep output-detail-line)
+                            distinct
+                            vec)
+          summary (first errors)]
+      [(if (seq detail-lines)
+         (str summary
+              "\n\nProblem fields:\n\n\t- "
+              (str/join "\n\t- " (map #(colours/yellow %) detail-lines)))
+         summary)])
+    errors))
 
 (defn report-fields
   [{:keys [location blame-side blame-polarity rule actual-type expected-type
@@ -91,7 +131,7 @@
            ;  (pprint/pprint dict))
 	         (when analyzer
 	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-	         (doseq [{:keys [blame source-expression expanded-expression location enclosing-form focuses focus-sources path errors context blame-side blame-polarity rule expected-type actual-type]} (checking/check-ns dict ns source-file opts)]
+	         (doseq [{:keys [blame report-kind source-expression expanded-expression location enclosing-form focuses focus-sources path errors context blame-side blame-polarity rule expected-type actual-type cast-results] :as result} (checking/check-ns dict ns source-file opts)]
 	           (println "---------")
 	           (println (colours/white (str "Namespace: \t\t" ns) true))
 	           (doseq [[label value] (report-fields {:location location
@@ -117,7 +157,7 @@
                  (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str schema))))))
              (doseq [{:keys [expr schema]} (:refs context)]
                (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str schema))))))
-           (doseq [error errors]
+           (doseq [error (render-errors result)]
              (reset! errored true)
              (println "---")
              (println error "\n"))))

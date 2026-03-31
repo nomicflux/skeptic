@@ -70,6 +70,40 @@
   [x :- s/Str]
   x)
 
+(s/defschema NestedNameDesc
+  {:user {:name s/Str}})
+
+(s/defschema IntPair
+  [s/Int s/Int])
+
+(s/defn takes-nested-name :- s/Keyword
+  [x :- NestedNameDesc]
+  :ok)
+
+(defn nested-map-input-failure
+  []
+  (takes-nested-name {:user {:name :bad}}))
+
+(defn nested-map-input-success
+  []
+  (takes-nested-name {:user {:name "ok"}}))
+
+(s/defn takes-int-pair :- s/Keyword
+  [xs :- IntPair]
+  :ok)
+
+(s/defn bad-int-pair-helper :- [s/Int s/Str]
+  []
+  [1 "oops"])
+
+(defn vector-input-failure
+  []
+  (takes-int-pair (bad-int-pair-helper)))
+
+(defn vector-input-success
+  []
+  (takes-int-pair [1 2]))
+
 (defn sample-bad-fn
   [x]
   (int-add 1 (int-add nil x)))
