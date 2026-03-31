@@ -81,38 +81,59 @@
    {}
    xs))
 
+(defn schema-entry-schema
+  [schema]
+  (let [m (try (into {} schema)
+               (catch Exception _e nil))]
+    (or (:schema m) schema)))
+
+(defn normalize-vararg-input-schemas
+  [schemas]
+  (let [schemas (vec schemas)]
+    (if (seq schemas)
+      (conj (pop schemas) (schema-entry-schema (peek schemas)))
+      schemas)))
+
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
   (try
-    (as/canonicalize-entry
-     (if (or (class? schema) (set? schema) (vector? schema))
-       {:name (str (s/explain schema))
-        :schema schema
-        :output schema
-        :arglists {}}
-       (let [{:keys [input-schemas output-schema]} (into {} schema)
-             inputs (count-map input-schemas)
-             args (arg-map arglists)
-             args-with-schemas (reduce
-                                (fn [acc next]
-                                  (let [input (get inputs next)
-                                        arg (get args next)]
-                                    (assoc acc
-                                           next
-                                           (cond-> {:arglist arg}
+    (let [schema (as/canonicalize-schema schema)]
+      (when-not (as/schema? schema)
+        (throw (IllegalArgumentException.
+                (format "Invalid Schema annotation for %s/%s: %s"
+                        ns
+                        name
+                        (pr-str schema)))))
+      (as/canonicalize-entry
+       (if (or (class? schema) (set? schema) (vector? schema))
+         {:name (or (as/render-schema schema) (str ns "/" name))
+          :schema schema
+          :output schema
+          :arglists {}}
+         (let [{:keys [input-schemas output-schema]} (into {} schema)
+               inputs (count-map input-schemas)
+               args (arg-map arglists)
+               args-with-schemas (reduce
+                                  (fn [acc next]
+                                    (let [input (get inputs next)
+                                          arg (get args next)]
+                                      (assoc acc
+                                             next
+                                             (cond-> {:arglist arg}
                                              (= next :varargs)
                                              (assoc :count (:count arg)
                                                     :arglist (:args arg)
-                                                    :schema (get inputs (:count arg)))
+                                                    :schema (some-> (get inputs (:count arg))
+                                                                    normalize-vararg-input-schemas))
 
                                              (not (nil? input))
                                              (assoc :schema input)))))
-                                {}
-                                (keys args))]
-         {:name (str ns "/" name)
-          :schema schema
-          :output (or output-schema schema)
-          :arglists args-with-schemas})))
+                                  {}
+                                  (keys args))]
+           {:name (str ns "/" name)
+            :schema schema
+            :output (or output-schema schema)
+            :arglists args-with-schemas}))))
     (catch Exception e
       (println "Exception collecting schemas:" (pr-str this))
       (throw e))))

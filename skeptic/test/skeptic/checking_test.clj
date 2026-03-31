@@ -159,6 +159,10 @@
      'skeptic.test-examples/sample-fn-once ['(int-add y nil)
                                             [(inconsistence/mismatched-nullable-msg {:expr '(int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]])))
 
+(deftest no-implicit-parametric-generalization-regression
+  (in-test-examples
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/sample-bad-parametric-fn)))))
+
 (deftest check-ns-uses-raw-forms
   (in-test-examples
    (let [results (vec (sut/check-ns test-dict 'skeptic.test-examples test-file {:remove-context true}))]
@@ -195,7 +199,7 @@
                             :location))
                  results)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 52
+            :line 42
             :column 5}
            (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
                     (select-keys (:location %) [:file :line :column]))
@@ -211,7 +215,7 @@
     (is (= ["y"] (:focus-sources result)))
     (is (= "(int-add x y)" (:source-expression result)))
     (is (= {:file "test/skeptic/test_examples.clj"
-            :line 97
+            :line 87
             :column 5}
            (select-keys (:location result) [:file :line :column])))
     (is (= 'skeptic.test-examples/sample-bad-let-fn
@@ -490,3 +494,7 @@
      'skeptic.test-examples/if-output-keyword-failure :bad
      'skeptic.test-examples/both-int-str-output-int-failure 1
      'skeptic.test-examples/both-int-str-output-str-failure "hi")))
+
+(deftest conditional-schema-cond-thread-currently-needs-refinement
+  (in-test-examples
+   (is (= 2 (count (check-fn test-dict 'skeptic.test-examples/conditional-map-cond-thread-success))))))

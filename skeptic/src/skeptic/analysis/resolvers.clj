@@ -8,6 +8,10 @@
   [{:keys [schema name] :as s}]
   (s/one (or schema s s/Any) name))
 
+(defn arglist-entry-schema
+  [{:keys [schema] :as entry}]
+  (or schema entry s/Any))
+
 (defn convert-arglists
   [args {:keys [arglists output]}]
   (let [arity (count args)
@@ -16,10 +20,10 @@
     (if (or (and count varargs-res)
             direct-res)
       (let [res (if (and count (>= arity count)) varargs-res direct-res)
-            schemas (mapv arglist->input-schema
+            arglist (mapv arglist-entry-schema
                           (or (:schema res)
-                              (vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))))
-            arglist (mapv :schema schemas)]
+                              (vec (repeat (or arity 0) s/Any))))
+            schemas (mapv arglist->input-schema arglist)]
         {:schema (if (and output (seq schemas))
                    (s/make-fn-schema output [schemas])
                    (as/dynamic-fn-schema arity output))

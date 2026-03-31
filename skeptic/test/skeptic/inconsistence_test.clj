@@ -49,7 +49,7 @@
     (is (str/includes? (first (:errors nullable)) "nullable"))
 
     (is (not (:ok? mismatch)))
-    (is (= :mismatch (:rule mismatch)))
+    (is (= :leaf-overlap (:rule mismatch)))
     (is (= :term (:blame-side mismatch)))
     (is (= :positive (:blame-polarity mismatch)))
     (is (= (as/schema->type s/Int) (:expected-type mismatch)))
@@ -69,7 +69,7 @@
     (is (not (:ok? report)))
     (is (= :term (:blame-side report)))
     (is (= :positive (:blame-polarity report)))
-    (is (= :mismatch (:rule report)))
+    (is (= :leaf-overlap (:rule report)))
     (is (str/includes? error "declared return schema"))
     (is (str/includes? error "{:name Keyword, :nickname (maybe Str)}"))
     (is (str/includes? error "{:name Str, :nickname (maybe Str)}"))))
@@ -160,20 +160,20 @@
     (is (:ok? target-intersection))
     (is (= :target-intersection (:rule target-intersection)))))
 
-(deftest semantic-function-type-roundtrip-test
+(deftest semantic-function-type-rendering-test
   (let [fun-type (as/->FunT [(as/->FnMethodT [(as/schema->type s/Int)]
                                              (as/intersection-type [s/Any s/Int])
                                              1
                                              false)])
-        derived-schema (as/derive-schema fun-type)
-        schema-map (into {} derived-schema)
-        output-type (as/schema->type (:output-schema schema-map))]
+        polymorphic-fun (as/->FunT [(as/->FnMethodT [(as/->TypeVarT 'X)]
+                                                    (as/->SealedDynT (as/->TypeVarT 'X))
+                                                    1
+                                                    false)])]
     (is (= fun-type (as/schema->type fun-type)))
-    (is (as/fn-schema? derived-schema))
-    (is (as/intersection-type? output-type))
-    (is (= #{(as/schema->type s/Any) (as/schema->type s/Int)}
-           (:members output-type)))
-    (is (= [[(s/one s/Int 'arg0)]] (:input-schemas schema-map)))))
+    (is (= "(=> (intersection Any Int) Int)"
+           (as/render-type fun-type)))
+    (is (= "(=> (sealed X) X)"
+           (as/render-type polymorphic-fun)))))
 
 (deftest valued-helper-logic-lives-in-analysis-schema-test
   (is (= 1 (as/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))

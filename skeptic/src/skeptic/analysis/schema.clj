@@ -27,6 +27,8 @@
 (declare custom-schema?
          custom-schema-match-value?
          schema-explain
+         render-schema-form
+         render-schema
          canonicalize-schema
          canonicalize-schema*
          canonicalize-output-schema
@@ -38,7 +40,10 @@
          variable?
          dyn-type?
          bottom-type?
-         scalar-type?
+         ground-type?
+         refinement-type?
+         adapter-leaf-type?
+         optional-key-type?
          fn-method-type?
          fun-type?
          maybe-type?
@@ -55,7 +60,7 @@
          placeholder-type?
          value-type?
          semantic-type-value?
-         type-display-form
+         render-type-form
          render-type
          matches-map
          plain-map-schema?)
@@ -64,14 +69,40 @@
   [s]
   (= s s/Any))
 
+(defn schema-literal?
+  [value]
+  (or (keyword? value)
+      (string? value)
+      (integer? value)
+      (boolean? value)
+      (symbol? value)))
+
 (defn schema?
   [s]
-  (or (custom-schema? s)
-      (instance? Schema s)
-      (try (s/check s nil)
-           true
-           (catch Exception _e
-             false))))
+  (let [s (localize-schema-value s)]
+    (cond
+      (nil? s) true
+      (schema-literal? s) true
+      (custom-schema? s) true
+      (instance? Schema s) true
+      (class? s) true
+      (s/optional-key? s) (schema? (:k s))
+      (instance? One s) (let [m (try (into {} s)
+                                     (catch Exception _e nil))]
+                          (and (map? m)
+                               (schema? (:schema m))))
+      (and (map? s)
+           (not (record? s))
+           (not (semantic-type-value? s)))
+      (every? (fn [[k v]]
+                (and (schema? k)
+                     (schema? v)))
+              s)
+      (vector? s) (every? schema? s)
+      (set? s) (and (= 1 (count s))
+                    (every? schema? s))
+      (seq? s) (every? schema? s)
+      :else false)))
 
 (defn schema-match-value?
   [s x]
@@ -318,6 +349,21 @@
     (bottom-schema? schema)
     'Bottom
 
+    (schema-literal? schema)
+    schema
+
+    (s/optional-key? schema)
+    (list 'optional-key (schema-explain (:k schema)))
+
+    (instance? One schema)
+    (let [m (try (into {} schema)
+                 (catch Exception _e nil))]
+      (if (map? m)
+        (list 'one
+              (schema-explain (:schema m))
+              (:name m))
+        schema))
+
     (join? schema)
     (into #{} (map (fn [member]
                      (if (or (schema? member)
@@ -418,10 +464,11 @@
   [one]
   (let [m (try (into {} one)
                (catch Exception _e nil))]
-    (if (map? m)
+    (if (and (map? m)
+             (contains? m :schema))
       (s/one (canonicalize-schema (:schema m))
              (:name m))
-      one)))
+      (canonicalize-schema one))))
 
 (defn canonicalize-map-key
   [k]
@@ -546,8 +593,17 @@
 (def bottom-type-tag
   ::bottom-type)
 
-(def scalar-type-tag
-  ::scalar-type)
+(def ground-type-tag
+  ::ground-type)
+
+(def refinement-type-tag
+  ::refinement-type)
+
+(def adapter-leaf-type-tag
+  ::adapter-leaf-type)
+
+(def optional-key-type-tag
+  ::optional-key-type)
 
 (def fn-method-type-tag
   ::fn-method-type)
@@ -602,10 +658,32 @@
   []
   {semantic-type-tag-key bottom-type-tag})
 
-(defn ->ScalarT
-  [schema]
-  {semantic-type-tag-key scalar-type-tag
-   :schema schema})
+(defn ->GroundT
+  [ground display-form]
+  {semantic-type-tag-key ground-type-tag
+   :ground ground
+   :display-form display-form})
+
+(defn ->RefinementT
+  [base display-form accepts? adapter-data]
+  {semantic-type-tag-key refinement-type-tag
+   :base base
+   :display-form display-form
+   :accepts? accepts?
+   :adapter-data adapter-data})
+
+(defn ->AdapterLeafT
+  [adapter display-form accepts? adapter-data]
+  {semantic-type-tag-key adapter-leaf-type-tag
+   :adapter adapter
+   :display-form display-form
+   :accepts? accepts?
+   :adapter-data adapter-data})
+
+(defn ->OptionalKeyT
+  [inner]
+  {semantic-type-tag-key optional-key-type-tag
+   :inner inner})
 
 (defn ->FnMethodT
   [inputs output min-arity variadic?]
@@ -717,10 +795,23 @@
     (variable (localize-schema-value (read-instance-field value "schema")))
     (dyn-type? value) Dyn
     (bottom-type? value) BottomType
-    (scalar-type? value)
-    (->ScalarT (localize-schema-value (:schema value)))
-    (same-class-name? value "skeptic.analysis.schema.ScalarT")
-    (->ScalarT (localize-schema-value (read-instance-field value "schema")))
+    (ground-type? value)
+    (->GroundT (:ground value) (:display-form value))
+    (same-class-name? value "skeptic.analysis.schema.GroundT")
+    (->GroundT (read-instance-field value "ground")
+               (read-instance-field value "display_form"))
+    (refinement-type? value)
+    (->RefinementT (localize-schema-value (:base value))
+                   (:display-form value)
+                   (:accepts? value)
+                   (localize-schema-value (:adapter-data value)))
+    (adapter-leaf-type? value)
+    (->AdapterLeafT (:adapter value)
+                    (:display-form value)
+                    (:accepts? value)
+                    (localize-schema-value (:adapter-data value)))
+    (optional-key-type? value)
+    (->OptionalKeyT (localize-schema-value (:inner value)))
     (fn-method-type? value)
     (->FnMethodT (localize-schema-value (:inputs value))
                  (localize-schema-value (:output value))
@@ -811,10 +902,22 @@
   (or (tagged-map? t semantic-type-tag-key bottom-type-tag)
       (same-class-name? t "skeptic.analysis.schema.BottomT")))
 
-(defn scalar-type?
+(defn ground-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key scalar-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.ScalarT")))
+  (or (tagged-map? t semantic-type-tag-key ground-type-tag)
+      (same-class-name? t "skeptic.analysis.schema.GroundT")))
+
+(defn refinement-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key refinement-type-tag))
+
+(defn adapter-leaf-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key adapter-leaf-type-tag))
+
+(defn optional-key-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key optional-key-type-tag))
 
 (defn fn-method-type?
   [t]
@@ -889,7 +992,7 @@
       (same-class-name? t "skeptic.analysis.schema.ValueT")))
 
 (declare schema->type
-         type->schema
+         check-cast
          type-compatible-key?
          type-compatible-map-value?)
 
@@ -929,10 +1032,6 @@
       (= 1 (count members)) (first members)
       :else (->IntersectionT members))))
 
-(defn type-seq->schema-seq
-  [items]
-  (doall (map type->schema items)))
-
 (defn broad-dynamic-schema?
   [schema]
   (contains? (set [s/Any
@@ -943,13 +1042,79 @@
                    java.lang.Object])
              schema))
 
+(defn render-schema-form
+  [schema]
+  (let [schema (canonicalize-schema schema)]
+    (when-not (schema? schema)
+      (throw (IllegalArgumentException.
+              (format "Not a valid Schema-domain value: %s" (pr-str schema)))))
+    (schema-explain schema)))
+
+(defn render-schema
+  [schema]
+  (some-> schema
+          render-schema-form
+          pr-str))
+
+(defn import-display-form
+  [schema]
+  (render-schema-form schema))
+
+(defn primitive-ground-type
+  [schema]
+  (let [schema (canonical-scalar-schema schema)]
+    (cond
+      (= schema s/Int) (->GroundT :int 'Int)
+      (= schema s/Str) (->GroundT :str 'Str)
+      (= schema s/Keyword) (->GroundT :keyword 'Keyword)
+      (= schema s/Symbol) (->GroundT :symbol 'Symbol)
+      (= schema s/Bool) (->GroundT :bool 'Bool)
+      (and (class? schema)
+           (not (broad-dynamic-schema? schema)))
+      (->GroundT {:class schema} (schema-explain schema))
+      :else nil)))
+
+(defn literal-ground-type
+  [value]
+  (cond
+    (integer? value) (->GroundT :int 'Int)
+    (string? value) (->GroundT :str 'Str)
+    (keyword? value) (->GroundT :keyword 'Keyword)
+    (symbol? value) (->GroundT :symbol 'Symbol)
+    (boolean? value) (->GroundT :bool 'Bool)
+    :else nil))
+
+(defn exact-value-import-type
+  [value]
+  (->ValueT (or (literal-ground-type value) Dyn) value))
+
+(defn refinement-import-type
+  [schema]
+  (->RefinementT (schema->type (de-constrained schema))
+                 (import-display-form schema)
+                 (fn [value]
+                   (= (check-if-schema schema value) ::schema-valid))
+                 {:adapter :schema
+                  :kind :constrained}))
+
+(defn adapter-leaf-import-type
+  [schema]
+  (->AdapterLeafT :schema
+                  (import-display-form schema)
+                  (fn [value]
+                    (= (check-if-schema schema value) ::schema-valid))
+                  {:source-schema schema}))
+
 (defn schema->type
   [schema]
   (let [schema (localize-schema-value schema)]
     (cond
     (dyn-type? schema) schema
     (bottom-type? schema) schema
-    (scalar-type? schema) schema
+    (ground-type? schema) schema
+    (refinement-type? schema) schema
+    (adapter-leaf-type? schema) schema
+    (optional-key-type? schema) schema
     (fn-method-type? schema) schema
     (fun-type? schema) schema
     (maybe-type? schema) schema
@@ -973,6 +1138,14 @@
         (= schema Bottom) BottomType
         (placeholder-schema? schema) (->PlaceholderT (placeholder-ref schema))
         (broad-dynamic-schema? schema) Dyn
+        (instance? One schema) (schema->type (or (:schema (try (into {} schema)
+                                                              (catch Exception _e {})))
+                                                s/Any))
+        (schema-literal? schema) (exact-value-import-type schema)
+        (s/optional-key? schema) (->OptionalKeyT (schema->type (:k schema)))
+        (eq? schema) (exact-value-import-type (de-eq schema))
+        (constrained? schema) (refinement-import-type schema)
+        (primitive-ground-type schema) (primitive-ground-type schema)
 
         (fn-schema? schema)
         (let [{:keys [input-schemas output-schema]} (into {} schema)
@@ -990,7 +1163,7 @@
           (->FunT methods))
 
         (maybe? schema) (->MaybeT (schema->type (:schema schema)))
-        (enum-schema? schema) (union-type (map s/eq (de-enum schema)))
+        (enum-schema? schema) (union-type (map exact-value-import-type (de-enum schema)))
         (join? schema) (union-type (:schemas schema))
         (either? schema) (union-type (:schemas schema))
         (conditional-schema? schema) (union-type (map second (:preds-and-schemas schema)))
@@ -1016,61 +1189,16 @@
         (->SeqT (mapv schema->type schema) (= 1 (count schema)))
 
         :else
-        (->ScalarT schema))))))
-
-(defn type->schema
-  [type]
-  (let [type (schema->type type)]
-    (cond
-      (dyn-type? type) s/Any
-      (bottom-type? type) Bottom
-      (scalar-type? type) (:schema type)
-
-      (fun-type? type)
-      (let [methods (:methods type)
-            output-schema (schema-join (set (map (comp type->schema :output) methods)))]
-        (s/make-fn-schema output-schema
-                          (mapv (fn [{:keys [inputs]}]
-                                  (mapv (fn [idx input]
-                                          (s/one (type->schema input)
-                                                 (symbol (str "arg" idx))))
-                                        (range)
-                                        inputs))
-                                methods)))
-
-      (maybe-type? type) (s/maybe (type->schema (:inner type)))
-      (union-type? type) (schema-join (set (map type->schema (:members type))))
-      (intersection-type? type) (apply s/both (map type->schema (:members type)))
-      (map-type? type) (into {}
-                             (map (fn [[k v]]
-                                    [(type->schema k)
-                                     (type->schema v)]))
-                             (:entries type))
-      (vector-type? type) (mapv type->schema (:items type))
-      (set-type? type) (into #{} (map type->schema) (:members type))
-      (seq-type? type) (type-seq->schema-seq (:items type))
-      (var-type? type) (variable (type->schema (:inner type)))
-      (type-var-type? type) type
-      (forall-type? type) type
-      (sealed-dyn-type? type) type
-      (placeholder-type? type) (placeholder-schema (:ref type))
-      (value-type? type) (valued-schema (type->schema (:inner type))
-                                        (:value type))
-      :else type)))
-
-(defn derive-schema
-  [type]
-  (canonicalize-schema (type->schema type)))
-
-(defn derive-output-schema
-  [type]
-  (canonicalize-output-schema (type->schema type)))
+        (adapter-leaf-import-type schema))))))
 
 (defn semantic-type-value?
   [value]
   (or (dyn-type? value)
       (bottom-type? value)
-      (scalar-type? value)
+      (ground-type? value)
+      (refinement-type? value)
+      (adapter-leaf-type? value)
+      (optional-key-type? value)
       (fn-method-type? value)
       (fun-type? value)
       (maybe-type? value)
@@ -1087,33 +1215,54 @@
       (placeholder-type? value)
       (value-type? value)))
 
-(defn schema-roundtrippable-type?
-  [type]
-  (let [type (schema->type type)]
-    (not (or (type-var-type? type)
-             (forall-type? type)
-             (sealed-dyn-type? type)))))
+(declare render-type-form)
 
-(declare type-display-form)
+(defn render-fn-input-form
+  [method]
+  (let [inputs (mapv render-type-form (:inputs method))]
+    (if (:variadic? method)
+      (concat (take (:min-arity method) inputs)
+              ['& (drop (:min-arity method) inputs)])
+      inputs)))
 
-(defn type-display-form
+(defn render-type-form
   [type]
   (let [type (schema->type type)]
     (cond
+      (dyn-type? type) 'Any
+      (bottom-type? type) 'Bottom
+      (ground-type? type) (:display-form type)
+      (refinement-type? type) (:display-form type)
+      (adapter-leaf-type? type) (:display-form type)
+      (optional-key-type? type) (list 'optional-key (render-type-form (:inner type)))
+      (value-type? type) (:value type)
       (type-var-type? type) (:name type)
-      (forall-type? type) (list 'forall (:binder type) (type-display-form (:body type)))
-      (sealed-dyn-type? type) (list 'sealed (type-display-form (:ground type)))
-      :else (let [schema (type->schema type)]
-              (if (or (schema? schema)
-                      (class? schema)
-                      (custom-schema? schema))
-                (schema-explain schema)
-                schema)))))
+      (forall-type? type) (list 'forall (:binder type) (render-type-form (:body type)))
+      (sealed-dyn-type? type) (list 'sealed (render-type-form (:ground type)))
+      (fn-method-type? type) (list* '=> (render-type-form (:output type)) (render-fn-input-form type))
+      (fun-type? type)
+      (if (= 1 (count (:methods type)))
+        (render-type-form (first (:methods type)))
+        (list* '=>* (map render-type-form (:methods type))))
+      (maybe-type? type) (list 'maybe (render-type-form (:inner type)))
+      (union-type? type) (list* 'union (map render-type-form (sort-by pr-str (:members type))))
+      (intersection-type? type) (list* 'intersection (map render-type-form (sort-by pr-str (:members type))))
+      (map-type? type)
+      (into {}
+            (map (fn [[k v]]
+                   [(render-type-form k)
+                    (render-type-form v)]))
+            (:entries type))
+      (vector-type? type) (mapv render-type-form (:items type))
+      (set-type? type) (into #{} (map render-type-form) (:members type))
+      (seq-type? type) (doall (map render-type-form (:items type)))
+      (var-type? type) (list 'var (render-type-form (:inner type)))
+      :else type)))
 
 (defn render-type
   [type]
   (some-> type
-          type-display-form
+          render-type-form
           pr-str))
 
 (defn type-var-name
@@ -1127,7 +1276,10 @@
     (cond
       (or (dyn-type? type)
           (bottom-type? type)
-          (scalar-type? type)
+          (ground-type? type)
+          (refinement-type? type)
+          (adapter-leaf-type? type)
+          (optional-key-type? type)
           (placeholder-type? type))
       #{}
 
@@ -1188,9 +1340,14 @@
     (cond
       (or (dyn-type? type)
           (bottom-type? type)
-          (scalar-type? type)
+          (ground-type? type)
+          (refinement-type? type)
+          (adapter-leaf-type? type)
           (placeholder-type? type))
       type
+
+      (optional-key-type? type)
+      (->OptionalKeyT (type-substitute (:inner type) binder replacement))
 
       (fn-method-type? type)
       (->FnMethodT (mapv #(type-substitute % binder replacement) (:inputs type))
@@ -1734,58 +1891,211 @@
            %)
         (:methods source-fun)))
 
-(defn required-map-key-local?
-  [k]
-  (and (not (s/optional-key? k))
-       (or (keyword? k)
-           (valued-schema? k)
-           (schema? k)
-           (map? k))))
+(defn optional-key-inner
+  [type]
+  (if (optional-key-type? type)
+    (:inner type)
+    type))
+
+(defn required-map-key-type?
+  [type]
+  (not (optional-key-type? (schema->type type))))
+
+(defn exact-value-type?
+  [type]
+  (value-type? (schema->type type)))
+
+(defn type-compatible-key?
+  [actual-key target-key]
+  (:ok? (check-cast (optional-key-inner actual-key)
+                    (optional-key-inner target-key))))
+
+(defn map-key-rank
+  [type]
+  (let [type (schema->type type)
+        plain (optional-key-inner type)]
+    [(if (exact-value-type? plain) 0 1)
+     (if (optional-key-type? type) 1 0)]))
+
+(defn matching-map-entry
+  [entries actual-key]
+  (let [matches (->> entries
+                     (map key)
+                     (filter #(type-compatible-key? actual-key %))
+                     (sort-by map-key-rank))]
+    (when-let [matched-key (first matches)]
+      [matched-key (get entries matched-key)])))
+
+(defn ground-accepts-value?
+  [type value]
+  (let [ground (:ground (schema->type type))]
+    (cond
+      (= ground :int) (integer? value)
+      (= ground :str) (string? value)
+      (= ground :keyword) (keyword? value)
+      (= ground :symbol) (symbol? value)
+      (= ground :bool) (boolean? value)
+      (and (map? ground) (:class ground)) (instance? (:class ground) value)
+      :else false)))
+
+(declare value-satisfies-type?)
+
+(defn leaf-overlap?
+  [source-type target-type]
+  (let [source-type (schema->type source-type)
+        target-type (schema->type target-type)]
+    (cond
+      (ground-type? source-type)
+      (cond
+        (ground-type? target-type)
+        (let [s (:ground source-type)
+              t (:ground target-type)]
+          (cond
+            (= s t) true
+            (and (map? s) (:class s) (map? t) (:class t))
+            (or (.isAssignableFrom ^Class (:class s) ^Class (:class t))
+                (.isAssignableFrom ^Class (:class t) ^Class (:class s)))
+            :else false))
+
+        (refinement-type? target-type)
+        (leaf-overlap? source-type (:base target-type))
+
+        (adapter-leaf-type? target-type)
+        true
+
+        :else false)
+
+      (refinement-type? source-type)
+      (leaf-overlap? (:base source-type) target-type)
+
+      (adapter-leaf-type? source-type)
+      true
+
+      :else false)))
+
+(defn type-compatible-map-value?
+  [value-type expected-type]
+  (:ok? (check-cast value-type expected-type)))
+
+(defn set-value-satisfies-type?
+  [value members]
+  (and (set? value)
+       (= (count value) (count members))
+       (every? (fn [member-value]
+                 (some #(value-satisfies-type? member-value %) members))
+               value)))
+
+(defn map-value-satisfies-type?
+  [value map-type]
+  (and (map? value)
+       (let [entries (:entries (schema->type map-type))
+             required-missing (atom (->> entries keys (filter required-map-key-type?) set))]
+         (and
+          (every? (fn [[k v]]
+                    (let [actual-key (exact-value-import-type k)]
+                      (if-let [[matched-key matched-value] (matching-map-entry entries actual-key)]
+                        (do
+                          (swap! required-missing disj matched-key)
+                          (value-satisfies-type? v matched-value))
+                        false)))
+                  value)
+          (empty? @required-missing)))))
+
+(defn value-satisfies-type?
+  [value type]
+  (let [type (schema->type type)]
+    (cond
+      (or (dyn-type? type)
+          (placeholder-type? type))
+      true
+
+      (bottom-type? type)
+      true
+
+      (value-type? type)
+      (= value (:value type))
+
+      (ground-type? type)
+      (ground-accepts-value? type value)
+
+      (refinement-type? type)
+      (and (value-satisfies-type? value (:base type))
+           ((:accepts? type) value))
+
+      (adapter-leaf-type? type)
+      ((:accepts? type) value)
+
+      (optional-key-type? type)
+      (value-satisfies-type? value (:inner type))
+
+      (maybe-type? type)
+      (or (nil? value)
+          (value-satisfies-type? value (:inner type)))
+
+      (union-type? type)
+      (some #(value-satisfies-type? value %) (:members type))
+
+      (intersection-type? type)
+      (every? #(value-satisfies-type? value %) (:members type))
+
+      (map-type? type)
+      (map-value-satisfies-type? value type)
+
+      (vector-type? type)
+      (and (vector? value)
+           (= (count value) (count (:items type)))
+           (every? true? (map value-satisfies-type? value (:items type))))
+
+      (seq-type? type)
+      (and (sequential? value)
+           (= (count value) (count (:items type)))
+           (every? true? (map value-satisfies-type? value (:items type))))
+
+      (set-type? type)
+      (set-value-satisfies-type? value (:members type))
+
+      (var-type? type)
+      (and (var? value)
+           (value-satisfies-type? @value (:inner type)))
+
+      :else false)))
 
 (declare check-cast)
 
 (defn map-cast-children
   [source-type target-type opts]
-  (let [source-schema (canonicalize-schema (type->schema source-type))
-        target-schema (canonicalize-schema (type->schema target-type))
-        opt-expected (->> target-schema keys (filter s/optional-key?) (map #(if (s/optional-key? %) (:k %) %)) set)
-        required-missing (atom (->> target-schema
-                                    keys
-                                    (filter required-map-key-local?)
-                                    (map #(if (s/optional-key? %) (:k %) %))
+  (let [source-entries (:entries (schema->type source-type))
+        target-entries (:entries (schema->type target-type))
+        required-missing (atom (->> target-entries keys
+                                    (filter required-map-key-type?)
                                     set))
         children (reduce (fn [acc [actual-k actual-v]]
-                           (let [actual-key-candidates (map-key-candidates actual-k)
-                                 ]
-                             (if-let [[matched-key matched-value] (matching-map-entry target-schema actual-k)]
-                               (let [_ (swap! required-missing #(apply disj % (map-key-candidates matched-key)))
-                                     value-result (check-cast (schema->type actual-v)
-                                                              (schema->type matched-value)
-                                                              opts)
-                                     nullable-result (when (and (s/optional-key? actual-k)
-                                                                (not-any? #(contains? opt-expected %)
-                                                                          actual-key-candidates))
-                                                       (cast-fail source-type
-                                                                  target-type
-                                                                  :map-nullable-key
-                                                                  (:polarity opts)
-                                                                  :nullable-key
-                                                                  []
-                                                                  {:actual-key actual-k
-                                                                   :expected-key matched-key}))]
-                                 (cond-> acc
-                                   true (conj value-result)
-                                   nullable-result (conj nullable-result)))
-                               (conj acc
-                                     (cast-fail source-type
-                                                target-type
-                                                :map-unexpected-key
-                                                (:polarity opts)
-                                                :unexpected-key
-                                                []
-                                                {:actual-key actual-k})))))
+                           (if-let [[matched-key matched-value] (matching-map-entry target-entries actual-k)]
+                             (let [_ (swap! required-missing disj matched-key)
+                                   value-result (check-cast actual-v matched-value opts)
+                                   nullable-result (when (and (optional-key-type? actual-k)
+                                                              (required-map-key-type? matched-key))
+                                                     (cast-fail source-type
+                                                                target-type
+                                                                :map-nullable-key
+                                                                (:polarity opts)
+                                                                :nullable-key
+                                                                []
+                                                                {:actual-key actual-k
+                                                                 :expected-key matched-key}))]
+                               (cond-> acc
+                                 true (conj value-result)
+                                 nullable-result (conj nullable-result)))
+                             (conj acc
+                                   (cast-fail source-type
+                                              target-type
+                                              :map-unexpected-key
+                                              (:polarity opts)
+                                              :unexpected-key
+                                              []
+                                              {:actual-key actual-k}))))
                          []
-                         source-schema)]
+                         source-entries)]
     (into children
           (map (fn [missing-k]
                  (cast-fail source-type
@@ -1818,43 +2128,6 @@
                                :element-mismatch))))
           []
           source-members))
-
-(defn scalar-cast-fallback?
-  [source-type target-type]
-  (when (and (schema-roundtrippable-type? source-type)
-             (schema-roundtrippable-type? target-type))
-    (let [source-type (schema->type source-type)
-          target-type (schema->type target-type)
-          source-schema (canonicalize-schema (type->schema source-type))
-          target-schema (canonicalize-schema (type->schema target-type))
-          exact-value (fn [type]
-                        (cond
-                          (value-type? type) (:value type)
-                          (and (scalar-type? type)
-                               (eq? (:schema type))) (de-eq (:schema type))
-                          :else ::none))
-          base-schema (fn base-schema [schema]
-                        (let [schema (canonicalize-schema schema)]
-                          (cond
-                            (named? schema) (base-schema (de-named schema))
-                            (constrained? schema) (base-schema (de-constrained schema))
-                            (valued-schema? schema) (base-schema (:schema schema))
-                            :else schema)))
-          source-exact (exact-value source-type)
-          target-exact (exact-value target-type)
-          source-base (base-schema source-schema)
-          target-base (base-schema target-schema)]
-      (cond
-        (not= source-exact ::none)
-        (= (check-if-schema target-schema source-exact) ::schema-valid)
-
-        (not= target-exact ::none)
-        (= (check-if-schema source-schema target-exact) ::schema-valid)
-
-        :else
-        (or (= source-base target-base)
-            (= (check-if-schema target-base source-base) ::schema-valid)
-            (= (check-if-schema source-base target-base) ::schema-valid))))))
 
 (defn check-cast
   ([source-type target-type]
@@ -1960,23 +2233,15 @@
            (cast-ok source-type target-type :source-intersection children)
            (cast-fail source-type target-type :source-intersection polarity :source-component-failed children)))
 
-       (and (value-type? source-type)
-            (schema-roundtrippable-type? target-type))
-       (let [value-schema (:value source-type)
-             value-match (or (schema-equivalent? (type->schema target-type) value-schema)
-                             (= (check-if-schema (type->schema target-type) value-schema) ::schema-valid))]
-         (if value-match
+       (value-type? source-type)
+       (if (value-satisfies-type? (:value source-type) target-type)
            (cast-ok source-type target-type :value-exact)
-           (check-cast (:inner source-type) target-type opts)))
+           (cast-fail source-type target-type :value-exact polarity :exact-value-mismatch))
 
-       (and (value-type? target-type)
-            (schema-roundtrippable-type? source-type))
-       (let [expected-value (:value target-type)
-             source-schema (type->schema source-type)]
-         (if (or (schema-equivalent? source-schema expected-value)
-                 (= (check-if-schema source-schema expected-value) ::schema-valid))
+       (value-type? target-type)
+       (if (value-satisfies-type? (:value target-type) source-type)
            (cast-ok source-type target-type :target-value)
-           (check-cast source-type (:inner target-type) opts)))
+           (cast-fail source-type target-type :target-value polarity :target-value-mismatch))
 
        (and (maybe-type? source-type) (maybe-type? target-type))
        (let [child (check-cast (:inner source-type) (:inner target-type) opts)]
@@ -1992,6 +2257,12 @@
 
        (maybe-type? source-type)
        (cast-fail source-type target-type :maybe-source polarity :nullable-source)
+
+       (optional-key-type? source-type)
+       (check-cast (:inner source-type) target-type opts)
+
+       (optional-key-type? target-type)
+       (check-cast source-type (:inner target-type) opts)
 
        (var-type? source-type)
        (check-cast (:inner source-type) target-type opts)
@@ -2119,8 +2390,12 @@
            (placeholder-type? source-type))
        (cast-ok source-type target-type :residual-dynamic)
 
-       (scalar-cast-fallback? source-type target-type)
-       (cast-ok source-type target-type :scalar-fallback)
+       (or (ground-type? source-type)
+           (refinement-type? source-type)
+           (adapter-leaf-type? source-type))
+       (if (leaf-overlap? source-type target-type)
+         (cast-ok source-type target-type :leaf-overlap)
+         (cast-fail source-type target-type :leaf-overlap polarity :leaf-mismatch))
 
        :else
        (cast-fail source-type target-type :mismatch polarity :mismatch)))))

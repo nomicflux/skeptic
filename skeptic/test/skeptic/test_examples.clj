@@ -1,22 +1,12 @@
 (ns skeptic.test-examples
   (:require [schema.core :as s]
             [clojure.tools.analyzer.jvm :as ana.jvm]
-            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
-            [skeptic.schematize :as schematize]
-            [clojure.repl :as repl]
-            [plumbing.core :as pl]))
+            [skeptic.schematize :as schematize]))
 
 ;; Note: updating this file while in the REPL may cause functions to break
 ;; if they rely on loading the source code & resolving references. This is why
 ;; it is better to put stable test cases here, then do active work on the tests
 ;; in question in a separate file.
-
-(defn with-analysis
-  [s]
-  (->> s
-       (schematize/get-fn-code {})
-       read-string
-       ana.jvm/analyze+eval))
 
 (s/defn int-add :- s/Int
   ([x :- s/Int]
@@ -214,9 +204,6 @@
         g (fn [f] (f x))]
     (g f)))
 
-;; TODO: this example needs parametricity to work
-;; (it needs to know that (fn [f] (f x)) takes some specific but not pre-determined schema,
-;; then applies it)
 (defn sample-bad-parametric-fn
   [x]
   (let [f (fn [_y] nil)
@@ -286,10 +273,6 @@
 (defn unannotated-local-helper-g
   []
   (unannotated-local-helper-f))
-
-(defn unannotated-local-helper-use
-  []
-  (flat-multi-step-takes-int (unannotated-local-helper-g)))
 
 (declare forward-declared-target
          mutual-recursive-left
@@ -516,3 +499,27 @@
 (s/defn both-int-str-output-str-failure :- BothIntStr
   []
   "hi")
+
+(s/defschema HasA
+  {(s/required-key :a) s/Int})
+
+(s/defschema HasB
+  {(s/required-key :b) s/Str})
+
+(s/defschema HasAOrB
+  (s/conditional #(contains? % :a) HasA
+                 #(contains? % :b) HasB))
+
+(s/defn takes-has-a :- HasA
+  [x :- HasA]
+  x)
+
+(s/defn takes-has-b :- HasB
+  [x :- HasB]
+  x)
+
+(s/defn conditional-map-cond-thread-success :- HasAOrB
+  [x :- HasAOrB]
+  (cond-> x
+    (contains? x :a) takes-has-a
+    (contains? x :b) takes-has-b))

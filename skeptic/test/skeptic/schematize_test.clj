@@ -43,3 +43,11 @@
            (get-in schemas ['skeptic.schematize/fully-qualify-str :output])))
     (is (= s/Str
            (get-in schemas ['skeptic.schematize/fully-qualify-str :arglists 1 :schema 0 :schema])))))
+
+(deftest collect-schemas-rejects-invalid-schema-annotations-early
+  (is (thrown-with-msg? IllegalArgumentException
+                        #"Invalid Schema annotation"
+                        (sut/collect-schemas {:schema [(Object.)]
+                                              :ns 'skeptic.schematize
+                                              :name 'invalid
+                                              :arglists '([])}))))

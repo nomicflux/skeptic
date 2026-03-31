@@ -10,33 +10,43 @@
    :arg s/Any
    s/Keyword s/Any})
 
-(def ground-types #{s/Int s/Str s/Bool s/Symbol})
-
 (defn ppr-str
   [s]
   (with-out-str (pprint/pprint s)))
 
+(defn describe-type
+  [type]
+  (or (as/render-type type)
+      (ppr-str type)))
+
 (defn describe-schema
   [x]
-  (if (as/semantic-type-value? x)
-    (as/render-type x)
-    (ppr-str
-     (if (or (as/schema? x)
-             (class? x))
-       (as/schema-explain x)
-       x))))
+  (or (some-> x as/render-schema)
+      (ppr-str x)))
+
+(defn describe-item
+  [x]
+  (cond
+    (and (map? x) (contains? x :cleaned-key))
+    (describe-item (:cleaned-key x))
+
+    (as/semantic-type-value? x)
+    (describe-type x)
+
+    :else
+    (describe-schema x)))
 
 (defn mismatched-nullable-msg
-  [{:keys [expr arg]} _actual-schema _expected-schema]
+  [{:keys [expr arg]} _actual-type _expected-type]
   (format "%s\n\tin\n\n%s\nis nullable, but expected is not"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))))
 
 (defn mismatched-ground-type-msg
-  [{:keys [expr arg]} output-schema expected-schema]
+  [{:keys [expr arg]} output-type expected-type]
   (format "%s\n\tin\n\n%s\nis a mismatched type:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (describe-schema output-schema))
-          (colours/yellow (describe-schema expected-schema))))
+          (colours/yellow (describe-type output-type))
+          (colours/yellow (describe-type expected-type))))
 
 (defn mismatched-output-schema-msg
   [{:keys [expr arg]} output-schema expected-schema]
@@ -46,11 +56,11 @@
           (colours/yellow (describe-schema expected-schema))))
 
 (defn mismatched-schema-msg
-  [{:keys [expr arg]} actual-schema expected-schema]
+  [{:keys [expr arg]} actual-type expected-type]
   (format "%s\n\tin\n\n%s\nhas incompatible schema:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (describe-schema actual-schema))
-          (colours/yellow (describe-schema expected-schema))))
+          (colours/yellow (describe-type actual-type))
+          (colours/yellow (describe-type expected-type))))
 
 (defn output-compatible-schemas
   [expected actual]
@@ -66,16 +76,6 @@
          missing-key-message
          nullable-key-message
          superfluous-key-message)
-
-(defn cast-schema
-  [type]
-  (-> type as/type->schema as/canonicalize-schema))
-
-(defn scalar-ground-type?
-  [type]
-  (let [type (as/schema->type type)]
-    (and (as/scalar-type? type)
-         (contains? ground-types (:schema type)))))
 
 (defn cast-leaf-results
   [cast-result]
@@ -115,46 +115,46 @@
   [actual-key]
   (let [plain-key (plain-key actual-key)]
     {:orig-key actual-key
-     :cleaned-key (as/flatten-valued-schema-map plain-key)}))
+     :cleaned-key plain-key}))
 
 (defn cast-result->message
   [ctx cast-result]
-  (let [source-schema (cast-schema (:source-type cast-result))
-        target-schema (cast-schema (:target-type cast-result))]
+  (let [source-type (:source-type cast-result)
+        target-type (:target-type cast-result)]
     (case (:reason cast-result)
       :is-tamper
       (format "%s\n\tin\n\n%s\nattempts to inspect a sealed value:\n\n%s"
               (colours/magenta (ppr-str (:arg ctx)) true)
               (colours/magenta (ppr-str (:expr ctx)))
-              (colours/yellow (describe-schema (:source-type cast-result))))
+              (colours/yellow (describe-type source-type)))
 
       :nu-tamper
       (format "%s\n\tin\n\n%s\nattempts to move a sealed value out of scope:\n\n%s"
               (colours/magenta (ppr-str (:arg ctx)) true)
               (colours/magenta (ppr-str (:expr ctx)))
-              (colours/yellow (describe-schema (:source-type cast-result))))
+              (colours/yellow (describe-type source-type)))
 
       :nullable-source
-      (mismatched-nullable-msg ctx source-schema target-schema)
+      (mismatched-nullable-msg ctx source-type target-type)
 
       :missing-key
       (missing-key-message ctx #{(:expected-key cast-result)})
 
       :nullable-key
       (nullable-key-message (assoc ctx
-                                   :expected-keys (keys target-schema))
+                                   :expected-keys (keys (:entries target-type)))
                             #{(:actual-key cast-result)})
 
       :unexpected-key
       (superfluous-key-message (assoc ctx
-                                      :expected-keys (keys target-schema))
+                                      :expected-keys (keys (:entries target-type)))
                                #{(superfluous-cast-key (:actual-key cast-result))})
 
-      (if (and (scalar-ground-type? (:source-type cast-result))
-               (scalar-ground-type? (:target-type cast-result))
-               (not= source-schema target-schema))
-        (mismatched-ground-type-msg ctx source-schema target-schema)
-        (mismatched-schema-msg ctx source-schema target-schema)))))
+      (if (and (as/ground-type? source-type)
+               (as/ground-type? target-type)
+               (not= source-type target-type))
+        (mismatched-ground-type-msg ctx source-type target-type)
+        (mismatched-schema-msg ctx source-type target-type)))))
 
 (defn cast-report-metadata
   [cast-result]
@@ -216,7 +216,7 @@
   (when (seq missing)
     (format "%s\n\tin\n\n%s\nhas missing keys:\n\n\t- %s"
             (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-            (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) missing)))))
+            (str/join "\n\t- " (mapv #(colours/yellow (describe-item %)) missing)))))
 
 (s/defn nullable-key-message :- (s/maybe s/Str)
   [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
@@ -224,8 +224,8 @@
   (when (seq nullables)
     (format "%s\n\tin\n\n%s\nin potentially nullable, but the schema doesn't allow that:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
             (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-            (colours/yellow (ppr-str expected-keys))
-            (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) nullables)))))
+            (colours/yellow (str "[" (str/join ", " (map describe-item expected-keys)) "]"))
+            (str/join "\n\t- " (mapv #(colours/yellow (describe-item %)) nullables)))))
 
 (s/defn superfluous-key-message :- (s/maybe s/Str)
   [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
@@ -233,8 +233,8 @@
   (when (seq actual-keys)
     (format "%s\n\tin\n\n%s\nhas disallowed keys:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
             (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-            (colours/yellow (ppr-str expected-keys))
-            (str/join "\n\t- " (mapv #(colours/yellow (ppr-str %)) actual-keys)))))
+            (colours/yellow (str "[" (str/join ", " (map describe-item expected-keys)) "]"))
+            (str/join "\n\t- " (mapv #(colours/yellow (describe-item %)) actual-keys)))))
 
 (defn plain-key
   [k]

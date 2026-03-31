@@ -107,3 +107,18 @@
     (is (not-any? (comp as/forall-type? as/schema->type) node-schemas))
     (is (not-any? (comp as/type-var-type? as/schema->type) node-schemas))
     (is (not-any? (comp as/sealed-dyn-type? as/schema->type) node-schemas))))
+
+(deftest renderers-keep-type-and-schema-domains-separate-test
+  (let [type-var (as/->TypeVarT 'X)
+        polymorphic-map (as/->MapT {(as/->GroundT :keyword 'Keyword)
+                                    (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
+                                                                               (as/->SealedDynT type-var)
+                                                                               1
+                                                                               false)]))})]
+    (is (= "{Keyword (forall X (=> (sealed X) X))}"
+           (as/render-type polymorphic-map)))
+    (is (= "\"hello\""
+           (as/render-type (as/schema->type (s/eq "hello")))))
+    (is (thrown-with-msg? IllegalArgumentException
+                          #"Not a valid Schema-domain value"
+                          (as/render-schema-form polymorphic-map)))))

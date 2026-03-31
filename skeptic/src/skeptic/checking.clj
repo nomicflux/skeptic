@@ -28,9 +28,7 @@
 
 (defn valid-schema?
   [schema]
-  (or (instance? Schema schema)
-      (class? schema)
-      (and (coll? schema) (every? valid-schema? schema))))
+  (boolean (as/schema? schema)))
 
 (defmacro assert-schema
   [schema]
