@@ -62,11 +62,12 @@
                   :cast-result {:source-type (as/schema->type {:name s/Keyword})
                                 :target-type (as/schema->type {:name s/Str})}
                   :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
                                   :path [{:kind :map-key :key :name}]
                                   :source-type (as/schema->type s/Keyword)
                                   :target-type (as/schema->type s/Str)}]})]
     (is (= 1 (count (:errors summary))))
-    (is (some-> summary :errors first (.contains "has output schema:")))
+    (is (some-> summary :errors first (.contains "declared return schema")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
     (is (some-> summary :errors first (.contains "[:name] has Keyword but expected Str")))
     (assert-no-ui-internals (first (:errors summary)))))
@@ -149,4 +150,46 @@
                 (and (= "Expected type: \t" label)
                      (.contains value "Int")
                      (.contains value "Str")))
+              fields))))
+
+(deftest output-report-fields-prefer-actionable-leaf-metadata
+  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+        triple (as/->VectorT [placeholder placeholder placeholder] false)
+        slot (as/->SetT #{triple} false)
+        expected-result (as/->VectorT [slot slot slot] false)
+        actual-result (as/->SetT #{expected-result} false)
+        summary (inconsistence/report-summary
+                 {:report-kind :output
+                  :rule :source-union
+                  :actual-type (as/->UnionT #{(as/schema->type {:result s/Any
+                                                                :cache s/Any})
+                                              (as/schema->type {:result actual-result
+                                                                :cache s/Any})})
+                  :expected-type (as/schema->type {:result expected-result
+                                                   :cache s/Any})
+                  :cast-result {:rule :source-union
+                                :source-type (as/->UnionT #{(as/schema->type {:result s/Any
+                                                                              :cache s/Any})
+                                                            (as/schema->type {:result actual-result
+                                                                              :cache s/Any})})
+                                :target-type (as/schema->type {:result expected-result
+                                                              :cache s/Any})}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
+                                  :source-type actual-result
+                                  :target-type expected-result
+                                  :path [{:kind :source-union-branch :index 1}
+                                         {:kind :map-key :key :result}]}]})
+        fields (sut/report-fields summary)]
+    (is (some #{["Cast rule: \t\t" "leaf-overlap"]} fields))
+    (is (some (fn [[label value]]
+                (and (= "Actual type: \t\t" label)
+                     (str/includes? value "Threal")
+                     (not (str/includes? value "union"))
+                     (not= "Any" value)))
+              fields))
+    (is (some (fn [[label value]]
+                (and (= "Expected type: \t" label)
+                     (str/includes? value "Threal")
+                     (not (str/includes? value "union"))))
               fields))))

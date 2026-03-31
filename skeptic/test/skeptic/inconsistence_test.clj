@@ -219,6 +219,42 @@
     (is (not (str/includes? error "Problem fields:")))
     (assert-no-ui-internals error)))
 
+(deftest output-summary-prefers-leaf-mismatch-over-source-union-headline
+  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+        triple (as/->VectorT [placeholder placeholder placeholder] false)
+        slot (as/->SetT #{triple} false)
+        expected-result (as/->VectorT [slot slot slot] false)
+        actual-result (as/->SetT #{expected-result} false)
+        summary (sut/report-summary
+                 {:report-kind :output
+                  :blame 'add-with-cache
+                  :focuses ['(let [result (simplify gt_fn [g r b])]
+                               {:result result})]
+                  :cast-result {:rule :source-union
+                                :source-type (as/->UnionT #{(as/schema->type {:result s/Any
+                                                                              :cache s/Any})
+                                                            (as/schema->type {:result actual-result
+                                                                              :cache s/Any})})
+                                :target-type (as/schema->type {:result expected-result
+                                                              :cache s/Any})}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
+                                  :source-type actual-result
+                                  :target-type expected-result
+                                  :path [{:kind :source-union-branch :index 1}
+                                         {:kind :map-key :key :result}]}]})
+        [error] (:errors summary)
+        declared-block (second (re-find #"(?s)Declared return schema:\n\n(.*?)\n\nProblem fields:" error))]
+    (is (= 1 (count (:errors summary))))
+    (is (str/includes? error "declared return schema"))
+    (is (str/includes? error "Problem fields:"))
+    (is (str/includes? error "[:result] has:"))
+    (is (not (str/includes? error "[:result] has #{")))
+    (is (str/includes? declared-block "\n"))
+    (is (not (str/includes? error "has output schema:")))
+    (is (not (str/includes? error "(union")))
+    (assert-no-ui-internals error)))
+
 (deftest placeholder-heavy-output-summary-renders-public-names-only
   (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
         message (sut/mismatched-output-schema-msg
@@ -231,6 +267,25 @@
                  [s/Any])]
     (is (str/includes? message "Threal"))
     (assert-no-ui-internals message)))
+
+(deftest output-summary-falls-back-to-top-level-when-no-actionable-leaf-details
+  (let [summary (sut/report-summary
+                 {:report-kind :output
+                  :blame 'bad-user
+                  :focuses ['bad-user]
+                  :cast-result {:rule :source-union
+                                :source-type (as/schema->type (as/join s/Any s/Keyword))
+                                :target-type (as/schema->type s/Int)}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
+                                  :source-type (as/schema->type s/Any)
+                                  :target-type (as/schema->type s/Int)
+                                  :path []}]})
+        [error] (:errors summary)]
+    (is (str/includes? error "has output schema:"))
+    (is (str/includes? error "Problem fields:"))
+    (is (str/includes? error "Any"))
+    (assert-no-ui-internals error)))
 
 (deftest nested-dynamic-map-cast-stays-structural-test
   (let [compatible (sut/output-cast-report sample-ctx {:a s/Int} {:a s/Any})

@@ -80,6 +80,25 @@
   (when (some? form)
     (pr-str form)))
 
+(def ^:private pretty-type-threshold 80)
+
+(defn pretty-user-form
+  [form]
+  (when (some? form)
+    (str/trimr
+     (binding [pprint/*print-right-margin* 80
+               pprint/*print-miser-width* 40]
+       (with-out-str (pprint/pprint form))))))
+
+(defn block-user-form
+  [form]
+  (when (some? form)
+    (let [inline (format-user-form form)]
+      (if (and inline
+               (> (count inline) pretty-type-threshold))
+        (pretty-user-form form)
+        inline))))
+
 (defn user-fn-input-form
   [method]
   (let [inputs (mapv user-type-form (:inputs method))]
@@ -150,6 +169,10 @@
   [type]
   (format-user-form (user-type-form type)))
 
+(defn describe-type-block
+  [type]
+  (block-user-form (user-type-form type)))
+
 (defn describe-schema
   [x]
   (format-user-form (user-display-form x)))
@@ -167,22 +190,22 @@
   [{:keys [expr arg]} output-type expected-type]
   (format "%s\n\tin\n\n%s\nis a mismatched type:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (describe-type output-type))
-          (colours/yellow (describe-type expected-type))))
+          (colours/yellow (describe-type-block output-type))
+          (colours/yellow (describe-type-block expected-type))))
 
 (defn mismatched-output-schema-msg
   [{:keys [expr arg]} output-schema expected-schema]
   (format "%s\n\tin\n\n%s\nhas output schema:\n\n%s\n\nbut declared return schema is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (describe-type output-schema))
-          (colours/yellow (describe-type expected-schema))))
+          (colours/yellow (describe-type-block output-schema))
+          (colours/yellow (describe-type-block expected-schema))))
 
 (defn mismatched-schema-msg
   [{:keys [expr arg]} actual-type expected-type]
   (format "%s\n\tin\n\n%s\nhas incompatible schema:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (ppr-str arg) true) (colours/magenta (ppr-str expr))
-          (colours/yellow (describe-type actual-type))
-          (colours/yellow (describe-type expected-type))))
+          (colours/yellow (describe-type-block actual-type))
+          (colours/yellow (describe-type-block expected-type))))
 
 (defn output-compatible-schemas
   [expected actual]
@@ -359,14 +382,26 @@
 
 (defn mismatch-detail
   [path source-type target-type]
-  (if-let [path-text (render-visible-path path)]
-    (str path-text " has "
-         (describe-type source-type)
-         " but expected "
-         (describe-type target-type))
-    (str (describe-type source-type)
-         " but expected "
-         (describe-type target-type))))
+  (let [path-text (render-visible-path path)
+        source-text (describe-type source-type)
+        target-text (describe-type target-type)]
+    (if (or (> (count source-text) pretty-type-threshold)
+            (> (count target-text) pretty-type-threshold))
+      (str (if path-text
+             (str path-text " has:")
+             "has:")
+           "\n\n"
+           (describe-type-block source-type)
+           "\n\nbut expected:\n\n"
+           (describe-type-block target-type))
+      (if path-text
+        (str path-text " has "
+             source-text
+             " but expected "
+             target-text)
+        (str source-text
+             " but expected "
+             target-text)))))
 
 (defn with-path-detail
   [message cast-result]
@@ -430,7 +465,8 @@
        "\n\n"
        label
        ":\n\n\t- "
-       (str/join "\n\t- " (map #(colours/yellow %) detail-lines))))
+       (str/join "\n\t- "
+                 (map #(colours/yellow (str/replace % "\n" "\n\t  ")) detail-lines))))
 
 (defn report-ctx
   [{:keys [blame focuses]}]
@@ -447,9 +483,65 @@
                                   actual-type
                                   expected-type)))
 
+(defn report-cast-leaves
+  [{:keys [cast-result cast-results]}]
+  (if (seq cast-results)
+    (vec cast-results)
+    (if cast-result
+      (vec (cast-leaf-results cast-result))
+      [])))
+
+(defn visible-structural-leaf?
+  [cast-result]
+  (boolean (some-> (:path cast-result)
+                   visible-path
+                   seq)))
+
+(defn dynamic-display-type?
+  [type]
+  (let [type (some-> type as/schema->type)]
+    (or (nil? type)
+        (as/dyn-type? type))))
+
+(defn actionable-output-leaf?
+  [cast-result]
+  (or (visible-structural-leaf? cast-result)
+      (not (dynamic-display-type? (:source-type cast-result)))))
+
+(defn ordered-output-leaves
+  [report]
+  (->> (report-cast-leaves report)
+       (map-indexed (fn [idx leaf]
+                      {:idx idx
+                       :leaf leaf}))
+       (sort-by (fn [{:keys [idx leaf]}]
+                  [(if (visible-structural-leaf? leaf) 0 1)
+                   (if (and (not (visible-structural-leaf? leaf))
+                            (dynamic-display-type? (:source-type leaf)))
+                     1
+                     0)
+                   idx]))
+       (mapv :leaf)))
+
+(defn primary-actionable-output-leaf
+  [report]
+  (first (filter actionable-output-leaf?
+                 (ordered-output-leaves report))))
+
+(defn output-leaf-summary-message
+  [{:keys [expected-type cast-result] :as report}]
+  (let [{:keys [expr arg]} (report-ctx report)
+        expected-type (or (some-> (primary-actionable-output-leaf report) :target-type)
+                          (some-> cast-result :target-type)
+                          expected-type)]
+    (format "%s\n\tin\n\n%s\nhas an output mismatch against the declared return schema.\n\nDeclared return schema:\n\n%s"
+            (colours/magenta (ppr-str arg) true)
+            (colours/magenta (ppr-str expr))
+            (colours/yellow (describe-type-block expected-type)))))
+
 (defn rebuilt-leaf-errors
   [report]
-  (->> (:cast-results report)
+  (->> (report-cast-leaves report)
        (map #(cast-result->message (report-ctx report) %))
        distinct
        vec))
@@ -458,11 +550,14 @@
   [{:keys [report-kind cast-results] :as report}]
   (case report-kind
     :output
-    (let [detail-lines (->> cast-results
+    (let [ordered-leaves (ordered-output-leaves report)
+          detail-lines (->> ordered-leaves
                             (keep #(detail-line :output %))
                             distinct
                             vec)
-          summary (output-summary-message report)]
+          summary (if (primary-actionable-output-leaf report)
+                    (output-leaf-summary-message report)
+                    (output-summary-message report))]
       [(if (seq detail-lines)
          (combine-summary-lines summary "Problem fields" detail-lines)
          summary)])
@@ -497,8 +592,8 @@
      :rule-text (some-> rule name)
      :actual-type actual-type
      :expected-type expected-type
-     :actual-type-text (describe-type actual-type)
-     :expected-type-text (describe-type expected-type)}))
+     :actual-type-text (describe-type-block actual-type)
+     :expected-type-text (describe-type-block expected-type)}))
 
 (defn report-summary
   [{:keys [location blame-side blame-polarity source-expression blame
@@ -514,7 +609,11 @@
           :enclosing-form enclosing-form
           :expanded-expression expanded-expression
           :errors (summarize-errors report)}
-         (display-cast report)))
+         (display-cast (if (= :output (:report-kind report))
+                         (let [selected (or (primary-actionable-output-leaf report)
+                                            (:cast-result report))]
+                           (assoc report :cast-result selected))
+                         report))))
 
 (defn cast-result->message
   [ctx cast-result]
