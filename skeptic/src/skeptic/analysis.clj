@@ -3,12 +3,7 @@
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.analysis.resolvers :as ar]
-            [skeptic.analysis.schema :as as])
-  (:import [schema.core FnSchema]))
-
-(defn fn-schema?
-  [schema]
-  (instance? FnSchema schema))
+            [skeptic.analysis.schema :as as]))
 
 (declare class->schema
          type-of-value
@@ -72,7 +67,7 @@
 
 (defn schema->callable
   [schema]
-  (when (fn-schema? schema)
+  (when (as/fn-schema? schema)
     (let [{:keys [input-schemas output-schema]} (into {} schema)
           output-type (normalize-declared-type output-schema)
           arglists (into {}

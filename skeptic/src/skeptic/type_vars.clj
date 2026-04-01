@@ -4,6 +4,3 @@
   [name]
   {:var name})
 
-(defn is-var?
-  [{:keys [var]}]
-  (not (nil? var)))

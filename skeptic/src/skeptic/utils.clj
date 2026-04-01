@@ -3,17 +3,6 @@
    [skeptic.schema :as dschema]
    [schema.core :as s]))
 
-(defn into-coll
-  [f x]
-  (cond
-    (nil? x) []
-    (coll? x) (mapcat #(into-coll f %) x)
-    :else [(f x)]))
-
-(defn walk-fn?
-  [x]
-  (into-coll fn? x))
-
 (s/defn combine-descs :- dschema/SchemaDesc
   [{n1 :name s1 :schema o1 :output a1 :arglists} :- dschema/SchemaDesc
    {n2 :name s2 :schema o2 :output a2 :arglists} :- dschema/SchemaDesc]

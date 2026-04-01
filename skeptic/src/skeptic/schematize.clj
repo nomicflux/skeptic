@@ -17,12 +17,6 @@
   [f]
   `(get-fn-schemas* '~f))
 
-(defn into-coll
-  [f x]
-  (cond
-    (nil? x) []
-    (coll? x) (mapcat #(into-coll f %) x)
-    :else [(f x)]))
 
 (s/defn get-fn-code :- s/Str
   [{:keys [verbose lookup-failures]}
@@ -145,12 +139,6 @@
       resolve
       symbol))
 
-(defn qualified-var-symbol
-  [v]
-  (let [{:keys [ns name]} (meta v)]
-    (when (and ns name)
-      (symbol (str (ns-name ns) "/" name)))))
-
 (defn dynamic-arg-entry
   [arg]
   {:schema s/Any
@@ -176,7 +164,7 @@
 (defn dynamic-desc
   [v]
   (let [m (meta v)
-        qualified-sym (qualified-var-symbol v)
+        qualified-sym (as/qualified-var-symbol v)
         arglists (when (and (:arglists m)
                             (not (:macro m)))
                    (dynamic-arglists (:arglists m)))]
@@ -205,6 +193,6 @@
          ns-interns
          vals
          (keep (fn [v]
-                 (when-let [qualified-sym (qualified-var-symbol v)]
+                 (when-let [qualified-sym (as/qualified-var-symbol v)]
                    [qualified-sym (var-schema-desc v)])))
          (into {}))))

@@ -167,10 +167,6 @@
       :else (with-form-meta (first body)
               (list* 'do body)))))
 
-(defn node-location
-  [node]
-  (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
-
 (defn display-expr
   [node]
   (let [expr (:form node)
@@ -180,7 +176,7 @@
      :expanded-expression (when (and source-expression
                                      (not= source-expression (pr-str expr)))
                             expr)
-     :location (node-location node)}))
+     :location (analysis/node-location node)}))
 
 (defn node-error-context
   [node enclosing-form]
@@ -292,19 +288,10 @@
        (seq (:expected-argtypes node))
        (seq (:actual-argtypes node))))
 
-(defn qualify-symbol
-  [ns-sym sym]
-  (cond
-    (nil? sym) nil
-    (not (symbol? sym)) sym
-    (namespace sym) sym
-    ns-sym (symbol (str ns-sym "/" sym))
-    :else sym))
-
 (defn dict-entry
   [dict ns-sym sym]
   (or (get dict sym)
-      (get dict (qualify-symbol ns-sym sym))))
+      (get dict (analysis/qualify-symbol ns-sym sym))))
 
 (defn unwrap-with-meta
   [node]
@@ -320,7 +307,7 @@
                        init-node)
         raw-name (some-> (:name node) name symbol)
         qualified-name (when raw-name
-                         (qualify-symbol ns-sym raw-name))]
+                         (analysis/qualify-symbol ns-sym raw-name))]
     (when (and (= :def (:op node))
                qualified-name
                value-node)
@@ -472,7 +459,7 @@
   (if (and (seq? source-form)
            (symbol? (second source-form))
            (symbol? (first source-form)))
-    (qualify-symbol ns-sym (second source-form))
+    (analysis/qualify-symbol ns-sym (second source-form))
     source-form))
 
 (defn check-resolved-form

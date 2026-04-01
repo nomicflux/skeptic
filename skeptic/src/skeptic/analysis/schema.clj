@@ -1,13 +1,13 @@
 (ns skeptic.analysis.schema
   (:require [clojure.set :as set]
-            [schema.core :as s])
+            [schema.core :as s]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at])
   (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
 
-(def custom-schema-tag-key
-  ::custom-schema)
+(def custom-schema-tag-key sb/custom-schema-tag-key)
 
-(def semantic-type-tag-key
-  ::semantic-type)
+(def semantic-type-tag-key at/semantic-type-tag-key)
 
 (def ^:dynamic *error-context*
   nil)
@@ -24,25 +24,11 @@
                                     (compact-context-map ~context))]
      ~@body))
 
-(defn tagged-map?
-  [value tag-key tag]
-  (and (map? value)
-       (= tag (get value tag-key))))
+(def tagged-map? at/tagged-map?)
+(def same-class-name? at/same-class-name?)
+(def read-instance-field at/read-instance-field)
 
-(defn same-class-name?
-  [value class-name]
-  (and (some? value)
-       (= class-name (.getName (class value)))))
-
-(defn read-instance-field
-  [value field-name]
-  (let [field (.getDeclaredField (class value) field-name)]
-    (.setAccessible field true)
-    (.get field value)))
-
-(declare custom-schema?
-         custom-schema-match-value?
-         schema-explain
+(declare schema-explain
          render-schema-form
          render-schema
          canonicalize-schema
@@ -52,8 +38,7 @@
          union-like-branches
          both-components
          localize-schema-value
-         variable
-         variable?
+         plain-map-schema?
          dyn-type?
          bottom-type?
          ground-type?
@@ -75,24 +60,54 @@
          sealed-dyn-type?
          placeholder-type?
          value-type?
-         de-maybe-type
          semantic-type-value?
+         de-maybe-type
          render-type-form
          render-type
-         matches-map
-         plain-map-schema?)
+         matches-map)
 
-(defn any-schema?
-  [s]
-  (= s s/Any))
-
-(defn schema-literal?
-  [value]
-  (or (keyword? value)
-      (string? value)
-      (integer? value)
-      (boolean? value)
-      (symbol? value)))
+(def any-schema? sb/any-schema?)
+(def schema-literal? sb/schema-literal?)
+(def fn-schema? sb/fn-schema?)
+(def maybe? sb/maybe?)
+(def named? sb/named?)
+(def constrained? sb/constrained?)
+(def either? sb/either?)
+(def conditional-schema? sb/conditional-schema?)
+(def cond-pre? sb/cond-pre?)
+(def both? sb/both?)
+(def eq? sb/eq?)
+(def enum-schema? sb/enum-schema?)
+(def de-maybe sb/de-maybe)
+(def de-named sb/de-named)
+(def de-constrained sb/de-constrained)
+(def de-eq sb/de-eq)
+(def de-enum sb/de-enum)
+(def custom-schema-tag-key sb/custom-schema-tag-key)
+(def bottom-schema-tag sb/bottom-schema-tag)
+(def join-schema-tag sb/join-schema-tag)
+(def valued-schema-tag sb/valued-schema-tag)
+(def variable-schema-tag sb/variable-schema-tag)
+(def bottom-schema? sb/bottom-schema?)
+(def Bottom sb/Bottom)
+(def join sb/join)
+(def join? sb/join?)
+(def join->set sb/join->set)
+(def valued-schema sb/valued-schema)
+(def valued-schema? sb/valued-schema?)
+(def variable sb/variable)
+(def variable? sb/variable?)
+(def custom-schema? sb/custom-schema?)
+(def custom-schema-match-value? sb/custom-schema-match-value?)
+(def schema-match-value? sb/schema-match-value?)
+(def schema-match? sb/schema-match?)
+(def check-if-schema sb/check-if-schema)
+(def placeholder-key sb/placeholder-key)
+(def placeholder-schema sb/placeholder-schema)
+(def placeholder-schema? sb/placeholder-schema?)
+(def placeholder-ref sb/placeholder-ref)
+(def qualified-var-symbol sb/qualified-var-symbol)
+(def canonical-scalar-schema sb/canonical-scalar-schema)
 
 (defn schema?
   [s]
@@ -121,75 +136,6 @@
       (seq? s) (every? schema? s)
       :else false)))
 
-(defn schema-match-value?
-  [s x]
-  (try
-    (if (custom-schema? s)
-      (custom-schema-match-value? s x)
-      (nil? (s/check s x)))
-    (catch Exception _e
-      nil)))
-
-(defn schema-match?
-  [s x]
-  (or (schema-match-value? s x)
-      (try (schema-match-value? s (-> x resolve deref))
-           (catch Exception _e
-             nil))))
-
-(defn check-if-schema
-  [s x]
-  (case (schema-match? s x)
-    true ::schema-valid
-    false ::schema-invalid
-    nil ::value))
-
-(defn fn-schema?
-  [schema]
-  (instance? FnSchema schema))
-
-(defn maybe?
-  [s]
-  (instance? Maybe s))
-
-(defn named?
-  [s]
-  (instance? NamedSchema s))
-
-(defn constrained?
-  [s]
-  (instance? Constrained s))
-
-(defn either?
-  [s]
-  (instance? Either s))
-
-(defn conditional-schema?
-  [s]
-  (instance? ConditionalSchema s))
-
-(defn cond-pre?
-  [s]
-  (instance? CondPre s))
-
-(defn both?
-  [s]
-  (instance? Both s))
-
-(defn eq?
-  [s]
-  (instance? EqSchema s))
-
-(defn enum-schema?
-  [s]
-  (instance? EnumSchema s))
-
-(defn de-maybe
-  [s]
-  (cond-> s
-    (maybe? s)
-    :schema))
-
 (declare normalize-type
          union-type)
 
@@ -209,67 +155,6 @@
 
       :else
       type)))
-
-(defn de-named
-  [s]
-  (cond-> s
-    (named? s)
-    :schema))
-
-(defn de-constrained
-  [s]
-  (cond-> s
-    (constrained? s)
-    :schema))
-
-(defn de-eq
-  [s]
-  (cond-> s
-    (eq? s)
-    :v))
-
-(defn de-enum
-  [s]
-  (cond-> s
-    (enum-schema? s)
-    :vs))
-
-(def bottom-schema-tag
-  ::bottom-schema)
-
-(def join-schema-tag
-  ::join-schema)
-
-(def valued-schema-tag
-  ::valued-schema)
-
-(def variable-schema-tag
-  ::variable-schema)
-
-(defn bottom-schema?
-  [s]
-  (or (tagged-map? s custom-schema-tag-key bottom-schema-tag)
-      (same-class-name? s "skeptic.analysis.schema.BottomSchema")))
-
-(def Bottom
-  "Any value, including nil. But often exceptions."
-  {custom-schema-tag-key bottom-schema-tag})
-
-(defn join
-  [& schemas]
-  {custom-schema-tag-key join-schema-tag
-   :schemas (into #{} schemas)})
-
-(defn join?
-  [s]
-  (or (tagged-map? s custom-schema-tag-key join-schema-tag)
-      (same-class-name? s "skeptic.analysis.schema.Join")))
-
-(defn join->set
-  [s]
-  (if (join? s)
-    (:schemas s)
-    #{s}))
 
 (defn flatten-join-members
   [types]
@@ -324,62 +209,6 @@
           (s/maybe schema)
           schema)))))
 
-(defn valued-schema
-  [schema value]
-  {custom-schema-tag-key valued-schema-tag
-   :schema schema
-   :value value})
-
-(defn valued-schema?
-  [s]
-  (or (tagged-map? s custom-schema-tag-key valued-schema-tag)
-      (same-class-name? s "skeptic.analysis.schema.ValuedSchema")))
-
-(defn variable
-  [schema]
-  {custom-schema-tag-key variable-schema-tag
-   :schema schema})
-
-(defn variable?
-  [s]
-  (or (tagged-map? s custom-schema-tag-key variable-schema-tag)
-      (same-class-name? s "skeptic.analysis.schema.Variable")))
-
-(defn custom-schema?
-  [s]
-  (or (bottom-schema? s)
-      (join? s)
-      (valued-schema? s)
-      (variable? s)))
-
-(defn custom-schema-match-value?
-  [s x]
-  (cond
-    (bottom-schema? s)
-    true
-
-    (join? s)
-    (let [results (map #(schema-match-value? % x) (:schemas s))]
-      (cond
-        (some true? results) true
-        (some nil? results) nil
-        :else false))
-
-    (valued-schema? s)
-    (let [schema-result (schema-match-value? (:schema s) x)]
-      (cond
-        (= x (:value s)) true
-        (true? schema-result) true
-        (nil? schema-result) nil
-        :else false))
-
-    (variable? s)
-    (if (var? x)
-      (schema-match-value? (:schema s) (deref x))
-      false)
-
-    :else nil))
-
 (defn schema-explain
   [schema]
   (cond
@@ -421,87 +250,13 @@
 
     :else schema))
 
-(def placeholder-key
-  :skeptic.analysis.resolvers/placeholder)
+(def placeholder-key sb/placeholder-key)
+(def placeholder-schema sb/placeholder-schema)
+(def placeholder-schema? sb/placeholder-schema?)
+(def placeholder-ref sb/placeholder-ref)
+(def qualified-var-symbol sb/qualified-var-symbol)
 
-(defn placeholder-schema
-  [value]
-  {placeholder-key value})
-
-(defn placeholder-schema?
-  [schema]
-  (and (map? schema)
-       (not (record? schema))
-       (= 1 (count schema))
-       (contains? schema placeholder-key)))
-
-(defn placeholder-ref
-  [schema]
-  (get schema placeholder-key))
-
-(defn qualified-var-symbol
-  [v]
-  (let [{:keys [ns name]} (meta v)]
-    (when (and ns name)
-      (symbol (str (ns-name ns) "/" name)))))
-
-(defn canonical-scalar-schema
-  [schema]
-  (cond
-    (or (= schema :number)
-        (= schema :long)
-        (= schema :int)
-        (= schema :integer))
-    s/Int
-
-    (or (= schema s/Int)
-        (= schema java.lang.Long)
-        (= schema Long/TYPE)
-        (= schema java.lang.Integer)
-        (= schema Integer/TYPE)
-        (= schema java.lang.Short)
-        (= schema Short/TYPE)
-        (= schema java.lang.Byte)
-        (= schema Byte/TYPE)
-        (= schema java.math.BigInteger))
-    s/Int
-
-    (= schema :string)
-    s/Str
-
-    (or (= schema s/Str)
-        (= schema java.lang.String))
-    s/Str
-
-    (= schema :keyword)
-    s/Keyword
-
-    (or (= schema s/Keyword)
-        (= schema clojure.lang.Keyword))
-    s/Keyword
-
-    (= schema :symbol)
-    s/Symbol
-
-    (or (= schema s/Symbol)
-        (= schema clojure.lang.Symbol))
-    s/Symbol
-
-    (= schema :boolean)
-    s/Bool
-
-    (or (= schema s/Bool)
-        (= schema java.lang.Boolean)
-        (= schema Boolean/TYPE))
-    s/Bool
-
-    (= schema :nil)
-    nil
-
-    (= schema :object)
-    Object
-
-    :else schema))
+(def canonical-scalar-schema sb/canonical-scalar-schema)
 
 (defn canonicalize-one
   [one]
@@ -630,192 +385,50 @@
   [schema]
   (canonicalize-schema* schema {:constrained->base? false}))
 
-(def dyn-type-tag
-  ::dyn-type)
-
-(def bottom-type-tag
-  ::bottom-type)
-
-(def ground-type-tag
-  ::ground-type)
-
-(def refinement-type-tag
-  ::refinement-type)
-
-(def adapter-leaf-type-tag
-  ::adapter-leaf-type)
-
-(def optional-key-type-tag
-  ::optional-key-type)
-
-(def fn-method-type-tag
-  ::fn-method-type)
-
-(def fun-type-tag
-  ::fun-type)
-
-(def maybe-type-tag
-  ::maybe-type)
-
-(def union-type-tag
-  ::union-type)
-
-(def intersection-type-tag
-  ::intersection-type)
-
-(def map-type-tag
-  ::map-type)
-
-(def vector-type-tag
-  ::vector-type)
-
-(def set-type-tag
-  ::set-type)
-
-(def seq-type-tag
-  ::seq-type)
-
-(def var-type-tag
-  ::var-type)
-
-(def placeholder-type-tag
-  ::placeholder-type)
-
-(def value-type-tag
-  ::value-type)
-
-(def type-var-type-tag
-  ::type-var-type)
-
-(def forall-type-tag
-  ::forall-type)
-
-(def sealed-dyn-type-tag
-  ::sealed-dyn-type)
-
-(defn ->DynT
-  []
-  {semantic-type-tag-key dyn-type-tag})
-
-(defn ->BottomT
-  []
-  {semantic-type-tag-key bottom-type-tag})
-
-(defn ->GroundT
-  [ground display-form]
-  {semantic-type-tag-key ground-type-tag
-   :ground ground
-   :display-form display-form})
-
-(defn ->RefinementT
-  [base display-form accepts? adapter-data]
-  {semantic-type-tag-key refinement-type-tag
-   :base base
-   :display-form display-form
-   :accepts? accepts?
-   :adapter-data adapter-data})
-
-(defn ->AdapterLeafT
-  [adapter display-form accepts? adapter-data]
-  {semantic-type-tag-key adapter-leaf-type-tag
-   :adapter adapter
-   :display-form display-form
-   :accepts? accepts?
-   :adapter-data adapter-data})
-
-(defn ->OptionalKeyT
-  [inner]
-  {semantic-type-tag-key optional-key-type-tag
-   :inner inner})
-
-(defn ->FnMethodT
-  [inputs output min-arity variadic?]
-  {semantic-type-tag-key fn-method-type-tag
-   :inputs inputs
-   :output output
-   :min-arity min-arity
-   :variadic? variadic?})
-
-(defn ->FunT
-  [methods]
-  {semantic-type-tag-key fun-type-tag
-   :methods methods})
-
-(defn ->MaybeT
-  [inner]
-  {semantic-type-tag-key maybe-type-tag
-   :inner inner})
-
-(defn ->UnionT
-  [members]
-  {semantic-type-tag-key union-type-tag
-   :members members})
-
-(defn ->IntersectionT
-  [members]
-  {semantic-type-tag-key intersection-type-tag
-   :members members})
-
-(defn ->MapT
-  [entries]
-  {semantic-type-tag-key map-type-tag
-   :entries entries})
-
-(defn ->VectorT
-  [items homogeneous?]
-  {semantic-type-tag-key vector-type-tag
-   :items items
-   :homogeneous? homogeneous?})
-
-(defn ->SetT
-  [members homogeneous?]
-  {semantic-type-tag-key set-type-tag
-   :members members
-   :homogeneous? homogeneous?})
-
-(defn ->SeqT
-  [items homogeneous?]
-  {semantic-type-tag-key seq-type-tag
-   :items items
-   :homogeneous? homogeneous?})
-
-(defn ->VarT
-  [inner]
-  {semantic-type-tag-key var-type-tag
-   :inner inner})
-
-(defn ->PlaceholderT
-  [ref]
-  {semantic-type-tag-key placeholder-type-tag
-   :ref ref})
-
-(defn ->ValueT
-  [inner value]
-  {semantic-type-tag-key value-type-tag
-   :inner inner
-   :value value})
-
-(defn ->TypeVarT
-  [name]
-  {semantic-type-tag-key type-var-type-tag
-   :name name})
-
-(defn ->ForallT
-  [binder body]
-  {semantic-type-tag-key forall-type-tag
-   :binder binder
-   :body body})
-
-(defn ->SealedDynT
-  [ground]
-  {semantic-type-tag-key sealed-dyn-type-tag
-   :ground ground})
-
-(def Dyn
-  (->DynT))
-
-(def BottomType
-  (->BottomT))
+(def dyn-type-tag at/dyn-type-tag)
+(def bottom-type-tag at/bottom-type-tag)
+(def ground-type-tag at/ground-type-tag)
+(def refinement-type-tag at/refinement-type-tag)
+(def adapter-leaf-type-tag at/adapter-leaf-type-tag)
+(def optional-key-type-tag at/optional-key-type-tag)
+(def fn-method-type-tag at/fn-method-type-tag)
+(def fun-type-tag at/fun-type-tag)
+(def maybe-type-tag at/maybe-type-tag)
+(def union-type-tag at/union-type-tag)
+(def intersection-type-tag at/intersection-type-tag)
+(def map-type-tag at/map-type-tag)
+(def vector-type-tag at/vector-type-tag)
+(def set-type-tag at/set-type-tag)
+(def seq-type-tag at/seq-type-tag)
+(def var-type-tag at/var-type-tag)
+(def placeholder-type-tag at/placeholder-type-tag)
+(def value-type-tag at/value-type-tag)
+(def type-var-type-tag at/type-var-type-tag)
+(def forall-type-tag at/forall-type-tag)
+(def sealed-dyn-type-tag at/sealed-dyn-type-tag)
+(def ->DynT at/->DynT)
+(def ->BottomT at/->BottomT)
+(def ->GroundT at/->GroundT)
+(def ->RefinementT at/->RefinementT)
+(def ->AdapterLeafT at/->AdapterLeafT)
+(def ->OptionalKeyT at/->OptionalKeyT)
+(def ->FnMethodT at/->FnMethodT)
+(def ->FunT at/->FunT)
+(def ->MaybeT at/->MaybeT)
+(def ->UnionT at/->UnionT)
+(def ->IntersectionT at/->IntersectionT)
+(def ->MapT at/->MapT)
+(def ->VectorT at/->VectorT)
+(def ->SetT at/->SetT)
+(def ->SeqT at/->SeqT)
+(def ->VarT at/->VarT)
+(def ->PlaceholderT at/->PlaceholderT)
+(def ->ValueT at/->ValueT)
+(def ->TypeVarT at/->TypeVarT)
+(def ->ForallT at/->ForallT)
+(def ->SealedDynT at/->SealedDynT)
+(def Dyn at/Dyn)
+(def BottomType at/BottomType)
 
 (declare localize-schema-value*)
 
@@ -950,104 +563,27 @@
     (seq? value) (doall (map #(localize-schema-value* % seen-vars) value))
     :else value))
 
-(defn dyn-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key dyn-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.DynT")))
-
-(defn bottom-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key bottom-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.BottomT")))
-
-(defn ground-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key ground-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.GroundT")))
-
-(defn refinement-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key refinement-type-tag))
-
-(defn adapter-leaf-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key adapter-leaf-type-tag))
-
-(defn optional-key-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key optional-key-type-tag))
-
-(defn fn-method-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key fn-method-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.FnMethodT")))
-
-(defn fun-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key fun-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.FunT")))
-
-(defn maybe-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key maybe-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.MaybeT")))
-
-(defn union-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key union-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.UnionT")))
-
-(defn intersection-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key intersection-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.IntersectionT")))
-
-(defn map-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key map-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.MapT")))
-
-(defn vector-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key vector-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.VectorT")))
-
-(defn set-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key set-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.SetT")))
-
-(defn seq-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key seq-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.SeqT")))
-
-(defn var-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key var-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.VarT")))
-
-(defn type-var-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key type-var-type-tag))
-
-(defn forall-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key forall-type-tag))
-
-(defn sealed-dyn-type?
-  [t]
-  (tagged-map? t semantic-type-tag-key sealed-dyn-type-tag))
-
-(defn placeholder-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key placeholder-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.PlaceholderT")))
-
-(defn value-type?
-  [t]
-  (or (tagged-map? t semantic-type-tag-key value-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.ValueT")))
+(def dyn-type? at/dyn-type?)
+(def bottom-type? at/bottom-type?)
+(def ground-type? at/ground-type?)
+(def refinement-type? at/refinement-type?)
+(def adapter-leaf-type? at/adapter-leaf-type?)
+(def optional-key-type? at/optional-key-type?)
+(def fn-method-type? at/fn-method-type?)
+(def fun-type? at/fun-type?)
+(def maybe-type? at/maybe-type?)
+(def union-type? at/union-type?)
+(def intersection-type? at/intersection-type?)
+(def map-type? at/map-type?)
+(def vector-type? at/vector-type?)
+(def set-type? at/set-type?)
+(def seq-type? at/seq-type?)
+(def var-type? at/var-type?)
+(def type-var-type? at/type-var-type?)
+(def forall-type? at/forall-type?)
+(def sealed-dyn-type? at/sealed-dyn-type?)
+(def placeholder-type? at/placeholder-type?)
+(def value-type? at/value-type?)
 
 (declare type-domain-value?
          normalize-type
@@ -1307,29 +843,7 @@
               (format "Not a valid type-domain or Schema-domain value: %s"
                       (pr-str value)))))))
 
-(defn semantic-type-value?
-  [value]
-  (or (dyn-type? value)
-      (bottom-type? value)
-      (ground-type? value)
-      (refinement-type? value)
-      (adapter-leaf-type? value)
-      (optional-key-type? value)
-      (fn-method-type? value)
-      (fun-type? value)
-      (maybe-type? value)
-      (union-type? value)
-      (intersection-type? value)
-      (map-type? value)
-      (vector-type? value)
-      (set-type? value)
-      (seq-type? value)
-      (var-type? value)
-      (type-var-type? value)
-      (forall-type? value)
-      (sealed-dyn-type? value)
-      (placeholder-type? value)
-      (value-type? value)))
+(def semantic-type-value? at/semantic-type-value?)
 
 (declare render-type-form)
 
@@ -1341,16 +855,7 @@
               ['& (drop (:min-arity method) inputs)])
       inputs)))
 
-(defn placeholder-display-form
-  [ref]
-  (cond
-    (symbol? ref) ref
-    (and (vector? ref)
-         (seq (filter symbol? ref)))
-    (last (filter symbol? ref))
-    (keyword? ref) (symbol (name ref))
-    (string? ref) (symbol ref)
-    :else 'Unknown))
+(def placeholder-display-form at/placeholder-display-form)
 
 (defn render-type-form
   [type]
@@ -1650,13 +1155,7 @@
         (contains? entry :arg-schema) (update :arg-schema #(mapv strip-derived-types %))
         (contains? entry :params) (update :params #(mapv strip-derived-types %))))))
 
-(defn plain-map-schema?
-  [schema]
-  (and (map? schema)
-       (not (record? schema))
-       (not (custom-schema? schema))
-       (not (semantic-type-value? schema))
-       (not (s/optional-key? schema))))
+(def plain-map-schema? sb/plain-map-schema?)
 
 (defn maybe-schema
   [schema]
@@ -3184,30 +2683,8 @@
   [expected actual]
   (:ok? (check-cast (schema->type actual) (schema->type expected))))
 
-(defn cartesian
-  [coll1 coll2]
-  (for [x coll1
-        y coll2]
-    [x y]))
-
-(defn all-pairs
-  [[coll1 & rst]]
-  (cond
-    (nil? coll1) []
-    (empty? rst)  coll1
-    :else (mapv flatten (reduce cartesian coll1 (or rst [])))))
-
-;; TODO: This should either be pushed into the constructor or handled in original analysis
-(defn flatten-valued-schema-map
-  [m]
-  (loop [m m]
-    (if (and (map? m)
-             (valued-schema? m)
-             (map? (:schema m))
-             (or (some valued-schema? (keys (:schema m)))
-                 (some valued-schema? (vals (:schema m)))))
-      (recur (:schema m))
-      m)))
+(def all-pairs sb/all-pairs)
+(def flatten-valued-schema-map sb/flatten-valued-schema-map)
 
 (defn schema-values
   [s]
@@ -3239,9 +2716,7 @@
       split-keys)
     :else [s]))
 
-(defn dynamic-fn-schema
-  [arity output]
-  (s/make-fn-schema (or output s/Any) [(vec (repeat (or arity 0) (s/one s/Any 'anon-arg)))]))
+(def dynamic-fn-schema sb/dynamic-fn-schema)
 
 (s/defschema WithPlaceholder
   {s/Keyword s/Any})
