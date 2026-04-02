@@ -3,7 +3,9 @@
             [clojure.tools.analyzer.ast :as ana.ast]
             [schema.core :as s]
             [skeptic.analysis :as analysis]
-            [skeptic.analysis.schema :as as]))
+            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]))
 
 (declare UnboundSchemaRef)
 
@@ -16,42 +18,42 @@
   (as/schema->type schema))
 
 (deftest tagged-polymorphic-type-helpers-test
-  (let [type-var (as/->TypeVarT 'X)
-        forall (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
+  (let [type-var (at/->TypeVarT 'X)
+        forall (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
                                                            type-var
                                                            1
                                                            false)]))
-        sealed (as/->SealedDynT type-var)
+        sealed (at/->SealedDynT type-var)
         localized (as/localize-schema-value {:poly forall
                                              :sealed sealed})
         stripped (as/strip-derived-types {:schema s/Int
                                           :type forall
                                           :output-type sealed})]
-    (is (as/type-var-type? type-var))
-    (is (as/forall-type? forall))
-    (is (as/sealed-dyn-type? sealed))
-    (is (as/semantic-type-value? forall))
+    (is (at/type-var-type? type-var))
+    (is (at/forall-type? forall))
+    (is (at/sealed-dyn-type? sealed))
+    (is (at/semantic-type-value? forall))
     (is (= forall (get localized :poly)))
     (is (= sealed (get localized :sealed)))
     (is (= {:schema s/Int
             :type forall
             :output-type sealed}
            stripped))
-    (is (= #{'Y} (as/type-free-vars (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
-                                                                                (as/->TypeVarT 'Y)
+    (is (= #{'Y} (as/type-free-vars (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
+                                                                                (at/->TypeVarT 'Y)
                                                                                 1
                                                                                 false)])))))
-    (is (= (as/->ForallT 'X (as/->TypeVarT 'X))
-           (as/type-substitute (as/->ForallT 'X (as/->TypeVarT 'X))
+    (is (= (at/->ForallT 'X (at/->TypeVarT 'X))
+           (as/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
                                'X
                                (as/schema->type s/Any))))))
 
 (deftest quantified-cast-kernel-test
-  (let [x (as/->TypeVarT 'X)
-        y (as/->TypeVarT 'Y)
-        generalized (as/check-cast s/Any (as/->ForallT 'X x))
-        capture (as/check-cast x (as/->ForallT 'X x))
-        instantiated (as/check-cast (as/->ForallT 'X x) s/Any)
+  (let [x (at/->TypeVarT 'X)
+        y (at/->TypeVarT 'Y)
+        generalized (as/check-cast s/Any (at/->ForallT 'X x))
+        capture (as/check-cast x (at/->ForallT 'X x))
+        instantiated (as/check-cast (at/->ForallT 'X x) s/Any)
         sealed (as/check-cast x s/Any)
         sealed-type (:sealed-type sealed)
         collapsed (as/check-cast sealed-type x)
@@ -71,7 +73,7 @@
 
     (is (:ok? sealed))
     (is (= :seal (:rule sealed)))
-    (is (as/sealed-dyn-type? sealed-type))
+    (is (at/sealed-dyn-type? sealed-type))
 
     (is (:ok? collapsed))
     (is (= :sealed-collapse (:rule collapsed)))
@@ -85,7 +87,7 @@
     (is (= :abstract-target-mismatch (:reason abstract-mismatch)))))
 
 (deftest tamper-rules-test
-  (let [x (as/->TypeVarT 'X)
+  (let [x (at/->TypeVarT 'X)
         sealed-type (:sealed-type (as/check-cast x s/Any))
         inspect-result (as/check-type-test sealed-type s/Int)
         escape-result (as/exit-nu-scope sealed-type 'X)
@@ -117,15 +119,15 @@
                                               {:ns 'skeptic.analysis-schema-test})
         node-types (keep :type (ana.ast/nodes ast))]
     (is (seq node-types))
-    (is (not-any? as/forall-type? node-types))
-    (is (not-any? as/type-var-type? node-types))
-    (is (not-any? as/sealed-dyn-type? node-types))))
+    (is (not-any? at/forall-type? node-types))
+    (is (not-any? at/type-var-type? node-types))
+    (is (not-any? at/sealed-dyn-type? node-types))))
 
 (deftest display-keeps-type-and-schema-domains-separate-test
-  (let [type-var (as/->TypeVarT 'X)
-        polymorphic-map (as/->MapT {(as/->GroundT :keyword 'Keyword)
-                                    (as/->ForallT 'X (as/->FunT [(as/->FnMethodT [type-var]
-                                                                               (as/->SealedDynT type-var)
+  (let [type-var (at/->TypeVarT 'X)
+        polymorphic-map (at/->MapT {(at/->GroundT :keyword 'Keyword)
+                                    (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
+                                                                               (at/->SealedDynT type-var)
                                                                                1
                                                                                false)]))})]
     (is (= '{Keyword (forall X (=> (sealed X) X))}
@@ -143,14 +145,14 @@
            (as/render-type (as/schema->type #'BoundSchemaRef)))))
 
   (testing "unbound vars become placeholders instead of leaking into schema conversion"
-    (is (= (as/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
+    (is (= (sb/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
            (as/canonicalize-schema #'UnboundSchemaRef)))
     (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
            (-> #'UnboundSchemaRef
                as/schema->type
                :ref)))
     (let [unbound-root (.getRawRoot ^clojure.lang.Var #'UnboundSchemaRef)]
-      (is (= (as/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
+      (is (= (sb/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
              (as/canonicalize-schema unbound-root)))
       (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
              (-> unbound-root
@@ -158,10 +160,10 @@
                  :ref)))))
 
   (testing "recursive vars fall back to placeholders instead of recursing forever"
-    (is (= [(as/placeholder-schema 'skeptic.analysis-schema-test/RecursiveSchemaRef)]
+    (is (= [(sb/placeholder-schema 'skeptic.analysis-schema-test/RecursiveSchemaRef)]
            (as/canonicalize-schema #'RecursiveSchemaRef)))
     (let [recursive-type (as/schema->type #'RecursiveSchemaRef)]
-      (is (as/vector-type? recursive-type))
+      (is (at/vector-type? recursive-type))
       (is (= 'skeptic.analysis-schema-test/RecursiveSchemaRef
              (-> recursive-type :items first :ref))))))
 
@@ -200,5 +202,5 @@
         domain-result (as/map-get-schema schema
                                          (as/domain-key-query s/Keyword 'k))]
     (is (= s/Int literal-result))
-    (is (as/schema-equivalent? (as/join s/Int s/Str)
+    (is (as/schema-equivalent? (sb/join s/Int s/Str)
                                domain-result))))

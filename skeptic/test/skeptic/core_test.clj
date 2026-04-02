@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence :as inconsistence]))
 
@@ -76,11 +77,11 @@
               global-fields))))
 
 (deftest report-fields-render-semantic-polymorphic-types-in-verbose-mode
-  (let [type-var (as/->TypeVarT 'X)
+  (let [type-var (at/->TypeVarT 'X)
         fields (sut/report-fields
                 {:rule :generalize
-                 :actual-type (as/->SealedDynT type-var)
-                 :expected-type (as/->ForallT 'X type-var)
+                 :actual-type (at/->SealedDynT type-var)
+                 :expected-type (at/->ForallT 'X type-var)
                  :source-expression "(poly x)"}
                 true)]
     (is (some #{["Cast rule: \t\t" "generalize"]} fields))
@@ -135,14 +136,14 @@
     (assert-no-ui-internals (first (:errors summary)))))
 
 (deftest report-summary-and-fields-sanitize-placeholder-heavy-types
-  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
         summary (inconsistence/report-summary
                  {:report-kind :input
                   :blame '(simplify gt_fn [g r b])
                   :focuses ['[g r b]]
                   :cast-result {:rule :vector
                                 :source-type (as/schema->type [s/Any])
-                                :target-type (as/->VectorT [(as/->SetT #{(as/->VectorT [placeholder placeholder placeholder]
+                                :target-type (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
                                                                              false)}
                                                                        false)]
                                                            true)}
@@ -189,22 +190,22 @@
               fields))))
 
 (deftest output-report-fields-prefer-actionable-leaf-metadata-in-verbose-mode
-  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
-        triple (as/->VectorT [placeholder placeholder placeholder] false)
-        slot (as/->SetT #{triple} false)
-        expected-result (as/->VectorT [slot slot slot] false)
-        actual-result (as/->SetT #{expected-result} false)
+  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
+        triple (at/->VectorT [placeholder placeholder placeholder] false)
+        slot (at/->SetT #{triple} false)
+        expected-result (at/->VectorT [slot slot slot] false)
+        actual-result (at/->SetT #{expected-result} false)
         summary (inconsistence/report-summary
                  {:report-kind :output
                   :rule :source-union
-                  :actual-type (as/->UnionT #{(as/schema->type {:result s/Any
+                  :actual-type (at/->UnionT #{(as/schema->type {:result s/Any
                                                                 :cache s/Any})
                                               (as/schema->type {:result actual-result
                                                                 :cache s/Any})})
                   :expected-type (as/schema->type {:result expected-result
                                                    :cache s/Any})
                   :cast-result {:rule :source-union
-                                :source-type (as/->UnionT #{(as/schema->type {:result s/Any
+                                :source-type (at/->UnionT #{(as/schema->type {:result s/Any
                                                                               :cache s/Any})
                                                             (as/schema->type {:result actual-result
                                                                               :cache s/Any})})

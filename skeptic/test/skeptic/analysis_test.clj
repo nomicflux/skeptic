@@ -6,6 +6,8 @@
             [schema.core :as s]
             [skeptic.analysis :as sut]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]
             [skeptic.checking :as checking]
             [skeptic.examples]
             [skeptic.schematize :as schematize]
@@ -230,7 +232,7 @@
   (testing "throw form"
     (let [root (project-ast (analyze-form '(throw (UnsupportedOperationException. "oops, not done yet"))))]
       (is (= :throw (:op root)))
-      (is (= as/Bottom (:schema root)))
+      (is (= sb/Bottom (:schema root)))
       (is (= :new (:op (child-projection root :exception))))
       (is (= '(new UnsupportedOperationException "oops, not done yet")
              (:form (child-projection root :exception))))))
@@ -318,11 +320,11 @@
       (is (= :invoke (:op local-invoke)))
       (is (= :invoke (:op nested-invoke)))
       (is (= :const (:op vector-form)))
-      (is (as/vector-type? (as/schema->type (:schema vector-form))))
+      (is (at/vector-type? (as/schema->type (:schema vector-form))))
       (is (= :const (:op set-form)))
-      (is (as/set-type? (as/schema->type (:schema set-form))))
+      (is (at/set-type? (as/schema->type (:schema set-form))))
       (is (= :const (:op map-form)))
-      (is (as/map-type? (as/schema->type (:schema map-form))))
+      (is (at/map-type? (as/schema->type (:schema map-form))))
       (is (= :const (:op nested-vector)))
       (is (= :const (:op nested-map)))))
 
@@ -373,7 +375,7 @@
       (is (= (T s/Int) (:type bound-let)))
       (is (= (T s/Int) (:type or-let)))
       (is (find-projected-node or-let #(and (= :if (:op %))
-                                            (= (T (as/join s/Any s/Int)) (:type %)))))))
+                                            (= (T (sb/join s/Any s/Int)) (:type %)))))))
 
   (testing "if refinement and joins"
     (let [literal-if (project-ast (analyze-form '(if (even? 2) true "hello")))
@@ -381,11 +383,11 @@
                                               (locals 'x)))
           maybe-if (project-ast (analyze-form '(let [x nil] (if x x 1))))
           or-form (project-ast (analyze-form '(or nil 1)))]
-      (is (= (T (as/join s/Bool s/Str)) (:type literal-if)))
+      (is (= (T (sb/join s/Bool s/Str)) (:type literal-if)))
       (is (= (T s/Int) (:type local-if)))
-      (is (= (T (as/join s/Any s/Int)) (:type maybe-if)))
+      (is (= (T (sb/join s/Any s/Int)) (:type maybe-if)))
       (is (= :let (:op or-form)))
-      (is (= (T (as/join s/Any s/Int)) (:type or-form))))))
+      (is (= (T (sb/join s/Any s/Int)) (:type or-form))))))
 
 (deftest schema-functions-and-defs-test
   (testing "anonymous and named fn schemas"
@@ -425,9 +427,9 @@
                                                (skeptic.test-examples/int-add x y))
                                              (locals 'x 'y)))]
       (is (= s/Int (:output fn-call)))
-      (is (= (as/variable s/Int) (:schema def-form)))
+      (is (= (sb/variable s/Int) (:schema def-form)))
       (is (= 'f (:name defn-form)))
-      (is (as/variable? (:schema defn-form)))
+      (is (sb/variable? (:schema defn-form)))
       (is (= s/Int (-> typed-defn :schema :schema :output-schema)))
       (is (= s/Int (:schema do-form))))))
 
@@ -438,7 +440,7 @@
                                              (catch UnsupportedOperationException e
                                                (throw e)))))]
       (is (= s/Int (:schema root)))
-      (is (= as/Bottom
+      (is (= sb/Bottom
              (:schema (find-projected-node root #(= '(throw e) (:form %))))))))
 
   (testing "try with body, catch, and finally stays analyzable"
@@ -462,7 +464,7 @@
                                              (skeptic.test-examples/int-add
                                               1
                                               (skeptic.test-examples/int-add nil x)))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add nil x) (:form %))))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add 1 (skeptic.test-examples/int-add nil x))
                                         (:form %))))))
@@ -481,7 +483,7 @@
                                              ((^{:once true} fn* [y] (int-add y nil))
                                               x))
                                            (locals 'int-add)))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= :with-meta (:op %))))))
 
   (testing "local callable from let-bound value stays conservative"
@@ -489,7 +491,7 @@
                                              [x]
                                              (let [f (+ 1 x)]
                                                (f x)))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= '(f x) (:form %))))))
 
   (testing "doto expansion keeps literal map schema"
@@ -499,7 +501,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (as/map-type? (as/schema->type (:schema %)))
+                                          (at/map-type? (as/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest problematic-macroexpansion-analysis-test
@@ -515,7 +517,7 @@
                                              (= :valid))))]
       (is (= :let (:op root)))
       (is (find-projected-node root #(= :if (:op %))))
-      (is (= (as/join s/Any s/Keyword) (:schema root)))))
+      (is (= (sb/join s/Any s/Keyword) (:schema root)))))
 
   (testing "thread-first doto keeps incoming local"
     (let [root (project-ast (analyze-form '(-> cache
@@ -536,7 +538,7 @@
   (testing "original throw setup"
     (let [root (project-ast (analyze-form '(throw (UnsupportedOperationException. "oops, not done yet"))))]
       (is (= :throw (:op root)))
-      (is (= as/Bottom (:schema root)))
+      (is (= sb/Bottom (:schema root)))
       (is (= '(throw (UnsupportedOperationException. "oops, not done yet"))
              (:form root))))))
 
@@ -631,7 +633,7 @@
     (let [root (project-ast (analyze-form '(def n 5)))]
       (is (= :def (:op root)))
       (is (= 'n (:name root)))
-      (is (= (as/variable s/Int) (:schema root)))))
+      (is (= (sb/variable s/Int) (:schema root)))))
   (testing "original defn setup"
     (let [root (project-ast (analyze-form '(defn f [x]
                                             (println "something")
@@ -666,11 +668,11 @@
   (testing "original vector literal setup"
     (let [root (project-ast (analyze-form '[1 2 :a "hello"]))]
       (is (= :const (:op root)))
-      (is (as/vector-type? (as/schema->type (:schema root))))))
+      (is (at/vector-type? (as/schema->type (:schema root))))))
   (testing "original set literal setup"
     (let [root (project-ast (analyze-form '#{1 2 :a "hello"}))]
       (is (= :const (:op root)))
-      (is (as/set-type? (as/schema->type (:schema root))))))
+      (is (at/set-type? (as/schema->type (:schema root))))))
   (testing "original list literal setup"
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
@@ -679,16 +681,16 @@
   (testing "original map literal setup"
     (let [root (project-ast (analyze-form '{:a 1 :b 2 :c 3}))]
       (is (= :const (:op root)))
-      (is (as/map-type? (as/schema->type (:schema root))))))
+      (is (at/map-type? (as/schema->type (:schema root))))))
   (testing "original nested vector setup"
     (let [root (project-ast (analyze-form '[1 2 [3 4 [5]]]))]
       (is (= :const (:op root)))
-      (is (as/vector-type? (as/schema->type (:schema root))))))
+      (is (at/vector-type? (as/schema->type (:schema root))))))
   (testing "original nested map setup"
     (let [root (project-ast (analyze-form '{:a 1 :b [:z "hello" #{1 2}]
                                            :c {:d 7 :e {:f 9}}}))]
       (is (= :const (:op root)))
-      (is (as/map-type? (as/schema->type (:schema root)))))))
+      (is (at/map-type? (as/schema->type (:schema root)))))))
 
 (deftest attach-schema-info-value-test
   (let [root (project-ast (analyze-form {} '1))]
@@ -736,13 +738,13 @@
                                              (skeptic.test-examples/int-add x 2))))]
       (is (= (T s/Int) (:type root)))
       (is (find-projected-node root #(and (= :if (:op %))
-                                          (= (T (as/join s/Any s/Int)) (:type %))))))))
+                                          (= (T (sb/join s/Any s/Int)) (:type %))))))))
 
 (deftest attach-schema-info-if-test
   (testing "original literal if schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(if (even? 2) true "hello")))]
-      (is (= (T (as/join s/Bool s/Str)) (:type root)))))
+      (is (= (T (sb/join s/Bool s/Str)) (:type root)))))
   (testing "original symbol if schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(if (pos? x) 1 -1)))]
@@ -750,12 +752,12 @@
   (testing "original maybe-refinement if setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(let [x nil] (if x x 1))))]
-      (is (= (T (as/join s/Any s/Int)) (:type root)))))
+      (is (= (T (sb/join s/Any s/Int)) (:type root)))))
   (testing "original or macro schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(or nil 1)))]
       (is (= :let (:op root)))
-      (is (= (T (as/join s/Any s/Int)) (:type root))))))
+      (is (= (T (sb/join s/Any s/Int)) (:type root))))))
 
 (deftest attach-schema-info-fn-test
   (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -768,20 +770,20 @@
   (testing "original def schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(def n 5)))]
-      (is (= (as/variable s/Int) (:schema root)))))
+      (is (= (sb/variable s/Int) (:schema root)))))
   (testing "original defn schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(defn f [x y]
                                              (println "something")
                                              (skeptic.test-examples/int-add x y))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (= s/Int (-> root :schema :schema :output-schema)))))
   (testing "original typed defn schema setup"
     (let [root (project-ast (analyze-form sample-dict
                                           '(defn f [y z]
                                              (println y)
                                              z)))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (= s/Int (-> root :schema :schema :output-schema))))))
 
 (deftest attach-schema-info-do-test
@@ -800,7 +802,7 @@
                                              (catch UnsupportedOperationException e
                                                (throw e)))))]
       (is (= s/Int (:schema root)))
-      (is (= as/Bottom
+      (is (= sb/Bottom
              (:schema (find-projected-node root #(= '(throw e) (:form %))))))))
   (testing "original try/catch/finally schema setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -825,7 +827,7 @@
                                              (skeptic.test-examples/int-add
                                               1
                                               (skeptic.test-examples/int-add nil x)))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add nil x) (:form %))))
       (is (find-projected-node root #(= '(skeptic.test-examples/int-add 1 (skeptic.test-examples/int-add nil x))
                                         (:form %))))))
@@ -842,7 +844,7 @@
                                              [x]
                                              ((^{:once true} fn* [y] (int-add y nil))
                                               x))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= :with-meta (:op %))))))
   (testing "original sample-path-fn setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -850,7 +852,7 @@
                                              [x]
                                              (let [f (+ 1 x)]
                                                (f x)))))]
-      (is (as/variable? (:schema root)))
+      (is (sb/variable? (:schema root)))
       (is (find-projected-node root #(= '(f x) (:form %))))))
   (testing "original doto component setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
@@ -860,7 +862,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (as/map-type? (as/schema->type (:schema %)))
+                                          (at/map-type? (as/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest analyse-problematic-let-test
@@ -877,7 +879,7 @@
                                              (= :valid))))]
       (is (= :let (:op root)))
       (is (find-projected-node root #(= :if (:op %))))
-      (is (= (as/join s/Any s/Keyword) (:schema root)))))
+      (is (= (sb/join s/Any s/Keyword) (:schema root)))))
   (testing "original thread-first doto setup"
     (let [root (project-ast (analyze-form test-examples/sample-dict
                                           '(-> cache
@@ -953,7 +955,7 @@
                                                     :locals {'counts skeptic.static-call-examples/MaybeCount}}))]
       (is (= s/Str (:schema required-get)))
       (is (= (s/maybe s/Str) (:schema optional-get)))
-      (is (as/schema-equivalent? (as/join s/Int s/Str)
+      (is (as/schema-equivalent? (sb/join s/Int s/Str)
                                  (:schema defaulted-get)))))
 
   (testing "merge returns merged map schemas"
@@ -984,7 +986,7 @@
           ast (sut/attach-schema-info-loop dict form {:ns 'skeptic.test-examples})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
       (is (= (T s/Any) (:type call-node)))
-      (is (not (as/union-type? (:type call-node))))))
+      (is (not (at/union-type? (:type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
     (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
@@ -997,7 +999,7 @@
       (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-f :output-type])))
       (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type])))
       (is (= [(T s/Int)] (:actual-argtypes call-node)))
-      (is (not (as/union-type? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type]))))))
+      (is (not (at/union-type? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type]))))))
 
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (schematize/ns-schemas {} 'skeptic.test-examples)
@@ -1010,7 +1012,7 @@
                                                     'skeptic.examples
                                                     examples-file
                                                     (source-exprs-in 'skeptic.examples examples-file))]
-      (is (= (T (as/join s/Int s/Str))
+      (is (= (T (sb/join s/Int s/Str))
              (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output-type])))
       (is (= (T s/Int)
              (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output-type])))

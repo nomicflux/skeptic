@@ -1,6 +1,7 @@
 (ns skeptic.inconsistence
   (:require [schema.core :as s]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.types :as at]
             [skeptic.colours :as colours]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
@@ -47,7 +48,7 @@
 
     (and (map? value)
          (not (record? value))
-         (not (contains? value as/semantic-type-tag-key)))
+         (not (contains? value at/semantic-type-tag-key)))
     (into {}
           (map (fn [[k v]]
                  [(literal-form k)
@@ -71,8 +72,8 @@
                  (catch Exception _e nil))]
       (cond
         (nil? type) nil
-        (as/optional-key-type? type) (exact-key-form (:inner type))
-        (as/value-type? type) (literal-form (:value type))
+        (at/optional-key-type? type) (exact-key-form (:inner type))
+        (at/value-type? type) (literal-form (:value type))
         :else nil))))
 
 (defn format-user-form
@@ -461,7 +462,7 @@
   [type]
   (let [type (some-> type as/schema->type)]
     (or (nil? type)
-        (as/dyn-type? type))))
+        (at/dyn-type? type))))
 
 (defn actionable-output-leaf?
   [cast-result]
@@ -618,8 +619,8 @@
                                                             (:path cast-result)
                                                             (:actual-key cast-result))))
 
-                  (if (and (as/ground-type? source-type)
-                           (as/ground-type? target-type)
+                  (if (and (at/ground-type? source-type)
+                           (at/ground-type? target-type)
                            (not= source-type target-type))
                     (mismatched-ground-type-msg ctx source-type target-type)
                     (mismatched-schema-msg ctx source-type target-type)))]

@@ -1,12 +1,14 @@
 (ns skeptic.analysis.resolvers
   (:require [schema.core :as s]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]
             [plumbing.core :as p]
             [skeptic.analysis.annotation :as aa]))
 
 (defn arglist-entry-type
   [{:keys [type schema] :as entry}]
-  (or type schema entry as/Dyn))
+  (or type schema entry at/Dyn))
 
 (defn arglist->input-schema
   [{:keys [type schema name] :as entry}]
@@ -24,29 +26,29 @@
             argtypes (mapv arglist-entry-type
                            (or (:types res)
                                (:schema res)
-                               (vec (repeat (or arity 0) as/Dyn))))
-            fn-type (as/->FunT [(as/->FnMethodT argtypes
-                                               (or output-type as/Dyn)
+                               (vec (repeat (or arity 0) at/Dyn))))
+            fn-type (at/->FunT [(at/->FnMethodT argtypes
+                                               (or output-type at/Dyn)
                                                (clojure.core/count argtypes)
                                                false)])]
         {:type fn-type
          :schema fn-type
          :fn-type fn-type
-         :output-type (or output-type as/Dyn)
-         :output (or output-type as/Dyn)
+         :output-type (or output-type at/Dyn)
+         :output (or output-type at/Dyn)
          :argtypes argtypes
          :arglist argtypes})
-      (let [fn-type (as/->FunT [(as/->FnMethodT (vec (repeat (or arity 0) as/Dyn))
-                                               (or output-type as/Dyn)
+      (let [fn-type (at/->FunT [(at/->FnMethodT (vec (repeat (or arity 0) at/Dyn))
+                                               (or output-type at/Dyn)
                                                (or arity 0)
                                                false)])]
         {:type fn-type
          :schema fn-type
          :fn-type fn-type
-         :output-type (or output-type as/Dyn)
-         :output (or output-type as/Dyn)
-         :argtypes (vec (repeat (or arity 0) as/Dyn))
-         :arglist (vec (repeat (or arity 0) as/Dyn))}))))
+         :output-type (or output-type at/Dyn)
+         :output (or output-type at/Dyn)
+         :argtypes (vec (repeat (or arity 0) at/Dyn))
+         :arglist (vec (repeat (or arity 0) at/Dyn))}))))
 
 ;; TODO: There has to be a cleaner way to do this than copying all of this resolution code everywhere.
 (def resolve-map-schema
@@ -57,9 +59,9 @@
                   (let [idx-pairs (::key-val-placeholders v)
                         f (fn [[key-idx val-idx]]
                             (let [k (get results key-idx)
-                                  k-schema (as/valued-schema (:schema k) (aa/unannotate-expr k))
+                                  k-schema (sb/valued-schema (:schema k) (aa/unannotate-expr k))
                                   v (get results val-idx)
-                                  v-schema (as/valued-schema (:schema v) (aa/unannotate-expr v))]
+                                  v-schema (sb/valued-schema (:schema v) (aa/unannotate-expr v))]
                               [k-schema v-schema]))]
                     (->> idx-pairs (map f) (into {})))))
         (update :resolution-path
@@ -129,7 +131,7 @@
         (update :schema
                 (fn [v]
                   (if-let [idx (::placeholder v)]
-                    (as/variable (:schema (get results idx)))
+                    (sb/variable (:schema (get results idx)))
                     v)))
         (update :resolution-path
                 (fn [rp]

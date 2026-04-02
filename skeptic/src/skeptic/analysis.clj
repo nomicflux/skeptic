@@ -3,7 +3,9 @@
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.analysis.resolvers :as ar]
-            [skeptic.analysis.schema :as as]))
+            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]))
 
 (declare class->schema
          type-of-value
@@ -67,7 +69,7 @@
 
 (defn schema->callable
   [schema]
-  (when (as/fn-schema? schema)
+  (when (sb/fn-schema? schema)
     (let [{:keys [input-schemas output-schema]} (into {} schema)
           output-type (normalize-declared-type output-schema)
           arglists (into {}
@@ -122,15 +124,15 @@
        (as/strip-derived-types
        (cond-> (merge callable
                       (dissoc base :schema :output :type :output-type :arglists)
-                      {:type (or type as/Dyn)
-                       :schema (compat-schema (or type as/Dyn))})
+                      {:type (or type at/Dyn)
+                       :schema (compat-schema (or type at/Dyn))})
          output-type (assoc :output-type output-type
                             :output (compat-schema output-type))
          arglists (assoc :arglists arglists))))))
 
 (defn class->schema
   [klass]
-  (as/canonical-scalar-schema klass))
+  (sb/canonical-scalar-schema klass))
 
 (defn coll-element-schema
   [values]
@@ -143,8 +145,8 @@
   (as/canonicalize-schema
    (into {}
          (map (fn [[k v]]
-                [(as/valued-schema (schema-of-value k) k)
-                 (as/valued-schema (schema-of-value v) v)]))
+                [(sb/valued-schema (schema-of-value k) k)
+                 (sb/valued-schema (schema-of-value v) v)]))
          m)))
 
 (defn schema-of-value
@@ -170,11 +172,11 @@
 (defn type-join*
   [types]
   (let [types (vec (remove nil? (map as/normalize-type types)))
-        non-bottom (vec (remove as/bottom-type? types))]
+        non-bottom (vec (remove at/bottom-type? types))]
     (cond
       (seq non-bottom) (as/union-type non-bottom)
-      (seq types) as/BottomType
-      :else as/Dyn)))
+      (seq types) at/BottomType
+      :else at/Dyn)))
 
 (defn node-info
   [node]
@@ -231,9 +233,9 @@
 
 (defn default-call-info
   [arity output]
-  (let [output-type (or output as/Dyn)
-        expected-argtypes (vec (repeat arity as/Dyn))
-        fn-type (normalize-declared-type (as/dynamic-fn-schema arity s/Any))]
+  (let [output-type (or output at/Dyn)
+        expected-argtypes (vec (repeat arity at/Dyn))
+        fn-type (normalize-declared-type (sb/dynamic-fn-schema arity s/Any))]
     {:expected-argtypes expected-argtypes
      :expected-arglist (compat-schemas expected-argtypes)
      :output-type output-type
@@ -289,11 +291,11 @@
   (if (typed-callable? fn-node)
     (let [converted (ar/convert-arglists args
                                          {:arglists (:arglists fn-node)
-                                          :output-type (or (:output-type fn-node) as/Dyn)})]
+                                          :output-type (or (:output-type fn-node) at/Dyn)})]
       {:expected-argtypes (:argtypes converted)
        :expected-arglist (compat-schemas (:argtypes converted))
-       :output-type (or (:output-type converted) as/Dyn)
-       :output (compat-schema (or (:output-type converted) as/Dyn))
+       :output-type (or (:output-type converted) at/Dyn)
+       :output (compat-schema (or (:output-type converted) at/Dyn))
        :fn-type (:type converted)
        :fn-schema (compat-schema (:type converted))})
     (default-call-info (count args) (:output-type fn-node))))
@@ -431,9 +433,9 @@
         origin (entry-origin sym entry)
         type (or (some-> origin (origin-type assumptions))
                  (:type entry)
-                 as/Dyn)]
-    (cond-> (or entry {:type as/Dyn
-                       :schema (compat-schema as/Dyn)})
+                 at/Dyn)]
+    (cond-> (or entry {:type at/Dyn
+                       :schema (compat-schema at/Dyn)})
       true (assoc :type (as/normalize-type type)
                   :schema (compat-schema (as/normalize-type type)))
       origin (assoc :origin origin))))
@@ -509,21 +511,21 @@
   (merge node
          (if-let [entry (get locals (:form node))]
            (effective-entry (:form node) entry assumptions)
-           {:type as/Dyn
-            :schema (compat-schema as/Dyn)})))
+           {:type at/Dyn
+            :schema (compat-schema at/Dyn)})))
 
 (defn annotate-var-like
   [{:keys [dict ns]} node]
   (merge node
          (or (lookup-entry dict ns node)
-             {:type as/Dyn
-              :schema (compat-schema as/Dyn)})))
+             {:type at/Dyn
+              :schema (compat-schema at/Dyn)})))
 
 (defn annotate-static-call
   [ctx node]
   (let [args (mapv #(annotate-node ctx %) (:args node))]
     (let [actual-argtypes (mapv :type args)
-          expected-argtypes (vec (repeat (count args) as/Dyn))
+          expected-argtypes (vec (repeat (count args) at/Dyn))
           type (cond
                  (static-get-call? node)
                  (let [[target key-node default-node] args
@@ -542,7 +544,7 @@
                  (normalize-declared-type s/Bool)
 
                  :else
-                 as/Dyn)]
+                 at/Dyn)]
       (assoc node
              :args args
              :actual-argtypes actual-argtypes
@@ -603,8 +605,8 @@
   (let [[bindings final-locals]
         (reduce (fn [[acc env] binding]
                   (let [annotated (annotate-binding (assoc ctx :locals env) binding)
-                        env-entry (or (node-info annotated) {:type as/Dyn
-                                                             :schema as/Dyn})]
+                        env-entry (or (node-info annotated) {:type at/Dyn
+                                                             :schema at/Dyn})]
                     [(conj acc annotated)
                     (assoc env (:form binding) env-entry)]))
                 [[] locals]
@@ -652,8 +654,8 @@
         arg-specs (get-in (normalize-entry entry) [:arglists (count params) :types])]
     (or arg-specs
         (mapv (fn [param]
-                {:type as/Dyn
-                 :schema (compat-schema as/Dyn)
+                {:type at/Dyn
+                 :schema (compat-schema at/Dyn)
                  :optional? false
                  :name (:form param)})
               params))))
@@ -707,9 +709,9 @@
                                (method->arglist-entry method)]))
                        methods)
         output-type (type-join* (map :output-type methods))
-        fn-type (as/->FunT
+        fn-type (at/->FunT
                  (mapv (fn [method]
-                         (as/->FnMethodT (mapv :type (:arg-schema method))
+                         (at/->FnMethodT (mapv :type (:arg-schema method))
                                          (:output-type method)
                                          (count (:arg-schema method))
                                          false))
@@ -732,8 +734,8 @@
                                           :name (:name node))
                                    init-node))]
     (cond-> (assoc node
-                   :type (as/->VarT (or (:type init-node) as/Dyn))
-                   :schema (compat-schema (as/->VarT (or (:type init-node) as/Dyn))))
+                   :type (at/->VarT (or (:type init-node) at/Dyn))
+                   :schema (compat-schema (at/->VarT (or (:type init-node) at/Dyn))))
       meta-node (assoc :meta meta-node)
       init-node (assoc :init init-node))))
 
@@ -744,12 +746,12 @@
            :items items
            :type (as/normalize-type
                   (mapv (fn [item]
-                          (or (:type item) as/Dyn))
+                          (or (:type item) at/Dyn))
                         items))
            :schema (compat-schema
                     (as/normalize-type
                      (mapv (fn [item]
-                             (or (:type item) as/Dyn))
+                             (or (:type item) at/Dyn))
                            items))))))
 
 (defn annotate-set
@@ -760,12 +762,12 @@
            :type (as/normalize-type
                   #{(if (seq items)
                       (type-join* (map :type items))
-                      as/Dyn)})
+                      at/Dyn)})
            :schema (compat-schema
                     (as/normalize-type
                      #{(if (seq items)
                          (type-join* (map :type items))
-                         as/Dyn)})))))
+                         at/Dyn)})))))
 
 (defn annotate-map
   [ctx node]
@@ -814,8 +816,8 @@
   (let [exception (annotate-node ctx (:exception node))]
     (assoc node
            :exception exception
-           :type as/BottomType
-           :schema (compat-schema as/BottomType))))
+           :type at/BottomType
+           :schema (compat-schema at/BottomType))))
 
 (defn annotate-catch
   [{:keys [locals] :as ctx} node]
@@ -899,8 +901,8 @@
        :vector (annotate-vector ctx node)
        :with-meta (annotate-with-meta ctx node)
        (assoc (annotate-children ctx node)
-              :type as/Dyn
-              :schema (compat-schema as/Dyn))))))
+              :type at/Dyn
+              :schema (compat-schema at/Dyn))))))
 
 (defn annotate-ast
   ([dict ast]

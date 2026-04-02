@@ -2,6 +2,7 @@
   (:require [clojure.repl :as repl]
             [clojure.string :as str]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
             [skeptic.schema :as dschema]
             [schema.core :as s]))
 
@@ -164,7 +165,7 @@
 (defn dynamic-desc
   [v]
   (let [m (meta v)
-        qualified-sym (as/qualified-var-symbol v)
+        qualified-sym (sb/qualified-var-symbol v)
         arglists (when (and (:arglists m)
                             (not (:macro m)))
                    (dynamic-arglists (:arglists m)))]
@@ -193,6 +194,6 @@
          ns-interns
          vals
          (keep (fn [v]
-                 (when-let [qualified-sym (as/qualified-var-symbol v)]
+                 (when-let [qualified-sym (sb/qualified-var-symbol v)]
                    [qualified-sym (var-schema-desc v)])))
          (into {}))))

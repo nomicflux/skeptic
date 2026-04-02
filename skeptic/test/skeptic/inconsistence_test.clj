@@ -3,6 +3,8 @@
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]
             [skeptic.inconsistence :as sut]))
 
 (def sample-ctx
@@ -11,7 +13,7 @@
 
 (defn schema-or-value
   [schema value]
-  (as/valued-schema schema value))
+  (sb/valued-schema schema value))
 
 (def conditional-int-or-str
   (s/conditional integer? s/Int string? s/Str))
@@ -220,18 +222,18 @@
     (assert-no-ui-internals error)))
 
 (deftest output-summary-prefers-leaf-mismatch-over-source-union-headline
-  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
-        triple (as/->VectorT [placeholder placeholder placeholder] false)
-        slot (as/->SetT #{triple} false)
-        expected-result (as/->VectorT [slot slot slot] false)
-        actual-result (as/->SetT #{expected-result} false)
+  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
+        triple (at/->VectorT [placeholder placeholder placeholder] false)
+        slot (at/->SetT #{triple} false)
+        expected-result (at/->VectorT [slot slot slot] false)
+        actual-result (at/->SetT #{expected-result} false)
         summary (sut/report-summary
                  {:report-kind :output
                   :blame 'add-with-cache
                   :focuses ['(let [result (simplify gt_fn [g r b])]
                                {:result result})]
                   :cast-result {:rule :source-union
-                                :source-type (as/->UnionT #{(as/schema->type {:result s/Any
+                                :source-type (at/->UnionT #{(as/schema->type {:result s/Any
                                                                               :cache s/Any})
                                                             (as/schema->type {:result actual-result
                                                                               :cache s/Any})})
@@ -256,11 +258,11 @@
     (assert-no-ui-internals error)))
 
 (deftest placeholder-heavy-output-summary-renders-public-names-only
-  (let [placeholder (as/->PlaceholderT 'clj-threals.threals/Threal)
+  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
         message (sut/mismatched-output-schema-msg
                  {:expr 'for-birthday
                   :arg '[g r b]}
-                 (as/->VectorT [(as/->SetT #{(as/->VectorT [placeholder placeholder placeholder]
+                 (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
                                                       false)}
                                             false)]
                                true)
@@ -274,7 +276,7 @@
                   :blame 'bad-user
                   :focuses ['bad-user]
                   :cast-result {:rule :source-union
-                                :source-type (as/schema->type (as/join s/Any s/Keyword))
+                                :source-type (as/schema->type (sb/join s/Any s/Keyword))
                                 :target-type (as/schema->type s/Int)}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
@@ -343,12 +345,12 @@
     (is (= :target-intersection (:rule target-intersection)))))
 
 (deftest semantic-function-type-rendering-test
-  (let [fun-type (as/->FunT [(as/->FnMethodT [(as/schema->type s/Int)]
+  (let [fun-type (at/->FunT [(at/->FnMethodT [(as/schema->type s/Int)]
                                              (as/intersection-type [s/Any s/Int])
                                              1
                                              false)])
-        polymorphic-fun (as/->FunT [(as/->FnMethodT [(as/->TypeVarT 'X)]
-                                                    (as/->SealedDynT (as/->TypeVarT 'X))
+        polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
+                                                    (at/->SealedDynT (at/->TypeVarT 'X))
                                                     1
                                                     false)])]
     (is (= fun-type (as/schema->type fun-type)))
@@ -428,12 +430,12 @@
 (deftest unknown-output-schema-test
   (is (sut/unknown-output-schema? s/Any))
   (is (sut/unknown-output-schema? (s/maybe s/Any)))
-  (is (sut/unknown-output-schema? (as/placeholder-schema [:output 'example/f])))
+  (is (sut/unknown-output-schema? (sb/placeholder-schema [:output 'example/f])))
   (is (not (sut/unknown-output-schema? s/Int))))
 
 (deftest semantic-tamper-message-test
-  (let [type-var (as/->TypeVarT 'X)
-        sealed (as/->SealedDynT type-var)
+  (let [type-var (at/->TypeVarT 'X)
+        sealed (at/->SealedDynT type-var)
         inspect-message (sut/cast-result->message sample-ctx
                                                   {:source-type sealed
                                                    :target-type (as/schema->type s/Int)
