@@ -5,6 +5,7 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema.value-check :as asv]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence :as sut]))
@@ -389,9 +390,9 @@
     (is (nil? (s/check schema valid-with-extra)))
     (is (some? (s/check schema missing-required)))
 
-    (is (as/value-satisfies-type? valid schema))
-    (is (as/value-satisfies-type? valid-with-extra schema))
-    (is (not (as/value-satisfies-type? missing-required schema)))
+    (is (asv/value-satisfies-type? valid schema))
+    (is (asv/value-satisfies-type? valid-with-extra schema))
+    (is (not (asv/value-satisfies-type? missing-required schema)))
 
     (is (:ok? cast-result))
     (is (= :map (:rule cast-result)))))
@@ -401,17 +402,17 @@
         empty-value {}
         cast-result (as/check-cast empty-value schema)]
     (is (nil? (s/check schema empty-value)))
-    (is (as/value-satisfies-type? empty-value schema))
+    (is (asv/value-satisfies-type? empty-value schema))
     (is (:ok? cast-result))
     (is (= :map (:rule cast-result)))))
 
 (deftest pattern-map-key-presence-classification-regression-test
   (is (= :unknown
-         (as/contains-key-classification {s/Keyword s/Any} :a)))
+         (asv/contains-key-classification {s/Keyword s/Any} :a)))
   (is (= :always
-         (as/contains-key-classification {:a s/Int s/Keyword s/Any} :a)))
+         (asv/contains-key-classification {:a s/Int s/Keyword s/Any} :a)))
   (is (= :unknown
-         (as/contains-key-classification {:a s/Int s/Keyword s/Any} :b))))
+         (asv/contains-key-classification {:a s/Int s/Keyword s/Any} :b))))
 
 (deftest broad-key-map-cast-regression-test
   (let [failing-report (sut/cast-report sample-ctx

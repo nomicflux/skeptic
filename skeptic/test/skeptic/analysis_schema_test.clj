@@ -9,6 +9,9 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema.cast-support :as ascs]
+            [skeptic.analysis.schema.map-ops :as asm]
+            [skeptic.analysis.schema.value-check :as asv]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]))
 
@@ -94,9 +97,9 @@
 (deftest tamper-rules-test
   (let [x (at/->TypeVarT 'X)
         sealed-type (:sealed-type (as/check-cast x s/Any))
-        inspect-result (as/check-type-test sealed-type s/Int)
-        escape-result (as/exit-nu-scope sealed-type 'X)
-        safe-exit (as/exit-nu-scope sealed-type 'Y)
+        inspect-result (ascs/check-type-test sealed-type s/Int)
+        escape-result (ascs/exit-nu-scope sealed-type 'X)
+        safe-exit (ascs/exit-nu-scope sealed-type 'Y)
         increment-analogue (as/check-cast sealed-type s/Int)]
     (testing "polymorphic identity analogue seals and collapses safely"
       (is (:ok? (as/check-cast sealed-type x))))
@@ -194,18 +197,18 @@
     (is (not (:ok? quad-cast)))
     (is (= :vector-arity-mismatch (:reason quad-cast)))
 
-    (is (as/value-satisfies-type? [1 2 3] homogeneous-int))
-    (is (as/value-satisfies-type? [1 2 3] triple-int))
-    (is (not (as/value-satisfies-type? [1 2 3] pair-int)))
-    (is (not (as/value-satisfies-type? [1 2 3] quad-int)))))
+    (is (asv/value-satisfies-type? [1 2 3] homogeneous-int))
+    (is (asv/value-satisfies-type? [1 2 3] triple-int))
+    (is (not (asv/value-satisfies-type? [1 2 3] pair-int)))
+    (is (not (asv/value-satisfies-type? [1 2 3] quad-int)))))
 
 (deftest non-literal-get-uses-key-domain-regression-test
   (let [schema {:a s/Int
                 s/Keyword s/Str}
-        literal-result (as/map-get-schema schema
-                                          (as/exact-key-query s/Keyword :a :a))
-        domain-result (as/map-get-schema schema
-                                         (as/domain-key-query s/Keyword 'k))]
+        literal-result (asm/map-get-schema schema
+                                           (asm/exact-key-query s/Keyword :a :a))
+        domain-result (asm/map-get-schema schema
+                                          (asm/domain-key-query s/Keyword 'k))]
     (is (= s/Int literal-result))
-    (is (as/schema-equivalent? (sb/join s/Int s/Str)
+    (is (ascs/schema-equivalent? (sb/join s/Int s/Str)
                                domain-result))))

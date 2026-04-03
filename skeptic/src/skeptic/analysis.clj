@@ -7,7 +7,8 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.resolvers :as ar]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema.map-ops :as asm]
+            [skeptic.analysis.schema.value-check :as asv]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]))
 
@@ -201,8 +202,8 @@
 (defn get-key-query
   [node]
   (if (literal-map-key? node)
-    (as/exact-key-query (:type node) (:form node) (:form node))
-    (as/domain-key-query (:type node) (:form node))))
+    (asm/exact-key-query (:type node) (:form node) (:form node))
+    (asm/domain-key-query (:type node) (:form node))))
 
 (defn local-binding-ast
   [idx sym]
@@ -377,7 +378,7 @@
       type)
 
     :contains-key
-    (as/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
+    (asv/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
 
     type))
 
@@ -408,7 +409,7 @@
     :else
     (case (:kind assumption)
       :contains-key
-      (case (as/contains-key-type-classification (assumption-base-type assumption assumptions)
+      (case (asv/contains-key-type-classification (assumption-base-type assumption assumptions)
                                                  (:key assumption))
         :always (if (:polarity assumption) :true :false)
         :never (if (:polarity assumption) :false :true)
@@ -535,14 +536,14 @@
                  (let [[target key-node default-node] args
                        key-type (get-key-query key-node)]
                    (if default-node
-                     (as/map-get-type (:type target)
+                     (asm/map-get-type (:type target)
                                       key-type
                                       (:type default-node))
-                     (as/map-get-type (:type target)
+                     (asm/map-get-type (:type target)
                                       key-type)))
 
                  (static-merge-call? node)
-                 (as/merge-map-types (map :type args))
+                 (asm/merge-map-types (map :type args))
 
                  (static-contains-call? node)
                  (normalize-declared-type s/Bool)
@@ -568,14 +569,14 @@
                  (let [[target key-node default-node] args
                        key-type (get-key-query key-node)]
                    (if default-node
-                     (as/map-get-type (:type target)
+                     (asm/map-get-type (:type target)
                                       key-type
                                       (:type default-node))
-                     (as/map-get-type (:type target)
+                     (asm/map-get-type (:type target)
                                       key-type)))
 
                  (merge-call? fn-node)
-                 (as/merge-map-types (map :type args))
+                 (asm/merge-map-types (map :type args))
 
                  (contains-call? fn-node)
                  (normalize-declared-type s/Bool)

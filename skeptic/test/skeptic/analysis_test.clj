@@ -6,7 +6,7 @@
             [schema.core :as s]
             [skeptic.analysis :as sut]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema.cast-support :as ascs]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.checking :as checking]
@@ -956,7 +956,7 @@
                                                     :locals {'counts skeptic.static-call-examples/MaybeCount}}))]
       (is (= s/Str (:schema required-get)))
       (is (= (s/maybe s/Str) (:schema optional-get)))
-      (is (as/schema-equivalent? (sb/join s/Int s/Str)
+      (is (ascs/schema-equivalent? (sb/join s/Int s/Str)
                                  (:schema defaulted-get)))))
 
   (testing "merge returns merged map schemas"
