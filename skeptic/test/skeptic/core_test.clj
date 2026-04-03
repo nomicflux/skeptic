@@ -5,7 +5,7 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
-            [skeptic.inconsistence :as inconsistence]))
+            [skeptic.inconsistence.report :as inrep]))
 
 (def ui-internal-markers
   [":skeptic.analysis.schema/"
@@ -89,7 +89,7 @@
     (is (some #{["Expected type: \t" "(forall X X)"]} fields))))
 
 (deftest report-summary-collapses-output-into-single-entry
-  (let [summary (inconsistence/report-summary
+  (let [summary (inrep/report-summary
                  {:report-kind :output
                   :cast-result {:source-type (ab/schema->type {:name s/Keyword})
                                 :target-type (ab/schema->type {:name s/Str})}
@@ -105,7 +105,7 @@
     (assert-no-ui-internals (first (:errors summary)))))
 
 (deftest report-summary-hides-internal-cast-branches
-  (let [summary (inconsistence/report-summary
+  (let [summary (inrep/report-summary
                  {:report-kind :output
                   :cast-result {:source-type (ab/schema->type {:b s/Int})
                                 :target-type (ab/schema->type {:b s/Int})}
@@ -117,7 +117,7 @@
     (assert-no-ui-internals (first (:errors summary)))))
 
 (deftest report-summary-collapses-input-union-branches
-  (let [summary (inconsistence/report-summary
+  (let [summary (inrep/report-summary
                  {:report-kind :input
                   :blame '(takes-either-branch :bad)
                   :focuses [:bad]
@@ -137,7 +137,7 @@
 
 (deftest report-summary-and-fields-sanitize-placeholder-heavy-types
   (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
-        summary (inconsistence/report-summary
+        summary (inrep/report-summary
                  {:report-kind :input
                   :blame '(simplify gt_fn [g r b])
                   :focuses ['[g r b]]
@@ -170,7 +170,7 @@
 
 (deftest report-fields-prefer-top-level-cast-metadata-in-verbose-mode
   (let [fields (sut/report-fields
-                (inconsistence/report-summary
+                (inrep/report-summary
                  {:rule :leaf-overlap
                   :actual-type (ab/schema->type s/Keyword)
                   :expected-type (ab/schema->type s/Int)
@@ -195,7 +195,7 @@
         slot (at/->SetT #{triple} false)
         expected-result (at/->VectorT [slot slot slot] false)
         actual-result (at/->SetT #{expected-result} false)
-        summary (inconsistence/report-summary
+        summary (inrep/report-summary
                  {:report-kind :output
                   :rule :source-union
                   :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any

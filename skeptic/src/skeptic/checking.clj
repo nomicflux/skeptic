@@ -9,7 +9,8 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.file :as file]
-            [skeptic.inconsistence :as inconsistence])
+            [skeptic.inconsistence.mismatch :as incm]
+            [skeptic.inconsistence.report :as inrep])
   (:import [java.io File]))
 
 (def spy-on false)
@@ -345,7 +346,7 @@
   (let [body (:body method)
         output-type (:output-type method)
         tagged-output (some-> (:tag body) av/class->schema ab/import-schema-type)]
-    (if (inconsistence/unknown-output-schema? output-type)
+    (if (incm/unknown-output-schema? output-type)
       (ab/normalize-type (or tagged-output output-type))
       (ab/normalize-type output-type))))
 
@@ -373,7 +374,7 @@
                                                                       (not= source-expression (pr-str (:form body)))))
                                                          (:form body))
                                   :location source-body-location}]
-                     (let [report (inconsistence/output-cast-report
+                     (let [report (inrep/output-cast-report
                                    {:expr (:name node)
                                     :arg (:expr display)}
                                    expected-output
@@ -419,7 +420,7 @@
                                                      (display-expr arg-node))
                                        arg-expr (or (:expr arg-display)
                                                     (:form arg-node))
-                                       report (inconsistence/cast-report
+                                       report (inrep/cast-report
                                                {:expr (:expr display)
                                                 :arg arg-expr}
                                                expected

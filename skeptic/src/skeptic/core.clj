@@ -1,7 +1,7 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.inconsistence :as inconsistence]
+            [skeptic.inconsistence.report :as inrep]
             [skeptic.file :as file]
             [skeptic.colours :as colours]
             [clojure.string :as str]
@@ -117,7 +117,7 @@
 	         (doseq [result (checking/check-ns dict ns source-file opts)]
 	           (println "---------")
 	           (let [{:keys [path context]} result
-	                 summary (inconsistence/report-summary result)]
+	                 summary (inrep/report-summary result)]
 	             (println (colours/white (str "Namespace: \t\t" ns) true))
 	             (doseq [[label value] (report-fields summary verbose)]
 	               (print-report-field label value))

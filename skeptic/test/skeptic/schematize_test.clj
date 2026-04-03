@@ -17,8 +17,8 @@
                  'skeptic.test-examples/sample-namespaced-keyword-fn)))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
-  (require 'skeptic.inconsistence)
-  (is (map? (sut/ns-schemas {} 'skeptic.inconsistence))))
+  (require 'skeptic.inconsistence.report)
+  (is (map? (sut/ns-schemas {} 'skeptic.inconsistence.report))))
 
 (deftest collect-schemas-canonicalizes-schema-representations
   (let [symbol-desc (sut/collect-schemas {:schema (s/make-fn-schema clojure.lang.Symbol
