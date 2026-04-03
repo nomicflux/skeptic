@@ -5,7 +5,7 @@
             [skeptic.analysis.schema.cast-support :as ascs]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
-            [skeptic.checking :as checking]
+            [skeptic.checking.pipeline :as checking]
             [skeptic.schematize :as schematize]
             [skeptic.static-call-examples]
             [skeptic.test-examples :as test-examples])

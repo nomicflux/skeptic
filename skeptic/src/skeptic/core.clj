@@ -1,5 +1,5 @@
 (ns skeptic.core
-  (:require [skeptic.checking :as checking]
+  (:require [skeptic.checking.pipeline :as checking]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.file :as file]

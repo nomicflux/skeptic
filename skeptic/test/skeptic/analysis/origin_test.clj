@@ -4,7 +4,7 @@
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
-            [skeptic.checking :as checking]
+            [skeptic.checking.pipeline :as checking]
             [skeptic.schematize :as schematize]
             [skeptic.test-examples :as test-examples]))
 

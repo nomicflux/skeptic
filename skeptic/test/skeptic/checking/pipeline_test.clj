@@ -1,9 +1,9 @@
-(ns skeptic.checking-test
+(ns skeptic.checking.pipeline-test
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.checking :as sut]
+            [skeptic.checking.pipeline :as sut]
             [skeptic.core :as core]
             [skeptic.examples]
             [skeptic.inconsistence.mismatch :as incm]

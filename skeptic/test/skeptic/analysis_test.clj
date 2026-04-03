@@ -7,7 +7,7 @@
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
-            [skeptic.checking :as checking]
+            [skeptic.checking.pipeline :as checking]
             [skeptic.schematize :as schematize]
             [skeptic.test-examples :as test-examples])
   (:import [java.io File]))
