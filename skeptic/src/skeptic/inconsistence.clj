@@ -1,5 +1,6 @@
 (ns skeptic.inconsistence
   (:require [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.types :as at]
             [skeptic.colours :as colours]
@@ -68,7 +69,7 @@
 
     :else
     (let [type (try
-                 (as/schema->type key)
+                 (ab/schema->type key)
                  (catch Exception _e nil))]
       (cond
         (nil? type) nil
@@ -110,7 +111,7 @@
 
 (defn user-type-form
   [type]
-  (or (some-> type as/display-form)
+  (or (some-> type ab/display-form)
       'Unknown))
 
 (defn user-display-form
@@ -123,7 +124,7 @@
     (user-display-form (:k x))
 
     :else
-    (or (some-> x as/display-form)
+    (or (some-> x ab/display-form)
         'Unknown)))
 
 (defn describe-type
@@ -170,12 +171,12 @@
 
 (defn output-compatible-schemas
   [expected actual]
-  [(as/canonicalize-output-schema expected)
-   (as/canonicalize-output-schema actual)])
+  [(ab/canonicalize-output-schema expected)
+   (ab/canonicalize-output-schema actual)])
 
 (defn unknown-output-schema?
   [schema]
-  (as/unknown-schema? schema))
+  (ab/unknown-schema? schema))
 
 (declare output-cast-report
          report-summary
@@ -460,7 +461,7 @@
 
 (defn dynamic-display-type?
   [type]
-  (let [type (some-> type as/schema->type)]
+  (let [type (some-> type ab/schema->type)]
     (or (nil? type)
         (at/dyn-type? type))))
 
@@ -641,10 +642,10 @@
 
 (defn cast-report
   [ctx expected actual]
-  (let [expected (as/canonicalize-schema expected)
-        actual (as/canonicalize-schema actual)
-        cast-result (as/check-cast (as/schema->type actual)
-                                   (as/schema->type expected))]
+  (let [expected (ab/canonicalize-schema expected)
+        actual (ab/canonicalize-schema actual)
+        cast-result (as/check-cast (ab/schema->type actual)
+                                   (ab/schema->type expected))]
     (if (:ok? cast-result)
       {:ok? true
        :errors []
@@ -666,8 +667,8 @@
 (defn output-cast-report
   [ctx expected actual]
   (let [[expected actual] (output-compatible-schemas expected actual)
-        cast-result (as/check-cast (as/schema->type actual)
-                                   (as/schema->type expected))]
+        cast-result (as/check-cast (ab/schema->type actual)
+                                   (ab/schema->type expected))]
     (if (:ok? cast-result)
       {:ok? true
        :errors []

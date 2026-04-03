@@ -2,7 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence :as inconsistence]))
@@ -29,8 +29,8 @@
    :blame-side :term
    :blame-polarity :positive
    :rule :function
-   :actual-type (as/schema->type s/Int)
-   :expected-type (as/schema->type s/Str)
+   :actual-type (ab/schema->type s/Int)
+   :expected-type (ab/schema->type s/Str)
    :source-expression "(takes-str x)"
    :focus-sources ["x"]
    :enclosing-form 'example/takes-str
@@ -91,13 +91,13 @@
 (deftest report-summary-collapses-output-into-single-entry
   (let [summary (inconsistence/report-summary
                  {:report-kind :output
-                  :cast-result {:source-type (as/schema->type {:name s/Keyword})
-                                :target-type (as/schema->type {:name s/Str})}
+                  :cast-result {:source-type (ab/schema->type {:name s/Keyword})
+                                :target-type (ab/schema->type {:name s/Str})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :path [{:kind :map-key :key :name}]
-                                  :source-type (as/schema->type s/Keyword)
-                                  :target-type (as/schema->type s/Str)}]})]
+                                  :source-type (ab/schema->type s/Keyword)
+                                  :target-type (ab/schema->type s/Str)}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "declared return schema")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
@@ -107,8 +107,8 @@
 (deftest report-summary-hides-internal-cast-branches
   (let [summary (inconsistence/report-summary
                  {:report-kind :output
-                  :cast-result {:source-type (as/schema->type {:b s/Int})
-                                :target-type (as/schema->type {:b s/Int})}
+                  :cast-result {:source-type (ab/schema->type {:b s/Int})
+                                :target-type (ab/schema->type {:b s/Int})}
                   :cast-results [{:reason :missing-key
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :b}]}]})]
@@ -123,12 +123,12 @@
                   :focuses [:bad]
                   :errors ["err-1" "err-2"]
                   :cast-results [{:reason :leaf-mismatch
-                                  :source-type (as/schema->type s/Keyword)
-                                  :target-type (as/schema->type s/Int)
+                                  :source-type (ab/schema->type s/Keyword)
+                                  :target-type (ab/schema->type s/Int)
                                   :path [{:kind :target-union-branch :index 0}]}
                                  {:reason :leaf-mismatch
-                                  :source-type (as/schema->type s/Keyword)
-                                  :target-type (as/schema->type s/Str)
+                                  :source-type (ab/schema->type s/Keyword)
+                                  :target-type (ab/schema->type s/Str)
                                   :path [{:kind :target-union-branch :index 1}]}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "has incompatible schema:")))
@@ -142,13 +142,13 @@
                   :blame '(simplify gt_fn [g r b])
                   :focuses ['[g r b]]
                   :cast-result {:rule :vector
-                                :source-type (as/schema->type [s/Any])
+                                :source-type (ab/schema->type [s/Any])
                                 :target-type (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
                                                                              false)}
                                                                        false)]
                                                            true)}
                   :cast-results [{:reason :leaf-mismatch
-                                  :source-type (as/schema->type s/Any)
+                                  :source-type (ab/schema->type s/Any)
                                   :target-type placeholder
                                   :path [{:kind :vector-index :index 0}]}]})
         fields (sut/report-fields summary)
@@ -172,11 +172,11 @@
   (let [fields (sut/report-fields
                 (inconsistence/report-summary
                  {:rule :leaf-overlap
-                  :actual-type (as/schema->type s/Keyword)
-                  :expected-type (as/schema->type s/Int)
+                  :actual-type (ab/schema->type s/Keyword)
+                  :expected-type (ab/schema->type s/Int)
                   :cast-result {:rule :target-union
-                                :source-type (as/schema->type s/Keyword)
-                                :target-type (as/schema->type (s/either s/Int s/Str))}
+                                :source-type (ab/schema->type s/Keyword)
+                                :target-type (ab/schema->type (s/either s/Int s/Str))}
                   :source-expression "(takes-either-branch :bad)"
                   :errors ["err"]
                   :cast-results []})
@@ -198,18 +198,18 @@
         summary (inconsistence/report-summary
                  {:report-kind :output
                   :rule :source-union
-                  :actual-type (at/->UnionT #{(as/schema->type {:result s/Any
+                  :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                 :cache s/Any})
-                                              (as/schema->type {:result actual-result
+                                              (ab/schema->type {:result actual-result
                                                                 :cache s/Any})})
-                  :expected-type (as/schema->type {:result expected-result
+                  :expected-type (ab/schema->type {:result expected-result
                                                    :cache s/Any})
                   :cast-result {:rule :source-union
-                                :source-type (at/->UnionT #{(as/schema->type {:result s/Any
+                                :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (as/schema->type {:result actual-result
+                                                            (ab/schema->type {:result actual-result
                                                                               :cache s/Any})})
-                                :target-type (as/schema->type {:result expected-result
+                                :target-type (ab/schema->type {:result expected-result
                                                               :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap

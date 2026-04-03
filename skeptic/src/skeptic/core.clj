@@ -1,6 +1,6 @@
 (ns skeptic.core
   (:require [skeptic.checking :as checking]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.inconsistence :as inconsistence]
             [skeptic.file :as file]
             [skeptic.colours :as colours]
@@ -71,11 +71,11 @@
               ["Cast rule: \t\t" (or rule-text (some-> rule name))])
             (when verbose
               (when-let [actual-text (or actual-type-text
-                                         (some-> actual-type as/display))]
+                                         (some-> actual-type ab/display))]
                 ["Actual type: \t\t" actual-text]))
             (when verbose
               (when-let [expected-text (or expected-type-text
-                                           (some-> expected-type as/display))]
+                                           (some-> expected-type ab/display))]
                 ["Expected type: \t" expected-text]))
             (when verbose
               ["Expression: \t\t" (or source-expression (pr-str blame))])

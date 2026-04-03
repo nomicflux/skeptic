@@ -2,6 +2,7 @@
   (:require [clojure.tools.analyzer.ast :as ana.ast]
             [schema.core :as s]
             [skeptic.analysis :as analysis]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.file :as file]
             [skeptic.inconsistence :as inconsistence])
@@ -28,7 +29,7 @@
 
 (defn valid-schema?
   [schema]
-  (boolean (as/schema? schema)))
+  (boolean (ab/schema? schema)))
 
 (defmacro assert-schema
   [schema]
@@ -312,7 +313,7 @@
                qualified-name
                value-node)
       [qualified-name
-       (as/strip-derived-types
+       (ab/strip-derived-types
         (into {}
               (remove (comp nil? val))
               {:type (:type value-node)
@@ -340,16 +341,16 @@
   [method]
   (let [body (:body method)
         output-type (:output-type method)
-        tagged-output (some-> (:tag body) analysis/class->schema as/import-schema-type)]
+        tagged-output (some-> (:tag body) analysis/class->schema ab/import-schema-type)]
     (if (inconsistence/unknown-output-schema? output-type)
-      (as/normalize-type (or tagged-output output-type))
-      (as/normalize-type output-type))))
+      (ab/normalize-type (or tagged-output output-type))
+      (ab/normalize-type output-type))))
 
 (defn def-output-results
   [dict bindings ns-sym source-form enclosing-form node]
   (let [entry (some-> (dict-entry dict ns-sym (:name node))
                       analysis/normalize-entry)
-        expected-output (some-> (:output-type entry) as/normalize-type)
+        expected-output (some-> (:output-type entry) ab/normalize-type)
         init-node (some-> node :init unwrap-with-meta)
         methods (:methods init-node)
         source-bodies (map method-source-body (defn-decls source-form))]
@@ -468,7 +469,7 @@
         enclosing-form (enclosing-form ns-sym source-form)]
     (cond->> (->> (ast-nodes-preorder analyzed)
                   (mapcat (fn [node]
-                            (as/with-error-context (node-error-context node enclosing-form)
+                            (ab/with-error-context (node-error-context node enclosing-form)
                               (doall
                                (concat (when-let [call-result (match-s-exprs bindings
                                                                             enclosing-form

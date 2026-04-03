@@ -1,5 +1,6 @@
 (ns skeptic.analysis.resolvers
   (:require [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
@@ -148,7 +149,7 @@
                   (if-let [[t-idx f-idx] (::placeholders v)]
                     (let [t-el (get results t-idx)
                           f-el (get results f-idx)]
-                      (as/schema-join (set [(:schema t-el) (:schema f-el)])))
+                      (ab/schema-join (set [(:schema t-el) (:schema f-el)])))
                     v)))
         (update :resolution-path
                 (fn [rp]
@@ -191,7 +192,7 @@
     (let [output-schemas (->> el :output ::placeholders
                               (map #(get results %))
                               (map :schema)
-                              as/schema-join)]
+                              ab/schema-join)]
       (-> el
           (assoc :output output-schemas)
           (update :schema

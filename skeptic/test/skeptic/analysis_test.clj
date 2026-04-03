@@ -5,6 +5,7 @@
             [clojure.walk :as walk]
             [schema.core :as s]
             [skeptic.analysis :as sut]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
@@ -42,7 +43,7 @@
 
 (defn T
   [schema]
-  (as/schema->type schema))
+  (ab/schema->type schema))
 
 (defn arg-entry
   [[name schema]]
@@ -320,11 +321,11 @@
       (is (= :invoke (:op local-invoke)))
       (is (= :invoke (:op nested-invoke)))
       (is (= :const (:op vector-form)))
-      (is (at/vector-type? (as/schema->type (:schema vector-form))))
+      (is (at/vector-type? (ab/schema->type (:schema vector-form))))
       (is (= :const (:op set-form)))
-      (is (at/set-type? (as/schema->type (:schema set-form))))
+      (is (at/set-type? (ab/schema->type (:schema set-form))))
       (is (= :const (:op map-form)))
-      (is (at/map-type? (as/schema->type (:schema map-form))))
+      (is (at/map-type? (ab/schema->type (:schema map-form))))
       (is (= :const (:op nested-vector)))
       (is (= :const (:op nested-map)))))
 
@@ -501,7 +502,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (at/map-type? (as/schema->type (:schema %)))
+                                          (at/map-type? (ab/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest problematic-macroexpansion-analysis-test
@@ -668,11 +669,11 @@
   (testing "original vector literal setup"
     (let [root (project-ast (analyze-form '[1 2 :a "hello"]))]
       (is (= :const (:op root)))
-      (is (at/vector-type? (as/schema->type (:schema root))))))
+      (is (at/vector-type? (ab/schema->type (:schema root))))))
   (testing "original set literal setup"
     (let [root (project-ast (analyze-form '#{1 2 :a "hello"}))]
       (is (= :const (:op root)))
-      (is (at/set-type? (as/schema->type (:schema root))))))
+      (is (at/set-type? (ab/schema->type (:schema root))))))
   (testing "original list literal setup"
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
@@ -681,16 +682,16 @@
   (testing "original map literal setup"
     (let [root (project-ast (analyze-form '{:a 1 :b 2 :c 3}))]
       (is (= :const (:op root)))
-      (is (at/map-type? (as/schema->type (:schema root))))))
+      (is (at/map-type? (ab/schema->type (:schema root))))))
   (testing "original nested vector setup"
     (let [root (project-ast (analyze-form '[1 2 [3 4 [5]]]))]
       (is (= :const (:op root)))
-      (is (at/vector-type? (as/schema->type (:schema root))))))
+      (is (at/vector-type? (ab/schema->type (:schema root))))))
   (testing "original nested map setup"
     (let [root (project-ast (analyze-form '{:a 1 :b [:z "hello" #{1 2}]
                                            :c {:d 7 :e {:f 9}}}))]
       (is (= :const (:op root)))
-      (is (at/map-type? (as/schema->type (:schema root)))))))
+      (is (at/map-type? (ab/schema->type (:schema root)))))))
 
 (deftest attach-schema-info-value-test
   (let [root (project-ast (analyze-form {} '1))]
@@ -862,7 +863,7 @@
       (is (= s/Any (:schema root)))
       (is (find-projected-node root #(= '(start G {:opt1 true}) (:form %))))
       (is (find-projected-node root #(and (= :const (:op %))
-                                          (at/map-type? (as/schema->type (:schema %)))
+                                          (at/map-type? (ab/schema->type (:schema %)))
                                           (= {:a 1 :b 2} (:form %))))))))
 
 (deftest analyse-problematic-let-test

@@ -1,7 +1,7 @@
 (ns skeptic.schematize
   (:require [clojure.repl :as repl]
             [clojure.string :as str]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.schema :as dschema]
             [schema.core :as s]))
@@ -92,16 +92,16 @@
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
   (try
-    (let [schema (as/canonicalize-schema schema)]
-      (when-not (as/schema? schema)
+    (let [schema (ab/canonicalize-schema schema)]
+      (when-not (ab/schema? schema)
         (throw (IllegalArgumentException.
                 (format "Invalid Schema annotation for %s/%s: %s"
                         ns
                         name
                         (pr-str schema)))))
-      (as/canonicalize-entry
+      (ab/canonicalize-entry
        (if (or (class? schema) (set? schema) (vector? schema))
-         {:name (or (as/render-schema schema) (str ns "/" name))
+         {:name (or (ab/render-schema schema) (str ns "/" name))
           :schema schema
           :output schema
           :arglists {}}
@@ -169,7 +169,7 @@
         arglists (when (and (:arglists m)
                             (not (:macro m)))
                    (dynamic-arglists (:arglists m)))]
-    (as/canonicalize-entry
+    (ab/canonicalize-entry
      {:name (str qualified-sym)
       :schema s/Any
       :output s/Any

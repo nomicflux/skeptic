@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
@@ -69,8 +70,8 @@
     (is (= :leaf-overlap (:rule mismatch)))
     (is (= :term (:blame-side mismatch)))
     (is (= :positive (:blame-polarity mismatch)))
-    (is (= (as/schema->type s/Int) (:expected-type mismatch)))
-    (is (= (as/schema->type s/Str) (:actual-type mismatch)))
+    (is (= (ab/schema->type s/Int) (:expected-type mismatch)))
+    (is (= (ab/schema->type s/Str) (:actual-type mismatch)))
     (is (str/includes? (first (:errors mismatch)) "mismatched type"))))
 
 (deftest output-cast-report-renders-canonical-output-test
@@ -171,8 +172,8 @@
   (let [message (sut/cast-result->message
                  {:expr '{:a 1}
                   :arg '{:a 1}}
-                 {:source-type (as/schema->type {(s/optional-key :a) s/Int})
-                  :target-type (as/schema->type {:a s/Int})
+                 {:source-type (ab/schema->type {(s/optional-key :a) s/Int})
+                  :target-type (ab/schema->type {:a s/Int})
                   :rule :map-nullable-key
                   :reason :nullable-key
                   :actual-key (s/optional-key :a)
@@ -194,8 +195,8 @@
 (deftest rendered-path-hides-internal-cast-branches
   (let [message (sut/cast-result->message
                  sample-ctx
-                 {:source-type (as/schema->type s/Int)
-                  :target-type (as/schema->type s/Str)
+                 {:source-type (ab/schema->type s/Int)
+                  :target-type (ab/schema->type s/Str)
                   :rule :leaf-overlap
                   :reason :leaf-mismatch
                   :path [{:kind :source-union-branch :index 1}
@@ -233,11 +234,11 @@
                   :focuses ['(let [result (simplify gt_fn [g r b])]
                                {:result result})]
                   :cast-result {:rule :source-union
-                                :source-type (at/->UnionT #{(as/schema->type {:result s/Any
+                                :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (as/schema->type {:result actual-result
+                                                            (ab/schema->type {:result actual-result
                                                                               :cache s/Any})})
-                                :target-type (as/schema->type {:result expected-result
+                                :target-type (ab/schema->type {:result expected-result
                                                               :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
@@ -276,12 +277,12 @@
                   :blame 'bad-user
                   :focuses ['bad-user]
                   :cast-result {:rule :source-union
-                                :source-type (as/schema->type (sb/join s/Any s/Keyword))
-                                :target-type (as/schema->type s/Int)}
+                                :source-type (ab/schema->type (sb/join s/Any s/Keyword))
+                                :target-type (ab/schema->type s/Int)}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
-                                  :source-type (as/schema->type s/Any)
-                                  :target-type (as/schema->type s/Int)
+                                  :source-type (ab/schema->type s/Any)
+                                  :target-type (ab/schema->type s/Int)
                                   :path []}]})
         [error] (:errors summary)]
     (is (str/includes? error "has output schema:"))
@@ -345,19 +346,19 @@
     (is (= :target-intersection (:rule target-intersection)))))
 
 (deftest semantic-function-type-rendering-test
-  (let [fun-type (at/->FunT [(at/->FnMethodT [(as/schema->type s/Int)]
-                                             (as/intersection-type [s/Any s/Int])
+  (let [fun-type (at/->FunT [(at/->FnMethodT [(ab/schema->type s/Int)]
+                                             (ab/intersection-type [s/Any s/Int])
                                              1
                                              false)])
         polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
                                                     (at/->SealedDynT (at/->TypeVarT 'X))
                                                     1
                                                     false)])]
-    (is (= fun-type (as/schema->type fun-type)))
+    (is (= fun-type (ab/schema->type fun-type)))
     (is (= "(=> (intersection Any Int) Int)"
-           (as/render-type fun-type)))
+           (ab/render-type fun-type)))
     (is (= "(=> (sealed X) X)"
-           (as/render-type polymorphic-fun)))))
+           (ab/render-type polymorphic-fun)))))
 
 (deftest valued-helper-logic-lives-in-analysis-schema-test
   (is (= 1 (as/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))
@@ -438,7 +439,7 @@
         sealed (at/->SealedDynT type-var)
         inspect-message (sut/cast-result->message sample-ctx
                                                   {:source-type sealed
-                                                   :target-type (as/schema->type s/Int)
+                                                   :target-type (ab/schema->type s/Int)
                                                    :rule :is-tamper
                                                    :reason :is-tamper})
         escape-message (sut/cast-result->message sample-ctx

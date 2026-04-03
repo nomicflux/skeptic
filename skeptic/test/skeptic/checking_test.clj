@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.checking :as sut]
             [skeptic.core :as core]
@@ -74,7 +75,7 @@
 
 (defn T
   [schema]
-  (as/schema->type schema))
+  (ab/schema->type schema))
 
 (deftest resolution-path-resolutions
   (in-test-examples
@@ -306,7 +307,7 @@
                                          results)]
     (is (= [(inconsistence/mismatched-output-schema-msg {:expr 'bad-count-default
                                                          :arg '(get counts :count "zero")}
-                                                        (as/union-type [(T s/Int)
+                                                        (ab/union-type [(T s/Int)
                                                                         (T s/Str)])
                                                         (T s/Int))]
            (:errors count-result)))

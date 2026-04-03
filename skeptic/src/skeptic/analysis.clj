@@ -2,6 +2,7 @@
   (:require [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.resolvers :as ar]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
@@ -14,13 +15,13 @@
 (defn normalize-declared-type
   [value]
   (when (some? value)
-    (if (as/type-domain-value? value)
-      (as/normalize-type value)
-      (as/import-schema-type value))))
+    (if (ab/type-domain-value? value)
+      (ab/normalize-type value)
+      (ab/import-schema-type value))))
 
 (defn compat-schema
   [type]
-  (some-> type as/type->schema-compat))
+  (some-> type ab/type->schema-compat))
 
 (defn compat-schemas
   [types]
@@ -121,7 +122,7 @@
                                     (map (fn [[k v]]
                                            [k (normalize-arglist-entry v)]))
                                     arglists))))]
-       (as/strip-derived-types
+       (ab/strip-derived-types
        (cond-> (merge callable
                       (dissoc base :schema :output :type :output-type :arglists)
                       {:type (or type at/Dyn)
@@ -137,12 +138,12 @@
 (defn coll-element-schema
   [values]
   (if (seq values)
-    (as/schema-join (set (map schema-of-value values)))
+    (ab/schema-join (set (map schema-of-value values)))
     s/Any))
 
 (defn map-schema
   [m]
-  (as/canonicalize-schema
+  (ab/canonicalize-schema
    (into {}
          (map (fn [[k v]]
                 [(sb/valued-schema (schema-of-value k) k)
@@ -171,10 +172,10 @@
 
 (defn type-join*
   [types]
-  (let [types (vec (remove nil? (map as/normalize-type types)))
+  (let [types (vec (remove nil? (map ab/normalize-type types)))
         non-bottom (vec (remove at/bottom-type? types))]
     (cond
-      (seq non-bottom) (as/union-type non-bottom)
+      (seq non-bottom) (ab/union-type non-bottom)
       (seq types) at/BottomType
       :else at/Dyn)))
 
@@ -189,7 +190,7 @@
 
 (defn semantic-map-key
   [node]
-  (as/normalize-type
+  (ab/normalize-type
    (if (literal-map-key? node)
      (:form node)
      (:type node))))
@@ -326,12 +327,12 @@
   [sym type]
   {:kind :root
    :sym sym
-   :type (as/normalize-type type)})
+   :type (ab/normalize-type type)})
 
 (defn opaque-origin
   [type]
   {:kind :opaque
-   :type (as/normalize-type type)})
+   :type (ab/normalize-type type)})
 
 (defn entry-origin
   [sym entry]
@@ -369,7 +370,7 @@
   (case (:kind assumption)
     :truthy-local
     (if (:polarity assumption)
-      (as/de-maybe-type type)
+      (ab/de-maybe-type type)
       type)
 
     :contains-key
@@ -436,8 +437,8 @@
                  at/Dyn)]
     (cond-> (or entry {:type at/Dyn
                        :schema (compat-schema at/Dyn)})
-      true (assoc :type (as/normalize-type type)
-                  :schema (compat-schema (as/normalize-type type)))
+      true (assoc :type (ab/normalize-type type)
+                  :schema (compat-schema (ab/normalize-type type)))
       origin (assoc :origin origin))))
 
 (defn local-root-origin
@@ -583,12 +584,12 @@
            :args args
            :actual-argtypes (mapv :type args)
            :actual-arglist (compat-schemas (mapv :type args))
-           :expected-argtypes (mapv as/normalize-type expected-argtypes)
-           :expected-arglist (compat-schemas (mapv as/normalize-type expected-argtypes))
-           :type (as/normalize-type output-type)
-           :schema (compat-schema (as/normalize-type output-type))
-           :fn-type (as/normalize-type fn-type)
-           :fn-schema (compat-schema (as/normalize-type fn-type)))))
+           :expected-argtypes (mapv ab/normalize-type expected-argtypes)
+           :expected-arglist (compat-schemas (mapv ab/normalize-type expected-argtypes))
+           :type (ab/normalize-type output-type)
+           :schema (compat-schema (ab/normalize-type output-type))
+           :fn-type (ab/normalize-type fn-type)
+           :fn-schema (compat-schema (ab/normalize-type fn-type)))))
 
 (defn annotate-do
   [ctx node]
@@ -744,12 +745,12 @@
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :type (as/normalize-type
+           :type (ab/normalize-type
                   (mapv (fn [item]
                           (or (:type item) at/Dyn))
                         items))
            :schema (compat-schema
-                    (as/normalize-type
+                    (ab/normalize-type
                      (mapv (fn [item]
                              (or (:type item) at/Dyn))
                            items))))))
@@ -759,12 +760,12 @@
   (let [items (mapv #(annotate-node ctx %) (:items node))]
     (assoc node
            :items items
-           :type (as/normalize-type
+           :type (ab/normalize-type
                   #{(if (seq items)
                       (type-join* (map :type items))
                       at/Dyn)})
            :schema (compat-schema
-                    (as/normalize-type
+                    (ab/normalize-type
                      #{(if (seq items)
                          (type-join* (map :type items))
                          at/Dyn)})))))
@@ -776,7 +777,7 @@
     (assoc node
            :keys keys
            :vals vals
-           :type (as/normalize-type
+           :type (ab/normalize-type
                   (into {}
                         (map (fn [k v]
                                [(semantic-map-key k)
@@ -784,7 +785,7 @@
                              keys
                              vals)))
            :schema (compat-schema
-                    (as/normalize-type
+                    (ab/normalize-type
                      (into {}
                            (map (fn [k v]
                                   [(semantic-map-key k)
@@ -876,8 +877,8 @@
 
 (defn annotate-node
   [ctx node]
-  (as/with-error-context (node-error-context node)
-    (as/strip-derived-types
+  (ab/with-error-context (node-error-context node)
+    (ab/strip-derived-types
      (case (:op node)
        :binding (annotate-binding ctx node)
        :const (annotate-const ctx node)
