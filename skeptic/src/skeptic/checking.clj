@@ -1,7 +1,10 @@
 (ns skeptic.checking
   (:require [clojure.tools.analyzer.ast :as ana.ast]
-            [skeptic.analysis :as analysis]
+            [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.normalize :as an]
+            [skeptic.analysis.value :as av]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
@@ -177,7 +180,7 @@
      :expanded-expression (when (and source-expression
                                      (not= source-expression (pr-str expr)))
                             expr)
-     :location (analysis/node-location node)}))
+     :location (aa/node-location node)}))
 
 (defn node-error-context
   [node enclosing-form]
@@ -292,7 +295,7 @@
 (defn dict-entry
   [dict ns-sym sym]
   (or (get dict sym)
-      (get dict (analysis/qualify-symbol ns-sym sym))))
+      (get dict (ac/qualify-symbol ns-sym sym))))
 
 (defn unwrap-with-meta
   [node]
@@ -308,7 +311,7 @@
                        init-node)
         raw-name (some-> (:name node) name symbol)
         qualified-name (when raw-name
-                         (analysis/qualify-symbol ns-sym raw-name))]
+                         (ac/qualify-symbol ns-sym raw-name))]
     (when (and (= :def (:op node))
                qualified-name
                value-node)
@@ -325,7 +328,7 @@
   [dict ns-sym source-file exprs]
   (let [analysis-dict dict
         analyzed (mapv (fn [expr]
-                         (analysis/attach-schema-info-loop analysis-dict
+                         (aa/attach-schema-info-loop analysis-dict
                                                             (normalize-check-form expr)
                                                             {:ns ns-sym
                                                              :source-file (source-file-path source-file)}))
@@ -341,7 +344,7 @@
   [method]
   (let [body (:body method)
         output-type (:output-type method)
-        tagged-output (some-> (:tag body) analysis/class->schema ab/import-schema-type)]
+        tagged-output (some-> (:tag body) av/class->schema ab/import-schema-type)]
     (if (inconsistence/unknown-output-schema? output-type)
       (ab/normalize-type (or tagged-output output-type))
       (ab/normalize-type output-type))))
@@ -349,7 +352,7 @@
 (defn def-output-results
   [dict bindings ns-sym source-form enclosing-form node]
   (let [entry (some-> (dict-entry dict ns-sym (:name node))
-                      analysis/normalize-entry)
+                      an/normalize-entry)
         expected-output (some-> (:output-type entry) ab/normalize-type)
         init-node (some-> node :init unwrap-with-meta)
         methods (:methods init-node)
@@ -460,7 +463,7 @@
   (if (and (seq? source-form)
            (symbol? (second source-form))
            (symbol? (first source-form)))
-    (analysis/qualify-symbol ns-sym (second source-form))
+    (ac/qualify-symbol ns-sym (second source-form))
     source-form))
 
 (defn check-resolved-form

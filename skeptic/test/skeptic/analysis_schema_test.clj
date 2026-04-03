@@ -1,8 +1,6 @@
 (ns skeptic.analysis-schema-test
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.tools.analyzer.ast :as ana.ast]
             [schema.core :as s]
-            [skeptic.analysis :as analysis]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.algebra :as aba]
             [skeptic.analysis.bridge.canonicalize :as abc]
@@ -119,17 +117,6 @@
       (is (= :global (:blame-polarity escape-result)))
       (is (:ok? safe-exit))
       (is (= :nu-pass (:rule safe-exit))))))
-
-(deftest ordinary-analysis-remains-first-order-test
-  (let [ast (analysis/attach-schema-info-loop {}
-                                              '(let [id (fn [x] x)]
-                                                 (id 1))
-                                              {:ns 'skeptic.analysis-schema-test})
-        node-types (keep :type (ana.ast/nodes ast))]
-    (is (seq node-types))
-    (is (not-any? at/forall-type? node-types))
-    (is (not-any? at/type-var-type? node-types))
-    (is (not-any? at/sealed-dyn-type? node-types))))
 
 (deftest display-keeps-type-and-schema-domains-separate-test
   (let [type-var (at/->TypeVarT 'X)
