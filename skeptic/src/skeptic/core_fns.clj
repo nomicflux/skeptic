@@ -1,10 +1,4 @@
-(ns skeptic.core-fns
-  (:require [clojure.repl :as repl]
-            [clojure.string :as str]
-            [clojure.walk :as walk]
-            [skeptic.type-vars :as vars]
-            [plumbing.core :as pl]
-            [schema.core :as s]))
+(ns skeptic.core-fns)
 
 ;; (def core-fn-schemas
 ;;   {#'clojure.core/when (let [var-a (vars/type-var 'a)]

@@ -3,6 +3,9 @@
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.localize :as abl]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.resolvers :as ar]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
@@ -21,7 +24,7 @@
 
 (defn compat-schema
   [type]
-  (some-> type ab/type->schema-compat))
+  (some-> type abr/type->schema-compat))
 
 (defn compat-schemas
   [types]
@@ -122,7 +125,7 @@
                                     (map (fn [[k v]]
                                            [k (normalize-arglist-entry v)]))
                                     arglists))))]
-       (ab/strip-derived-types
+       (abr/strip-derived-types
        (cond-> (merge callable
                       (dissoc base :schema :output :type :output-type :arglists)
                       {:type (or type at/Dyn)
@@ -138,12 +141,12 @@
 (defn coll-element-schema
   [values]
   (if (seq values)
-    (ab/schema-join (set (map schema-of-value values)))
+    (abc/schema-join (set (map schema-of-value values)))
     s/Any))
 
 (defn map-schema
   [m]
-  (ab/canonicalize-schema
+  (abc/canonicalize-schema
    (into {}
          (map (fn [[k v]]
                 [(sb/valued-schema (schema-of-value k) k)
@@ -877,8 +880,8 @@
 
 (defn annotate-node
   [ctx node]
-  (ab/with-error-context (node-error-context node)
-    (ab/strip-derived-types
+  (abl/with-error-context (node-error-context node)
+    (abr/strip-derived-types
      (case (:op node)
        :binding (annotate-binding ctx node)
        :const (annotate-const ctx node)

@@ -4,6 +4,10 @@
             [schema.core :as s]
             [skeptic.analysis :as analysis]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.algebra :as aba]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.localize :as abl]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]))
@@ -25,9 +29,9 @@
                                                            1
                                                            false)]))
         sealed (at/->SealedDynT type-var)
-        localized (ab/localize-schema-value {:poly forall
+        localized (abl/localize-schema-value {:poly forall
                                              :sealed sealed})
-        stripped (ab/strip-derived-types {:schema s/Int
+        stripped (abr/strip-derived-types {:schema s/Int
                                           :type forall
                                           :output-type sealed})]
     (is (at/type-var-type? type-var))
@@ -40,12 +44,12 @@
             :type forall
             :output-type sealed}
            stripped))
-    (is (= #{'Y} (ab/type-free-vars (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
+    (is (= #{'Y} (aba/type-free-vars (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
                                                                                 (at/->TypeVarT 'Y)
                                                                                 1
                                                                                 false)])))))
     (is (= (at/->ForallT 'X (at/->TypeVarT 'X))
-           (ab/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
+           (aba/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
                                'X
                                (ab/schema->type s/Any))))))
 
@@ -132,29 +136,29 @@
                                                                                1
                                                                                false)]))})]
     (is (= '{Keyword (forall X (=> (sealed X) X))}
-           (ab/display-form polymorphic-map)))
+           (abr/display-form polymorphic-map)))
     (is (= "hello"
-           (ab/display-form (T (s/eq "hello")))))
+           (abr/display-form (T (s/eq "hello")))))
     (is (= 'Int
-           (ab/display-form s/Int)))))
+           (abr/display-form s/Int)))))
 
 (deftest raw-schema-var-normalization-test
   (testing "bound vars are dereferenced during schema localization"
     (is (= s/Int
-           (ab/canonicalize-schema #'BoundSchemaRef)))
+           (abc/canonicalize-schema #'BoundSchemaRef)))
     (is (= "Int"
-           (ab/render-type (ab/schema->type #'BoundSchemaRef)))))
+           (abr/render-type (ab/schema->type #'BoundSchemaRef)))))
 
   (testing "unbound vars become placeholders instead of leaking into schema conversion"
     (is (= (sb/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
-           (ab/canonicalize-schema #'UnboundSchemaRef)))
+           (abc/canonicalize-schema #'UnboundSchemaRef)))
     (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
            (-> #'UnboundSchemaRef
                ab/schema->type
                :ref)))
     (let [unbound-root (.getRawRoot ^clojure.lang.Var #'UnboundSchemaRef)]
       (is (= (sb/placeholder-schema 'skeptic.analysis-schema-test/UnboundSchemaRef)
-             (ab/canonicalize-schema unbound-root)))
+             (abc/canonicalize-schema unbound-root)))
       (is (= 'skeptic.analysis-schema-test/UnboundSchemaRef
              (-> unbound-root
                  ab/schema->type
@@ -162,7 +166,7 @@
 
   (testing "recursive vars fall back to placeholders instead of recursing forever"
     (is (= [(sb/placeholder-schema 'skeptic.analysis-schema-test/RecursiveSchemaRef)]
-           (ab/canonicalize-schema #'RecursiveSchemaRef)))
+           (abc/canonicalize-schema #'RecursiveSchemaRef)))
     (let [recursive-type (ab/schema->type #'RecursiveSchemaRef)]
       (is (at/vector-type? recursive-type))
       (is (= 'skeptic.analysis-schema-test/RecursiveSchemaRef

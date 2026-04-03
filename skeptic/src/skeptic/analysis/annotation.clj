@@ -1,9 +1,5 @@
 (ns skeptic.analysis.annotation
-  (:require [clojure.walk :as walk]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
-            [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
-            [skeptic.schematize :as schematize]
-            [clojure.pprint :as pprint]))
+  (:require [clojure.walk :as walk]))
 
 (defn apply-paths
   [paths expr]

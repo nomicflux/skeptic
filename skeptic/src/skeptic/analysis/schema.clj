@@ -2,6 +2,10 @@
   (:require [clojure.set :as set]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.algebra :as aba]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.localize :as abl]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at])
   (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
@@ -44,7 +48,7 @@
   ([schema value source-form]
    {map-key-query-tag true
     :kind :exact
-    :schema (ab/canonicalize-schema schema)
+    :schema (abc/canonicalize-schema schema)
     :value value
     :source-form source-form}))
 
@@ -54,7 +58,7 @@
   ([schema source-form]
    {map-key-query-tag true
     :kind :domain
-    :schema (ab/canonicalize-schema schema)
+    :schema (abc/canonicalize-schema schema)
     :source-form source-form}))
 
 (defn exact-key-query?
@@ -66,10 +70,10 @@
   ([key]
    (map-key-query key nil))
   ([key source-form]
-   (let [key (ab/localize-schema-value key)]
+   (let [key (abl/localize-schema-value key)]
      (cond
        (map-key-query? key)
-       (update key :schema ab/canonicalize-schema)
+       (update key :schema abc/canonicalize-schema)
 
        (sb/valued-schema? key)
        (exact-key-query (:schema key) (:value key) (:value key))
@@ -95,8 +99,8 @@
 
 (defn descriptor-entry
   [entry-key entry-value kind]
-  (let [entry-key (ab/canonicalize-schema entry-key)
-        entry-value (ab/canonicalize-schema entry-value)
+  (let [entry-key (abc/canonicalize-schema entry-key)
+        entry-value (abc/canonicalize-schema entry-value)
         key-type (ab/schema->type entry-key)
         inner-key-type (optional-key-inner key-type)]
     {:key entry-key
@@ -118,10 +122,10 @@
 
 (defn map-entry-descriptor
   [entries]
-  (let [entries (ab/canonicalize-schema entries)]
+  (let [entries (abc/canonicalize-schema entries)]
     (reduce (fn [descriptor [entry-key entry-value]]
-              (let [entry-key (ab/canonicalize-schema entry-key)
-                    entry-value (ab/canonicalize-schema entry-value)
+              (let [entry-key (abc/canonicalize-schema entry-key)
+                    entry-value (abc/canonicalize-schema entry-value)
                     key-type (ab/schema->type entry-key)]
                 (if-let [exact-values (finite-exact-key-values key-type)]
                   (reduce (fn [desc exact-value]
@@ -245,11 +249,11 @@
 (defn candidate-value-schema
   [candidates]
   (when (seq candidates)
-    (ab/schema-join (set (map (comp ab/semantic-value-schema :value) candidates)))))
+    (abc/schema-join (set (map (comp abc/semantic-value-schema :value) candidates)))))
 
 (defn nested-value-compatible?
   [expected actual]
-  (let [actual (ab/canonicalize-schema actual)]
+  (let [actual (abc/canonicalize-schema actual)]
     (if (sb/valued-schema? actual)
       (or (schema-compatible? expected (:value actual))
           (schema-compatible? expected (:schema actual)))
@@ -261,19 +265,19 @@
   ([m key]
    (map-get-schema m key no-default))
   ([m key default]
-   (let [m (ab/canonicalize-schema m)
+   (let [m (abc/canonicalize-schema m)
          key-query (map-key-query key)
          default-provided? (not= default no-default)
          default-schema (when default-provided?
-                          (ab/canonicalize-schema default))]
+                          (abc/canonicalize-schema default))]
      (cond
        (sb/maybe? m)
-       (ab/schema-join
+       (abc/schema-join
         [(map-get-schema (sb/de-maybe m) key-query default)
          (or default-schema (s/maybe s/Any))])
 
        (sb/join? m)
-       (ab/schema-join (set (map #(map-get-schema % key-query default) (:schemas m))))
+       (abc/schema-join (set (map #(map-get-schema % key-query default) (:schemas m))))
 
        (sb/plain-map-schema? m)
        (if-let [candidates (seq (map-lookup-candidates m key-query))]
@@ -282,10 +286,10 @@
                                    (= 1 (count candidates))
                                    (= :optional-explicit (:kind (first candidates)))
                                    (not default-provided?))
-                            (ab/maybe-schema base-value)
+                            (abc/maybe-schema base-value)
                             base-value)]
            (if default-provided?
-             (ab/schema-join [base-value default-schema])
+             (abc/schema-join [base-value default-schema])
              base-value))
          (if default-provided?
            default-schema
@@ -293,7 +297,7 @@
 
        :else
        (if default-provided?
-         (ab/schema-join [s/Any default-schema])
+         (abc/schema-join [s/Any default-schema])
          s/Any)))))
 
 (defn candidate-value-type
@@ -342,7 +346,7 @@
 
 (defn merge-map-schemas
   [schemas]
-  (let [schemas (mapv ab/canonicalize-schema schemas)]
+  (let [schemas (mapv abc/canonicalize-schema schemas)]
     (if (every? sb/plain-map-schema? schemas)
       (reduce merge {} schemas)
       s/Any)))
@@ -356,8 +360,8 @@
 
 (defn schema-equivalent?
   [expected actual]
-  (= (ab/canonicalize-schema expected)
-     (ab/canonicalize-schema actual)))
+  (= (abc/canonicalize-schema expected)
+     (abc/canonicalize-schema actual)))
 
 (defn ensure-cast-state
   [cast-state]
@@ -387,7 +391,7 @@
 
 (defn sealed-ground-name
   [type]
-  (some-> type ab/schema->type :ground ab/type-var-name))
+  (some-> type ab/schema->type :ground aba/type-var-name))
 
 (defn contains-sealed-ground?
   [type binder]
@@ -439,7 +443,7 @@
 (defn cast-result
   [{:keys [ok? source-type target-type rule polarity reason children details]}]
   (cond-> {:ok? ok?
-           :blame-side (if ok? :none (ab/polarity->side polarity))
+           :blame-side (if ok? :none (abr/polarity->side polarity))
            :blame-polarity (if ok? :none polarity)
            :rule rule
            :source-type source-type
@@ -521,7 +525,7 @@
    (exit-nu-scope type binder {}))
   ([type binder opts]
    (let [type (ab/schema->type type)
-         binder (or (ab/type-var-name (ab/schema->type binder))
+         binder (or (aba/type-var-name (ab/schema->type binder))
                     binder)]
      (if (contains-sealed-ground? type binder)
        (cast-fail type
@@ -561,7 +565,7 @@
 
 (defn map-entry-kind
   ([entry-key]
-   (let [entry-key (ab/canonicalize-schema entry-key)]
+   (let [entry-key (abc/canonicalize-schema entry-key)]
      (cond
        (and (not (at/semantic-type-value? entry-key))
             (s/optional-key? entry-key))
@@ -592,8 +596,8 @@
            :else
            :extra-schema)))))
   ([entries entry-key]
-   (let [entries (ab/canonicalize-schema entries)
-         entry-key (ab/canonicalize-schema entry-key)
+   (let [entries (abc/canonicalize-schema entries)
+         entry-key (abc/canonicalize-schema entry-key)
          typed-entries? (every? at/semantic-type-value? (keys entries))]
      (if (and (sb/plain-map-schema? entries)
               (not typed-entries?))
@@ -661,8 +665,8 @@
 
 (defn refine-schema-by-contains-key
   [schema key polarity]
-  (let [schema (ab/canonicalize-schema schema)
-        branches (or (ab/union-like-branches schema) #{schema})
+  (let [schema (abc/canonicalize-schema schema)
+        branches (or (abc/union-like-branches schema) #{schema})
         kept (->> branches
                   (keep (fn [branch]
                           (let [classification (contains-key-classification branch key)]
@@ -674,7 +678,7 @@
     (cond
       (empty? kept) sb/Bottom
       (= 1 (count kept)) (first kept)
-      :else (ab/schema-join kept))))
+      :else (abc/schema-join kept))))
 
 (defn refine-type-by-contains-key
   [type key polarity]
@@ -1050,7 +1054,7 @@
        (cast-ok source-type target-type :exact)
 
        (at/forall-type? target-type)
-       (if (contains? (ab/type-free-vars source-type) (:binder target-type))
+       (if (contains? (aba/type-free-vars source-type) (:binder target-type))
          (cast-fail source-type
                     target-type
                     :generalize
@@ -1079,7 +1083,7 @@
                          :cast-state (cast-state opts)}))))
 
        (at/forall-type? source-type)
-       (let [instantiated (ab/type-substitute (:body source-type)
+       (let [instantiated (aba/type-substitute (:body source-type)
                                            (:binder source-type)
                                            at/Dyn)
              child (check-cast instantiated target-type
@@ -1189,7 +1193,7 @@
        (at/type-var-type? target-type)
        (cond
          (at/sealed-dyn-type? source-type)
-         (if (= (sealed-ground-name source-type) (ab/type-var-name target-type))
+         (if (= (sealed-ground-name source-type) (aba/type-var-name target-type))
            (cast-ok source-type
                     target-type
                     :sealed-collapse
@@ -1245,7 +1249,7 @@
                                                              (with-cast-path
                                                                (check-cast target-input
                                                                            source-input
-                                                                           (update opts :polarity ab/flip-polarity))
+                                                                           (update opts :polarity abr/flip-polarity))
                                                                {:kind :function-domain
                                                                 :index idx}))
                                                            (range)
@@ -1324,8 +1328,8 @@
 
 (defn valued-compatible?
   [expected actual]
-  (let [expected (ab/canonicalize-schema expected)
-        actual (ab/canonicalize-schema actual)]
+  (let [expected (abc/canonicalize-schema expected)
+        actual (abc/canonicalize-schema actual)]
     (cond
       (sb/valued-schema? expected)
       (throw (IllegalArgumentException. "Only actual can be a valued schema"))
@@ -1362,8 +1366,8 @@
 
 (defn matches-map
   [expected actual-k actual-v]
-  (let [expected (ab/canonicalize-schema expected)
-        actual-v (ab/canonicalize-schema actual-v)
+  (let [expected (abc/canonicalize-schema expected)
+        actual-v (abc/canonicalize-schema actual-v)
         descriptor (map-entry-descriptor expected)
         key-query (map-key-query actual-k)]
     (if (exact-key-query? key-query)
@@ -1396,7 +1400,7 @@
           complex-keys (->> valued-schemas
                             (map (fn [k] (let [v (get s k)]
                                       (map (fn [k2]
-                                             {k2 (if (and (ab/schema? k2) (sb/valued-schema? v))
+                                             {k2 (if (and (abc/schema? k2) (sb/valued-schema? v))
                                                    (:schema v)
                                                    v)})
                                            (schema-values k)))))

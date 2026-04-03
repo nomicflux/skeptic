@@ -1,8 +1,9 @@
 (ns skeptic.inconsistence-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [are deftest is]]
+            [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
@@ -356,9 +357,9 @@
                                                     false)])]
     (is (= fun-type (ab/schema->type fun-type)))
     (is (= "(=> (intersection Any Int) Int)"
-           (ab/render-type fun-type)))
+           (abr/render-type fun-type)))
     (is (= "(=> (sealed X) X)"
-           (ab/render-type polymorphic-fun)))))
+           (abr/render-type polymorphic-fun)))))
 
 (deftest valued-helper-logic-lives-in-analysis-schema-test
   (is (= 1 (as/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))

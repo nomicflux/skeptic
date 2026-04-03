@@ -1,6 +1,6 @@
 (ns skeptic.analysis.annotation-test
   (:require [skeptic.analysis.annotation :as sut]
-            [clojure.test :refer [deftest is are]]
+            [clojure.test :refer [deftest is]]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [clojure.walk :as walk]))
 

@@ -1,13 +1,13 @@
 (ns skeptic.checking
   (:require [clojure.tools.analyzer.ast :as ana.ast]
-            [schema.core :as s]
             [skeptic.analysis :as analysis]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.localize :as abl]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.file :as file]
             [skeptic.inconsistence :as inconsistence])
-  (:import [java.io File]
-           [schema.core Schema]))
+  (:import [java.io File]))
 
 (def spy-on false)
 (def spy-only #{})
@@ -29,7 +29,7 @@
 
 (defn valid-schema?
   [schema]
-  (boolean (ab/schema? schema)))
+  (boolean (abc/schema? schema)))
 
 (defmacro assert-schema
   [schema]
@@ -313,7 +313,7 @@
                qualified-name
                value-node)
       [qualified-name
-       (ab/strip-derived-types
+       (abr/strip-derived-types
         (into {}
               (remove (comp nil? val))
               {:type (:type value-node)
@@ -469,7 +469,7 @@
         enclosing-form (enclosing-form ns-sym source-form)]
     (cond->> (->> (ast-nodes-preorder analyzed)
                   (mapcat (fn [node]
-                            (ab/with-error-context (node-error-context node enclosing-form)
+                            (abl/with-error-context (node-error-context node enclosing-form)
                               (doall
                                (concat (when-let [call-result (match-s-exprs bindings
                                                                             enclosing-form

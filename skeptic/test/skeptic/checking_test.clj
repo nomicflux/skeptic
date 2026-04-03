@@ -3,7 +3,6 @@
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema :as as]
             [skeptic.checking :as sut]
             [skeptic.core :as core]
             [skeptic.examples]

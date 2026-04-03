@@ -1,6 +1,6 @@
 (ns skeptic.schematize-test
   (:require [skeptic.schematize :as sut]
-            [clojure.test :refer [is are deftest]]
+            [clojure.test :refer [deftest is]]
             [schema.core :as s]))
 
 (deftest arg-list-only-varargs

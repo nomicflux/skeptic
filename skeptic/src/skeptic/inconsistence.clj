@@ -1,6 +1,8 @@
 (ns skeptic.inconsistence
   (:require [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.types :as at]
             [skeptic.colours :as colours]
@@ -111,7 +113,7 @@
 
 (defn user-type-form
   [type]
-  (or (some-> type ab/display-form)
+  (or (some-> type abr/display-form)
       'Unknown))
 
 (defn user-display-form
@@ -124,7 +126,7 @@
     (user-display-form (:k x))
 
     :else
-    (or (some-> x ab/display-form)
+    (or (some-> x abr/display-form)
         'Unknown)))
 
 (defn describe-type
@@ -171,8 +173,8 @@
 
 (defn output-compatible-schemas
   [expected actual]
-  [(ab/canonicalize-output-schema expected)
-   (ab/canonicalize-output-schema actual)])
+  [(abc/canonicalize-output-schema expected)
+   (abc/canonicalize-output-schema actual)])
 
 (defn unknown-output-schema?
   [schema]
@@ -642,8 +644,8 @@
 
 (defn cast-report
   [ctx expected actual]
-  (let [expected (ab/canonicalize-schema expected)
-        actual (ab/canonicalize-schema actual)
+  (let [expected (abc/canonicalize-schema expected)
+        actual (abc/canonicalize-schema actual)
         cast-result (as/check-cast (ab/schema->type actual)
                                    (ab/schema->type expected))]
     (if (:ok? cast-result)
