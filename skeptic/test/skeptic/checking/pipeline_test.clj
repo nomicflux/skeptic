@@ -74,6 +74,10 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
+(defn strip-ansi
+  [text]
+  (str/replace (str text) #"\u001B\[[0-9;]*m" ""))
+
 (defn T
   [schema]
   (ab/schema->type schema))
@@ -244,6 +248,17 @@
     (is (= 'skeptic.test-examples/sample-bad-let-fn
            (:enclosing-form result)))))
 
+(deftest call-mismatch-summary-uses-single-focused-input
+  (in-test-examples
+   (let [result (first (check-fn test-dict 'skeptic.test-examples/sample-let-fn-bad1-fn))
+         summary (inrep/report-summary result)
+         [error] (:errors summary)]
+     (is (= '(int-add y nil) (:blame result)))
+     (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error)))
+     (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error))))
+     (is (or (str/includes? (strip-ansi error) "has incompatible schema:")
+             (str/includes? (strip-ansi error) "is nullable, but expected is not"))))))
+
 (deftest schema-wrapper-regression
   (in-test-examples
    (is (= ['(int-add nil x)
@@ -347,6 +362,27 @@
     (is (.contains error "{:name Keyword, :nickname (maybe Str)}"))
     (is (.contains error "{:name Str, :nickname (maybe Str)}"))
     (is (not (.contains error "\":name : Keyword\"")))))
+
+(deftest output-summary-highlights-path-or-drops-redundant-self-context
+  (let [results (vec (sut/check-ns static-call-examples-dict
+                                   'skeptic.static-call-examples
+                                   static-call-examples-file
+                                   {:remove-context true}))
+        count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
+                                      (:enclosing-form %))
+                              %)
+                           results)
+        rebuilt-user-result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
+                                             (:enclosing-form %))
+                                     %)
+                                  results)
+        count-error (-> count-result inrep/report-summary :errors first strip-ansi)
+        rebuilt-error (-> rebuilt-user-result inrep/report-summary :errors first strip-ansi)]
+    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return schema\." count-error))
+    (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" count-error)))
+    (is (str/includes? count-error "Str but expected Int"))
+    (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \(get user :nickname\)\}" rebuilt-error))
+    (is (str/includes? rebuilt-error "[:name] has Keyword but expected Str"))))
 
 (deftest nested-output-mismatch-renders-field-paths
   (let [results (vec (sut/check-ns static-call-examples-dict

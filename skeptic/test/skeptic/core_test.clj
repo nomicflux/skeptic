@@ -23,6 +23,10 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
+(defn strip-ansi
+  [text]
+  (str/replace (str text) #"\u001B\[[0-9;]*m" ""))
+
 (def report-summary
   {:location {:file "src/example.clj"
               :line 12
@@ -40,9 +44,11 @@
 (deftest report-fields-hide-detail-fields-when-not-verbose
   (let [fields (sut/report-fields report-summary)]
     (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
-    (is (some #{["Blame: \t\t\t"
-                 "this expression or returned value does not match what the surrounding code expects"]}
-              fields))
+    (is (= "context( value )"
+           (some->> fields
+                    (some (fn [[label value]]
+                            (when (= "Blame: \t\t\t" label)
+                              (strip-ansi value)))))))
     (is (not (some #{["Cast rule: \t\t" "function"]} fields)))
     (is (not (some #{["Actual type: \t\t" "Int"]} fields)))
     (is (not (some #{["Expected type: \t" "Str"]} fields)))
@@ -54,9 +60,11 @@
 (deftest report-fields-include-detail-fields-when-verbose
   (let [fields (sut/report-fields report-summary true)]
     (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
-    (is (some #{["Blame: \t\t\t"
-                 "this expression or returned value does not match what the surrounding code expects"]}
-              fields))
+    (is (= "context( value )"
+           (some->> fields
+                    (some (fn [[label value]]
+                            (when (= "Blame: \t\t\t" label)
+                              (strip-ansi value)))))))
     (is (some #{["Cast rule: \t\t" "function"]} fields))
     (is (some #{["Actual type: \t\t" "Int"]} fields))
     (is (some #{["Expected type: \t" "Str"]} fields))
@@ -68,14 +76,47 @@
 (deftest report-fields-render-user-friendly-blame-for-context-and-global-cases
   (let [context-fields (sut/report-fields {:blame-side :context
                                            :blame-polarity :negative})
+        missing-fields (sut/report-fields {:blame-side :none
+                                           :blame-polarity :none})
         global-fields (sut/report-fields {:blame-side :global
                                           :blame-polarity :global})]
-    (is (some #{["Blame: \t\t\t"
-                 "the surrounding code is using this value in a way its schema does not allow"]}
-              context-fields))
-    (is (some #{["Blame: \t\t\t"
-                 "an abstract value was inspected or escaped the scope where it is valid"]}
-              global-fields))))
+    (is (= "context( value )"
+           (some->> context-fields
+                    (some (fn [[label value]]
+                            (when (= "Blame: \t\t\t" label)
+                              (strip-ansi value)))))))
+    (is (= "<missing>"
+           (some->> missing-fields
+                    (some (fn [[label value]]
+                            (when (= "Blame: \t\t\t" label)
+                              (strip-ansi value)))))))
+    (is (= "scope escape"
+           (some->> global-fields
+                    (some (fn [[label value]]
+                            (when (= "Blame: \t\t\t" label)
+                              (strip-ansi value)))))))
+    (is (some->> context-fields
+                 (some (fn [[label value]]
+                         (when (= "Blame: \t\t\t" label)
+                           (and (str/includes? value "\u001B[37;2mvalue")
+                                (str/includes? value "\u001B[37;1mcontext")
+                                (str/includes? value "\u001B[37;1m( ")
+                                (str/includes? value "\u001B[37;1m )")))))))
+    (is (some->> (sut/report-fields report-summary)
+                 (some (fn [[label value]]
+                         (when (= "Blame: \t\t\t" label)
+                           (and (str/includes? value "\u001B[37;1mvalue")
+                                (str/includes? value "\u001B[37;2mcontext")
+                                (str/includes? value "\u001B[37;2m( ")
+                                (str/includes? value "\u001B[37;2m )")))))))
+    (is (some->> global-fields
+                 (some (fn [[label value]]
+                         (when (= "Blame: \t\t\t" label)
+                           (str/includes? value "\u001B[37;1mscope escape"))))))
+    (is (some->> missing-fields
+                 (some (fn [[label value]]
+                         (when (= "Blame: \t\t\t" label)
+                           (str/includes? value "\u001B[37m<missing>"))))))))
 
 (deftest report-fields-render-semantic-polymorphic-types-in-verbose-mode
   (let [type-var (at/->TypeVarT 'X)

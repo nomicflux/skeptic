@@ -49,6 +49,10 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
+(defn strip-ansi
+  [text]
+  (str/replace (str text) #"\u001B\[[0-9;]*m" ""))
+
 (defn T
   [schema]
   (ab/schema->type schema))
@@ -147,6 +151,48 @@
     (is (not (str/includes? error "(union")))
     (assert-no-ui-internals error)))
 
+(deftest output-summary-uses-visible-path-as-headline-focus
+  (let [summary (sut/report-summary
+                 {:report-kind :output
+                  :blame '{:name :bad
+                           :nickname "x"}
+                  :focuses ['{:name :bad
+                              :nickname "x"}]
+                  :cast-result {:rule :map
+                                :source-type (T {:name s/Keyword
+                                                 :nickname (s/maybe s/Str)})
+                                :target-type (T {:name s/Str
+                                                 :nickname (s/maybe s/Str)})}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
+                                  :source-type (T s/Keyword)
+                                  :target-type (T s/Str)
+                                  :path [{:kind :map-key :key :name}]}]})
+        [error] (:errors summary)
+        text (strip-ansi error)]
+    (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \"x\"\}" text))
+    (is (str/includes? text "Declared return schema:"))
+    (is (str/includes? text "[:name] has Keyword but expected Str"))))
+
+(deftest output-summary-omits-redundant-in-when-focus-equals-expression
+  (let [summary (sut/report-summary
+                 {:report-kind :output
+                  :blame '(get counts :count "zero")
+                  :focuses ['(get counts :count "zero")]
+                  :cast-result {:rule :source-union
+                                :source-type (ato/union-type [(T s/Int) (T s/Str)])
+                                :target-type (T s/Int)}
+                  :cast-results [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
+                                  :source-type (T s/Str)
+                                  :target-type (T s/Int)
+                                  :path []}]})
+        [error] (:errors summary)
+        text (strip-ansi error)]
+    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return schema\." text))
+    (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" text)))
+    (is (str/includes? text "Str but expected Int"))))
+
 (deftest output-summary-falls-back-to-top-level-when-no-actionable-leaf-details
   (let [summary (sut/report-summary
                  {:report-kind :output
@@ -194,6 +240,35 @@
 
     (is (:ok? successful-cast))
     (is (= :map (:rule successful-cast)))))
+
+(deftest input-summary-uses-single-focused-arg
+  (let [summary (sut/report-summary
+                 {:report-kind :input
+                  :blame '(int-add y nil)
+                  :focuses [nil]
+                  :cast-results [{:reason :nullable-source
+                                  :source-type (T (s/maybe s/Any))
+                                  :target-type (T s/Int)
+                                  :path []}]})
+        [error] (:errors summary)]
+    (is (= 1 (count (:errors summary))))
+    (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+has incompatible schema:" (strip-ansi error)))
+    (is (str/includes? (strip-ansi error) "a nullable value was provided where the schema requires a non-null value"))
+    (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)" (strip-ansi error))))))
+
+(deftest input-summary-uses-blame-for-multiple-focused-args
+  (let [summary (sut/report-summary
+                 {:report-kind :input
+                  :blame '(int-add x y nil)
+                  :focuses ['y nil]
+                  :cast-results [{:reason :nullable-source
+                                  :source-type (T (s/maybe s/Any))
+                                  :target-type (T s/Int)
+                                  :path []}]})
+        [error] (:errors summary)]
+    (is (= 1 (count (:errors summary))))
+    (is (re-find #"(?s)^\(int-add x y nil\)\s+\tin\s+\(int-add x y nil\)\s+has incompatible schema:" (strip-ansi error)))
+    (is (str/includes? (strip-ansi error) "a nullable value was provided where the schema requires a non-null value"))))
 
 (deftest semantic-tamper-message-test
   (let [type-var (at/->TypeVarT 'X)

@@ -27,22 +27,46 @@
   (when (seq focuses)
     (str/join ", " focuses)))
 
+(def global-blame-label "scope escape")
+(def missing-blame-label "<missing>")
+
+(defn render-context-value-blame
+  [active-side]
+  (let [context-bright? (= active-side :context)
+        value-bright? (= active-side :term)
+        context-style (if context-bright?
+                        #(colours/white % true)
+                        colours/white-dim)
+        value-style (if value-bright?
+                      #(colours/white % true)
+                      colours/white-dim)]
+    (str (context-style "context")
+         (context-style "( ")
+         (value-style "value")
+         (context-style " )"))))
+
 (defn format-blame
   [blame-side blame-polarity]
   (case [blame-side blame-polarity]
-    [:term :positive]
-    "this expression or returned value does not match what the surrounding code expects"
+    [:term :positive] (render-context-value-blame :term)
+    [:context :negative] (render-context-value-blame :context)
+    [:global :global] (colours/white global-blame-label true)
+    [:none :none] (colours/white missing-blame-label)
+    (cond
+      (or (= blame-side :term)
+          (= blame-polarity :positive))
+      (render-context-value-blame :term)
 
-    [:context :negative]
-    "the surrounding code is using this value in a way its schema does not allow"
+      (or (= blame-side :context)
+          (= blame-polarity :negative))
+      (render-context-value-blame :context)
 
-    [:global :global]
-    "an abstract value was inspected or escaped the scope where it is valid"
+      (or (= blame-side :global)
+          (= blame-polarity :global))
+      (colours/white global-blame-label true)
 
-    (when (and blame-side blame-polarity
-               (not= blame-side :none)
-               (not= blame-polarity :none))
-      (str (name blame-side) " / " (name blame-polarity)))))
+      :else
+      (colours/white missing-blame-label))))
 
 (defn print-report-field
   [label value]
@@ -64,8 +88,7 @@
    (remove nil?
            [(when-let [location-text (format-location location)]
               ["Location: \t\t" location-text])
-            (when-let [blame-text (format-blame blame-side blame-polarity)]
-              ["Blame: \t\t\t" blame-text])
+            ["Blame: \t\t\t" (format-blame blame-side blame-polarity)]
             (when (and verbose
                        (or rule-text rule))
               ["Cast rule: \t\t" (or rule-text (some-> rule name))])

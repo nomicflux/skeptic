@@ -8,13 +8,18 @@
             [skeptic.inconsistence.path :as pth]
             [clojure.string :as str]))
 
-(declare cast-result->message)
+(declare cast-result->message
+         primary-actionable-output-leaf)
+
+(defn focused-input-expr
+  [{:keys [focuses blame]}]
+  (if (= 1 (count focuses))
+    (first focuses)
+    blame))
 
 (defn input-summary-header
-  [{:keys [focuses blame]}]
-  (let [arg (if (= 1 (count focuses))
-              (first focuses)
-              blame)]
+  [{:keys [blame] :as report}]
+  (let [arg (focused-input-expr report)]
     (format "%s\n\tin\n\n%s\nhas incompatible schema:"
             (colours/magenta (disp/ppr-str arg) true)
             (colours/magenta (disp/ppr-str blame)))))
@@ -29,19 +34,44 @@
                  (map #(colours/yellow (str/replace % "\n" "\n\t  ")) detail-lines))))
 
 (defn report-ctx
-  [{:keys [blame focuses]}]
+  [{:keys [blame] :as report}]
   {:expr blame
-   :arg (if (= 1 (count focuses))
-          (first focuses)
-          blame)})
+   :arg (focused-input-expr report)})
+
+(defn output-focus
+  [report]
+  (or (some-> (primary-actionable-output-leaf report)
+              :path
+              pth/render-visible-path)
+      (:arg (report-ctx report))))
+
+(defn output-focus-text
+  [focus]
+  (if (string? focus)
+    focus
+    (disp/ppr-str focus)))
+
+(defn output-summary-headline
+  [report message]
+  (let [{:keys [expr]} (report-ctx report)
+        focus (output-focus report)]
+    (if (= focus expr)
+      (format "%s\n%s"
+              (colours/magenta (disp/ppr-str expr) true)
+              message)
+      (format "%s\n\tin\n\n%s\n%s"
+              (colours/magenta (output-focus-text focus) true)
+              (colours/magenta (disp/ppr-str expr))
+              message))))
 
 (defn output-summary-message
   [{:keys [cast-result actual-type expected-type] :as report}]
   (let [actual-type (or (some-> cast-result :source-type) actual-type)
         expected-type (or (some-> cast-result :target-type) expected-type)]
-    (mm/mismatched-output-schema-msg (report-ctx report)
-                                     actual-type
-                                     expected-type)))
+    (format "%s\n\n%s\n\nbut declared return schema is:\n\n%s"
+            (output-summary-headline report "has output schema:")
+            (colours/yellow (disp/describe-type-block actual-type))
+            (colours/yellow (disp/describe-type-block expected-type)))))
 
 (defn report-cast-leaves
   [{:keys [cast-result cast-results]}]
@@ -90,13 +120,12 @@
 
 (defn output-leaf-summary-message
   [{:keys [expected-type cast-result] :as report}]
-  (let [{:keys [expr arg]} (report-ctx report)
-        expected-type (or (some-> (primary-actionable-output-leaf report) :target-type)
+  (let [expected-type (or (some-> (primary-actionable-output-leaf report) :target-type)
                           (some-> cast-result :target-type)
                           expected-type)]
-    (format "%s\n\tin\n\n%s\nhas an output mismatch against the declared return schema.\n\nDeclared return schema:\n\n%s"
-            (colours/magenta (disp/ppr-str arg) true)
-            (colours/magenta (disp/ppr-str expr))
+    (format "%s\n\nDeclared return schema:\n\n%s"
+            (output-summary-headline report
+                                     "has an output mismatch against the declared return schema.")
             (colours/yellow (disp/describe-type-block expected-type)))))
 
 (defn rebuilt-leaf-errors
@@ -105,6 +134,17 @@
        (map #(cast-result->message (report-ctx report) %))
        distinct
        vec))
+
+(defn input-leaf-errors
+  [{:keys [errors] :as report}]
+  (if (seq errors)
+    (vec errors)
+    (rebuilt-leaf-errors report)))
+
+(defn grouped-input-summary?
+  [{:keys [focuses]} leaf-errors]
+  (or (seq focuses)
+      (not= 1 (count leaf-errors))))
 
 (defn summarize-errors
   [{:keys [report-kind cast-results] :as report}]
@@ -130,9 +170,10 @@
           union-line (pth/union-alternatives-line cast-results)
           detail-lines (cond-> detail-lines
                          union-line (conj union-line))
-          leaf-errors (rebuilt-leaf-errors report)]
+          leaf-errors (input-leaf-errors report)]
       (cond
-        (seq detail-lines)
+        (and (seq detail-lines)
+             (grouped-input-summary? report leaf-errors))
         [(combine-summary-lines (input-summary-header report) "Problems" detail-lines)]
 
         (seq leaf-errors)
