@@ -1,8 +1,8 @@
 (ns skeptic.checking.pipeline
   (:require [skeptic.analysis.annotate :as aa]
-            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.normalize :as an]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
@@ -38,10 +38,10 @@
   [dict ns-sym source-file exprs]
   (let [analysis-dict dict
         analyzed (mapv (fn [expr]
-                         (aa/attach-schema-info-loop analysis-dict
-                                                     (cf/normalize-check-form expr)
-                                                     {:ns ns-sym
-                                                      :source-file (cf/source-file-path source-file)}))
+                         (aa/annotate-form-loop analysis-dict
+                                                (cf/normalize-check-form expr)
+                                                {:ns ns-sym
+                                                 :source-file (cf/source-file-path source-file)}))
                        exprs)]
     {:analysis-dict analysis-dict
      :analyzed analyzed
@@ -54,16 +54,16 @@
   [method]
   (let [body (:body method)
         output-type (:output-type method)
-        tagged-output (some-> (:tag body) av/class->schema ab/import-schema-type)]
-    (if (incm/unknown-output-schema? output-type)
-      (ab/normalize-type (or tagged-output output-type))
-      (ab/normalize-type output-type))))
+        tagged-output (some-> (:tag body) av/class->type)]
+    (if (incm/unknown-output-type? (ato/normalize-type output-type))
+      (ato/normalize-type (or tagged-output output-type))
+      (ato/normalize-type output-type))))
 
 (defn def-output-results
   [dict bindings ns-sym source-form enclosing-form node]
   (let [entry (some-> (ca/dict-entry dict ns-sym (:name node))
                       an/normalize-entry)
-        expected-output (some-> (:output-type entry) ab/normalize-type)
+        expected-output (some-> (:output-type entry) ato/normalize-type)
         init-node (some-> node :init ca/unwrap-with-meta)
         methods (:methods init-node)
         source-bodies (map cf/method-source-body (cf/defn-decls source-form))]
@@ -122,8 +122,8 @@
               (format "Actual should have at least as many elements as expected: %s %s\n%s"
                       expected-arglist actual-arglist node))
       (let [matched (cf/spy :matched-arglists (ca/match-up-arglists (:args node)
-                                                                  (cf/spy :expected-arglist expected-arglist)
-                                                                  (cf/spy :actual-arglist actual-arglist)))
+                                                                  (cf/spy :expected-argtypes expected-arglist)
+                                                                  (cf/spy :actual-argtypes actual-arglist)))
             error-groups (keep (fn [[arg-node expected actual]]
                                  (let [arg-display (when arg-node
                                                      (cf/display-expr arg-node))

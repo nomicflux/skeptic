@@ -71,11 +71,11 @@
               ["Cast rule: \t\t" (or rule-text (some-> rule name))])
             (when verbose
               (when-let [actual-text (or actual-type-text
-                                         (some-> actual-type abr/display))]
+                                         (some-> actual-type abr/render-type))]
                 ["Actual type: \t\t" actual-text]))
             (when verbose
               (when-let [expected-text (or expected-type-text
-                                           (some-> expected-type abr/display))]
+                                           (some-> expected-type abr/render-type))]
                 ["Expected type: \t" expected-text]))
             (when verbose
               ["Expression: \t\t" (or source-expression (pr-str blame))])
@@ -108,7 +108,7 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         (let [dict (schematize/ns-schemas opts ns)]
+         (let [dict (schematize/typed-ns-schemas opts ns)]
            ;(when verbose
            ;  (println "Schema dictionary:")
            ;  (pprint/pprint dict))

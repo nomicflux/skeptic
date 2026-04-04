@@ -70,7 +70,7 @@
                      arities)}))
 
 (def analysis-dict
-  (merge test-examples/sample-dict
+  (merge (schematize/typed-ns-schemas {} 'skeptic.test-examples)
          {'skeptic.analysis-test/f
           (fn-entry 'skeptic.analysis-test/f s/Any [['value s/Any]])
           'skeptic.analysis-test/int-add
@@ -83,6 +83,9 @@
           'skeptic.analysis-test/start
           (fn-entry 'skeptic.analysis-test/start s/Any [['component s/Any]
                                                         ['opts s/Any]])}))
+
+(def typed-test-examples-dict
+  (schematize/typed-ns-schemas {} 'skeptic.test-examples))
 
 (def sample-dict
   {'f
@@ -112,15 +115,15 @@
 
 (defn analyze-form
   ([form]
-   (aa/attach-schema-info-loop analysis-dict form {:ns 'skeptic.analysis-test}))
+   (aa/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test}))
   ([arg1 arg2]
    (if (map? arg1)
-     (aa/attach-schema-info-loop arg1 arg2 {:ns 'skeptic.analysis-test})
-     (aa/attach-schema-info-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test}
-                                                            arg2))))
+     (aa/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test})
+     (aa/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test}
+                                                      arg2))))
   ([dict form opts]
-   (aa/attach-schema-info-loop dict form (merge {:ns 'skeptic.analysis-test}
-                                                 opts))))
+   (aa/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test}
+                                           opts))))
 
 (defn normalize-symbol
   [value]
@@ -144,9 +147,8 @@
 
 (def stable-keys
   [:op :form :body? :local :arg-id :variadic? :class :method :validated?
-   :literal? :type :output-type :fn-type :types :arglist :arglists
-   :actual-argtypes :expected-argtypes :schema :output :actual-arglist
-   :expected-arglist :raw-forms])
+   :literal? :type :output-type :fn-type :types :arglist :arglists :param-specs
+   :actual-argtypes :expected-argtypes :raw-forms])
 
 (defn arglist-types
   [root arity]
@@ -219,17 +221,17 @@
 
 (deftest restored-resolution-contract-test
   (testing "unannotated helper lookup from ns-schemas alone stays plain Any"
-    (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
+    (let [dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
           form (->> 'skeptic.test-examples/unannotated-local-helper-g
                     (schematize/get-fn-code {})
                     read-string)
-          ast (aa/attach-schema-info-loop dict form {:ns 'skeptic.test-examples})
+          ast (aa/annotate-form-loop dict form {:ns 'skeptic.test-examples})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
       (is (= (T s/Any) (:type call-node)))
       (is (not (at/union-type? (:type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
-    (let [dict (schematize/ns-schemas {} 'skeptic.test-examples)
+    (let [dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
                                                                          'skeptic.test-examples
                                                                          test-examples-file

@@ -37,6 +37,9 @@
 (defn schema-explain
   [schema]
   (cond
+    (nil? schema)
+    nil
+
     (sb/bottom-schema? schema)
     'Bottom
 

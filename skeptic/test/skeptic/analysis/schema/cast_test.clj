@@ -1,9 +1,10 @@
  (ns skeptic.analysis.schema.cast-test
    (:require [clojure.test :refer [deftest is testing]]
              [schema.core :as s]
+             [skeptic.analysis.bridge :as ab]
              [skeptic.analysis.schema :as as]
-             [skeptic.analysis.schema.cast-support :as ascs]
-             [skeptic.analysis.schema.value-check :as asv]
+             [skeptic.analysis.cast.support :as ascs]
+             [skeptic.analysis.value-check :as avc]
              [skeptic.analysis.types :as at]))
 
  (deftest directional-cast-kernel-test
@@ -113,7 +114,7 @@
      (is (= :vector-arity-mismatch (:reason pair-cast)))
      (is (not (:ok? quad-cast)))
      (is (= :vector-arity-mismatch (:reason quad-cast)))
-     (is (asv/value-satisfies-type? [1 2 3] homogeneous-int))
-     (is (asv/value-satisfies-type? [1 2 3] triple-int))
-     (is (not (asv/value-satisfies-type? [1 2 3] pair-int)))
-     (is (not (asv/value-satisfies-type? [1 2 3] quad-int)))))
+     (is (avc/value-satisfies-type? [1 2 3] (ab/schema->type homogeneous-int)))
+     (is (avc/value-satisfies-type? [1 2 3] (ab/schema->type triple-int)))
+     (is (not (avc/value-satisfies-type? [1 2 3] (ab/schema->type pair-int))))
+     (is (not (avc/value-satisfies-type? [1 2 3] (ab/schema->type quad-int))))))

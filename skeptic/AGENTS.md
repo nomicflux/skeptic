@@ -5,6 +5,13 @@
 Before changing the cast engine or related type-analysis code, read `docs/blame-for-all.md`.
 Use it as the high-level algorithm reference for the library's core cast and blame behavior.
 
+## Project Setup
+
+1. This is `leiningen` project for a Clojure app
+2. Tests are run via `lein test`
+3. The plugin can be run via `lein skeptic`, and is in ../lein-skeptic
+4. Linting is performed via `clj-kondo --lint <dir>`
+
 ## Core Rules
 
 1. No re-exports.

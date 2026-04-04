@@ -1,21 +1,46 @@
 (ns skeptic.analysis.origin
-  (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.normalize :as an]
-            [skeptic.analysis.schema.value-check :as asv]
+  (:require [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.value-check :as avc]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]))
+
+(defn typed-entry
+  [entry]
+  (cond
+    (nil? entry) nil
+    (at/semantic-type-value? entry)
+    {:type (ato/normalize-type entry)}
+
+    (and (map? entry)
+         (or (contains? entry :type)
+             (contains? entry :output-type)
+             (contains? entry :arglists)))
+    (cond-> (merge (dissoc entry :type :output-type :arglists)
+                   {:type (ato/normalize-type (or (:type entry) at/Dyn))})
+      (contains? entry :output-type)
+      (assoc :output-type (ato/normalize-type (:output-type entry)))
+
+      (contains? entry :arglists)
+      (assoc :arglists (:arglists entry)))
+
+    (map? entry)
+    (throw (IllegalArgumentException.
+            (format "Expected typed entry, got %s" (pr-str entry))))
+
+    :else
+    {:type (ato/normalize-type entry)}))
 
 (defn root-origin
   [sym type]
   {:kind :root
    :sym sym
-   :type (ab/normalize-type type)})
+   :type (ato/normalize-type type)})
 
 (defn opaque-origin
   [type]
   {:kind :opaque
-   :type (ab/normalize-type type)})
+   :type (ato/normalize-type type)})
 
 (defn entry-origin
   [sym entry]
@@ -53,11 +78,11 @@
   (case (:kind assumption)
     :truthy-local
     (if (:polarity assumption)
-      (ab/de-maybe-type type)
+      (ato/de-maybe-type type)
       type)
 
     :contains-key
-    (asv/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
+    (avc/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
 
     type))
 
@@ -88,7 +113,7 @@
     :else
     (case (:kind assumption)
       :contains-key
-      (case (asv/contains-key-type-classification (assumption-base-type assumption assumptions)
+      (case (avc/contains-key-type-classification (assumption-base-type assumption assumptions)
                                                   (:key assumption))
         :always (if (:polarity assumption) :true :false)
         :never (if (:polarity assumption) :false :true)
@@ -113,15 +138,13 @@
 
 (defn effective-entry
   [sym entry assumptions]
-  (let [entry (an/normalize-entry entry)
+  (let [entry (typed-entry entry)
         origin (entry-origin sym entry)
         type (or (some-> origin (origin-type assumptions))
                  (:type entry)
                  at/Dyn)]
-    (cond-> (or entry {:type at/Dyn
-                       :schema (an/compat-schema at/Dyn)})
-      true (assoc :type (ab/normalize-type type)
-                  :schema (an/compat-schema (ab/normalize-type type)))
+    (cond-> (or entry {:type at/Dyn})
+      true (assoc :type (ato/normalize-type type))
       origin (assoc :origin origin))))
 
 (defn local-root-origin

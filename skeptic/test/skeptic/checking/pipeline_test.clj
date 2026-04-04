@@ -3,6 +3,7 @@
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
             [skeptic.core :as core]
             [skeptic.examples]
@@ -25,11 +26,11 @@
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 (def utils-file (File. "src/skeptic/utils.clj"))
 
-(def test-dict (in-test-examples (schematize/ns-schemas {} 'skeptic.test-examples)))
-(def examples-dict (schematize/ns-schemas {} 'skeptic.examples))
-(def schematize-dict (schematize/ns-schemas {} 'skeptic.schematize))
-(def static-call-examples-dict (schematize/ns-schemas {} 'skeptic.static-call-examples))
-(def utils-dict (schematize/ns-schemas {} 'skeptic.utils))
+(def test-dict (in-test-examples (schematize/typed-ns-schemas {} 'skeptic.test-examples)))
+(def examples-dict (schematize/typed-ns-schemas {} 'skeptic.examples))
+(def schematize-dict (schematize/typed-ns-schemas {} 'skeptic.schematize))
+(def static-call-examples-dict (schematize/typed-ns-schemas {} 'skeptic.static-call-examples))
+(def utils-dict (schematize/typed-ns-schemas {} 'skeptic.utils))
 
 (let [fn-map (atom {})]
   (s/defn normalize-fn-code
@@ -135,8 +136,8 @@
      'skeptic.test-examples/sample-bad-schema-fn ['(int-add not-an-int 2)
                                                   [(incm/mismatched-ground-type-msg {:expr '(int-add not-an-int 2)
                                                                                               :arg 'not-an-int}
-                                                                                             s/Str
-                                                                                             s/Int)]])))
+                                                                                             (T s/Str)
+                                                                                             (T s/Int))]])))
 
 (deftest failing-functions
   (in-test-examples
@@ -161,9 +162,9 @@
                                                         '(int-add w 1 x y z)
                                                         [(incm/mismatched-nullable-msg {:expr '(int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-mismatched-types ['(int-add x "hi")
-                                                     [(incm/mismatched-ground-type-msg {:expr '(int-add x "hi") :arg "hi"} s/Str s/Int)]]
+                                                     [(incm/mismatched-ground-type-msg {:expr '(int-add x "hi") :arg "hi"} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/sample-let-mismatched-types ['(int-add x s)
-                                                         [(incm/mismatched-ground-type-msg {:expr '(int-add x s) :arg 's} s/Str s/Int)]]
+                                                         [(incm/mismatched-ground-type-msg {:expr '(int-add x s) :arg 's} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/sample-let-fn-bad1-fn ['(int-add y nil)
                                                    [(incm/mismatched-nullable-msg {:expr '(int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-multi-arity-fn ['(int-add x y z nil)
@@ -197,14 +198,14 @@
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
   (is (= []
-         (vec (sut/check-ns (schematize/ns-schemas {} 'skeptic.core-fns)
+         (vec (sut/check-ns (schematize/typed-ns-schemas {} 'skeptic.core-fns)
                             'skeptic.core-fns
                             (File. "src/skeptic/core_fns.clj")
                             {})))))
 
 (deftest check-ns-reads-auto-resolved-keywords-in-target-ns
   (require 'skeptic.test-examples)
-  (let [results (vec (sut/check-ns (schematize/ns-schemas {} 'skeptic.test-examples)
+  (let [results (vec (sut/check-ns (schematize/typed-ns-schemas {} 'skeptic.test-examples)
                                    'skeptic.test-examples
                                    test-file
                                    {:keep-empty true
@@ -255,11 +256,11 @@
    (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-named-output-fn)))
    (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-constrained-output-fn)))
    (is (= ['x
-           [(incm/mismatched-output-schema-msg
-             {:expr 'sample-bad-constrained-output-fn
-              :arg 'x}
-             s/Str
-             (s/constrained s/Int pos?))]]
+             [(incm/mismatched-output-schema-msg
+               {:expr 'sample-bad-constrained-output-fn
+                :arg 'x}
+              (T s/Str)
+              (T (s/constrained s/Int pos?)))]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-bad-constrained-output-fn))))))
 
 (deftest symbol-output-schema-regression
@@ -307,15 +308,15 @@
                                          results)]
     (is (= [(incm/mismatched-output-schema-msg {:expr 'bad-count-default
                                                          :arg '(get counts :count "zero")}
-                                                        (ab/union-type [(T s/Int)
-                                                                        (T s/Str)])
+                                                        (ato/union-type [(T s/Int)
+                                                                         (T s/Str)])
                                                         (T s/Int))]
            (:errors count-result)))
     (is (= [(incm/mismatched-ground-type-msg
               {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
                :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
-              s/Int
-              s/Str)]
+              (T s/Int)
+              (T s/Str))]
            (:errors nested-call-result)))
     (is (some #(str/includes? % "{:name Keyword, :nickname (maybe Str)}")
               (:errors rebuilt-user-result)))
@@ -446,8 +447,8 @@
            (:blame flat-result)))
     (is (= [(incm/mismatched-ground-type-msg {:expr '(flat-multi-step-takes-str (flat-multi-step-g))
                                                        :arg '(flat-multi-step-g)}
-                                                      s/Int
-                                                      s/Str)]
+                                                      (T s/Int)
+                                                      (T s/Str))]
            (:errors flat-result)))
     (is (nil? (some #(when (= 'skeptic.test-examples/flat-multi-step-success
                                (:enclosing-form %))
@@ -459,8 +460,8 @@
     (is (= [(incm/mismatched-ground-type-msg
               {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
                :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
-              s/Int
-              s/Str)]
+              (T s/Int)
+              (T s/Str))]
            (:errors nested-result)))
     (is (nil? (some #(when (= 'skeptic.static-call-examples/nested-multi-step-success
                                (:enclosing-form %))
@@ -479,8 +480,8 @@
      (is (= [(incm/mismatched-ground-type-msg
                {:expr '(flat-multi-step-takes-str (flat-multi-step-g))
                 :arg '(flat-multi-step-g)}
-               s/Int
-               s/Str)]
+               (T s/Int)
+               (T s/Str))]
             (:errors result))))))
 
 (deftest nested-call-mismatch-renders-field-paths

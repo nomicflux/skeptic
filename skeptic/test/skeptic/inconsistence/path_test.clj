@@ -10,6 +10,10 @@
   {:expr '(f x 2)
    :arg 'x})
 
+(defn T
+  [schema]
+  (ab/schema->type schema))
+
 (def ^:private ui-internal-markers
   [":skeptic.analysis.schema/"
    "placeholder-type"
@@ -40,8 +44,8 @@
 
 (deftest nested-map-cast-report-includes-field-path-test
   (let [report (inc/cast-report sample-ctx
-                                {:user {:name s/Str}}
-                                {:user {:name s/Keyword}})
+                                (T {:user {:name s/Str}})
+                                (T {:user {:name s/Keyword}}))
         leaf (first (:cast-results report))
         error (first (:errors report))]
     (is (not (:ok? report)))
@@ -54,14 +58,14 @@
 (deftest map-cast-report-key-errors-test
   (let [missing (inc/cast-report {:expr '{:a 1}
                                  :arg '{:a 1}}
-                                {:a s/Int
-                                 :b s/Int}
-                                {:a s/Int})
+                                (T {:a s/Int
+                                    :b s/Int})
+                                (T {:a s/Int}))
         unexpected (inc/cast-report {:expr '{:a 1 :c 2}
                                     :arg '{:a 1 :c 2}}
-                                   {:a s/Int}
-                                   {:a s/Int
-                                    :c s/Int})]
+                                   (T {:a s/Int})
+                                   (T {:a s/Int
+                                       :c s/Int}))]
     (is (not (:ok? missing)))
     (is (some #(= :missing-key (:reason %)) (:cast-results missing)))
     (is (some #(str/includes? % "[:b] is missing") (:errors missing)))
@@ -74,15 +78,15 @@
 
 (deftest nested-map-key-errors-include-full-path-test
   (let [missing (inc/cast-report sample-ctx
-                                 {:user {:name s/Str}}
-                                 {:user {}})
+                                 (T {:user {:name s/Str}})
+                                 (T {:user {}}))
         unexpected (inc/cast-report sample-ctx
-                                    {:user {:name s/Str}}
-                                    {:user {:name s/Str
-                                            :age s/Int}})
+                                    (T {:user {:name s/Str}})
+                                    (T {:user {:name s/Str
+                                               :age s/Int}}))
         nullable (inc/cast-report sample-ctx
-                                  {:user {:name s/Str}}
-                                  {:user {(s/optional-key :name) s/Str}})]
+                                  (T {:user {:name s/Str}})
+                                  (T {:user {(s/optional-key :name) s/Str}}))]
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
            (-> missing :cast-results first :path)))
@@ -101,8 +105,8 @@
 
 (deftest non-literal-map-key-path-stops-at-last-code-segment-test
   (let [report (inc/cast-report sample-ctx
-                                {:account {:state {s/Keyword s/Int}}}
-                                {:account {:state {:name s/Str}}})
+                                (T {:account {:state {s/Keyword s/Int}}})
+                                (T {:account {:state {:name s/Str}}}))
         [leaf] (:cast-results report)
         [error] (:errors report)]
     (is (not (:ok? report)))
@@ -128,8 +132,8 @@
 
 (deftest vector-cast-report-includes-index-path-test
   (let [report (inc/cast-report sample-ctx
-                               [s/Int s/Int]
-                               [s/Int s/Str])
+                               (T [s/Int s/Int])
+                               (T [s/Int s/Str]))
         leaf (first (:cast-results report))
         error (first (:errors report))]
     (is (not (:ok? report)))

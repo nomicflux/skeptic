@@ -6,9 +6,11 @@
              [skeptic.analysis.bridge.canonicalize :as abc]
              [skeptic.analysis.bridge.localize :as abl]
              [skeptic.analysis.bridge.render :as abr]
-             [skeptic.analysis.schema.cast-support :as ascs]
+             [skeptic.analysis.cast.support :as ascs]
              [skeptic.analysis.schema.map-ops :as asm]
              [skeptic.analysis.schema-base :as sb]
+             [skeptic.analysis.type-algebra :as ata]
+             [skeptic.analysis.type-ops :as ato]
              [skeptic.analysis.types :as at]))
 
  (declare UnboundSchemaRef)
@@ -43,15 +45,30 @@
              :output-type sealed}
             stripped))
      (is (= #{'Y}
-            (aba/type-free-vars (at/->ForallT 'X
+            (ata/type-free-vars (at/->ForallT 'X
                                               (at/->FunT [(at/->FnMethodT [type-var]
                                                                           (at/->TypeVarT 'Y)
                                                                           1
                                                                           false)])))))
      (is (= (at/->ForallT 'X (at/->TypeVarT 'X))
-            (aba/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
+            (ata/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
                                  'X
                                  (ab/schema->type s/Any))))))
+
+ (deftest resolve-placeholders-stays-bridge-only-test
+   (let [placeholder (sb/placeholder-schema 'example/X)
+         schema (s/=> placeholder [placeholder])
+         resolved (-> (aba/resolve-placeholders schema
+                                                (fn [ref]
+                                                  (when (= ref 'example/X)
+                                                    s/Int)))
+                      abc/canonicalize-schema)
+         {:keys [input-schemas output-schema]} (into {} resolved)]
+     (is (seq input-schemas))
+     (is (= s/Int
+            output-schema))
+     (is (= '(=> Int [Int])
+            (abc/schema-display-form resolved)))))
 
  (deftest display-keeps-type-and-schema-domains-separate-test
    (let [type-var (at/->TypeVarT 'X)
@@ -61,11 +78,11 @@
                                                                                 1
                                                                                 false)]))})]
      (is (= '{Keyword (forall X (=> (sealed X) X))}
-            (abr/display-form polymorphic-map)))
+            (abr/render-type-form polymorphic-map)))
      (is (= "hello"
-            (abr/display-form (T (s/eq "hello")))))
+            (abr/render-type-form (T (s/eq "hello")))))
      (is (= 'Int
-            (abr/display-form s/Int)))))
+            (abc/schema-display-form s/Int)))))
 
  (deftest raw-schema-var-normalization-test
    (is (= s/Int
@@ -94,15 +111,31 @@
 
  (deftest semantic-function-type-rendering-test
    (let [fun-type (at/->FunT [(at/->FnMethodT [(ab/schema->type s/Int)]
-                                              (ab/intersection-type [s/Any s/Int])
+                                              (ato/intersection-type [s/Any s/Int])
                                               1
                                               false)])
          polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
                                                      (at/->SealedDynT (at/->TypeVarT 'X))
                                                      1
                                                      false)])]
-     (is (= fun-type (ab/schema->type fun-type)))
+     (is (= fun-type (ato/normalize-type fun-type)))
      (is (= "(=> (intersection Any Int) Int)"
             (abr/render-type fun-type)))
      (is (= "(=> (sealed X) X)"
             (abr/render-type polymorphic-fun)))))
+
+ (deftest schema-to-type-rejects-semantic-type-input-test
+   (is (thrown-with-msg? IllegalArgumentException
+                         #"Expected Schema-domain value"
+                         (ab/schema->type (at/->GroundT :int 'Int)))))
+
+ (deftest type-ops-normalization-and-unknown-test
+   (is (= (at/->ValueT (at/->GroundT :keyword 'Keyword) :k)
+          (ato/exact-value-type :k)))
+   (is (= (at/->MaybeT at/Dyn)
+          (ato/normalize-type nil)))
+   (is (= (at/->GroundT :int 'Int)
+          (ato/de-maybe-type (at/->MaybeT (at/->GroundT :int 'Int)))))
+   (is (ato/unknown-type? at/Dyn))
+   (is (ato/unknown-type? (at/->PlaceholderT 'example/x)))
+   (is (not (ato/unknown-type? (ab/schema->type s/Int)))))

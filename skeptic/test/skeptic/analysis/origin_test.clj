@@ -1,6 +1,7 @@
 (ns skeptic.analysis.origin-test
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
+            [skeptic.examples]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
@@ -15,7 +16,11 @@
     (let [o (ao/root-origin 'x (atst/T s/Str))]
       (is (= :root (:kind o)))
       (is (= 'x (:sym o)))
-      (is (= (atst/T s/Str) (:type o))))))
+      (is (= (atst/T s/Str) (:type o)))))
+  (testing "effective-entry returns typed data only"
+    (let [entry (ao/effective-entry 'x (atst/T s/Int) [])]
+      (is (= (atst/T s/Int) (:type entry)))
+      (is (not (contains? entry :schema))))))
 
 (deftest schema-binding-and-refinement-test
   (testing "let-driven flow through or expands to refinable branch"
@@ -39,7 +44,7 @@
 
 (deftest attach-schema-branch-refinement-test
   (testing "or/let schema setup exposes branch join on inner if"
-    (let [root (atst/project-ast (atst/analyze-form test-examples/sample-dict
+    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(let [y nil
                                                            x (or y 1)]
                                                        (skeptic.test-examples/int-add x 2))))]
@@ -47,27 +52,27 @@
       (is (atst/find-projected-node root #(and (= :if (:op %))
                                                 (= (atst/T (sb/join s/Any s/Int)) (:type %)))))))
   (testing "literal if schema join"
-    (let [root (atst/project-ast (atst/analyze-form test-examples/sample-dict
+    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(if (even? 2) true "hello")))]
       (is (= (atst/T (sb/join s/Bool s/Str)) (:type root)))))
   (testing "symbol test if keeps output type when branches agree"
-    (let [root (atst/project-ast (atst/analyze-form test-examples/sample-dict
+    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(if (pos? x) 1 -1)))]
       (is (= (atst/T s/Int) (:type root)))))
   (testing "maybe-refinement if joins nilable branch with default"
-    (let [root (atst/project-ast (atst/analyze-form test-examples/sample-dict
+    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(let [x nil] (if x x 1))))]
       (is (= (atst/T (sb/join s/Any s/Int)) (:type root)))))
   (testing "or macro schema matches expanded branch join"
-    (let [root (atst/project-ast (atst/analyze-form test-examples/sample-dict
+    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(or nil 1)))]
       (is (= :let (:op root)))
       (is (= (atst/T (sb/join s/Any s/Int)) (:type root))))))
 
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
-    (let [test-dict (schematize/ns-schemas {} 'skeptic.test-examples)
-          example-dict (schematize/ns-schemas {} 'skeptic.examples)
+    (let [test-dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+          example-dict (schematize/typed-ns-schemas {} 'skeptic.examples)
           test-res (checking/analyze-source-exprs test-dict
                                                   'skeptic.test-examples
                                                   atst/test-examples-file

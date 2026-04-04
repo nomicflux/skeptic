@@ -1,8 +1,7 @@
 (ns skeptic.inconsistence.mismatch
-  (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.colours :as colours]
-            [skeptic.inconsistence.display :as disp]))
+  (:require [skeptic.colours :as colours]
+            [skeptic.inconsistence.display :as disp]
+            [skeptic.analysis.type-ops :as ato]))
 
 (defn mismatched-nullable-msg
   [{:keys [expr arg]} _actual-type _expected-type]
@@ -30,11 +29,6 @@
           (colours/yellow (disp/describe-type-block actual-type))
           (colours/yellow (disp/describe-type-block expected-type))))
 
-(defn output-compatible-schemas
-  [expected actual]
-  [(abc/canonicalize-output-schema expected)
-   (abc/canonicalize-output-schema actual)])
-
-(defn unknown-output-schema?
-  [schema]
-  (ab/unknown-schema? schema))
+(defn unknown-output-type?
+  [type]
+  (ato/unknown-type? type))

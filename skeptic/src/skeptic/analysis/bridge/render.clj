@@ -1,13 +1,8 @@
 (ns skeptic.analysis.bridge.render
-  (:require [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.bridge.localize :as abl]
-            [skeptic.analysis.schema-base :as sb]
+  (:require [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(declare render-type-form
-         type->schema-compat)
+(declare render-type-form)
 
 (defn render-fn-input-form
   [method]
@@ -19,7 +14,7 @@
 
 (defn render-type-form
   [type]
-  (let [type (ab/normalize-type type)]
+  (let [type (ato/normalize-type type)]
     (cond
       (at/dyn-type? type) 'Any
       (at/bottom-type? type) 'Bottom
@@ -57,96 +52,6 @@
   (some-> type
           render-type-form
           pr-str))
-
-(defn render-schema
-  [schema]
-  (some-> schema
-          abc/schema-display-form
-          pr-str))
-
-(defn display-form
-  [value]
-  (let [value (abl/localize-schema-value value)]
-    (cond
-      (abc/schema? value) (abc/schema-display-form value)
-      :else (render-type-form (ab/schema->type value)))))
-
-(defn display
-  [value]
-  (some-> value
-          display-form
-          pr-str))
-
-(defn fn-method->schema-compat
-  [method]
-  (mapv (fn [idx input]
-          (s/one (type->schema-compat input)
-                 (symbol (str "arg" idx))))
-        (range)
-        (:inputs method)))
-
-(defn type->schema-compat
-  [type]
-  (let [type (ab/normalize-type type)]
-    (cond
-      (at/dyn-type? type) s/Any
-      (at/bottom-type? type) sb/Bottom
-      (at/ground-type? type)
-      (let [ground (:ground type)]
-        (cond
-          (= ground :int) s/Int
-          (= ground :str) s/Str
-          (= ground :keyword) s/Keyword
-          (= ground :symbol) s/Symbol
-          (= ground :bool) s/Bool
-          (and (map? ground) (:class ground)) (:class ground)
-          :else ground))
-
-      (at/refinement-type? type)
-      (or (get-in type [:adapter-data :source-schema])
-          (type->schema-compat (:base type)))
-
-      (at/adapter-leaf-type? type)
-      (or (get-in type [:adapter-data :source-schema])
-          s/Any)
-
-      (at/optional-key-type? type)
-      (s/optional-key (type->schema-compat (:inner type)))
-
-      (at/value-type? type)
-      (let [value (:value type)
-            inner (type->schema-compat (:inner type))]
-        (if (sb/schema-literal? value)
-          value
-          (sb/valued-schema inner value)))
-
-      (at/type-var-type? type) type
-      (at/forall-type? type) type
-      (at/sealed-dyn-type? type) type
-
-      (at/fn-method-type? type)
-      (s/make-fn-schema (type->schema-compat (:output type))
-                        [(fn-method->schema-compat type)])
-
-      (at/fun-type? type)
-      (s/make-fn-schema (type->schema-compat (:output (first (:methods type))))
-                        (mapv fn-method->schema-compat (:methods type)))
-
-      (at/maybe-type? type) (s/maybe (type->schema-compat (:inner type)))
-      (at/union-type? type) (apply sb/join (map type->schema-compat (:members type)))
-      (at/intersection-type? type) (apply s/both (map type->schema-compat (:members type)))
-      (at/map-type? type)
-      (into {}
-            (map (fn [[k v]]
-                   [(type->schema-compat k)
-                    (type->schema-compat v)]))
-            (:entries type))
-      (at/vector-type? type) (mapv type->schema-compat (:items type))
-      (at/set-type? type) (into #{} (map type->schema-compat) (:members type))
-      (at/seq-type? type) (doall (map type->schema-compat (:items type)))
-      (at/var-type? type) (sb/variable (type->schema-compat (:inner type)))
-      (at/placeholder-type? type) (sb/placeholder-schema (:ref type))
-      :else type)))
 
 (defn polarity->side
   [polarity]
@@ -187,5 +92,5 @@
                                                                      [k (strip-derived-types v)]))
                                                               arglists)))
 
-        (contains? entry :arg-schema) (update :arg-schema #(mapv strip-derived-types %))
+        (contains? entry :param-specs) (update :param-specs #(mapv strip-derived-types %))
         (contains? entry :params) (update :params #(mapv strip-derived-types %))))))

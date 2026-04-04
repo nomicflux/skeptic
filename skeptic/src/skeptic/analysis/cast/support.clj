@@ -1,8 +1,8 @@
-(ns skeptic.analysis.schema.cast-support
-  (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.algebra :as aba]
-            [skeptic.analysis.bridge.canonicalize :as abc]
+(ns skeptic.analysis.cast.support
+  (:require [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.type-algebra :as ata]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn schema-equivalent?
@@ -29,20 +29,20 @@
   [opts binder witness-type]
   (assoc opts :cast-state (-> (cast-state opts)
                               (update :nu-bindings conj {:type-var binder
-                                                         :witness-type (ab/schema->type witness-type)})
+                                                         :witness-type (ato/normalize-type witness-type)})
                               (update :abstract-vars conj binder))))
 
 (defn register-seal
   [opts sealed-type]
-  (assoc opts :cast-state (update (cast-state opts) :active-seals conj (ab/schema->type sealed-type))))
+  (assoc opts :cast-state (update (cast-state opts) :active-seals conj (ato/normalize-type sealed-type))))
 
 (defn sealed-ground-name
   [type]
-  (some-> type ab/schema->type :ground aba/type-var-name))
+  (some-> type ato/normalize-type :ground ata/type-var-name))
 
 (defn contains-sealed-ground?
   [type binder]
-  (let [type (ab/schema->type type)]
+  (let [type (ato/normalize-type type)]
     (cond
       (at/sealed-dyn-type? type)
       (= binder (sealed-ground-name type))
@@ -150,8 +150,8 @@
   ([value-type ground-type]
    (check-type-test value-type ground-type {}))
   ([value-type ground-type opts]
-   (let [value-type (ab/schema->type value-type)
-         ground-type (ab/schema->type ground-type)]
+   (let [value-type (ato/normalize-type value-type)
+         ground-type (ato/normalize-type ground-type)]
      (if (at/sealed-dyn-type? value-type)
        (cast-fail value-type
                   ground-type
@@ -171,8 +171,8 @@
   ([type binder]
    (exit-nu-scope type binder {}))
   ([type binder opts]
-   (let [type (ab/schema->type type)
-         binder (or (aba/type-var-name (ab/schema->type binder))
+   (let [type (ato/normalize-type type)
+         binder (or (ata/type-var-name (ato/normalize-type binder))
                     binder)]
      (if (contains-sealed-ground? type binder)
        (cast-fail type

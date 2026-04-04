@@ -5,6 +5,7 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema :as as]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.report :as sut]))
 
@@ -48,10 +49,14 @@
   (doseq [marker ui-internal-markers]
     (is (not (str/includes? (str text) marker)))))
 
+(defn T
+  [schema]
+  (ab/schema->type schema))
+
 (deftest cast-report-basic-failures-test
-  (let [success (sut/cast-report sample-ctx s/Int s/Int)
-        nullable (sut/cast-report sample-ctx s/Int (s/maybe s/Int))
-        mismatch (sut/cast-report sample-ctx s/Int s/Str)]
+  (let [success (sut/cast-report sample-ctx (T s/Int) (T s/Int))
+        nullable (sut/cast-report sample-ctx (T s/Int) (T (s/maybe s/Int)))
+        mismatch (sut/cast-report sample-ctx (T s/Int) (T s/Str))]
     (is (:ok? success))
     (is (= [] (:errors success)))
     (is (= :exact (:rule success)))
@@ -66,8 +71,8 @@
     (is (= :leaf-overlap (:rule mismatch)))
     (is (= :term (:blame-side mismatch)))
     (is (= :positive (:blame-polarity mismatch)))
-    (is (= (ab/schema->type s/Int) (:expected-type mismatch)))
-    (is (= (ab/schema->type s/Str) (:actual-type mismatch)))
+    (is (= (T s/Int) (:expected-type mismatch)))
+    (is (= (T s/Str) (:actual-type mismatch)))
     (is (str/includes? (first (:errors mismatch)) "mismatched type"))))
 
 (deftest output-cast-report-renders-canonical-output-test
@@ -75,10 +80,10 @@
                 {:expr 'bad-user
                  :arg '{:name :bad
                         :nickname "x"}}
-                {:name s/Str
-                 :nickname (s/maybe s/Str)}
-                {:name s/Keyword
-                 :nickname (s/maybe s/Str)})
+                (T {:name s/Str
+                    :nickname (s/maybe s/Str)})
+                (T {:name s/Keyword
+                    :nickname (s/maybe s/Str)}))
         error (first (:errors report))]
     (is (not (:ok? report)))
     (is (= :term (:blame-side report)))
@@ -92,8 +97,8 @@
   (let [report (sut/output-cast-report
                 {:expr 'bad-user
                  :arg '{:user {:name :bad}}}
-                {:user {:name s/Str}}
-                {:user {:name s/Keyword}})
+                (T {:user {:name s/Str}})
+                (T {:user {:name s/Keyword}}))
         [error] (:errors report)]
     (is (not (:ok? report)))
     (is (= [{:kind :map-key :key :user}
@@ -120,10 +125,10 @@
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ab/schema->type {:result actual-result
-                                                                              :cache s/Any})})
-                                :target-type (ab/schema->type {:result expected-result
-                                                              :cache s/Any})}
+                                                            (ato/normalize-type {:result actual-result
+                                                                                 :cache s/Any})})
+                                :target-type (ato/normalize-type {:result expected-result
+                                                                  :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result
@@ -149,11 +154,11 @@
                   :focuses ['bad-user]
                   :cast-result {:rule :source-union
                                 :source-type (ab/schema->type (sb/join s/Any s/Keyword))
-                                :target-type (ab/schema->type s/Int)}
+                                :target-type (T s/Int)}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
-                                  :source-type (ab/schema->type s/Any)
-                                  :target-type (ab/schema->type s/Int)
+                                  :source-type (T s/Any)
+                                  :target-type (T s/Int)
                                   :path []}]})
         [error] (:errors summary)]
     (is (str/includes? error "has output schema:"))
@@ -162,8 +167,8 @@
     (assert-no-ui-internals error)))
 
 (deftest nested-dynamic-map-cast-stays-structural-test
-  (let [compatible (sut/output-cast-report sample-ctx {:a s/Int} {:a s/Any})
-        incompatible (sut/output-cast-report sample-ctx {:a s/Int} {:b s/Any})]
+  (let [compatible (sut/output-cast-report sample-ctx (T {:a s/Int}) (T {:a s/Any}))
+        incompatible (sut/output-cast-report sample-ctx (T {:a s/Int}) (T {:b s/Any}))]
     (is (:ok? compatible))
     (is (= :map (:rule compatible)))
     (is (= :map (:rule (:cast-result compatible))))
@@ -176,9 +181,9 @@
 
 (deftest broad-key-map-cast-regression-test
   (let [failing-report (sut/cast-report sample-ctx
-                                        {:a s/Int
-                                         :b s/Int}
-                                        {s/Keyword s/Int})
+                                        (T {:a s/Int
+                                            :b s/Int})
+                                        (T {s/Keyword s/Int}))
         successful-cast (as/check-cast {s/Keyword s/Int}
                                        {:a s/Int
                                         s/Keyword s/Int})]
@@ -195,7 +200,7 @@
         sealed (at/->SealedDynT type-var)
         inspect-message (sut/cast-result->message sample-ctx
                                                   {:source-type sealed
-                                                   :target-type (ab/schema->type s/Int)
+                                                   :target-type (T s/Int)
                                                    :rule :is-tamper
                                                    :reason :is-tamper})
         escape-message (sut/cast-result->message sample-ctx
@@ -213,47 +218,47 @@
                   cond-pre-int-or-str
                   either-int-or-str
                   if-int-or-str]]
-    (is (:ok? (sut/output-cast-report sample-ctx schema s/Int)))
-    (is (:ok? (sut/output-cast-report sample-ctx schema s/Str)))
-    (is (not (:ok? (sut/output-cast-report sample-ctx schema s/Keyword))))))
+    (is (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Int))))
+    (is (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Str))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Keyword)))))))
 
 (deftest both-schema-output-cast-report-test
-  (is (:ok? (sut/output-cast-report sample-ctx both-any-int s/Int)))
-  (is (:ok? (sut/output-cast-report sample-ctx both-int-and-constrained-int s/Int)))
-  (is (not (:ok? (sut/output-cast-report sample-ctx both-any-int s/Str))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx both-int-str s/Int))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx both-int-str s/Str))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx both-int-str s/Keyword))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx {:value both-any-int}
-                                         {:value s/Str})))))
+  (is (:ok? (sut/output-cast-report sample-ctx (T both-any-int) (T s/Int))))
+  (is (:ok? (sut/output-cast-report sample-ctx (T both-int-and-constrained-int) (T s/Int))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-any-int) (T s/Str)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Int)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Str)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Keyword)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx (T {:value both-any-int})
+                                         (T {:value s/Str})))))) 
 
 (deftest constrained-and-eq-compatibility-test
   (let [non-negative-int (s/constrained s/Int (fn [n] (not (neg? n))))
         hello (s/eq "hello")]
     (is (:ok? (as/check-cast s/Int non-negative-int)))
-    (is (:ok? (sut/output-cast-report sample-ctx non-negative-int s/Int)))
+    (is (:ok? (sut/output-cast-report sample-ctx (T non-negative-int) (T s/Int))))
     (is (not (:ok? (as/check-cast s/Str non-negative-int))))
     (is (not (:ok? (as/check-cast (s/eq -1) non-negative-int))))
 
     (is (:ok? (as/check-cast s/Str hello)))
-    (is (:ok? (sut/output-cast-report sample-ctx hello s/Str)))
+    (is (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Str))))
     (is (not (:ok? (as/check-cast s/Int hello))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx hello s/Int))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Int)))))
     (is (not (:ok? (as/check-cast (s/eq "bye") hello))))))
 
 (deftest enum-compatibility-test
   (let [hello-or-bye (s/enum "hello" "bye")
         hello-or-one (s/enum "hello" 1)]
     (is (:ok? (as/check-cast s/Str hello-or-bye)))
-    (is (:ok? (sut/output-cast-report sample-ctx hello-or-bye s/Str)))
+    (is (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Str))))
     (is (not (:ok? (as/check-cast s/Int hello-or-bye))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx hello-or-bye s/Int))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Int)))))
 
     (is (:ok? (as/check-cast s/Str hello-or-one)))
     (is (:ok? (as/check-cast s/Int hello-or-one)))
     (is (not (:ok? (as/check-cast s/Bool hello-or-one))))
 
     (is (not (:ok? (as/check-cast hello-or-one s/Str))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx s/Str hello-or-one))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-one)))))
     (is (:ok? (as/check-cast hello-or-bye s/Str)))
-    (is (:ok? (sut/output-cast-report sample-ctx s/Str hello-or-bye)))))
+    (is (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-bye))))))

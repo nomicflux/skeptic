@@ -1,16 +1,13 @@
 (ns skeptic.analysis.calls
-  (:require [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
+  (:require [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.normalize :as an]
-            [skeptic.analysis.resolvers :as ar]
-            [skeptic.analysis.schema.map-ops :as asm]
-            [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn node-info
   [node]
   (select-keys node [:type :output-type :arglists :arglist :expected-argtypes :actual-argtypes :fn-type
-                     :schema :output :expected-arglist :actual-arglist :fn-schema :origin]))
+                     :origin]))
 
 (defn literal-map-key?
   [node]
@@ -18,7 +15,7 @@
 
 (defn semantic-map-key
   [node]
-  (ab/normalize-type
+  (ato/normalize-type
    (if (literal-map-key? node)
      (:form node)
      (:type node))))
@@ -26,8 +23,8 @@
 (defn get-key-query
   [node]
   (if (literal-map-key? node)
-    (asm/exact-key-query (:type node) (:form node) (:form node))
-    (asm/domain-key-query (:type node) (:form node))))
+    (amo/exact-key-query (:type node) (:form node) (:form node))
+    (amo/domain-key-query (:type node) (:form node))))
 
 (defn local-binding-ast
   [idx sym]
@@ -60,17 +57,54 @@
                             (var->sym (:var node))])]
     (some (comp an/normalize-entry dict) candidates)))
 
+(defn- arglist-entry-type
+  [{:keys [type] :as entry}]
+  (or type entry at/Dyn))
+
+(defn- convert-arglists
+  [args {:keys [arglists output-type]}]
+  (let [arity (count args)
+        direct-res (get arglists arity)
+        {:keys [count] :as varargs-res} (get arglists :varargs)
+        min-count count
+        output-type (or output-type at/Dyn)]
+    (if (or (and min-count varargs-res)
+            direct-res)
+      (let [res (if (and min-count (>= arity min-count)) varargs-res direct-res)
+            argtypes (mapv arglist-entry-type
+                           (or (:types res)
+                               (vec (repeat arity at/Dyn))))
+            fn-type (at/->FunT [(at/->FnMethodT argtypes
+                                               output-type
+                                               (clojure.core/count argtypes)
+                                               false)])]
+        {:type fn-type
+         :fn-type fn-type
+         :output-type output-type
+         :argtypes argtypes
+         :arglist argtypes})
+      (let [argtypes (vec (repeat arity at/Dyn))
+            fn-type (at/->FunT [(at/->FnMethodT argtypes
+                                               output-type
+                                               arity
+                                               false)])]
+        {:type fn-type
+         :fn-type fn-type
+         :output-type output-type
+         :argtypes argtypes
+         :arglist argtypes}))))
+
 (defn default-call-info
   [arity output]
   (let [output-type (or output at/Dyn)
         expected-argtypes (vec (repeat arity at/Dyn))
-        fn-type (an/normalize-declared-type (sb/dynamic-fn-schema arity s/Any))]
+        fn-type (at/->FunT [(at/->FnMethodT expected-argtypes
+                                           output-type
+                                           arity
+                                           false)])]
     {:expected-argtypes expected-argtypes
-     :expected-arglist (an/compat-schemas expected-argtypes)
      :output-type output-type
-     :output (an/compat-schema output-type)
-     :fn-type fn-type
-     :fn-schema (an/compat-schema fn-type)}))
+     :fn-type fn-type}))
 
 (defn typed-arglist-entry?
   [{:keys [types]}]
@@ -118,13 +152,10 @@
 (defn call-info
   [fn-node args]
   (if (typed-callable? fn-node)
-    (let [converted (ar/convert-arglists args
-                                         {:arglists (:arglists fn-node)
-                                          :output-type (or (:output-type fn-node) at/Dyn)})]
+    (let [converted (convert-arglists args
+                                      {:arglists (:arglists fn-node)
+                                       :output-type (or (:output-type fn-node) at/Dyn)})]
       {:expected-argtypes (:argtypes converted)
-       :expected-arglist (an/compat-schemas (:argtypes converted))
        :output-type (or (:output-type converted) at/Dyn)
-       :output (an/compat-schema (or (:output-type converted) at/Dyn))
-       :fn-type (:type converted)
-       :fn-schema (an/compat-schema (:type converted))})
+       :fn-type (:type converted)})
     (default-call-info (count args) (:output-type fn-node))))

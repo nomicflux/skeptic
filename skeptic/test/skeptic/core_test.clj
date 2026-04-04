@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence.report :as inrep]))
@@ -200,17 +201,17 @@
                   :rule :source-union
                   :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                 :cache s/Any})
-                                              (ab/schema->type {:result actual-result
-                                                                :cache s/Any})})
-                  :expected-type (ab/schema->type {:result expected-result
-                                                   :cache s/Any})
+                                              (ato/normalize-type {:result actual-result
+                                                                   :cache s/Any})})
+                  :expected-type (ato/normalize-type {:result expected-result
+                                                      :cache s/Any})
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ab/schema->type {:result actual-result
-                                                                              :cache s/Any})})
-                                :target-type (ab/schema->type {:result expected-result
-                                                              :cache s/Any})}
+                                                            (ato/normalize-type {:result actual-result
+                                                                                 :cache s/Any})})
+                                :target-type (ato/normalize-type {:result expected-result
+                                                                  :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result

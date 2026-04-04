@@ -151,8 +151,7 @@
                  "not allowed by the declared schema"
                  "not allowed by the expected schema")]
     (cond
-      (and path-text exact-key) (str path-text " is " suffix)
-      path-text (str path-text " contains disallowed key matching " key-text)
+      path-text (str path-text " is " suffix)
       :else (str "disallowed key matching " key-text " is provided"))))
 
 (defn nullable-detail

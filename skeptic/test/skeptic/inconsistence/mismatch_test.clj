@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.mismatch :as sut]))
@@ -34,17 +35,11 @@
     (is (str/includes? message "Threal"))
     (assert-no-ui-internals message)))
 
-(deftest unknown-output-schema-test
-  (is (sut/unknown-output-schema? s/Any))
-  (is (sut/unknown-output-schema? (s/maybe s/Any)))
-  (is (sut/unknown-output-schema? (sb/placeholder-schema [:output 'example/f])))
-  (is (not (sut/unknown-output-schema? s/Int))))
-
-(deftest output-compatible-schemas-test
-  (let [[e a] (sut/output-compatible-schemas {:x s/Int} {:x s/Str})]
-    (is (= 2 (count [e a])))
-    (is (some? e))
-    (is (some? a))))
+(deftest unknown-output-type-test
+  (is (sut/unknown-output-type? (ab/schema->type s/Any)))
+  (is (sut/unknown-output-type? (ab/schema->type (s/maybe s/Any))))
+  (is (sut/unknown-output-type? (ab/schema->type (sb/placeholder-schema [:output 'example/f]))))
+  (is (not (sut/unknown-output-type? (ab/schema->type s/Int)))))
 
 (deftest mismatched-messages-shape-test
   (let [ctx {:expr '(f 1) :arg 1}]

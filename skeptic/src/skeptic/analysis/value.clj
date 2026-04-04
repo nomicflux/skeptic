@@ -1,57 +1,75 @@
 (ns skeptic.analysis.value
   (:require [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.normalize :as an]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(defn class->schema
+(defn class->type
   [klass]
-  (sb/canonical-scalar-schema klass))
+  (let [klass (sb/canonical-scalar-schema klass)]
+    (cond
+      (= klass s/Int) (at/->GroundT :int 'Int)
+      (= klass s/Str) (at/->GroundT :str 'Str)
+      (= klass s/Keyword) (at/->GroundT :keyword 'Keyword)
+      (= klass s/Symbol) (at/->GroundT :symbol 'Symbol)
+      (= klass s/Bool) (at/->GroundT :bool 'Bool)
+      (and (class? klass)
+           (not (or (= klass s/Any)
+                    (= klass s/Num)
+                    (= klass Number)
+                    (= klass java.lang.Number)
+                    (= klass Object)
+                    (= klass java.lang.Object))))
+      (at/->GroundT {:class klass} (abc/schema-explain klass))
+      :else at/Dyn)))
 
-(declare schema-of-value)
+(declare type-of-value type-join*)
 
-(defn coll-element-schema
+(defn exact-runtime-value-type
+  [value]
+  (at/->ValueT (type-of-value value) value))
+
+(defn collection-element-type
   [values]
   (if (seq values)
-    (abc/schema-join (set (map schema-of-value values)))
-    s/Any))
+    (type-join* (map type-of-value values))
+    at/Dyn))
 
-(defn map-schema
+(defn homogeneous-seq-type
+  [constructor values]
+  (constructor [(collection-element-type values)] true))
+
+(defn map-value-type
   [m]
-  (abc/canonicalize-schema
+  (at/->MapT
    (into {}
          (map (fn [[k v]]
-                [(sb/valued-schema (schema-of-value k) k)
-                 (sb/valued-schema (schema-of-value v) v)]))
+                [(exact-runtime-value-type k)
+                 (exact-runtime-value-type v)]))
          m)))
-
-(defn schema-of-value
-  [value]
-  (cond
-    (nil? value) (s/maybe s/Any)
-    (integer? value) s/Int
-    (string? value) s/Str
-    (keyword? value) s/Keyword
-    (symbol? value) s/Symbol
-    (boolean? value) s/Bool
-    (vector? value) (mapv schema-of-value value)
-    (or (list? value) (seq? value)) [(coll-element-schema value)]
-    (set? value) #{(coll-element-schema value)}
-    (map? value) (map-schema value)
-    (class? value) java.lang.Class
-    :else (class->schema (class value))))
 
 (defn type-of-value
   [value]
-  (an/normalize-declared-type (schema-of-value value)))
+  (cond
+    (nil? value) (at/->MaybeT at/Dyn)
+    (or (integer? value)
+        (string? value)
+        (keyword? value)
+        (symbol? value)
+        (boolean? value)) (class->type (class value))
+    (vector? value) (at/->VectorT (mapv type-of-value value) (= 1 (count value)))
+    (or (list? value) (seq? value)) (homogeneous-seq-type at/->SeqT value)
+    (set? value) (at/->SetT #{(collection-element-type value)} true)
+    (map? value) (map-value-type value)
+    (class? value) (class->type java.lang.Class)
+    :else (class->type (class value))))
 
 (defn type-join*
   [types]
-  (let [types (vec (remove nil? (map ab/normalize-type types)))
+  (let [types (vec (remove nil? (map ato/normalize-type types)))
         non-bottom (vec (remove at/bottom-type? types))]
     (cond
-      (seq non-bottom) (ab/union-type non-bottom)
+      (seq non-bottom) (ato/union-type non-bottom)
       (seq types) at/BottomType
       :else at/Dyn)))

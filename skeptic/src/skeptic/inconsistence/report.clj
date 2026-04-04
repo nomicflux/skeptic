@@ -1,7 +1,6 @@
 (ns skeptic.inconsistence.report
-  (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.schema :as as]
+  (:require [skeptic.analysis.cast :as acast]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.colours :as colours]
             [skeptic.inconsistence.display :as disp]
@@ -60,7 +59,7 @@
 
 (defn dynamic-display-type?
   [type]
-  (let [type (some-> type ab/schema->type)]
+  (let [type (some-> type ato/normalize-type)]
     (or (nil? type)
         (at/dyn-type? type))))
 
@@ -241,10 +240,10 @@
 
 (defn cast-report
   [ctx expected actual]
-  (let [expected (abc/canonicalize-schema expected)
-        actual (abc/canonicalize-schema actual)
-        cast-result (as/check-cast (ab/schema->type actual)
-                                   (ab/schema->type expected))]
+  (let [expected-type (ato/normalize-type expected)
+        actual-type (ato/normalize-type actual)
+        cast-result (acast/check-cast actual-type
+                                      expected-type)]
     (if (:ok? cast-result)
       {:ok? true
        :errors []
@@ -265,9 +264,10 @@
 
 (defn output-cast-report
   [ctx expected actual]
-  (let [[expected actual] (mm/output-compatible-schemas expected actual)
-        cast-result (as/check-cast (ab/schema->type actual)
-                                   (ab/schema->type expected))]
+  (let [expected-type (ato/normalize-type expected)
+        actual-type (ato/normalize-type actual)
+        cast-result (acast/check-cast actual-type
+                                      expected-type)]
     (if (:ok? cast-result)
       {:ok? true
        :errors []
@@ -279,5 +279,5 @@
        :expected-type (:target-type cast-result)
        :actual-type (:source-type cast-result)}
       (merge {:ok? false
-              :errors [(mm/mismatched-output-schema-msg ctx actual expected)]}
+              :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type)]}
              (cast-report-metadata cast-result)))))

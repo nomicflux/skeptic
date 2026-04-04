@@ -1,27 +1,17 @@
- (ns skeptic.analysis.schema.valued
-   (:require [schema.core :as s]
-             [skeptic.analysis.bridge.canonicalize :as abc]
-             [skeptic.analysis.schema.cast-support :as ascs]
-             [skeptic.analysis.schema.map-ops :as asm]
-             [skeptic.analysis.schema.value-check :as asv]
-             [skeptic.analysis.schema-base :as sb]))
+(ns skeptic.analysis.schema.valued
+  (:require [schema.core :as s]
+            [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.schema.map-ops :as asm]
+            [skeptic.analysis.schema.value-check :as asv]
+            [skeptic.analysis.schema-base :as sb]))
 
  (defn matches-map
    [expected actual-k actual-v]
    (let [expected (abc/canonicalize-schema expected)
-         actual-v (abc/canonicalize-schema actual-v)
-         descriptor (asm/map-entry-descriptor expected)
-         key-query (asm/map-key-query actual-k)]
-     (if (asm/exact-key-query? key-query)
-       (every? (fn [exact-value]
-                 (some #(asm/nested-value-compatible? (:value %) actual-v)
-                       (asm/exact-key-candidates descriptor exact-value)))
-               [(:value key-query)])
-       (some #(asm/nested-value-compatible? (:value %) actual-v)
-             (filter (fn [entry]
-                       (asm/key-domain-covered? (asm/query-key-type key-query)
-                                                (:inner-key-type entry)))
-                     (:schema-entries descriptor))))))
+         actual-v (abc/canonicalize-schema actual-v)]
+     (when-let [expected-value (asm/map-get-schema expected actual-k)]
+       (asm/nested-value-compatible? expected-value actual-v))))
 
  (defn valued-compatible?
    [expected actual]
@@ -53,7 +43,7 @@
 
  (defn get-by-matching-schema
    [m k]
-   (asm/candidate-value-schema (asm/map-lookup-candidates m (asm/map-key-query k))))
+   (asm/map-get-schema m k))
 
  (defn valued-get
    [m k]

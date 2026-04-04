@@ -1,7 +1,8 @@
 (ns skeptic.inconsistence.display
   (:require [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
@@ -59,9 +60,7 @@
     (exact-key-form (:k key))
 
     :else
-    (let [type (try
-                 (ab/schema->type key)
-                 (catch Exception _e nil))]
+    (let [type (some-> key ato/normalize-type)]
       (cond
         (nil? type) nil
         (at/optional-key-type? type) (exact-key-form (:inner type))
@@ -94,7 +93,7 @@
 
 (defn user-type-form
   [type]
-  (or (some-> type abr/display-form)
+  (or (some-> type abr/render-type-form)
       'Unknown))
 
 (defn user-fn-input-form
@@ -115,7 +114,9 @@
     (user-display-form (:k x))
 
     :else
-    (or (some-> x abr/display-form)
+    (or (if (abc/schema? x)
+          (abc/schema-display-form x)
+          (some-> x abr/render-type-form))
         'Unknown)))
 
 (defn describe-type

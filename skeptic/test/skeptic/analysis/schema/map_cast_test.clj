@@ -1,8 +1,11 @@
  (ns skeptic.analysis.schema.map-cast-test
    (:require [clojure.test :refer [deftest is]]
              [schema.core :as s]
+             [skeptic.analysis.bridge :as ab]
+             [skeptic.analysis.map-ops :as amo]
+             [skeptic.analysis.value-check :as avc]
              [skeptic.analysis.schema :as as]
-             [skeptic.analysis.schema.cast-support :as ascs]
+             [skeptic.analysis.cast.support :as ascs]
              [skeptic.analysis.schema.map-ops :as asm]
              [skeptic.analysis.schema.value-check :as asv]
              [skeptic.analysis.schema-base :as sb]))
@@ -11,9 +14,9 @@
    (let [schema {:a s/Int
                  s/Keyword s/Str}
          literal-result (asm/map-get-schema schema
-                                            (asm/exact-key-query s/Keyword :a :a))
+                                            (amo/exact-key-query (ab/schema->type s/Keyword) :a :a))
          domain-result (asm/map-get-schema schema
-                                           (asm/domain-key-query s/Keyword 'k))]
+                                           (amo/domain-key-query (ab/schema->type s/Keyword) 'k))]
      (is (= s/Int literal-result))
      (is (ascs/schema-equivalent? (sb/join s/Int s/Str)
                                   domain-result))))
@@ -27,9 +30,9 @@
      (is (nil? (s/check schema valid)))
      (is (nil? (s/check schema valid-with-extra)))
      (is (some? (s/check schema missing-required)))
-     (is (asv/value-satisfies-type? valid schema))
-     (is (asv/value-satisfies-type? valid-with-extra schema))
-     (is (not (asv/value-satisfies-type? missing-required schema)))
+     (is (avc/value-satisfies-type? valid (ab/schema->type schema)))
+     (is (avc/value-satisfies-type? valid-with-extra (ab/schema->type schema)))
+     (is (not (avc/value-satisfies-type? missing-required (ab/schema->type schema))))
      (is (:ok? cast-result))
      (is (= :map (:rule cast-result)))))
 
@@ -38,7 +41,7 @@
          empty-value {}
          cast-result (as/check-cast empty-value schema)]
      (is (nil? (s/check schema empty-value)))
-     (is (asv/value-satisfies-type? empty-value schema))
+     (is (avc/value-satisfies-type? empty-value (ab/schema->type schema)))
      (is (:ok? cast-result))
      (is (= :map (:rule cast-result)))))
 
