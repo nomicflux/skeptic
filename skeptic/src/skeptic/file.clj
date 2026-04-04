@@ -18,12 +18,12 @@
 
 (defn ns-for-clojure-file
   [^File file]
-  [(let [file-stream (pushback-reader file)]
-     (loop [line (try-read file-stream)]
+  [(with-open [reader (pushback-reader file)]
+     (loop [line (try-read reader)]
        (cond
          (nil? line) nil
          (is-ns-block? line) (->> line (drop 1) first)
-         :else (recur (try-read file-stream)))))
+         :else (recur (try-read reader)))))
    file])
 
 ;; TODO: confirm working with CLJS & CLJC as well

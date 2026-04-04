@@ -71,25 +71,25 @@
       (->> (map vector methods source-bodies)
            (keep (fn [[method source-body]]
                    (let [actual-output (method-output-type method)
-                         body (:body method)
-                         source-body-location (when source-body
-                                                (select-keys (meta source-body)
-                                                             [:file :line :column :end-line :end-column]))
-                         source-expression (cf/form-source source-body)
-                         display {:expr (or source-body (:form body))
-                                  :source-expression source-expression
-                                  :expanded-expression (when (or (not= source-body (:form body))
-                                                                 (and source-expression
-                                                                      (not= source-expression (pr-str (:form body)))))
-                                                         (:form body))
-                                  :location source-body-location}]
+                         body (:body method)]
                      (let [report (inrep/output-cast-report
                                    {:expr (:name node)
-                                    :arg (:expr display)}
+                                    :arg (or source-body (:form body))}
                                    expected-output
                                    actual-output)]
                        (when-not (:ok? report)
-                         {:blame (:expr display)
+                         (let [source-body-location (when source-body
+                                                      (select-keys (meta source-body)
+                                                                   [:file :line :column :end-line :end-column]))
+                               source-expression (cf/form-source source-body)
+                               display {:expr (or source-body (:form body))
+                                        :source-expression source-expression
+                                        :expanded-expression (when (or (not= source-body (:form body))
+                                                                       (and source-expression
+                                                                            (not= source-expression (pr-str (:form body)))))
+                                                               (:form body))
+                                        :location source-body-location}]
+                           {:blame (:expr display)
                           :report-kind :output
                           :source-expression (:source-expression display)
                           :expanded-expression (:expanded-expression display)
@@ -106,67 +106,77 @@
                           :expected-type (:expected-type report)
                           :actual-type (:actual-type report)
                           :cast-result (:cast-result report)
-                          :cast-results (:cast-results report)
-                          :errors (:errors report)})))))))))
+                           :cast-results (:cast-results report)
+                           :errors (:errors report)}))))))))))
+
+(defn input-error-group
+  [expr arg-node expected actual]
+  (let [arg-expr (if (some? arg-node)
+                   (:form arg-node)
+                   arg-node)
+        report (inrep/cast-report {:expr expr
+                                   :arg arg-expr}
+                                  expected
+                                  actual)]
+    (when (seq (:errors report))
+      (let [arg-display (when arg-node
+                          (cf/display-expr arg-node))]
+        {:focus arg-expr
+         :focus-source (:source-expression arg-display)
+         :blame-side (:blame-side report)
+         :blame-polarity (:blame-polarity report)
+         :rule (:rule report)
+         :expected-type (:expected-type report)
+         :actual-type (:actual-type report)
+         :cast-result (:cast-result report)
+         :cast-results (:cast-results report)
+         :errors (:errors report)}))))
+
+(defn input-cast-result
+  [bindings enclosing-form node error-groups]
+  (let [display (cf/display-expr node)
+        primary-group (first error-groups)]
+    {:blame (:expr display)
+     :report-kind :input
+     :source-expression (:source-expression display)
+     :expanded-expression (:expanded-expression display)
+     :location (:location display)
+     :enclosing-form enclosing-form
+     :focuses (ca/distinctv (keep :focus error-groups))
+     :focus-sources (ca/distinctv (keep :focus-source error-groups))
+     :path nil
+     :blame-side (or (:blame-side primary-group) :none)
+     :blame-polarity (or (:blame-polarity primary-group) :none)
+     :rule (:rule primary-group)
+     :expected-type (:expected-type primary-group)
+     :actual-type (:actual-type primary-group)
+     :cast-result (:cast-result primary-group)
+     :cast-results (vec (mapcat :cast-results error-groups))
+     :context {:local-vars (ca/local-vars-context bindings node)
+               :refs (ca/call-refs bindings node)}
+     :errors (vec (mapcat :errors error-groups))}))
 
 (defn match-s-exprs
-  [bindings enclosing-form node]
+  [bindings enclosing-form node keep-empty]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (:expected-argtypes node))
-          actual-arglist (vec (:actual-argtypes node))
-          display (cf/display-expr node)]
+          actual-arglist (vec (:actual-argtypes node))]
       (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
               (format "Arglists must not be nil: %s %s\n%s"
                       expected-arglist actual-arglist node))
       (assert (>= (count actual-arglist) (count expected-arglist))
               (format "Actual should have at least as many elements as expected: %s %s\n%s"
                       expected-arglist actual-arglist node))
-      (let [matched (cf/spy :matched-arglists (ca/match-up-arglists (:args node)
-                                                                  (cf/spy :expected-argtypes expected-arglist)
-                                                                  (cf/spy :actual-argtypes actual-arglist)))
-            error-groups (keep (fn [[arg-node expected actual]]
-                                 (let [arg-display (when arg-node
-                                                     (cf/display-expr arg-node))
-                                       arg-expr (or (:expr arg-display)
-                                                    (:form arg-node))
-                                       report (inrep/cast-report
-                                               {:expr (:expr display)
-                                                :arg arg-expr}
-                                               expected
-                                               actual)]
-                                   (when (seq (:errors report))
-                                     {:focus arg-expr
-                                      :focus-source (:source-expression arg-display)
-                                      :blame-side (:blame-side report)
-                                      :blame-polarity (:blame-polarity report)
-                                      :rule (:rule report)
-                                      :expected-type (:expected-type report)
-                                      :actual-type (:actual-type report)
-                                      :cast-result (:cast-result report)
-                                      :cast-results (:cast-results report)
-                                      :errors (:errors report)})))
-                               matched)
-            primary-group (first error-groups)
-            errors (vec (mapcat :errors error-groups))]
-        {:blame (:expr display)
-         :report-kind :input
-         :source-expression (:source-expression display)
-         :expanded-expression (:expanded-expression display)
-         :location (:location display)
-         :enclosing-form enclosing-form
-         :focuses (ca/distinctv (keep :focus error-groups))
-         :focus-sources (ca/distinctv (keep :focus-source error-groups))
-         :path nil
-         :blame-side (or (:blame-side primary-group) :none)
-         :blame-polarity (or (:blame-polarity primary-group) :none)
-         :rule (:rule primary-group)
-         :expected-type (:expected-type primary-group)
-         :actual-type (:actual-type primary-group)
-         :cast-result (:cast-result primary-group)
-         :cast-results (vec (mapcat :cast-results error-groups))
-         :context {:local-vars (ca/local-vars-context bindings node)
-                   :refs (ca/call-refs bindings node)}
-         :errors errors}))))
+      (let [matched (cf/spy :matched-arglists
+                            (ca/match-up-arglists (:args node)
+                                                  (cf/spy :expected-argtypes expected-arglist)
+                                                  (cf/spy :actual-argtypes actual-arglist)))]
+        (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
+                                           (input-error-group (:form node) arg-node expected actual))
+                                         matched))]
+          (input-cast-result bindings enclosing-form node error-groups)
+          (when keep-empty
+            (input-cast-result bindings enclosing-form node [])))))))
 
 (defn enclosing-form
   [ns-sym source-form]
@@ -183,18 +193,20 @@
     (cond->> (->> (ca/ast-nodes-preorder analyzed)
                   (mapcat (fn [node]
                             (abl/with-error-context (cf/node-error-context node enclosing-form)
-                              (doall
-                               (concat (when-let [call-result (match-s-exprs bindings
-                                                                            enclosing-form
-                                                                            node)]
-                                         [call-result])
-                                       (or (def-output-results dict
-                                                               bindings
-                                                               ns-sym
-                                                               source-form
+                              (let [call-result (match-s-exprs bindings
                                                                enclosing-form
-                                                               node)
-                                           [])))))))
+                                                               node
+                                                               keep-empty)]
+                                (doall
+                                 (concat (when call-result
+                                           [call-result])
+                                         (or (def-output-results dict
+                                                                 bindings
+                                                                 ns-sym
+                                                                 source-form
+                                                                 enclosing-form
+                                                                 node)
+                                             []))))))))
       (not keep-empty)
       (remove (comp empty? :errors))
 
