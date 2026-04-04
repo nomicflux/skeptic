@@ -110,7 +110,7 @@
             (when (and verbose expanded-expression)
               ["Analyzed expression: \t" (pr-str expanded-expression)])])))
 
-(defn get-project-schemas
+(defn check-project
   [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
   (let [nss (cond-> (try (->> paths
                               (map (partial file/relative-path (io/file root)))
@@ -164,6 +164,10 @@
            (when verbose
              (println (stacktrace/print-stack-trace e))))))
       (if @errored
-        (System/exit 1)
+        1
         (do (println "No inconsistencies found")
-            (System/exit 0))))))
+            0)))))
+
+(defn get-project-schemas
+  [opts root & paths]
+  (System/exit (apply check-project opts root paths)))

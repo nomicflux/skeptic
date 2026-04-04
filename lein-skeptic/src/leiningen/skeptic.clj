@@ -14,6 +14,7 @@
    ["-k" "--keep-empty" "Print out checking results with empty error set"]
    ["-c" "--show-context" "Show context and resolution path on items"]
    ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
+   ["-p" "--profile" "Profile the run (CPU, memory, wall-clock time)"]
    ["-h" "--help"]])
 
 (defn skeptic
@@ -25,5 +26,7 @@
       (println summary)
       (leiningen.core.eval/eval-in-project
        (leiningen.core.project/merge-profiles project [profile])
-       `(skeptic.core/get-project-schemas ~opts ~(:root project) ~@paths)
-       '(require 'skeptic.core)))))
+       `(let [exit-code# (skeptic.profiling/run ~opts ~(str (:root project) "/target")
+                   (fn [] (skeptic.core/check-project ~opts ~(:root project) ~@paths)))]
+          (System/exit exit-code#))
+       '(do (require 'skeptic.core) (require 'skeptic.profiling))))))
