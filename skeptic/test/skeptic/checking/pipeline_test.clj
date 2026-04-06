@@ -210,6 +210,19 @@
                             (File. "src/skeptic/core_fns.clj")
                             {})))))
 
+(deftest check-ns-localizes-read-failures
+  (let [temp-file (doto (File/createTempFile "skeptic-read-failure" ".clj")
+                    (.deleteOnExit))
+        _ (spit temp-file "(ns skeptic.test-examples)\n(def ok 1)\n(def broken [)\n")
+        results (vec (sut/check-ns test-dict
+                                   'skeptic.test-examples
+                                   temp-file
+                                   {:remove-context true}))]
+    (is (= 1 (count results)))
+    (is (= :exception (:report-kind (first results))))
+    (is (= :read (:phase (first results))))
+    (is (= (.getPath temp-file) (get-in (first results) [:location :file])))))
+
 (deftest check-ns-reads-auto-resolved-keywords-in-target-ns
   (require 'skeptic.test-examples)
   (let [results (vec (sut/check-ns (typed-decls/typed-ns-entries {} 'skeptic.test-examples)

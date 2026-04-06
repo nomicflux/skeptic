@@ -395,9 +395,7 @@
    (annotate-node {:dict dict
                    :locals (into {}
                                  (map (fn [[sym entry]]
-                                        [sym (if (an/entry-map? entry)
-                                               (an/normalize-entry entry)
-                                               {:type (ato/normalize-type entry)})]))
+                                        [sym (an/normalize-entry entry)]))
                                  locals)
                    :assumptions (vec assumptions)
                    :name name

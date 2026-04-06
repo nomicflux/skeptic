@@ -13,12 +13,18 @@
 (defn normalize-arg-entry
   [entry]
   (let [base (cond
+               (at/semantic-type-value? entry)
+               {:type entry}
+
                (arg-entry-map? entry) entry
+
                (map? entry)
                (throw (IllegalArgumentException.
                        (format "Expected typed arg entry, got %s" (pr-str entry))))
+
                :else
-               {:type entry})
+               (throw (IllegalArgumentException.
+                       (format "Expected Skeptic-type-domain arg entry, got %s" (pr-str entry)))))
         type (some-> (:type base) ato/normalize-type)]
     {:type type
      :optional? (boolean (:optional? base))
@@ -44,12 +50,18 @@
   [entry]
   (when (some? entry)
     (let [base (cond
+                 (at/semantic-type-value? entry)
+                 {:type entry}
+
                  (entry-map? entry) entry
+
                  (map? entry)
                  (throw (IllegalArgumentException.
                          (format "Expected typed entry, got %s" (pr-str entry))))
+
                  :else
-                 {:type entry})
+                 (throw (IllegalArgumentException.
+                         (format "Expected Skeptic-type-domain entry, got %s" (pr-str entry)))))
           type (some-> (:type base) ato/normalize-type)
           output-type (some-> (:output-type base) ato/normalize-type)
           arglists (some-> (:arglists base)

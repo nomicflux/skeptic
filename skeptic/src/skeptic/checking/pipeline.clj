@@ -223,6 +223,37 @@
          (remove file/is-ns-block?)
          doall)))
 
+(defn read-exception-result
+  [source-file e]
+  {:report-kind :exception
+   :phase :read
+   :blame (cf/source-file-path source-file)
+   :source-expression nil
+   :location {:file (cf/source-file-path source-file)}
+   :enclosing-form nil
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage e)
+                          (str e))})
+
+(defn next-checkable-form
+  [reader]
+  (try
+    (loop []
+      (let [source-form (file/try-read reader)]
+        (cond
+          (nil? source-form)
+          {:kind :eof}
+
+          (file/is-ns-block? source-form)
+          (recur)
+
+          :else
+          {:kind :form
+           :form source-form})))
+    (catch Exception e
+      {:kind :read-error
+       :exception e})))
+
 (defn expression-exception-result
   [ns-sym source-file source-form e]
   {:report-kind :exception
@@ -289,8 +320,11 @@
 (defn check-ns
   [dict ns source-file opts]
   (binding [*ns* (the-ns ns)]
-    (reduce (fn [results source-form]
-              (into results
-                    (check-ns-form dict ns source-file source-form opts)))
-            []
-            (ns-exprs source-file))))
+    (with-open [reader (file/pushback-reader source-file)]
+      (loop [results []]
+        (let [{:keys [kind form exception]} (next-checkable-form reader)]
+          (case kind
+            :eof results
+            :form (recur (into results
+                               (check-ns-form dict ns source-file form opts)))
+            :read-error (conj results (read-exception-result source-file exception))))))))

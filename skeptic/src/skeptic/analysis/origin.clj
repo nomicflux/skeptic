@@ -9,6 +9,7 @@
   [entry]
   (cond
     (nil? entry) nil
+
     (at/semantic-type-value? entry)
     {:type (ato/normalize-type entry)}
 
@@ -29,7 +30,8 @@
             (format "Expected typed entry, got %s" (pr-str entry))))
 
     :else
-    {:type (ato/normalize-type entry)}))
+    (throw (IllegalArgumentException.
+            (format "Expected Skeptic-type-domain entry, got %s" (pr-str entry))))))
 
 (defn root-origin
   [sym type]

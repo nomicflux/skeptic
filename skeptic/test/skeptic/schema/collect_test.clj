@@ -52,6 +52,26 @@
                                               :name 'invalid
                                               :arglists '([])}))))
 
+(deftest collect-schemas-rejects-invalid-nested-arg-schemas-early
+  (let [invalid-regex-schema (s/make-fn-schema s/Int
+                                               [[(s/one #"^[\u0020-\u007e]*$" 'x)]])
+        invalid-uuid-schema (s/make-fn-schema s/Int
+                                              [[(s/one (java.util.UUID/fromString
+                                                        "123e4567-e89b-12d3-a456-426614174000")
+                                                       'x)]])]
+    (is (thrown-with-msg? IllegalArgumentException
+                          #"Invalid Plumatic Schema annotation"
+                          (sut/collect-schemas {:schema invalid-regex-schema
+                                                :ns 'skeptic.schema.collect
+                                                :name 'invalid-regex
+                                                :arglists '([x])})))
+    (is (thrown-with-msg? IllegalArgumentException
+                          #"Invalid Plumatic Schema annotation"
+                          (sut/collect-schemas {:schema invalid-uuid-schema
+                                                :ns 'skeptic.schema.collect
+                                                :name 'invalid-uuid
+                                                :arglists '([x])})))))
+
 (deftest ns-schema-results-localizes-invalid-declarations
   (require 'skeptic.best-effort-examples)
   (let [{:keys [entries errors]} (sut/ns-schema-results {} 'skeptic.best-effort-examples)]

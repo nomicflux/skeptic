@@ -35,11 +35,13 @@
 
 (defn exception-error-summary
   [{:keys [phase blame exception-message]}]
-  (let [subject (if (= :declaration phase)
-                  (format "declared schema for %s" (pr-str blame))
+  (let [subject (case phase
+                  :declaration (format "declared schema for %s" (pr-str blame))
+                  :read (format "namespace input %s" (pr-str blame))
                   (format "expression %s" (colours/magenta (disp/ppr-str blame) true)))
         skip-text (case phase
                     :declaration "Skeptic skipped this declaration and continued with the rest of the namespace."
+                    :read "Skeptic localized this namespace read failure instead of aborting the namespace at the top level."
                     "Skeptic skipped this expression and continued with the rest of the namespace.")]
     (format "Skeptic hit an exception while checking %s.\n\n%s\n\n%s"
             subject

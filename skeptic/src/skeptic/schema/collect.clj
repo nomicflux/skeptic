@@ -76,6 +76,26 @@
       (conj (pop schemas) (schema-entry-schema (peek schemas)))
       schemas)))
 
+(defn- schema-desc-invalid-value
+  [desc]
+  (some (fn [value]
+          (when (and (some? value)
+                     (not (abc/schema? value)))
+            value))
+        (concat [(:schema desc)
+                 (:output desc)]
+                (keep :schema (vals (:arglists desc))))))
+
+(defn- validate-schema-desc
+  [ns name desc]
+  (if-let [invalid-value (schema-desc-invalid-value desc)]
+    (throw (IllegalArgumentException.
+            (format "Invalid Plumatic Schema annotation for %s/%s: %s"
+                    ns
+                    name
+                    (pr-str invalid-value))))
+    desc))
+
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
   (let [schema (abc/canonicalize-schema schema)]
@@ -85,36 +105,37 @@
                       ns
                       name
                       (pr-str schema)))))
-    (abc/canonicalize-entry
-     (if (or (class? schema) (set? schema) (vector? schema))
-       {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
-        :schema schema
-        :output schema
-        :arglists {}}
-       (let [{:keys [input-schemas output-schema]} (into {} schema)
-             inputs (count-map input-schemas)
-             args (arg-map arglists)
-             annotated-args (reduce
-                             (fn [acc next]
-                               (let [input (get inputs next)
-                                     arg (get args next)]
-                                 (assoc acc
-                                        next
-                                        (cond-> {:arglist arg}
-                                          (= next :varargs)
-                                          (assoc :count (:count arg)
-                                                 :arglist (:args arg)
-                                                 :schema (some-> (get inputs (:count arg))
-                                                                 normalize-vararg-input-schemas))
+    (->> (if (or (class? schema) (set? schema) (vector? schema))
+           {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
+            :schema schema
+            :output schema
+            :arglists {}}
+           (let [{:keys [input-schemas output-schema]} (into {} schema)
+                 inputs (count-map input-schemas)
+                 args (arg-map arglists)
+                 annotated-args (reduce
+                                 (fn [acc next]
+                                   (let [input (get inputs next)
+                                         arg (get args next)]
+                                     (assoc acc
+                                            next
+                                            (cond-> {:arglist arg}
+                                              (= next :varargs)
+                                              (assoc :count (:count arg)
+                                                     :arglist (:args arg)
+                                                     :schema (some-> (get inputs (:count arg))
+                                                                     normalize-vararg-input-schemas))
 
-                                          (not (nil? input))
-                                          (assoc :schema input)))))
-                             {}
-                             (keys args))]
-         {:name (str ns "/" name)
-          :schema schema
-          :output (or output-schema schema)
-          :arglists annotated-args})))))
+                                              (not (nil? input))
+                                              (assoc :schema input)))))
+                                 {}
+                                 (keys args))]
+             {:name (str ns "/" name)
+              :schema schema
+              :output (or output-schema schema)
+              :arglists annotated-args}))
+         abc/canonicalize-entry
+         (validate-schema-desc ns name))))
 
 (s/defn fully-qualify-str :- s/Symbol
   [f :- s/Str]
@@ -152,11 +173,12 @@
         arglists (when (and (:arglists m)
                             (not (:macro m)))
                    (dynamic-arglists (:arglists m)))]
-    (abc/canonicalize-entry
-     {:name (str qualified-sym)
-      :schema s/Any
-      :output s/Any
-      :arglists (or arglists {})})))
+    (->> {:name (str qualified-sym)
+          :schema s/Any
+          :output s/Any
+          :arglists (or arglists {})}
+         abc/canonicalize-entry
+         (validate-schema-desc (some-> qualified-sym namespace symbol) qualified-sym))))
 
 (defn var-schema-desc
   [v]
