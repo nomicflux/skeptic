@@ -566,11 +566,17 @@
   []
   "hi")
 
+(s/defschema PosInt 
+  (s/constrained s/Int pos?))
+
+(s/defschema NonEmptyStr
+  (s/constrained s/Str #(not= "" %)))
+
 (s/defschema HasA
-  {(s/required-key :a) s/Int})
+  {(s/required-key :a) PosInt})
 
 (s/defschema HasB
-  {(s/required-key :b) s/Str})
+  {(s/required-key :b) NonEmptyStr})
 
 (s/defschema HasAOrB
   (s/conditional #(contains? % :a) HasA
@@ -652,7 +658,6 @@
     (takes-has-a x)
     x))
 
-
 (s/defschema NestedHasAOrB
   {:m (s/maybe HasAOrB)})
 
@@ -660,17 +665,21 @@
   [{{:keys [a b]} :m} :- NestedHasAOrB]
   (or a b))
 
+(s/defn mk-nested-ab :- NestedHasAOrB
+  [ab]
+  {:m (when ab (mk-ab ab))})
+
 (s/defn mk-takes-a-or-b-success-int
   []
-  (takes-a-or-b {:m (mk-ab 1)}))
+  (takes-a-or-b (mk-nested-ab 1)))
 
 (s/defn mk-takes-a-or-b-success-str
   []
-  (takes-a-or-b {:m (mk-ab "hello")}))
+  (takes-a-or-b (mk-nested-ab "hello")))
 
 (s/defn mk-takes-a-or-b-success-nil
   []
-  (takes-a-or-b {:m nil}))
+  (takes-a-or-b (mk-nested-ab nil)))
 
 (s/defn mk-takes-a-or-b-failure-outer
   []
@@ -683,3 +692,47 @@
 (s/defn mk-takes-a-or-b-failure-inner-inner
   []
   (takes-a-or-b {:c {:a :nope}}))
+
+(s/defn self-test :- HasAOrB 
+  [x :- HasAOrB]
+  x)
+
+(s/defn conditional-test :- HasAOrB
+  [{:keys [a] :as x} :- HasAOrB]
+  (if a
+    x 
+    (self-test x)))
+
+(s/defn nested-self-test :- NestedHasAOrB
+  [x :- NestedHasAOrB]
+  x)
+
+(s/defn nested-conditional-test :- NestedHasAOrB
+  [{{:keys [a]} :m :as x}]
+  (cond-> x 
+    a 
+    (assoc x :a a)))
+
+(s/defn self-test-success 
+  []
+  (self-test (mk-ab 1)))
+
+(s/defn nested-self-test-success 
+  []
+  (nested-self-test (mk-nested-ab "hello")))
+
+(s/defn conditional-test-success-a
+  [] 
+  (conditional-test (mk-ab 1)))
+
+(s/defn conditional-test-success-b
+  [] 
+  (conditional-test (mk-ab "hello")))
+
+(s/defn nested-conditional-test-success-a
+  [] 
+  (nested-conditional-test (mk-nested-ab 1)))
+
+(s/defn nested-conditional-test-success-b
+  [] 
+  (nested-conditional-test (mk-nested-ab "hello")))

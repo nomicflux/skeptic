@@ -215,7 +215,17 @@
 
 (defn check-union-cast
   [check-cast source-type target-type polarity opts]
-  (if (at/union-type? target-type)
+  (cond
+    (and (at/union-type? source-type) (at/union-type? target-type))
+    (let [children (->> (:members source-type)
+                        (indexed-cast-requests :source-union-branch
+                                               #(cast-request % target-type opts))
+                        (run-cast-requests check-cast))]
+      (aggregate-all-children source-type target-type
+                              :source-union polarity
+                              :source-branch-failed children))
+
+    (at/union-type? target-type)
     (let [children (->> (:members target-type)
                         (indexed-cast-requests :target-union-branch
                                                #(cast-request source-type % opts))
@@ -223,6 +233,8 @@
       (if-let [success (some #(when (:ok? %) %) children)]
         (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
         (ascs/cast-fail source-type target-type :target-union polarity :no-union-branch children)))
+
+    :else
     (let [children (->> (:members source-type)
                         (indexed-cast-requests :source-union-branch
                                                #(cast-request % target-type opts))

@@ -16,7 +16,7 @@
        (at/bottom-type? source-type)
        (ascs/cast-ok source-type target-type :bottom-source)
 
-       (= source-type target-type)
+       (at/type-equal? source-type target-type)
        (ascs/cast-ok source-type target-type :exact)
 
        (or (at/forall-type? target-type)

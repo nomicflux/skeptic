@@ -782,7 +782,13 @@
    (are [f] (= [] (check-fn test-dict f))
      'skeptic.test-examples/mk-takes-a-or-b-success-int
      'skeptic.test-examples/mk-takes-a-or-b-success-str
-     'skeptic.test-examples/mk-takes-a-or-b-success-nil)
+     'skeptic.test-examples/mk-takes-a-or-b-success-nil
+     'skeptic.test-examples/self-test-success
+     'skeptic.test-examples/nested-self-test-success
+     'skeptic.test-examples/conditional-test-success-a
+     'skeptic.test-examples/conditional-test-success-b
+     'skeptic.test-examples/nested-conditional-test-success-a
+     'skeptic.test-examples/nested-conditional-test-success-b)
 
    (are [f blame] (single-failure? f blame)
      'skeptic.test-examples/mk-takes-a-or-b-failure-outer '(takes-a-or-b {:a :nope})

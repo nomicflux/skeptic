@@ -326,6 +326,49 @@
   [value]
   (known-semantic-type-tag? (semantic-type-tag value)))
 
+(defn- strip-runtime-closures
+  [t]
+  (cond
+    (not (semantic-type-value? t)) t
+
+    (refinement-type? t)
+    (-> t (dissoc :accepts?) (update :base strip-runtime-closures))
+
+    (adapter-leaf-type? t)
+    (dissoc t :accepts?)
+
+    (optional-key-type? t) (update t :inner strip-runtime-closures)
+    (maybe-type? t) (update t :inner strip-runtime-closures)
+    (var-type? t) (update t :inner strip-runtime-closures)
+    (value-type? t) (update t :inner strip-runtime-closures)
+    (forall-type? t) (update t :body strip-runtime-closures)
+    (sealed-dyn-type? t) (update t :ground strip-runtime-closures)
+
+    (union-type? t) (update t :members #(mapv strip-runtime-closures %))
+    (intersection-type? t) (update t :members #(mapv strip-runtime-closures %))
+    (vector-type? t) (update t :items #(mapv strip-runtime-closures %))
+    (seq-type? t) (update t :items #(mapv strip-runtime-closures %))
+    (set-type? t) (update t :members #(into #{} (map strip-runtime-closures) %))
+
+    (fn-method-type? t)
+    (-> t
+        (update :inputs #(mapv strip-runtime-closures %))
+        (update :output strip-runtime-closures))
+
+    (fun-type? t)
+    (update t :methods #(mapv strip-runtime-closures %))
+
+    (map-type? t)
+    (update t :entries
+            #(into {} (map (fn [[k v]] [(strip-runtime-closures k)
+                                        (strip-runtime-closures v)])) %))
+
+    :else t))
+
+(defn type-equal?
+  [a b]
+  (= (strip-runtime-closures a) (strip-runtime-closures b)))
+
 (defn placeholder-display-form
   [ref]
   (cond
