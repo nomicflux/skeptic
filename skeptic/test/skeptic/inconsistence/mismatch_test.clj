@@ -45,4 +45,4 @@
   (let [ctx {:expr '(f 1) :arg 1}]
     (is (str/includes? (sut/mismatched-nullable-msg ctx nil nil) "nullable"))
     (is (str/includes? (sut/mismatched-ground-type-msg ctx s/Str s/Int) "mismatched type"))
-    (is (str/includes? (sut/mismatched-schema-msg ctx s/Str s/Int) "expected Plumatic Schema"))))
+    (is (str/includes? (sut/mismatched-schema-msg ctx s/Str s/Int) "expected type"))))

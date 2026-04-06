@@ -24,7 +24,7 @@
 
                :else
                (throw (IllegalArgumentException.
-                       (format "Expected Skeptic-type-domain arg entry, got %s" (pr-str entry)))))
+                       (format "Expected type arg entry, got %s" (pr-str entry)))))
         type (some-> (:type base) ato/normalize-type)]
     {:type type
      :optional? (boolean (:optional? base))
@@ -61,7 +61,7 @@
 
                  :else
                  (throw (IllegalArgumentException.
-                         (format "Expected Skeptic-type-domain entry, got %s" (pr-str entry)))))
+                         (format "Expected type entry, got %s" (pr-str entry)))))
           type (some-> (:type base) ato/normalize-type)
           output-type (some-> (:output-type base) ato/normalize-type)
           arglists (some-> (:arglists base)

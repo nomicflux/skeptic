@@ -105,7 +105,7 @@
     (when (some? value)
       (when-not (abc/schema? value)
         (throw (IllegalArgumentException.
-                (format "Invalid Plumatic Schema annotation for %s/%s: %s"
+                (format "Invalid schema annotation for %s/%s: %s"
                         ns
                         name
                         (pr-str value))))))))

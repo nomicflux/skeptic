@@ -25,14 +25,14 @@
 
 (defn mismatched-output-schema-msg
   [{:keys [expr arg]} output-type expected-type]
-  (format "%s\n\tin\n\n%s\nhas inferred output type:\n\n%s\n\nbut the declared return Plumatic Schema expects:\n\n%s"
+  (format "%s\n\tin\n\n%s\nhas inferred output type:\n\n%s\n\nbut the declared return type expects:\n\n%s"
           (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
           (colours/yellow (describe-display-block output-type))
           (colours/yellow (describe-display-block expected-type))))
 
 (defn mismatched-schema-msg
   [{:keys [expr arg]} actual-type expected-type]
-  (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected Plumatic Schema:\n\n%s\n\nThe expected Plumatic Schema corresponds to:\n\n%s"
+  (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected type:\n\n%s\n\nThe expected type corresponds to:\n\n%s"
           (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
           (colours/yellow (describe-display-block actual-type))
           (colours/yellow (describe-display-block expected-type))))

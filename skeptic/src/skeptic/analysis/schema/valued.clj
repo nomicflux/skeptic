@@ -17,7 +17,7 @@
    [expected actual]
    (cond
      (sb/valued-schema? expected)
-     (throw (IllegalArgumentException. "Only actual can be a valued Plumatic Schema form"))
+     (throw (IllegalArgumentException. "Only actual can be a valued schema form"))
 
      (sb/valued-schema? actual)
      (let [v (:value actual)

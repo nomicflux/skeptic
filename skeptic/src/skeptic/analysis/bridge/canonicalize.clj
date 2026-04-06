@@ -12,7 +12,7 @@
   (let [value (abl/localize-value value)]
     (when (at/semantic-type-value? value)
       (throw (IllegalArgumentException.
-              (format "Expected Plumatic Schema-domain value: %s" (pr-str value)))))
+              (format "Expected schema value: %s" (pr-str value)))))
     value))
 
 (defn schema?

@@ -272,7 +272,7 @@
      (is (= '(int-add y nil) (:blame result)))
      (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error)))
      (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error))))
-     (is (or (str/includes? (strip-ansi error) "expected Plumatic Schema")
+     (is (or (str/includes? (strip-ansi error) "expected type")
              (str/includes? (strip-ansi error) "is nullable, but expected is not"))))))
 
 (deftest annotated-wrapper-regression
@@ -394,7 +394,7 @@
                                   results)
         count-error (-> count-result inrep/report-summary :errors first strip-ansi)
         rebuilt-error (-> rebuilt-user-result inrep/report-summary :errors first strip-ansi)]
-    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return Plumatic Schema\." count-error))
+    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return type\." count-error))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" count-error)))
     (is (str/includes? count-error "Str but expected Int"))
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \(get user :nickname\)\}" rebuilt-error))
@@ -410,7 +410,7 @@
                         %)
                      results)]
     (is (some? result))
-    (is (some #(str/includes? % "declared return Plumatic Schema") (:errors result)))
+    (is (some #(str/includes? % "declared return type") (:errors result)))
     (is (= 1 (count (:errors result))))
     (is (not-any? #(str/includes? % "[:user :name]") (:errors result)))
     (is (= [{:kind :map-key :key :user}

@@ -46,7 +46,7 @@
 
 (deftest collect-schemas-rejects-invalid-schema-annotations-early
   (is (thrown-with-msg? IllegalArgumentException
-                        #"Invalid Plumatic Schema annotation"
+                        #"Invalid schema annotation"
                         (sut/collect-schemas {:schema [(Object.)]
                                               :ns 'skeptic.schema.collect
                                               :name 'invalid
@@ -60,13 +60,13 @@
                                                         "123e4567-e89b-12d3-a456-426614174000")
                                                        'x)]])]
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Invalid Plumatic Schema annotation"
+                          #"Invalid schema annotation"
                           (sut/collect-schemas {:schema invalid-regex-schema
                                                 :ns 'skeptic.schema.collect
                                                 :name 'invalid-regex
                                                 :arglists '([x])})))
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Invalid Plumatic Schema annotation"
+                          #"Invalid schema annotation"
                           (sut/collect-schemas {:schema invalid-uuid-schema
                                                 :ns 'skeptic.schema.collect
                                                 :name 'invalid-uuid

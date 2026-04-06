@@ -143,7 +143,7 @@
                                   :source-type (ab/schema->type s/Keyword)
                                   :target-type (ab/schema->type s/Str)}]})]
     (is (= 1 (count (:errors summary))))
-    (is (some-> summary :errors first (.contains "declared return Plumatic Schema")))
+    (is (some-> summary :errors first (.contains "declared return type")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
     (is (some-> summary :errors first (.contains "[:name] has Keyword but expected Str")))
     (assert-no-ui-internals (first (:errors summary)))))
@@ -175,7 +175,7 @@
                                   :target-type (ab/schema->type s/Str)
                                   :path [{:kind :target-union-branch :index 1}]}]})]
     (is (= 1 (count (:errors summary))))
-    (is (some-> summary :errors first (.contains "expected Plumatic Schema")))
+    (is (some-> summary :errors first (.contains "expected type")))
     (is (some-> summary :errors first (.contains "Keyword does not match any of: Int, Str")))
     (assert-no-ui-internals (first (:errors summary)))))
 

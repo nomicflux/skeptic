@@ -74,13 +74,13 @@
 
 (deftest schema-to-type-rejects-semantic-type-input-test
   (is (thrown-with-msg? IllegalArgumentException
-                        #"Expected Plumatic Schema-domain value"
+                        #"Expected schema value"
                         (ab/schema->type (at/->GroundT :int 'Int)))))
 
 (deftest canonicalize-schema-rejects-semantic-type-input-test
   (let [semantic-type (at/->GroundT :int 'Int)]
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Expected Plumatic Schema-domain value"
+                          #"Expected schema value"
                           (abc/canonicalize-schema semantic-type)))))
 
 (deftest localize-and-strip-derived-types-test

@@ -72,7 +72,7 @@
 
     (is (not (:ok? unexpected)))
     (is (some #(= :unexpected-key (:reason %)) (:cast-results unexpected)))
-    (is (some #(str/includes? % "[:c] is not allowed by the expected Plumatic Schema") (:errors unexpected)))
+    (is (some #(str/includes? % "[:c] is not allowed by the expected type") (:errors unexpected)))
     (run! assert-no-ui-internals (concat (:errors missing)
                                          (:errors unexpected)))))
 

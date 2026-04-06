@@ -31,7 +31,7 @@
 
     :else
     (throw (IllegalArgumentException.
-            (format "Expected Skeptic-type-domain entry, got %s" (pr-str entry))))))
+            (format "Expected type entry, got %s" (pr-str entry))))))
 
 (defn root-origin
   [sym type]

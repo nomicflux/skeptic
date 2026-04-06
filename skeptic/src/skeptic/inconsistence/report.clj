@@ -20,7 +20,7 @@
 (defn input-summary-header
   [{:keys [blame] :as report}]
   (let [arg (focused-input-expr report)]
-    (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected Plumatic Schema:"
+    (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected type:"
             (colours/magenta (disp/ppr-str arg) true)
             (colours/magenta (disp/ppr-str blame)))))
 
@@ -83,7 +83,7 @@
   [{:keys [cast-result actual-type expected-type] :as report}]
   (let [actual-type (or (some-> cast-result :source-type) actual-type)
         expected-type (or (some-> cast-result :target-type) expected-type)]
-    (format "%s\n\n%s\n\nbut the declared return Plumatic Schema expects:\n\n%s"
+    (format "%s\n\n%s\n\nbut the declared return type expects:\n\n%s"
             (output-summary-headline report "has inferred output type:")
             (colours/yellow (disp/describe-type-block actual-type))
             (colours/yellow (disp/describe-type-block expected-type)))))
@@ -138,9 +138,9 @@
   (let [expected-type (or (some-> (primary-actionable-output-leaf report) :target-type)
                           (some-> cast-result :target-type)
                           expected-type)]
-    (format "%s\n\nDeclared return Plumatic Schema expects:\n\n%s"
+    (format "%s\n\nDeclared return type expects:\n\n%s"
             (output-summary-headline report
-                                     "has an output mismatch against the declared return Plumatic Schema.")
+                                     "has an output mismatch against the declared return type.")
             (colours/yellow (disp/describe-type-block expected-type)))))
 
 (defn rebuilt-leaf-errors

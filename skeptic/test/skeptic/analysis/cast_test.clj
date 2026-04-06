@@ -125,10 +125,10 @@
 (deftest schema-cast-adapter-rejects-semantic-inputs-test
   (let [check-cast (requiring-resolve 'skeptic.analysis.schema.cast/check-cast)]
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Expected Plumatic Schema-domain value"
+                          #"Expected schema value"
                           (check-cast (at/->GroundT :int 'Int) s/Int)))
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Expected Plumatic Schema-domain value"
+                          #"Expected schema value"
                           (check-cast s/Int (at/->GroundT :int 'Int))))))
 
 (deftest semantic-map-cast-regressions-test
