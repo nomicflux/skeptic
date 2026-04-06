@@ -51,75 +51,75 @@
                   {:source-schema schema}))
 
 (defn import-schema-type
+  "Input must already be in the schema domain (e.g. after declaration admission).
+  Localize + canonicalize are applied here for Var resolution and shape normalization."
   [schema]
-  (let [schema (abl/localize-value schema)]
-    (when-not (abc/schema? schema)
-      (throw (IllegalArgumentException.
-              (format "Expected Plumatic Schema-domain value: %s" (pr-str schema)))))
-    (let [schema (abc/canonicalize-schema schema)]
-      (cond
-        (nil? schema) (at/->MaybeT at/Dyn)
-        (= schema sb/Bottom) at/BottomType
-        (sb/placeholder-schema? schema) (at/->PlaceholderT (sb/placeholder-ref schema))
-        (broad-dynamic-schema? schema) at/Dyn
-        (instance? One schema) (import-schema-type (or (:schema (try (into {} schema)
-                                                                     (catch Exception _e {})))
-                                                       s/Any))
-        (sb/schema-literal? schema) (ato/exact-value-type schema)
-        (s/optional-key? schema) (at/->OptionalKeyT (import-schema-type (:k schema)))
-        (sb/eq? schema) (ato/exact-value-type (sb/de-eq schema))
-        (sb/constrained? schema) (refinement-import-type schema)
-        (primitive-ground-type schema) (primitive-ground-type schema)
+  (let [schema (abl/localize-value schema)
+        schema (abc/canonicalize-schema schema)]
+    (cond
+      (nil? schema) (at/->MaybeT at/Dyn)
+      (= schema sb/Bottom) at/BottomType
+      (sb/placeholder-schema? schema) (at/->PlaceholderT (sb/placeholder-ref schema))
+      (broad-dynamic-schema? schema) at/Dyn
+      (instance? One schema) (import-schema-type (:schema (into {} schema)))
+      (sb/schema-literal? schema) (ato/exact-value-type schema)
+      (s/optional-key? schema) (at/->OptionalKeyT (import-schema-type (:k schema)))
+      (sb/eq? schema) (ato/exact-value-type (sb/de-eq schema))
+      (sb/constrained? schema) (refinement-import-type schema)
+      (primitive-ground-type schema) (primitive-ground-type schema)
 
-        (sb/fn-schema? schema)
-        (let [{:keys [input-schemas output-schema]} (into {} schema)
-              output-type (import-schema-type output-schema)
-              methods (mapv (fn [inputs]
-                              (at/->FnMethodT (mapv (fn [one]
-                                                   (let [m (try (into {} one)
-                                                                (catch Exception _e {}))]
-                                                     (import-schema-type (or (:schema m) s/Any))))
-                                                 inputs)
-                                           output-type
-                                           (count inputs)
-                                           false))
-                            input-schemas)]
-          (at/->FunT methods))
+      (sb/fn-schema? schema)
+      (let [{:keys [input-schemas output-schema]} (into {} schema)
+            output-type (import-schema-type output-schema)
+            methods (mapv (fn [inputs]
+                            (at/->FnMethodT (mapv (fn [one]
+                                                    (import-schema-type
+                                                     (cond
+                                                       (instance? One one)
+                                                       (:schema (into {} one))
 
-        (sb/maybe? schema) (at/->MaybeT (import-schema-type (:schema schema)))
-        (sb/enum-schema? schema) (ato/union-type (map ato/exact-value-type (sb/de-enum schema)))
-        (sb/join? schema) (ato/union-type (map import-schema-type (:schemas schema)))
-        (sb/either? schema) (ato/union-type (map import-schema-type (:schemas schema)))
-        (sb/conditional-schema? schema) (ato/union-type (map (comp import-schema-type second) (:preds-and-schemas schema)))
-        (sb/cond-pre? schema) (ato/union-type (map import-schema-type (:schemas schema)))
-        (sb/both? schema) (ato/intersection-type (map import-schema-type (:schemas schema)))
-        (sb/valued-schema? schema) (at/->ValueT (import-schema-type (:schema schema)) (:value schema))
-        (sb/variable? schema) (at/->VarT (import-schema-type (:schema schema)))
+                                                       (and (map? one) (contains? one :schema))
+                                                       (:schema one)
 
-        (sb/plain-map-schema? schema)
-        (at/->MapT (into {}
-                       (map (fn [[k v]]
-                              [(import-schema-type k)
-                               (import-schema-type v)]))
-                       schema))
+                                                       :else
+                                                       one)))
+                                                  inputs)
+                                            output-type
+                                            (count inputs)
+                                            false))
+                          input-schemas)]
+        (at/->FunT methods))
 
-        (vector? schema)
-        (at/->VectorT (mapv import-schema-type schema) (= 1 (count schema)))
+      (sb/maybe? schema) (at/->MaybeT (import-schema-type (:schema schema)))
+      (sb/enum-schema? schema) (ato/union-type (map ato/exact-value-type (sb/de-enum schema)))
+      (sb/join? schema) (ato/union-type (map import-schema-type (:schemas schema)))
+      (sb/either? schema) (ato/union-type (map import-schema-type (:schemas schema)))
+      (sb/conditional-schema? schema) (ato/union-type (map (comp import-schema-type second) (:preds-and-schemas schema)))
+      (sb/cond-pre? schema) (ato/union-type (map import-schema-type (:schemas schema)))
+      (sb/both? schema) (ato/intersection-type (map import-schema-type (:schemas schema)))
+      (sb/valued-schema? schema) (at/->ValueT (import-schema-type (:schema schema)) (:value schema))
+      (sb/variable? schema) (at/->VarT (import-schema-type (:schema schema)))
 
-        (set? schema)
-        (at/->SetT (into #{} (map import-schema-type) schema) (= 1 (count schema)))
+      (sb/plain-map-schema? schema)
+      (at/->MapT (into {}
+                     (map (fn [[k v]]
+                            [(import-schema-type k)
+                             (import-schema-type v)]))
+                     schema))
 
-        (seq? schema)
-        (at/->SeqT (mapv import-schema-type schema) (= 1 (count schema)))
+      (vector? schema)
+      (at/->VectorT (mapv import-schema-type schema) (= 1 (count schema)))
 
-        :else
-        (adapter-leaf-import-type schema)))))
+      (set? schema)
+      (at/->SetT (into #{} (map import-schema-type) schema) (= 1 (count schema)))
+
+      (seq? schema)
+      (at/->SeqT (mapv import-schema-type schema) (= 1 (count schema)))
+
+      :else
+      (adapter-leaf-import-type schema))))
 
 (defn schema->type
+  "Input must be schema-domain (e.g. from admitted declarations)."
   [schema]
-  (let [schema (abl/localize-value schema)]
-    (when-not (abc/schema? schema)
-      (throw (IllegalArgumentException.
-              (format "Expected Plumatic Schema-domain value: %s"
-                      (pr-str schema)))))
-    (import-schema-type schema)))
+  (import-schema-type (abl/localize-value schema)))

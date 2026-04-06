@@ -9,8 +9,8 @@
    (sb/valued-schema schema value))
 
  (deftest valued-helper-public-api-test
-   (is (= 1 (sut/get-by-matching-schema {s/Symbol 1} clojure.lang.Symbol)))
-   (is (= 2 (sut/get-by-matching-schema {s/Int 2} java.lang.Integer)))
+   (is (= 1 (sut/get-by-matching-schema {s/Symbol 1} s/Symbol)))
+   (is (= 2 (sut/get-by-matching-schema {s/Int 2} s/Int)))
    (is (= 1 (sut/valued-get {:a 1 :b 2} :a)))
    (is (= 1 (sut/valued-get {:a 1 :b 2} (schema-or-value s/Keyword :a))))
    (is (= 2 (sut/valued-get {:a 1 s/Keyword 2} (schema-or-value s/Keyword :b))))

@@ -1,49 +1,43 @@
 (ns skeptic.analysis.schema.valued
   (:require [schema.core :as s]
-            [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.schema.map-ops :as asm]
             [skeptic.analysis.schema.value-check :as asv]
             [skeptic.analysis.schema-base :as sb]))
 
 (defn- same-form?
   [expected actual]
-  (= (abc/canonicalize-schema expected)
-     (abc/canonicalize-schema actual)))
+  (= expected actual))
 
  (defn matches-map
    [expected actual-k actual-v]
-   (let [expected (abc/canonicalize-schema expected)
-         actual-v (abc/canonicalize-schema actual-v)]
-     (when-let [expected-value (asm/map-get-schema expected actual-k)]
-       (asm/nested-value-compatible? expected-value actual-v))))
+   (when-let [expected-value (asm/map-get-schema expected actual-k)]
+     (asm/nested-value-compatible? expected-value actual-v)))
 
  (defn valued-compatible?
    [expected actual]
-   (let [expected (abc/canonicalize-schema expected)
-         actual (abc/canonicalize-schema actual)]
-     (cond
-       (sb/valued-schema? expected)
-       (throw (IllegalArgumentException. "Only actual can be a valued Plumatic Schema form"))
+   (cond
+     (sb/valued-schema? expected)
+     (throw (IllegalArgumentException. "Only actual can be a valued Plumatic Schema form"))
 
-       (sb/valued-schema? actual)
-       (let [v (:value actual)
-             s (:schema actual)
-             e (sb/de-maybe expected)]
-         (or (same-form? e v)
-             (same-form? e s)
-             (same-form? e (s/optional-key v))
-             (same-form? e (s/optional-key s))
-             (= (sb/check-if-schema e v) sb/plumatic-valid)))
+     (sb/valued-schema? actual)
+     (let [v (:value actual)
+           s (:schema actual)
+           e (sb/de-maybe expected)]
+       (or (same-form? e v)
+           (same-form? e s)
+           (same-form? e (s/optional-key v))
+           (same-form? e (s/optional-key s))
+           (= (sb/check-if-schema e v) sb/plumatic-valid)))
 
-       (or (same-form? expected actual)
-           (same-form? expected (s/optional-key actual))
-           (= (sb/check-if-schema expected actual) sb/plumatic-valid))
-       true
+     (or (same-form? expected actual)
+         (same-form? expected (s/optional-key actual))
+         (= (sb/check-if-schema expected actual) sb/plumatic-valid))
+     true
 
-       (and (map? expected) (map? actual))
-       (every? (fn [[k v]] (matches-map expected k v)) actual)
+     (and (map? expected) (map? actual))
+     (every? (fn [[k v]] (matches-map expected k v)) actual)
 
-       :else false)))
+     :else false))
 
  (defn get-by-matching-schema
    [m k]
@@ -64,10 +58,9 @@
                   (map (fn [key]
                          (let [value (get schema key)]
                            (map (fn [expanded-key]
-                                  {expanded-key (if (and (abc/schema? expanded-key)
-                                                         (sb/valued-schema? value))
-                                                  (:schema value)
-                                                  value)})
+                                  {expanded-key (if (sb/valued-schema? value)
+                                                 (:schema value)
+                                                 value)})
                                 (schema-values key)))))
                   sb/all-pairs
                   (map (partial into {}))))

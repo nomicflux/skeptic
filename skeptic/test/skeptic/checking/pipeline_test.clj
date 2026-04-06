@@ -622,6 +622,28 @@
     (is (nil? stray-form-result))
     (is (= 1 (count results)))))
 
+(deftest check-namespace-full-flow-localizes-declaration-errors
+  (let [results (sut/check-namespace {:remove-context true}
+                                     'skeptic.best-effort-examples
+                                     best-effort-file)
+        declaration-errors (filterv #(= :declaration (:phase %)) results)
+        expression-results (filterv #(not= :declaration (:phase %)) results)]
+    (is (= 1 (count declaration-errors)))
+    (is (= :exception (:report-kind (first declaration-errors))))
+    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
+           (:blame (first declaration-errors))))
+    (is (zero? (count expression-results)))))
+
+(deftest check-namespace-localizes-load-failure
+  (let [results (sut/check-namespace {}
+                                     'skeptic.nonexistent.namespace.that.does.not.exist
+                                     (File. "nonexistent.clj"))]
+    (is (= 1 (count results)))
+    (is (= :exception (:report-kind (first results))))
+    (is (= :load (:phase (first results))))
+    (is (= 'skeptic.nonexistent.namespace.that.does.not.exist
+           (:namespace (first results))))))
+
 (deftest check-ns-localizes-expression-exceptions-and-continues
   (let [real-analyze sut/analyze-source-exprs
         exprs (vec (sut/ns-exprs test-file))

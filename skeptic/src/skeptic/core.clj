@@ -7,10 +7,8 @@
             [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
-            [clojure.stacktrace :as stacktrace]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotation :as aa]
-            [skeptic.typed-decls :as typed-decls]
             [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]))
 
 (defn format-location
@@ -137,43 +135,30 @@
     (when verbose (println "Namespaces to check: " (pr-str (keys nss))))
     (let [errored (atom false)]
       (doseq [[ns source-file] nss]
-       (require ns)
-       (when verbose (println "*** Checking" ns "***"))
-       ;; (pprint/pprint (checking/annotate-ns ns))
-       (try
-         (let [{:keys [entries errors]} (typed-decls/typed-ns-results opts ns)]
-           ;(when verbose
-           ;  (println "Typed declaration dictionary:")
-           ;  (pprint/pprint dict))
-	         (when analyzer
-	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-	         (doseq [result (concat errors
-                                  (checking/check-ns entries ns source-file opts))]
-	           (println "---------")
-	           (let [{:keys [path context]} result
-	                 summary (inrep/report-summary result)]
-	             (println (colours/white (str "Namespace: \t\t" ns) true))
-	             (doseq [[label value] (report-fields summary verbose)]
-	               (print-report-field label value))
-	             (when (and verbose path)
-	               (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
-               (when show-context
-               (println "Context:")
-                 (doseq [[k {:keys [type resolution-path]}] (:local-vars context)]
-                   (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str type))))
-                   (doseq [{:keys [expr type]} resolution-path]
-                     (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str type))))))
-                 (doseq [{:keys [expr type]} (:refs context)]
-                   (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str type))))))
-	             (doseq [error (:errors summary)]
-	               (reset! errored true)
-	               (println "---")
-	               (println error "\n")))))
-         (catch Exception e
-           (println (colours/white (str "Namespace: \t\t" ns) true))
-           (println (colours/red (str "Error parsing namespace " ns ": " e) true))
-           (when verbose
-             (println (stacktrace/print-stack-trace e))))))
+        (when verbose (println "*** Checking" ns "***"))
+        (doseq [result (checking/check-namespace opts ns source-file)]
+          (println "---------")
+          (let [{:keys [path context]} result
+                summary (inrep/report-summary result)]
+            (println (colours/white (str "Namespace: \t\t" ns) true))
+            (doseq [[label value] (report-fields summary verbose)]
+              (print-report-field label value))
+            (when (and verbose path)
+              (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
+            (when show-context
+              (println "Context:")
+              (doseq [[k {:keys [type resolution-path]}] (:local-vars context)]
+                (println (str "\t" (colours/blue (pr-str k) true) ": " (colours/green (pr-str type))))
+                (doseq [{:keys [expr type]} resolution-path]
+                  (println (str "\t\t=> " (colours/blue (pr-str (aa/unannotate-expr expr)) true) ": " (colours/green (pr-str type))))))
+              (doseq [{:keys [expr type]} (:refs context)]
+                (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true) " <- " (colours/green (pr-str type))))))
+            (doseq [error (:errors summary)]
+              (reset! errored true)
+              (println "---")
+              (println error "\n"))))
+        (when (and verbose analyzer (find-ns ns))
+          (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns)))))
       (if @errored
         1
         (do (println "No inconsistencies found")

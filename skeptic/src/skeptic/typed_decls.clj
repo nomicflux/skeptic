@@ -17,27 +17,26 @@
     :else
     (symbol (str "arg" idx))))
 
+(defn- admitted-arg-map
+  [one]
+  (if (map? one)
+    one
+    (into {} one)))
+
 (defn one->typed-arg-entry
   [idx one]
-  (let [m (if (map? one)
-            one
-            (try (into {} one)
-                 (catch Exception _e {})))
-        raw-type (or (:schema m) one s/Any)]
+  (let [m (admitted-arg-map one)]
     {:name (or (:name m) (raw-arg-name idx nil))
      :optional? (boolean (:optional? m))
-     :type (ab/schema->type raw-type)}))
+     :type (ab/schema->type (:schema m))}))
 
 (defn arglist->typed-entry
   [entry]
   (let [schemas (vec (or (:schema entry) []))
         arglist (:arglist entry)
-        types (mapv (fn [idx schema]
-                      (let [typed-entry (one->typed-arg-entry idx schema)
-                            m (if (map? schema)
-                                schema
-                                (try (into {} schema)
-                                     (catch Exception _e {})))
+        types (mapv (fn [idx schema-item]
+                      (let [typed-entry (one->typed-arg-entry idx schema-item)
+                            m (admitted-arg-map schema-item)
                             arg-name (or (:name m)
                                          (raw-arg-name idx (nth arglist idx nil)))]
                         (assoc typed-entry :name arg-name)))

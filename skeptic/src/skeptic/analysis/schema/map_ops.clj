@@ -6,8 +6,7 @@
 
 (defn- same-form?
   [expected actual]
-  (= (abc/canonicalize-schema expected)
-     (abc/canonicalize-schema actual)))
+  (= expected actual))
 
 (defn- lookup-key
   [key]
@@ -37,7 +36,7 @@
 
 (defn- candidate-entries
   [entries key]
-  (let [key (abc/canonicalize-schema (lookup-key key))
+  (let [key (lookup-key key)
         exact-candidates (->> entries
                               (filter (fn [[entry-key _entry-value]]
                                         (and (exact-entry-key? entry-key)
@@ -53,13 +52,12 @@
 
 (defn nested-value-compatible?
   [expected actual]
-  (let [actual (abc/canonicalize-schema actual)]
-    (if (sb/valued-schema? actual)
-      (or (nested-value-compatible? expected (:value actual))
-          (nested-value-compatible? expected (:schema actual)))
-      (or (same-form? expected actual)
-          (same-form? expected (s/optional-key actual))
-          (= (sb/check-if-schema expected actual) sb/plumatic-valid)))))
+  (if (sb/valued-schema? actual)
+    (or (nested-value-compatible? expected (:value actual))
+        (nested-value-compatible? expected (:schema actual)))
+    (or (same-form? expected actual)
+        (same-form? expected (s/optional-key actual))
+        (= (sb/check-if-schema expected actual) sb/plumatic-valid))))
 
 (def no-default ::no-default)
 
@@ -67,10 +65,8 @@
   ([m key]
    (map-get-schema m key no-default))
   ([m key default]
-   (let [m (abc/canonicalize-schema m)
-         default-provided? (not= default no-default)
-         default-schema (when default-provided?
-                          (abc/canonicalize-schema default))]
+   (let [default-provided? (not= default no-default)
+         default-schema (when default-provided? default)]
      (cond
        (sb/maybe? m)
        (abc/schema-join
@@ -102,7 +98,6 @@
 
 (defn merge-map-schemas
   [schemas]
-  (let [schemas (mapv abc/canonicalize-schema schemas)]
-    (if (every? sb/plain-map-schema? schemas)
-      (reduce merge {} schemas)
-      s/Any)))
+  (if (every? sb/plain-map-schema? schemas)
+    (reduce merge {} schemas)
+    s/Any))

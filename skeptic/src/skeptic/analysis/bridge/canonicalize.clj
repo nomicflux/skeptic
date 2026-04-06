@@ -88,11 +88,7 @@
 
 (defn schema-display-form
   [schema]
-  (let [schema (canonicalize-schema schema)]
-    (when-not (schema? schema)
-      (throw (IllegalArgumentException.
-              (format "Not a valid Plumatic Schema-domain value: %s" (pr-str schema)))))
-    (schema-explain schema)))
+  (schema-explain schema))
 
 (defn canonicalize-one
   [one]
@@ -270,41 +266,38 @@
 
 (defn maybe-schema
   [schema]
-  (let [schema (canonicalize-schema schema)]
-    (if (sb/maybe? schema)
-      schema
-      (s/maybe schema))))
+  (if (sb/maybe? schema)
+    schema
+    (s/maybe schema)))
 
 (defn semantic-value-schema
   [schema]
-  (let [schema (canonicalize-schema schema)]
-    (cond
-      (sb/placeholder-schema? schema) schema
-      (sb/valued-schema? schema) (semantic-value-schema (:schema schema))
-      (sb/maybe? schema) (s/maybe (semantic-value-schema (:schema schema)))
-      (sb/join? schema) (schema-join (set (map semantic-value-schema (:schemas schema))))
-      (sb/variable? schema) (sb/variable (semantic-value-schema (:schema schema)))
-      (sb/plain-map-schema? schema) (into {}
-                                     (map (fn [[k v]]
-                                            [(semantic-value-schema k)
-                                             (semantic-value-schema v)]))
-                                     schema)
-      (vector? schema) (mapv semantic-value-schema schema)
-      (set? schema) (into #{} (map semantic-value-schema) schema)
-      (seq? schema) (doall (map semantic-value-schema schema))
-      :else schema)))
+  (cond
+    (sb/placeholder-schema? schema) schema
+    (sb/valued-schema? schema) (semantic-value-schema (:schema schema))
+    (sb/maybe? schema) (s/maybe (semantic-value-schema (:schema schema)))
+    (sb/join? schema) (schema-join (set (map semantic-value-schema (:schemas schema))))
+    (sb/variable? schema) (sb/variable (semantic-value-schema (:schema schema)))
+    (sb/plain-map-schema? schema) (into {}
+                                   (map (fn [[k v]]
+                                          [(semantic-value-schema k)
+                                           (semantic-value-schema v)]))
+                                   schema)
+    (vector? schema) (mapv semantic-value-schema schema)
+    (set? schema) (into #{} (map semantic-value-schema) schema)
+    (seq? schema) (doall (map semantic-value-schema schema))
+    :else schema))
 
 (defn union-like-branches
   [schema]
-  (let [schema (canonicalize-schema schema)]
-    (cond
-      (sb/join? schema) (set (:schemas schema))
-      (sb/either? schema) (set (:schemas schema))
-      (sb/cond-pre? schema) (set (:schemas schema))
-      (sb/conditional-schema? schema) (->> (:preds-and-schemas schema)
-                                        (map second)
-                                        set)
-      :else nil)))
+  (cond
+    (sb/join? schema) (set (:schemas schema))
+    (sb/either? schema) (set (:schemas schema))
+    (sb/cond-pre? schema) (set (:schemas schema))
+    (sb/conditional-schema? schema) (->> (:preds-and-schemas schema)
+                                         (map second)
+                                         set)
+    :else nil))
 
 (defn union-like-join
   [schema]
@@ -313,6 +306,5 @@
 
 (defn both-components
   [schema]
-  (when-let [schema (and (sb/both? schema)
-                         (canonicalize-schema schema))]
+  (when (sb/both? schema)
     (set (:schemas schema))))

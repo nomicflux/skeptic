@@ -292,19 +292,28 @@
 (deftest check-project-localizes-lazy-form-exceptions
   (require 'skeptic.check-project-best-effort-examples)
   (let [real-check-resolved-form checking/check-resolved-form
-        root (.getCanonicalPath (io/file "."))
-        output (with-out-str
-                 (with-redefs [checking/check-resolved-form
-                               (fn [dict ns-sym source-form analyzed opts]
-                                 (if (= 'exploding-form (second source-form))
-                                   (map (fn [_]
-                                          (throw (ex-info "boom during realization" {})))
-                                        [::explode])
-                                   (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
-                   (is (= 1 (sut/check-project {:namespace "skeptic.check-project-best-effort-examples"
-                                                :verbose true}
-                                               root
-                                               "test")))))]
-    (is (str/includes? output "boom during realization"))
-    (is (str/includes? output "skeptic.check-project-best-effort-examples/later-mismatch"))
-    (is (not (str/includes? output "Error parsing namespace skeptic.check-project-best-effort-examples")))))
+        source-file (java.io.File. "test/skeptic/check_project_best_effort_examples.clj")]
+    (with-redefs [checking/check-resolved-form
+                  (fn [dict ns-sym source-form analyzed opts]
+                    (if (= 'exploding-form (second source-form))
+                      (map (fn [_]
+                             (throw (ex-info "boom during realization" {})))
+                           [::explode])
+                      (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
+      (let [results (checking/check-namespace {:remove-context true}
+                                              'skeptic.check-project-best-effort-examples
+                                              source-file)
+            exception-result (some #(when (= :expression (:phase %)) %) results)
+            mismatch-result (some #(when (= 'skeptic.check-project-best-effort-examples/later-mismatch
+                                            (:enclosing-form %))
+                                     %)
+                                  results)]
+        (is (some? exception-result)
+            "The exploding form should produce a localized expression exception")
+        (is (= "boom during realization" (:exception-message exception-result)))
+        (is (= 'skeptic.check-project-best-effort-examples/exploding-form
+               (:enclosing-form exception-result)))
+        (is (some? mismatch-result)
+            "The later mismatch should still be found after the exception")
+        (is (seq (:errors mismatch-result))
+            "The later mismatch should have actual errors")))))

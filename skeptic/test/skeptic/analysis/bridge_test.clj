@@ -81,10 +81,7 @@
   (let [semantic-type (at/->GroundT :int 'Int)]
     (is (thrown-with-msg? IllegalArgumentException
                           #"Expected Plumatic Schema-domain value"
-                          (abc/canonicalize-schema semantic-type)))
-    (is (thrown-with-msg? IllegalArgumentException
-                          #"Expected Plumatic Schema-domain value"
-                          (abc/schema-display-form semantic-type)))))
+                          (abc/canonicalize-schema semantic-type)))))
 
 (deftest localize-and-strip-derived-types-test
   (let [type-var (at/->TypeVarT 'X)

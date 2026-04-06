@@ -10,7 +10,8 @@
             [skeptic.checking.form :as cf]
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
-            [skeptic.inconsistence.report :as inrep])
+            [skeptic.inconsistence.report :as inrep]
+            [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
 (defn analyzed-def-entry
@@ -328,3 +329,27 @@
             :form (recur (into results
                                (check-ns-form dict ns source-file form opts)))
             :read-error (conj results (read-exception-result source-file exception))))))))
+
+(defn load-exception-result
+  [ns-sym e]
+  {:report-kind :exception
+   :phase :load
+   :blame ns-sym
+   :enclosing-form ns-sym
+   :namespace ns-sym
+   :location {}
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage e)
+                          (str e))})
+
+(defn check-namespace
+  "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
+  (typed declarations and form checking). Returns a vector of localized result maps."
+  [opts ns-sym source-file]
+  (try
+    (require ns-sym)
+    (let [{:keys [entries errors]} (typed-decls/typed-ns-results opts ns-sym)
+          check-results (check-ns entries ns-sym source-file opts)]
+      (vec (concat errors check-results)))
+    (catch Exception e
+      [(load-exception-result ns-sym e)])))
