@@ -1,13 +1,12 @@
 (ns skeptic.analysis.map-ops
   (:require [clojure.set :as set]
-            [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn- check-cast'
-  ([a b] ((requiring-resolve 'skeptic.analysis.schema/check-cast) a b))
-  ([a b opts] ((requiring-resolve 'skeptic.analysis.schema/check-cast) a b opts)))
+  ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
+  ([a b opts] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b opts)))
 
 (defn- value-satisfies-type?'
   [value type]
@@ -19,9 +18,7 @@
 
 (defn- as-type
   [value]
-  (-> value
-      abl/localize-schema-value
-      ato/normalize-type))
+  (ato/normalize-type value))
 
 (defn finite-exact-key-values
   [type]
@@ -60,7 +57,7 @@
   ([type source-form]
    {map-key-query-tag true
     :kind :domain
-    :type (as-type type)
+    :type (ato/coerce-boundary-type type)
     :source-form source-form}))
 
 (defn exact-key-query?
@@ -72,7 +69,9 @@
   ([key]
    (map-key-query key nil))
   ([key source-form]
-   (let [key (abl/localize-schema-value key)]
+   (let [key (if (map-key-query? key)
+               key
+               (ato/coerce-boundary-type key))]
      (cond
        (map-key-query? key)
        (if (exact-key-query? key)
@@ -139,7 +138,7 @@
                  descriptor
                  (descriptor-entry entry-key
                                    entry-value
-                                   :extra-schema)))))
+                                   :domain-entry)))))
           {:entries entries
            :required-exact {}
            :optional-exact {}

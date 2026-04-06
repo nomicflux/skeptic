@@ -112,12 +112,12 @@
                           {:actual-key (:key source-entry)})]
       (run-candidate-casts check-cast requests))))
 
-(defn expand-schema-domain-entry
+(defn expand-domain-entry
   [source-entry]
   (let [source-key-type (:inner-key-type source-entry)]
     (if (at/union-type? source-key-type)
       (mapcat (fn [member]
-                (expand-schema-domain-entry
+                (expand-domain-entry
                   (assoc source-entry
                          :key member
                          :key-type member
@@ -126,7 +126,7 @@
               (:members source-key-type))
       [source-entry])))
 
-(defn plan-schema-domain-entry-casts
+(defn plan-domain-entry-casts
   [source-entry target-domain-entries opts]
   (let [source-key-type (:inner-key-type source-entry)
         target-candidates (->> target-domain-entries
@@ -140,12 +140,12 @@
                                          opts))
                      target-candidates)}))
 
-(defn schema-domain-entry-cast-results
+(defn domain-entry-cast-results
   [check-cast source-type target-type source-entry target-domain-entries opts]
   (mapcat (fn [entry]
             (let [source-key-type (:inner-key-type entry)
                   {:keys [target-candidates requests]}
-                  (plan-schema-domain-entry-casts entry target-domain-entries opts)]
+                  (plan-domain-entry-casts entry target-domain-entries opts)]
               (if (empty? target-candidates)
                 [(ascs/cast-fail source-type
                                  target-type
@@ -156,7 +156,7 @@
                                  {:actual-key (:key entry)
                                   :source-key-domain source-key-type})]
                 (run-candidate-casts check-cast requests))))
-          (expand-schema-domain-entry source-entry)))
+          (expand-domain-entry source-entry)))
 
 (defn map-cast-children
   [check-cast source-type target-type opts]
@@ -187,12 +187,12 @@
                                                   target-domain-entries
                                                   opts)
                 source-extra-exact-entries)
-        (mapcat #(schema-domain-entry-cast-results check-cast
-                                                   source-type
-                                                   target-type
-                                                   %
-                                                   target-domain-entries
-                                                   opts)
+        (mapcat #(domain-entry-cast-results check-cast
+                                            source-type
+                                            target-type
+                                            %
+                                            target-domain-entries
+                                            opts)
                 source-domain-entries)))))
 
 (defn check-map-cast

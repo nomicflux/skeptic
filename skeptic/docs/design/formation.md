@@ -64,7 +64,7 @@ No new dependencies are added to either `project.clj`.
 - Add `["-p" "--profile" "Profile the run (CPU, memory, wall-clock time)"]` to `cli-options`
 - Change the eval-in-project form from:
   ```clojure
-  `(skeptic.core/get-project-schemas ~opts ~(:root project) ~@paths)
+  `(skeptic.core/check-project ~opts ~(:root project) ~@paths)
   ```
   to:
   ```clojure
@@ -90,10 +90,10 @@ No new dependencies are added to either `project.clj`.
 **Responsibility:** Project analysis entry point.
 
 **Changes:**
-- Extract the body of `get-project-schemas` into a new function `check-project` with the same signature. `check-project` returns `0` (no errors) or `1` (errors found) instead of calling `System/exit`.
-- Redefine `get-project-schemas` as:
+- Extract the body of `check-project` into a new function `check-project` with the same signature. `check-project` returns `0` (no errors) or `1` (errors found) instead of calling `System/exit`.
+- Redefine `check-project` as:
   ```clojure
-  (defn get-project-schemas [opts root & paths]
+  (defn check-project [opts root & paths]
     (System/exit (apply check-project opts root paths)))
   ```
   This preserves backward compatibility.

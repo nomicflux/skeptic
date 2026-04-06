@@ -82,7 +82,7 @@ opts map (:profile flag)
 
 3. **Start the recording**: Begin capturing events. Must happen before the analysis work begins.
 
-4. **Run the analysis**: Call `get-project-schemas` (or equivalent entry point) normally. The analysis is unaware of the profiler.
+4. **Run the analysis**: Call `check-project` (or equivalent entry point) normally. The analysis is unaware of the profiler.
 
 5. **Stop the recording**: End event capture. Must happen after analysis completes. Must be in a `finally` block so exceptions don't lose captured data.
 
@@ -102,7 +102,7 @@ opts map (:profile flag)
 
 ### Normal flow (no `-p`):
 ```
-CLI parse -> opts (no :profile) -> eval-in-project -> get-project-schemas -> output -> System/exit
+CLI parse -> opts (no :profile) -> eval-in-project -> check-project -> output -> System/exit
 ```
 Identical to today. Zero profiling code executed.
 
@@ -111,7 +111,7 @@ Identical to today. Zero profiling code executed.
 CLI parse -> opts {:profile true} -> eval-in-project ->
   profiling wrapper:
     1. Create & start Recording
-    2. try: get-project-schemas (normal output)
+    2. try: check-project (normal output)
        finally:
          3. Stop Recording
          4. Dump .jfr to target/skeptic-profile.jfr
@@ -140,7 +140,7 @@ CLI parse -> opts {:profile true} -> eval-in-project ->
 
 2. **JFR "profile" preset details**: The exact sampling interval and allocation threshold in JFR's built-in "profile" configuration may vary across JDK versions. We rely on the JDK's defaults being reasonable. If tuning is needed, it becomes future work.
 
-3. **`System/exit` sequencing**: Currently `get-project-schemas` calls `System/exit` directly. The profiling wrapper needs to either intercept this or restructure the call so that profiling cleanup happens before exit. The exact mechanism is an architectural decision for Stage 3.
+3. **`System/exit` sequencing**: Currently `check-project` calls `System/exit` directly. The profiling wrapper needs to either intercept this or restructure the call so that profiling cleanup happens before exit. The exact mechanism is an architectural decision for Stage 3.
 
 ## Dependencies Between Concepts
 
@@ -155,7 +155,7 @@ CLI parse -> opts {:profile true} -> eval-in-project ->
 ## Open Questions for Next Stage
 
 1. Where should the profiling namespace live? (`skeptic.profiling`? `skeptic.profile`? Other?)
-2. How to handle the `System/exit` sequencing — does the profiling wrapper replace the direct call, or does `get-project-schemas` gain a return value instead of exiting?
+2. How to handle the `System/exit` sequencing — does the profiling wrapper replace the direct call, or does `check-project` gain a return value instead of exiting?
 3. Exactly which JFR configuration to use — the "profile" preset or custom event settings?
 4. Should the profiling namespace be a dependency of lein-skeptic only, or available as a general utility in skeptic's public API?
 

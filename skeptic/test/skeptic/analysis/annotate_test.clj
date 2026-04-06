@@ -112,7 +112,7 @@
       (is (= :map (:op (atst/child-projection map-form :body))))
       (is (= :set (:op (atst/child-projection set-form :body)))))))
 
-(deftest schema-binding-and-flow-test
+(deftest typed-binding-and-flow-test
   (testing "let-driven flow"
     (let [empty-let (atst/project-ast (atst/analyze-form '(let [] (skeptic.test-examples/int-add 1 2))))
           bound-let (atst/project-ast (atst/analyze-form '(let [x (skeptic.test-examples/int-add 1 2)]
@@ -120,8 +120,8 @@
       (is (= (atst/T s/Int) (:type empty-let)))
       (is (= (atst/T s/Int) (:type bound-let))))))
 
-(deftest schema-functions-and-defs-test
-  (testing "anonymous and named fn schemas"
+(deftest typed-functions-and-defs-test
+  (testing "anonymous and named typed fns"
     (let [anon-fn (atst/project-ast (atst/analyze-form '(fn [x] x)))
           named-fn (atst/project-ast (atst/analyze-form atst/sample-dict
                                               '(fn [x] x)
@@ -168,7 +168,7 @@
              (:output-type (atst/child-projection (atst/child-projection typed-defn :init) :expr))))
       (is (= (atst/T s/Int) (:type do-form))))))
 
-(deftest schema-try-and-throw-test
+(deftest typed-try-and-throw-test
   (testing "try with throwing catch preserves body result"
     (let [root (atst/project-ast (atst/analyze-form '(try
                                              (skeptic.test-examples/int-add 1 2)
@@ -221,7 +221,7 @@
       (is (at/var-type? (:type root)))
       (is (atst/find-projected-node root #(= '(f x) (:form %))))))
 
-  (testing "doto expansion keeps literal map schema"
+  (testing "doto expansion keeps literal Plumatic map schema"
     (let [root (atst/project-ast (atst/analyze-form '(doto (make-component {:a 1 :b 2})
                                              (start {:opt1 true}))))]
       (is (= :let (:op root)))
@@ -404,31 +404,31 @@
       (is (= :const (:op root)))
       (is (at/map-type? (:type root))))))
 
-(deftest attach-schema-info-let-test
-  (testing "original empty let schema setup"
+(deftest attach-type-info-let-test
+  (testing "original empty let typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(let [] (skeptic.test-examples/int-add 1 2))))]
       (is (= (atst/T s/Int) (:type root)))))
-  (testing "original bound let schema setup"
+  (testing "original bound let typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(let [x (skeptic.test-examples/int-add 1 2)]
                                              (skeptic.test-examples/int-add x 2))))]
       (is (= :let (:op root)))
       (is (= (atst/T s/Int) (:type root))))))
 
-(deftest attach-schema-info-fn-test
+(deftest attach-type-info-fn-test
   (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                         '(fn [x] (skeptic.test-examples/int-add 1 2))))]
     (is (= :fn (:op root)))
     (is (= (atst/T s/Int) (:output-type root)))
     (is (= [(atst/T s/Any)] (atst/arglist-types root 1)))))
 
-(deftest attach-schema-info-def-test
-  (testing "original def schema setup"
+(deftest attach-type-info-def-test
+  (testing "original def typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(def n 5)))]
       (is (= (at/->VarT (atst/T s/Int)) (:type root)))))
-  (testing "original defn schema setup"
+  (testing "original defn typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(defn f [x y]
                                              (println "something")
@@ -437,7 +437,7 @@
       (is (= (atst/T s/Int)
              (:output-type (atst/child-projection (atst/child-projection root :init) :expr)))))
     )
-  (testing "original typed defn schema setup"
+  (testing "original typed defn setup"
     (let [root (atst/project-ast (atst/analyze-form atst/sample-dict
                                           '(defn f [y z]
                                              (println y)
@@ -447,7 +447,7 @@
              (:output-type (atst/child-projection (atst/child-projection root :init) :expr))))))
   )
 
-(deftest attach-schema-info-do-test
+(deftest attach-type-info-do-test
   (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                         '(do
                                            (println "something")
@@ -455,8 +455,8 @@
     (is (= :do (:op root)))
     (is (= (atst/T s/Int) (:type root)))))
 
-(deftest attach-schema-info-try-throw-test
-  (testing "original try/throw schema setup"
+(deftest attach-type-info-try-throw-test
+  (testing "original try/throw typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(try
                                              (skeptic.test-examples/int-add 1 2)
@@ -465,7 +465,7 @@
       (is (= (atst/T s/Int) (:type root)))
       (is (= at/BottomType
              (:type (atst/find-projected-node root #(= '(throw e) (:form %))))))))
-  (testing "original try/catch/finally schema setup"
+  (testing "original try/catch/finally typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(try
                                              (clojure.core/str "hello")
@@ -480,7 +480,7 @@
       (is (= :do (:op (atst/child-projection root :finally))))
       (is (atst/find-projected-node root #(= '(println "oops") (:form %)))))))
 
-(deftest attach-schema-info-misc-tests
+(deftest attach-type-info-misc-tests
   (testing "original nested bad fn setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                           '(defn sample-bad-fn
@@ -565,9 +565,16 @@
                                                      (skeptic.test-examples/int-add x y))))
         init-expr (atst/child-projection (atst/child-projection root :init) :expr)
         method (first (atst/child-projection init-expr :methods))]
-    (is (not-any? #(contains? init-expr %)
-                  [:schema :output :fn-schema :actual-arglist :expected-arglist]))
-    (is (not-any? #(contains? method %)
-                  [:schema :output :fn-schema :actual-arglist :expected-arglist]))
+    (is (contains? init-expr :type))
+    (is (contains? init-expr :output-type))
+    (is (not (contains? init-expr :schema)))
+    (is (not (contains? init-expr :output)))
+    (is (not (contains? init-expr :expected-arglist)))
+    (is (not (contains? init-expr :actual-arglist)))
+    (is (contains? method :type))
+    (is (not (contains? method :schema)))
+    (is (not (contains? method :output)))
+    (is (not (contains? method :expected-arglist)))
+    (is (not (contains? method :actual-arglist)))
     (is (contains? method :param-specs))
-    (is (not (contains? method :arg-schema)))))
+    (is (vector? (:param-specs method)))))

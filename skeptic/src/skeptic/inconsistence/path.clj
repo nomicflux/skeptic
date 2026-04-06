@@ -148,8 +148,8 @@
         exact-key (disp/exact-key-form actual-key)
         key-text (key-description actual-key)
         suffix (if (= report-kind :output)
-                 "not allowed by the declared schema"
-                 "not allowed by the expected schema")]
+                 "not allowed by the declared Plumatic Schema"
+                 "not allowed by the expected Plumatic Schema")]
     (cond
       path-text (str path-text " is " suffix)
       :else (str "disallowed key matching " key-text " is provided"))))
@@ -162,15 +162,15 @@
         key-text (key-description (or actual-key expected-key))]
     (cond
       (and path-text exact-key)
-      (str path-text " is potentially nullable, but the schema doesn't allow that")
+      (str path-text " is potentially nullable, but the Plumatic Schema doesn't allow that")
 
       path-text
       (str path-text " has key matching " key-text
-           " that is potentially nullable, but the schema doesn't allow that")
+           " that is potentially nullable, but the Plumatic Schema doesn't allow that")
 
       :else
       (str "key matching " key-text
-           " is potentially nullable, but the schema doesn't allow that"))))
+           " is potentially nullable, but the Plumatic Schema doesn't allow that"))))
 
 (defn mismatch-detail
   [path source-type target-type]
@@ -216,7 +216,7 @@
     :nullable-source
     (if-let [path-text (render-visible-path path)]
       (str path-text " is nullable, but expected is not")
-      "a nullable value was provided where the schema requires a non-null value")
+      "a nullable value was provided where the Plumatic Schema requires a non-null value")
 
     (mismatch-detail path source-type target-type)))
 
@@ -254,7 +254,7 @@
   [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
    nullables :- #{s/Any}]
   (when (seq nullables)
-    (format "%s\n\tin\n\n%s\nin potentially nullable, but the schema doesn't allow that:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
+    (format "%s\n\tin\n\n%s\nin potentially nullable, but the Plumatic Schema doesn't allow that:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
             (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
             (colours/yellow (str "[" (str/join ", " (map disp/describe-item expected-keys)) "]"))
             (str/join "\n\t- " (mapv #(colours/yellow (disp/describe-item %)) nullables)))))

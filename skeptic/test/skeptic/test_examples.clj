@@ -19,11 +19,11 @@
 
 ;(with-analysis 'int-add)
 
-(s/defn sample-half-schema-fn
+(s/defn sample-half-annotated-fn
   [x :- s/Int]
   (int-add 1 (int-add 2 x)))
 
-(s/defn sample-schema-fn :- s/Int
+(s/defn sample-annotated-fn :- s/Int
   [x :- s/Int]
   (int-add 1 (int-add 2 x)))
 
@@ -40,11 +40,11 @@
     (int-add x (::s/key2 y))
     (int-add x (::key1 y))))
 
-(s/defn sample-schema-bad-fn :- s/Int
+(s/defn sample-annotated-bad-fn :- s/Int
   [x :- s/Int]
   (int-add 1 (int-add nil x)))
 
-(s/defn sample-bad-schema-fn :- s/Int
+(s/defn sample-bad-annotation-fn :- s/Int
   [not-an-int :- s/Str]
   (int-add not-an-int 2))
 
@@ -576,6 +576,10 @@
   (s/conditional #(contains? % :a) HasA
                  #(contains? % :b) HasB))
 
+(s/defschema AB
+  (s/conditional #(contains? % :a) HasA
+                 #(contains? % :b) HasB))
+
 (s/defn takes-has-a :- HasA
   [x :- HasA]
   x)
@@ -589,6 +593,28 @@
   (cond-> x
     (contains? x :a) takes-has-a
     (contains? x :b) takes-has-b))
+
+(s/defn mk-ab :- AB
+  [x]
+  (cond-> {}
+    (integer? x) (assoc :a x)
+    (not (integer? x)) (assoc :b x)))
+
+(defn mk-ab-int-success
+  []
+  (mk-ab 1))
+
+(defn mk-ab-str-success
+  []
+  (mk-ab "hello"))
+
+(s/defn mk-ab-int-returns-ab :- AB
+  []
+  (mk-ab 1))
+
+(s/defn mk-ab-str-returns-ab :- AB
+  []
+  (mk-ab "hello"))
 
 (s/defn conditional-map-if-a-success :- HasAOrB
   [x :- HasAOrB]

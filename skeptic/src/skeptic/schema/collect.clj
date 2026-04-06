@@ -1,7 +1,5 @@
-(ns skeptic.schematize
-  (:require [clojure.repl :as repl]
-            [clojure.string :as str]
-            [skeptic.analysis.bridge :as ab]
+(ns skeptic.schema.collect
+  (:require [clojure.string :as str]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.schema :as dschema]
@@ -18,18 +16,6 @@
 (defmacro get-fn-schemas
   [f]
   `(get-fn-schemas* '~f))
-
-
-(s/defn get-fn-code :- s/Str
-  [{:keys [verbose lookup-failures]}
-   func-name :- s/Symbol]
-  (if-let [code (repl/source-fn func-name)]
-    code
-    (do (when lookup-failures
-          (when (and verbose (not (contains? @lookup-failures func-name)))
-            (println "No code found for" func-name))
-          (swap! lookup-failures conj func-name))
-        "")))
 
 (s/defn count-map
   [x :- [s/Any]]
@@ -96,7 +82,7 @@
     (let [schema (abc/canonicalize-schema schema)]
       (when-not (abc/schema? schema)
         (throw (IllegalArgumentException.
-                (format "Invalid Schema annotation for %s/%s: %s"
+                (format "Invalid Plumatic Schema annotation for %s/%s: %s"
                         ns
                         name
                         (pr-str schema)))))
@@ -109,29 +95,29 @@
          (let [{:keys [input-schemas output-schema]} (into {} schema)
                inputs (count-map input-schemas)
                args (arg-map arglists)
-               args-with-schemas (reduce
-                                  (fn [acc next]
-                                    (let [input (get inputs next)
-                                          arg (get args next)]
-                                      (assoc acc
-                                             next
-                                             (cond-> {:arglist arg}
-                                             (= next :varargs)
-                                             (assoc :count (:count arg)
-                                                    :arglist (:args arg)
-                                                    :schema (some-> (get inputs (:count arg))
-                                                                    normalize-vararg-input-schemas))
+               annotated-args (reduce
+                               (fn [acc next]
+                                 (let [input (get inputs next)
+                                       arg (get args next)]
+                                   (assoc acc
+                                          next
+                                          (cond-> {:arglist arg}
+                                            (= next :varargs)
+                                            (assoc :count (:count arg)
+                                                   :arglist (:args arg)
+                                                   :schema (some-> (get inputs (:count arg))
+                                                                   normalize-vararg-input-schemas))
 
-                                             (not (nil? input))
-                                             (assoc :schema input)))))
-                                  {}
-                                  (keys args))]
+                                            (not (nil? input))
+                                            (assoc :schema input)))))
+                               {}
+                               (keys args))]
            {:name (str ns "/" name)
             :schema schema
             :output (or output-schema schema)
-            :arglists args-with-schemas}))))
+            :arglists annotated-args}))))
     (catch Exception e
-      (println "Exception collecting schemas:" (pr-str this))
+      (println "Exception collecting Plumatic Schema annotations:" (pr-str this))
       (throw e))))
 
 (s/defn fully-qualify-str :- s/Symbol
@@ -197,84 +183,4 @@
          (keep (fn [v]
                  (when-let [qualified-sym (sb/qualified-var-symbol v)]
                    [qualified-sym (var-schema-desc v)])))
-         (into {}))))
-
-(defn raw-arg-name
-  [idx arg]
-  (cond
-    (symbol? arg) arg
-    (and (sequential? arg)
-         (= 1 (count arg))
-         (symbol? (first arg)))
-    (first arg)
-    :else
-    (symbol (str "arg" idx))))
-
-(defn one->typed-arg-entry
-  [idx one]
-  (let [m (if (map? one)
-            one
-            (try (into {} one)
-                 (catch Exception _e {})))
-        raw-type (or (:schema m) one s/Any)]
-    {:name (or (:name m) (raw-arg-name idx nil))
-     :optional? (boolean (:optional? m))
-     :type (ab/schema->type raw-type)}))
-
-(defn arglist->typed-entry
-  [entry]
-  (let [schemas (vec (or (:schema entry) []))
-        arglist (:arglist entry)
-        types (mapv (fn [idx schema]
-                      (let [typed-entry (one->typed-arg-entry idx schema)
-                            m (if (map? schema)
-                                schema
-                                (try (into {} schema)
-                                     (catch Exception _e {})))
-                            arg-name (or (:name m)
-                                         (raw-arg-name idx (nth arglist idx nil)))]
-                        (assoc typed-entry :name arg-name)))
-                    (range)
-                    schemas)]
-    (cond-> {:arglist arglist
-             :types types}
-      (contains? entry :count)
-      (assoc :count (:count entry))
-
-      (not (contains? entry :count))
-      (assoc :count (count types)))))
-
-(defn fn-schema->typed-entry
-  [{:keys [name schema output arglists]}]
-  (cond-> {:name name
-           :type (ab/schema->type schema)}
-    (some? output)
-    (assoc :output-type (ab/schema->type output))
-
-    (seq arglists)
-    (assoc :arglists (into {}
-                           (map (fn [[k v]]
-                                  [k (arglist->typed-entry v)]))
-                           arglists))))
-
-(defn schema-desc->typed-entry
-  [{:keys [name schema arglists] :as desc}]
-  (when desc
-    (if (or (sb/fn-schema? schema)
-            (seq arglists))
-      (fn-schema->typed-entry desc)
-      {:name name
-       :type (ab/schema->type schema)})))
-
-(defn typed-ns-schemas
-  [opts ns]
-  (binding [*ns* (the-ns ns)]
-    (->> ns
-         symbol
-         ns-interns
-         vals
-         (keep (fn [v]
-                 (when-let [qualified-sym (sb/qualified-var-symbol v)]
-                   (when-let [schema-desc (var-schema-desc v)]
-                     [qualified-sym (schema-desc->typed-entry schema-desc)]))))
          (into {}))))

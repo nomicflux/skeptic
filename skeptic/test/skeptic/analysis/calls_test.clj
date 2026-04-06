@@ -5,7 +5,7 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
-            [skeptic.schematize :as schematize]
+            [skeptic.typed-decls :as typed-decls]
             [skeptic.static-call-examples]
             [skeptic.test-examples :as test-examples])
   (:import [java.io File]))
@@ -13,19 +13,23 @@
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (def static-call-dict
-  (merge (schematize/typed-ns-schemas {} 'skeptic.static-call-examples)
+  (merge (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples)
          {'user {:type (atst/T skeptic.static-call-examples/UserDesc)}
           'counts {:type (atst/T skeptic.static-call-examples/MaybeCount)}
           'left {:type (atst/T skeptic.static-call-examples/LeftFields)}
           'right {:type (atst/T skeptic.static-call-examples/RightFields)}}))
 
-(def removed-call-metadata-keys
-  [:schema :output :expected-arglist :actual-arglist :fn-schema])
-
-(defn assert-no-schema-mirror-keys
+(defn assert-typed-call-metadata-only
   [node]
-  (doseq [k removed-call-metadata-keys]
-    (is (not (contains? node k)))))
+  (is (contains? node :type))
+  (is (contains? node :actual-argtypes))
+  (is (or (contains? node :expected-argtypes)
+          (contains? node :output-type)
+          (contains? node :type)))
+  (is (not (contains? node :schema)))
+  (is (not (contains? node :output)))
+  (is (not (contains? node :expected-arglist)))
+  (is (not (contains? node :actual-arglist))))
 
 (deftest calls-predicate-and-qualify-unit-test
   (testing "qualify-symbol"
@@ -46,11 +50,11 @@
     (let [do-form (atst/project-ast (atst/analyze-form '(do (str "hello") (+ 1 2))))
           plus-form (atst/project-ast (atst/analyze-form '(+ 1 x) (atst/locals 'x)))
           local-invoke (atst/project-ast (atst/analyze-form '(f)
-                                                            (atst/local-schemas {'f {:type (atst/T (s/make-fn-schema s/Int [[]]))
-                                                                                     :output-type (atst/T s/Int)
-                                                                                     :arglists {0 {:arglist []
-                                                                                                   :count 0
-                                                                                                   :types []}}}})))
+                                                            (atst/local-types {'f {:type (atst/T (s/make-fn-schema s/Int [[]]))
+                                                                                   :output-type (atst/T s/Int)
+                                                                                   :arglists {0 {:arglist []
+                                                                                                 :count 0
+                                                                                                 :types []}}}})))
           nested-invoke (atst/project-ast (atst/analyze-form '((f 1) 3 4)
                                                              (atst/locals 'f)))]
       (is (= :do (:op do-form)))
@@ -58,22 +62,22 @@
       (is (= :invoke (:op local-invoke)))
       (is (= :invoke (:op nested-invoke))))))
 
-(deftest schema-application-schemas-test
-  (testing "application schemas"
+(deftest typed-application-call-test
+  (testing "application types"
     (let [dynamic-call (atst/project-ast (atst/analyze-form '(+ 1 2)))
           unknown-invoke (atst/project-ast (atst/analyze-form '(f 1 2)
                                                               (atst/locals 'f)))
           known-call (atst/project-ast (atst/analyze-form '(skeptic.test-examples/int-add 1 2)))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes dynamic-call)))
       (is (= (atst/T s/Any) (:type dynamic-call)))
-      (assert-no-schema-mirror-keys dynamic-call)
+      (assert-typed-call-metadata-only dynamic-call)
       (is (= (atst/T (s/make-fn-schema s/Any [[s/Any s/Any]]))
              (:fn-type unknown-invoke)))
-      (assert-no-schema-mirror-keys unknown-invoke)
+      (assert-typed-call-metadata-only unknown-invoke)
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes known-call)))
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:expected-argtypes known-call)))
       (is (= (atst/T s/Int) (:type known-call)))
-      (assert-no-schema-mirror-keys known-call))))
+      (assert-typed-call-metadata-only known-call))))
 
 (deftest analyse-application-test
   (testing "original partially unknown application setup"
@@ -84,30 +88,30 @@
     (let [root (atst/project-ast (atst/analyze-form '(f)))]
       (is (= :invoke (:op root)))
       (is (= 0 (count (:actual-argtypes root))))
-      (assert-no-schema-mirror-keys root)))
+      (assert-typed-call-metadata-only root)))
   (testing "original nested application setup"
     (let [root (atst/project-ast (atst/analyze-form '((f 1) 3 4)))]
       (is (= :invoke (:op root)))
       (is (= 2 (count (:actual-argtypes root))))
       (is (= '(f 1) (:form (atst/child-projection root :fn))))
-      (assert-no-schema-mirror-keys root))))
+      (assert-typed-call-metadata-only root))))
 
-(deftest attach-schema-info-application-test
-  (testing "original generic application schema setup"
+(deftest attach-type-info-application-test
+  (testing "original generic application typed setup"
     (let [root (atst/project-ast (atst/analyze-form {} '(+ 1 2)))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes root)))
       (is (= (atst/T s/Any) (:type root)))
-      (assert-no-schema-mirror-keys root)))
-  (testing "original known application schema setup"
+      (assert-typed-call-metadata-only root)))
+  (testing "original known application typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(skeptic.test-examples/int-add 1 2)))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes root)))
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:expected-argtypes root)))
       (is (= (atst/T s/Int) (:type root)))
-      (assert-no-schema-mirror-keys root))))
+      (assert-typed-call-metadata-only root))))
 
-(deftest canonicalized-schema-representation-test
-  (let [raw-symbol-entry (schematize/schema-desc->typed-entry
+(deftest canonicalized-callable-entry-test
+  (let [raw-symbol-entry (typed-decls/desc->typed-entry
                           {:name "f"
                            :schema (s/make-fn-schema clojure.lang.Symbol
                                                      [[(s/one java.lang.String 'arg)]])
@@ -117,7 +121,7 @@
                                          :schema [{:schema java.lang.String
                                                    :optional? false
                                                    :name 'arg}]}}})
-        raw-keyword-entry (schematize/schema-desc->typed-entry
+        raw-keyword-entry (typed-decls/desc->typed-entry
                            {:name "f"
                             :schema (s/make-fn-schema clojure.lang.Keyword
                                                       [[(s/one s/Any 'arg)]])
@@ -127,7 +131,7 @@
                                           :schema [{:schema s/Any
                                                     :optional? false
                                                     :name 'arg}]}}})
-        raw-int-entry (schematize/schema-desc->typed-entry
+        raw-int-entry (typed-decls/desc->typed-entry
                        {:name "f"
                         :schema (s/make-fn-schema java.lang.Integer
                                                   [[(s/one s/Any 'arg)]])
@@ -155,12 +159,12 @@
     (is (= (atst/T s/Keyword) (:type keyword-call)))
     (is (= (atst/T s/Int) (:type int-call)))
     (is (= (atst/T s/Symbol) (:type quoted-symbol)))
-    (assert-no-schema-mirror-keys symbol-call)
-    (assert-no-schema-mirror-keys keyword-call)
-    (assert-no-schema-mirror-keys int-call)))
+    (assert-typed-call-metadata-only symbol-call)
+    (assert-typed-call-metadata-only keyword-call)
+    (assert-typed-call-metadata-only int-call)))
 
 (deftest static-call-analysis-test
-  (testing "get returns field schemas from typed maps"
+  (testing "get returns declared field types from typed maps"
       (let [required-get (atst/project-ast (atst/analyze-form static-call-dict
                                                             '(get user :name)
                                                             {:ns 'skeptic.analysis-test
@@ -178,7 +182,7 @@
       (is (= (atst/T (sb/join s/Int s/Str))
              (:type defaulted-get)))))
 
-  (testing "merge returns merged map schemas"
+  (testing "merge returns merged typed maps"
     (let [merged (atst/project-ast (atst/analyze-form static-call-dict
                                                       '(merge left right)
                                                       {:ns 'skeptic.analysis-test
@@ -198,8 +202,8 @@
              (:type root))))))
 
 (deftest resolved-static-get-feeds-parent-call-test
-  (testing "resolved static get feeds final reduced schemas into parent calls"
-    (let [dict (schematize/typed-ns-schemas {} 'skeptic.static-call-examples)
+  (testing "resolved static get feeds final reduced field types into parent calls"
+    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples)
           {:keys [resolved]} (checking/analyze-source-exprs dict
                                                             'skeptic.static-call-examples
                                                             static-call-examples-file
@@ -207,9 +211,9 @@
           failure-ast (atst/ast-by-name resolved 'nested-multi-step-failure)
           call-node (atst/node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
       (is (= [(atst/T s/Int)] (:actual-argtypes call-node)))
-      (assert-no-schema-mirror-keys call-node))))
+      (assert-typed-call-metadata-only call-node))))
 
-(deftest attach-schema-info-local-fn-invocation-test
+(deftest attach-type-info-local-fn-invocation-test
   (testing "local fn invocation through int-add"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(let [f (fn [x] nil)]
@@ -217,7 +221,7 @@
       (is (= (atst/T s/Int) (:type root)))
       (is (= (atst/T (s/maybe s/Any))
              (:type (atst/find-projected-node root #(= '(f x) (:form %))))))
-      (assert-no-schema-mirror-keys (atst/find-projected-node root #(= '(f x) (:form %))))))
+      (assert-typed-call-metadata-only (atst/find-projected-node root #(= '(f x) (:form %))))))
   (testing "local fn invocation keeps callable metadata with outer local"
     (let [root (atst/project-ast (atst/analyze-form '(let [f (fn [x] nil)]
                                                        (skeptic.test-examples/int-add 1 (f x)))
@@ -225,4 +229,4 @@
       (is (= (atst/T s/Int) (:type root)))
       (is (= (atst/T (s/maybe s/Any))
              (:type (atst/find-projected-node root #(= '(f x) (:form %))))))
-      (assert-no-schema-mirror-keys (atst/find-projected-node root #(= '(f x) (:form %)))))))
+      (assert-typed-call-metadata-only (atst/find-projected-node root #(= '(f x) (:form %)))))))

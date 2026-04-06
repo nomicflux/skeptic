@@ -37,7 +37,7 @@
   (is (= 'Int (sut/user-type-form (ab/schema->type s/Int))))
   (is (= 'Str (sut/user-display-form s/Str))))
 
-(deftest describe-type-and-schema-test
+(deftest describe-display-helpers-test
   (is (= "Int" (sut/describe-type (ab/schema->type s/Int))))
   (is (string? (sut/describe-type-block (ab/schema->type s/Int))))
   (is (= "Str" (sut/describe-schema s/Str)))

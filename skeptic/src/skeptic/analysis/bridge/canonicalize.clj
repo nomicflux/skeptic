@@ -7,9 +7,17 @@
 
 (declare canonicalize-schema)
 
+(defn- raw-schema-domain-value
+  [value]
+  (let [value (abl/localize-value value)]
+    (when (at/semantic-type-value? value)
+      (throw (IllegalArgumentException.
+              (format "Expected Plumatic Schema-domain value: %s" (pr-str value)))))
+    value))
+
 (defn schema?
   [s]
-  (let [s (abl/localize-schema-value s)]
+  (let [s (abl/localize-value s)]
     (cond
       (nil? s) true
       (sb/schema-literal? s) true
@@ -83,7 +91,7 @@
   (let [schema (canonicalize-schema schema)]
     (when-not (schema? schema)
       (throw (IllegalArgumentException.
-              (format "Not a valid Schema-domain value: %s" (pr-str schema)))))
+              (format "Not a valid Plumatic Schema-domain value: %s" (pr-str schema)))))
     (schema-explain schema)))
 
 (defn canonicalize-one
@@ -187,14 +195,13 @@
 
 (defn canonicalize-schema*
   [schema {:keys [constrained->base?]}]
-  (let [schema (abl/localize-schema-value schema)]
+  (let [schema (abl/localize-value schema)]
     (cond
     (nil? schema) nil
     (sb/named? schema) (canonicalize-schema* (sb/de-named schema)
                                           {:constrained->base? constrained->base?})
     (sb/placeholder-schema? schema) schema
     (sb/bottom-schema? schema) sb/Bottom
-    (at/semantic-type-value? schema) schema
     (sb/fn-schema? schema) (canonicalize-fn-schema schema)
     (instance? One schema) (canonicalize-one schema)
     (sb/maybe? schema) (s/maybe (canonicalize-schema* (:schema schema)
@@ -253,11 +260,13 @@
 
 (defn canonicalize-schema
   [schema]
-  (canonicalize-schema* schema {:constrained->base? false}))
+  (canonicalize-schema* (raw-schema-domain-value schema)
+                        {:constrained->base? false}))
 
 (defn canonicalize-output-schema
   [schema]
-  (canonicalize-schema* schema {:constrained->base? false}))
+  (canonicalize-schema* (raw-schema-domain-value schema)
+                        {:constrained->base? false}))
 
 (defn maybe-schema
   [schema]

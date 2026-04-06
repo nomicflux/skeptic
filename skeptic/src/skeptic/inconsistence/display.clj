@@ -60,7 +60,7 @@
     (exact-key-form (:k key))
 
     :else
-    (let [type (some-> key ato/normalize-type)]
+    (let [type (some-> key ato/coerce-boundary-type)]
       (cond
         (nil? type) nil
         (at/optional-key-type? type) (exact-key-form (:inner type))

@@ -38,7 +38,7 @@
   (at/->RefinementT (schema->type (sb/de-constrained schema))
                  (abc/schema-display-form schema)
                  (fn [value]
-                   (= (sb/check-if-schema schema value) ::schema-valid))
+                   (= (sb/check-if-schema schema value) sb/plumatic-valid))
                  {:adapter :schema
                   :kind :constrained}))
 
@@ -47,15 +47,15 @@
   (at/->AdapterLeafT :schema
                   (abc/schema-display-form schema)
                   (fn [value]
-                    (= (sb/check-if-schema schema value) ::schema-valid))
+                    (= (sb/check-if-schema schema value) sb/plumatic-valid))
                   {:source-schema schema}))
 
 (defn import-schema-type
   [schema]
-  (let [schema (abl/localize-schema-value schema)]
+  (let [schema (abl/localize-value schema)]
     (when-not (abc/schema? schema)
       (throw (IllegalArgumentException.
-              (format "Expected Schema-domain value: %s" (pr-str schema)))))
+              (format "Expected Plumatic Schema-domain value: %s" (pr-str schema)))))
     (let [schema (abc/canonicalize-schema schema)]
       (cond
         (nil? schema) (at/->MaybeT at/Dyn)
@@ -117,9 +117,9 @@
 
 (defn schema->type
   [schema]
-  (let [schema (abl/localize-schema-value schema)]
+  (let [schema (abl/localize-value schema)]
     (when-not (abc/schema? schema)
       (throw (IllegalArgumentException.
-              (format "Expected Schema-domain value: %s"
+              (format "Expected Plumatic Schema-domain value: %s"
                       (pr-str schema)))))
     (import-schema-type schema)))

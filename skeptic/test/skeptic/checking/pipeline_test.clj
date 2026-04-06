@@ -9,7 +9,8 @@
             [skeptic.examples]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.schematize :as schematize]
+            [skeptic.source :as source]
+            [skeptic.typed-decls :as typed-decls]
             [skeptic.static-call-examples]
             [skeptic.test-examples]
             [skeptic.utils])
@@ -22,22 +23,22 @@
 
 (def test-file (File. "test/skeptic/test_examples.clj"))
 (def examples-file (File. "src/skeptic/examples.clj"))
-(def schematize-file (File. "src/skeptic/schematize.clj"))
+(def schema-collect-file (File. "src/skeptic/schema/collect.clj"))
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 (def utils-file (File. "src/skeptic/utils.clj"))
 
-(def test-dict (in-test-examples (schematize/typed-ns-schemas {} 'skeptic.test-examples)))
-(def examples-dict (schematize/typed-ns-schemas {} 'skeptic.examples))
-(def schematize-dict (schematize/typed-ns-schemas {} 'skeptic.schematize))
-(def static-call-examples-dict (schematize/typed-ns-schemas {} 'skeptic.static-call-examples))
-(def utils-dict (schematize/typed-ns-schemas {} 'skeptic.utils))
+(def test-dict (in-test-examples (typed-decls/typed-ns-entries {} 'skeptic.test-examples)))
+(def examples-dict (typed-decls/typed-ns-entries {} 'skeptic.examples))
+(def schema-collect-dict (typed-decls/typed-ns-entries {} 'skeptic.schema.collect))
+(def static-call-examples-dict (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples))
+(def utils-dict (typed-decls/typed-ns-entries {} 'skeptic.utils))
 
 (let [fn-map (atom {})]
   (s/defn normalize-fn-code
     [opts f]
     (get (swap! fn-map update f (fn [x]
                                   (or x (->> f
-                                             (schematize/get-fn-code opts)
+                                             (source/get-fn-code opts)
                                              read-string))))
          f)))
 
@@ -60,7 +61,7 @@
   (set (map (juxt :blame :errors) results)))
 
 (def ui-internal-markers
-  [":skeptic.analysis.schema/"
+  [":skeptic.analysis.types/"
    "placeholder-type"
    "group-type"
    ":ref "
@@ -115,8 +116,8 @@
                                     :test-dict test-dict
                                     :error e}))))
      'skeptic.test-examples/sample-fn
-     'skeptic.test-examples/sample-schema-fn
-     'skeptic.test-examples/sample-half-schema-fn
+     'skeptic.test-examples/sample-annotated-fn
+     'skeptic.test-examples/sample-half-annotated-fn
      'skeptic.test-examples/sample-let-fn
      'skeptic.test-examples/sample-if-fn
      'skeptic.test-examples/sample-if-mixed-fn
@@ -137,7 +138,7 @@
   (in-test-examples
    (are [f errors] (= (set (partition 2 errors))
                       (result-pairs (check-fn test-dict f)))
-     'skeptic.test-examples/sample-bad-schema-fn ['(int-add not-an-int 2)
+     'skeptic.test-examples/sample-bad-annotation-fn ['(int-add not-an-int 2)
                                                   [(incm/mismatched-ground-type-msg {:expr '(int-add not-an-int 2)
                                                                                               :arg 'not-an-int}
                                                                                              (T s/Str)
@@ -202,14 +203,14 @@
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
   (is (= []
-         (vec (sut/check-ns (schematize/typed-ns-schemas {} 'skeptic.core-fns)
+         (vec (sut/check-ns (typed-decls/typed-ns-entries {} 'skeptic.core-fns)
                             'skeptic.core-fns
                             (File. "src/skeptic/core_fns.clj")
                             {})))))
 
 (deftest check-ns-reads-auto-resolved-keywords-in-target-ns
   (require 'skeptic.test-examples)
-  (let [results (vec (sut/check-ns (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+  (let [results (vec (sut/check-ns (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
                                    'skeptic.test-examples
                                    test-file
                                    {:keep-empty true
@@ -256,16 +257,16 @@
      (is (= '(int-add y nil) (:blame result)))
      (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error)))
      (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)\s+" (strip-ansi error))))
-     (is (or (str/includes? (strip-ansi error) "has incompatible schema:")
+     (is (or (str/includes? (strip-ansi error) "expected Plumatic Schema")
              (str/includes? (strip-ansi error) "is nullable, but expected is not"))))))
 
-(deftest schema-wrapper-regression
+(deftest annotated-wrapper-regression
   (in-test-examples
    (is (= ['(int-add nil x)
            [(incm/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
-          (result-errors (check-fn test-dict 'skeptic.test-examples/sample-schema-bad-fn))))))
+          (result-errors (check-fn test-dict 'skeptic.test-examples/sample-annotated-bad-fn))))))
 
-(deftest checking-schema-wrapper-regression
+(deftest checking-annotated-wrapper-regression
   (in-test-examples
    (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-named-input-fn)))
    (is (= [] (check-fn test-dict 'skeptic.test-examples/sample-named-output-fn)))
@@ -278,25 +279,25 @@
               (T (s/constrained s/Int pos?)))]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-bad-constrained-output-fn))))))
 
-(deftest symbol-output-schema-regression
-  (let [form (->> 'skeptic.schematize/fully-qualify-str
-                  (schematize/get-fn-code {})
+(deftest symbol-output-annotation-regression
+  (let [form (->> 'skeptic.schema.collect/fully-qualify-str
+                  (source/get-fn-code {})
                   read-string)
-        results (vec (sut/check-s-expr schematize-dict
+        results (vec (sut/check-s-expr schema-collect-dict
                                        form
-                                       {:ns 'skeptic.schematize
-                                        :source-file schematize-file
+                                       {:ns 'skeptic.schema.collect
+                                        :source-file schema-collect-file
                                         :remove-context true}))]
     (is (= [] results))))
 
-(deftest collect-schemas-output-schema-regression
-  (let [form (->> 'skeptic.schematize/collect-schemas
-                  (schematize/get-fn-code {})
+(deftest collect-annotations-output-annotation-regression
+  (let [form (->> 'skeptic.schema.collect/collect-schemas
+                  (source/get-fn-code {})
                   read-string)
-        results (vec (sut/check-s-expr schematize-dict
+        results (vec (sut/check-s-expr schema-collect-dict
                                        form
-                                       {:ns 'skeptic.schematize
-                                        :source-file schematize-file
+                                       {:ns 'skeptic.schema.collect
+                                        :source-file schema-collect-file
                                         :remove-context true}))]
     (is (= [] results))))
 
@@ -348,7 +349,7 @@
                               (:enclosing-form %))
                    results))))
 
-(deftest output-mismatch-renders-canonical-map-schemas
+(deftest output-mismatch-renders-canonical-map-types
   (let [results (vec (sut/check-ns static-call-examples-dict
                                    'skeptic.static-call-examples
                                    static-call-examples-file
@@ -378,7 +379,7 @@
                                   results)
         count-error (-> count-result inrep/report-summary :errors first strip-ansi)
         rebuilt-error (-> rebuilt-user-result inrep/report-summary :errors first strip-ansi)]
-    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return schema\." count-error))
+    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return Plumatic Schema\." count-error))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" count-error)))
     (is (str/includes? count-error "Str but expected Int"))
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \(get user :nickname\)\}" rebuilt-error))
@@ -394,7 +395,7 @@
                         %)
                      results)]
     (is (some? result))
-    (is (some #(str/includes? % "declared return schema") (:errors result)))
+    (is (some #(str/includes? % "declared return Plumatic Schema") (:errors result)))
     (is (= 1 (count (:errors result))))
     (is (not-any? #(str/includes? % "[:user :name]") (:errors result)))
     (is (= [{:kind :map-key :key :user}
@@ -462,7 +463,7 @@
                     %)
                   results)))))
 
-(deftest resolved-helper-failures-use-final-reduced-schemas
+(deftest resolved-helper-failures-use-final-reduced-types
   (let [flat-results (vec (sut/check-ns test-dict
                                         'skeptic.test-examples
                                         test-file
@@ -504,7 +505,7 @@
                       %)
                     nested-results)))))
 
-(deftest check-s-expr-uses-resolved-helper-schemas
+(deftest check-s-expr-uses-resolved-helper-types
   (in-test-examples
    (let [results (vec (check-fn test-dict
                                 'skeptic.test-examples/flat-multi-step-failure
@@ -598,7 +599,7 @@
          (= blame (:blame result))
          (seq (:errors result)))))
 
-(deftest checking-conditional-input-schemas
+(deftest checking-conditional-input-contracts
   (in-test-examples
    (are [f] (= [] (check-fn test-dict f))
      'skeptic.test-examples/conditional-input-int-success
@@ -620,7 +621,7 @@
      'skeptic.test-examples/both-int-str-input-int-failure '(takes-both-int-str 1)
      'skeptic.test-examples/both-int-str-input-str-failure '(takes-both-int-str "hi"))))
 
-(deftest checking-conditional-output-schemas
+(deftest checking-conditional-output-contracts
   (in-test-examples
    (are [f] (= [] (check-fn test-dict f))
      'skeptic.test-examples/conditional-output-int-success
@@ -641,7 +642,7 @@
      'skeptic.test-examples/both-int-str-output-int-failure 1
      'skeptic.test-examples/both-int-str-output-str-failure "hi")))
 
-(deftest conditional-schema-contains-key-refinement
+(deftest conditional-contract-contains-key-refinement
   (in-test-examples
    (are [f] (= [] (check-fn test-dict f))
      'skeptic.test-examples/conditional-map-if-a-success
@@ -653,3 +654,11 @@
      'skeptic.test-examples/conditional-map-if-a-bad-branch '(takes-has-b x)
      'skeptic.test-examples/conditional-map-if-b-bad-branch '(takes-has-a x)
      'skeptic.test-examples/optional-map-contains-does-not-refine '(takes-has-a x))))
+
+(deftest conditional-contract-cond-thread-output-construction
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/mk-ab-int-success
+     'skeptic.test-examples/mk-ab-str-success
+     'skeptic.test-examples/mk-ab-int-returns-ab
+     'skeptic.test-examples/mk-ab-str-returns-ab)))

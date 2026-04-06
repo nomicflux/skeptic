@@ -600,12 +600,12 @@ Use `ana.jvm/analyze` on the original form and add `skeptic` fields onto that AS
 
 Useful added fields for `skeptic` include:
 
-- `:schema`
-- `:output`
+- `:type`
+- `:output-type`
 - `:arglists`
 - `:arglist`
-- `:actual-arglist`
-- `:expected-arglist`
+- `:actual-argtypes`
+- `:expected-argtypes`
 
 ### Trust `:children`, not ad hoc nested maps
 
@@ -742,7 +742,7 @@ For `skeptic`, the right abstraction boundary is:
 
 1. analyze the original form with `tools.analyzer.jvm`
 2. treat the analyzer AST as canonical shared state
-3. attach `skeptic` schema data directly to those nodes
+3. attach typed annotation data directly to those nodes
 4. assert on stable projections of that AST in tests
 
 That removes most of the old bespoke macroexpansion bookkeeping while preserving a richer, more official representation of the program shape.

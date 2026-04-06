@@ -3,6 +3,10 @@
             [skeptic.inconsistence.display :as disp]
             [skeptic.analysis.type-ops :as ato]))
 
+(defn- describe-display-block
+  [value]
+  (disp/block-user-form (disp/user-display-form value)))
+
 (defn mismatched-nullable-msg
   [{:keys [expr arg]} _actual-type _expected-type]
   (format "%s\n\tin\n\n%s\nis nullable, but expected is not"
@@ -12,22 +16,22 @@
   [{:keys [expr arg]} output-type expected-type]
   (format "%s\n\tin\n\n%s\nis a mismatched type:\n\n%s\n\nbut expected is:\n\n%s"
           (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
-          (colours/yellow (disp/describe-type-block output-type))
-          (colours/yellow (disp/describe-type-block expected-type))))
+          (colours/yellow (describe-display-block output-type))
+          (colours/yellow (describe-display-block expected-type))))
 
 (defn mismatched-output-schema-msg
-  [{:keys [expr arg]} output-schema expected-schema]
-  (format "%s\n\tin\n\n%s\nhas output schema:\n\n%s\n\nbut declared return schema is:\n\n%s"
+  [{:keys [expr arg]} output-type expected-type]
+  (format "%s\n\tin\n\n%s\nhas inferred output type:\n\n%s\n\nbut the declared return Plumatic Schema expects:\n\n%s"
           (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
-          (colours/yellow (disp/describe-type-block output-schema))
-          (colours/yellow (disp/describe-type-block expected-schema))))
+          (colours/yellow (describe-display-block output-type))
+          (colours/yellow (describe-display-block expected-type))))
 
 (defn mismatched-schema-msg
   [{:keys [expr arg]} actual-type expected-type]
-  (format "%s\n\tin\n\n%s\nhas incompatible schema:\n\n%s\n\nbut expected is:\n\n%s"
+  (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected Plumatic Schema:\n\n%s\n\nThe expected Plumatic Schema corresponds to:\n\n%s"
           (colours/magenta (disp/ppr-str arg) true) (colours/magenta (disp/ppr-str expr))
-          (colours/yellow (disp/describe-type-block actual-type))
-          (colours/yellow (disp/describe-type-block expected-type))))
+          (colours/yellow (describe-display-block actual-type))
+          (colours/yellow (describe-display-block expected-type))))
 
 (defn unknown-output-type?
   [type]

@@ -10,7 +10,7 @@
             [clojure.stacktrace :as stacktrace]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotation :as aa]
-            [skeptic.schematize :as schematize]
+            [skeptic.typed-decls :as typed-decls]
             [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]))
 
 (defn format-location
@@ -131,9 +131,9 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         (let [dict (schematize/typed-ns-schemas opts ns)]
+         (let [dict (typed-decls/typed-ns-entries opts ns)]
            ;(when verbose
-           ;  (println "Schema dictionary:")
+           ;  (println "Typed declaration dictionary:")
            ;  (pprint/pprint dict))
 	         (when analyzer
 	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
@@ -167,7 +167,3 @@
         1
         (do (println "No inconsistencies found")
             0)))))
-
-(defn get-project-schemas
-  [opts root & paths]
-  (System/exit (apply check-project opts root paths)))

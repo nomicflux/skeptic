@@ -1,49 +1,23 @@
  (ns skeptic.analysis.schema.map-cast-test
    (:require [clojure.test :refer [deftest is]]
              [schema.core :as s]
-             [skeptic.analysis.bridge :as ab]
-             [skeptic.analysis.map-ops :as amo]
-             [skeptic.analysis.value-check :as avc]
-             [skeptic.analysis.schema :as as]
-             [skeptic.analysis.cast.support :as ascs]
              [skeptic.analysis.schema.map-ops :as asm]
              [skeptic.analysis.schema.value-check :as asv]
              [skeptic.analysis.schema-base :as sb]))
 
- (deftest non-literal-get-uses-key-domain-regression-test
+ (defn schema-or-value
+   [schema value]
+   (sb/valued-schema schema value))
+
+ (deftest raw-map-lookup-regression-test
    (let [schema {:a s/Int
                  s/Keyword s/Str}
-         literal-result (asm/map-get-schema schema
-                                            (amo/exact-key-query (ab/schema->type s/Keyword) :a :a))
-         domain-result (asm/map-get-schema schema
-                                           (amo/domain-key-query (ab/schema->type s/Keyword) 'k))]
-     (is (= s/Int literal-result))
-     (is (ascs/schema-equivalent? (sb/join s/Int s/Str)
-                                  domain-result))))
-
- (deftest mixed-map-schema-requiredness-regression-test
-   (let [schema {:a s/Int :b s/Str s/Keyword s/Any}
-         valid {:a 1 :b "hello"}
-         valid-with-extra {:a 1 :b "hello" :c 5}
-         missing-required {:a 1}
-         cast-result (as/check-cast {:a s/Int :b s/Str} schema)]
-     (is (nil? (s/check schema valid)))
-     (is (nil? (s/check schema valid-with-extra)))
-     (is (some? (s/check schema missing-required)))
-     (is (avc/value-satisfies-type? valid (ab/schema->type schema)))
-     (is (avc/value-satisfies-type? valid-with-extra (ab/schema->type schema)))
-     (is (not (avc/value-satisfies-type? missing-required (ab/schema->type schema))))
-     (is (:ok? cast-result))
-     (is (= :map (:rule cast-result)))))
-
- (deftest extra-schema-row-does-not-imply-required-presence-regression-test
-   (let [schema {s/Keyword s/Int}
-         empty-value {}
-         cast-result (as/check-cast empty-value schema)]
-     (is (nil? (s/check schema empty-value)))
-     (is (avc/value-satisfies-type? empty-value (ab/schema->type schema)))
-     (is (:ok? cast-result))
-     (is (= :map (:rule cast-result)))))
+         optional-schema {(s/optional-key :a) s/Int}
+         valued-key (schema-or-value s/Keyword :b)]
+     (is (= s/Int (asm/map-get-schema schema :a)))
+     (is (= s/Str (asm/map-get-schema schema :b)))
+     (is (= s/Str (asm/map-get-schema schema valued-key)))
+     (is (= (s/maybe s/Int) (asm/map-get-schema optional-schema :a)))))
 
  (deftest pattern-map-key-presence-classification-regression-test
    (is (= :unknown
@@ -52,3 +26,9 @@
           (asv/contains-key-classification {:a s/Int s/Keyword s/Any} :a)))
    (is (= :unknown
           (asv/contains-key-classification {:a s/Int s/Keyword s/Any} :b))))
+
+ (deftest raw-contains-key-refinement-regression-test
+   (is (= {:a s/Int s/Keyword s/Any}
+          (asv/refine-schema-by-contains-key {:a s/Int s/Keyword s/Any} :a true)))
+   (is (= sb/Bottom
+          (asv/refine-schema-by-contains-key {:a s/Int} :a false))))

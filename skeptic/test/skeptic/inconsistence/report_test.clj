@@ -3,7 +3,7 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema :as as]
+            [skeptic.analysis.schema.cast :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -35,7 +35,7 @@
   (s/both s/Int (s/constrained s/Int pos?)))
 
 (def ui-internal-markers
-  [":skeptic.analysis.schema/"
+  [":skeptic.analysis.types/"
    "placeholder-type"
    "group-type"
    ":ref "
@@ -93,7 +93,7 @@
     (is (= :term (:blame-side report)))
     (is (= :positive (:blame-polarity report)))
     (is (= :leaf-overlap (:rule report)))
-    (is (str/includes? error "declared return schema"))
+    (is (str/includes? error "declared return Plumatic Schema"))
     (is (str/includes? error "{:name Keyword, :nickname (maybe Str)}"))
     (is (str/includes? error "{:name Str, :nickname (maybe Str)}"))))
 
@@ -109,7 +109,7 @@
             {:kind :map-key :key :name}]
            (-> report :cast-results first :path)))
     (is (= 1 (count (:errors report))))
-    (is (str/includes? error "declared return schema"))
+    (is (str/includes? error "declared return Plumatic Schema"))
     (is (str/includes? error "{:user {:name Keyword}}"))
     (is (str/includes? error "{:user {:name Str}}"))
     (is (not (str/includes? error "Problem fields:")))
@@ -129,10 +129,10 @@
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ato/normalize-type {:result actual-result
-                                                                                 :cache s/Any})})
-                                :target-type (ato/normalize-type {:result expected-result
-                                                                  :cache s/Any})}
+                                                            (ato/coerce-boundary-type {:result actual-result
+                                                                                       :cache s/Any})})
+                                :target-type (ato/coerce-boundary-type {:result expected-result
+                                                                        :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result
@@ -140,14 +140,14 @@
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :result}]}]})
         [error] (:errors summary)
-        declared-block (second (re-find #"(?s)Declared return schema:\n\n(.*?)\n\nProblem fields:" error))]
+        declared-block (second (re-find #"(?s)Declared return Plumatic Schema expects:\n\n(.*?)\n\nProblem fields:" error))]
     (is (= 1 (count (:errors summary))))
-    (is (str/includes? error "declared return schema"))
+    (is (str/includes? error "declared return Plumatic Schema"))
     (is (str/includes? error "Problem fields:"))
     (is (str/includes? error "[:result] has:"))
     (is (not (str/includes? error "[:result] has #{")))
     (is (str/includes? declared-block "\n"))
-    (is (not (str/includes? error "has output schema:")))
+    (is (not (str/includes? error "has inferred output type:")))
     (is (not (str/includes? error "(union")))
     (assert-no-ui-internals error)))
 
@@ -171,7 +171,7 @@
         [error] (:errors summary)
         text (strip-ansi error)]
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \"x\"\}" text))
-    (is (str/includes? text "Declared return schema:"))
+    (is (str/includes? text "Declared return Plumatic Schema expects:"))
     (is (str/includes? text "[:name] has Keyword but expected Str"))))
 
 (deftest output-summary-omits-redundant-in-when-focus-equals-expression
@@ -189,7 +189,7 @@
                                   :path []}]})
         [error] (:errors summary)
         text (strip-ansi error)]
-    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return schema\." text))
+    (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return Plumatic Schema\." text))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" text)))
     (is (str/includes? text "Str but expected Int"))))
 
@@ -207,7 +207,7 @@
                                   :target-type (T s/Int)
                                   :path []}]})
         [error] (:errors summary)]
-    (is (str/includes? error "has output schema:"))
+    (is (str/includes? error "has inferred output type:"))
     (is (str/includes? error "Problem fields:"))
     (is (str/includes? error "Any"))
     (assert-no-ui-internals error)))
@@ -252,8 +252,8 @@
                                   :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
-    (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+has incompatible schema:" (strip-ansi error)))
-    (is (str/includes? (strip-ansi error) "a nullable value was provided where the schema requires a non-null value"))
+    (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+has inferred type incompatible with the expected Plumatic Schema:" (strip-ansi error)))
+    (is (str/includes? (strip-ansi error) "a nullable value was provided where the Plumatic Schema requires a non-null value"))
     (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)" (strip-ansi error))))))
 
 (deftest input-summary-uses-blame-for-multiple-focused-args
@@ -267,8 +267,8 @@
                                   :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
-    (is (re-find #"(?s)^\(int-add x y nil\)\s+\tin\s+\(int-add x y nil\)\s+has incompatible schema:" (strip-ansi error)))
-    (is (str/includes? (strip-ansi error) "a nullable value was provided where the schema requires a non-null value"))))
+    (is (re-find #"(?s)^\(int-add x y nil\)\s+\tin\s+\(int-add x y nil\)\s+has inferred type incompatible with the expected Plumatic Schema:" (strip-ansi error)))
+    (is (str/includes? (strip-ansi error) "a nullable value was provided where the Plumatic Schema requires a non-null value"))))
 
 (deftest semantic-tamper-message-test
   (let [type-var (at/->TypeVarT 'X)

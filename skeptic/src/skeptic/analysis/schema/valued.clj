@@ -1,10 +1,14 @@
 (ns skeptic.analysis.schema.valued
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.schema.map-ops :as asm]
             [skeptic.analysis.schema.value-check :as asv]
             [skeptic.analysis.schema-base :as sb]))
+
+(defn- same-form?
+  [expected actual]
+  (= (abc/canonicalize-schema expected)
+     (abc/canonicalize-schema actual)))
 
  (defn matches-map
    [expected actual-k actual-v]
@@ -19,21 +23,21 @@
          actual (abc/canonicalize-schema actual)]
      (cond
        (sb/valued-schema? expected)
-       (throw (IllegalArgumentException. "Only actual can be a valued schema"))
+       (throw (IllegalArgumentException. "Only actual can be a valued Plumatic Schema form"))
 
        (sb/valued-schema? actual)
        (let [v (:value actual)
              s (:schema actual)
              e (sb/de-maybe expected)]
-         (or (ascs/schema-equivalent? e v)
-             (ascs/schema-equivalent? e s)
-             (ascs/schema-equivalent? e (s/optional-key v))
-             (ascs/schema-equivalent? e (s/optional-key s))
-             (= (sb/check-if-schema e v) ::schema-valid)))
+         (or (same-form? e v)
+             (same-form? e s)
+             (same-form? e (s/optional-key v))
+             (same-form? e (s/optional-key s))
+             (= (sb/check-if-schema e v) sb/plumatic-valid)))
 
-       (or (ascs/schema-equivalent? expected actual)
-           (ascs/schema-equivalent? expected (s/optional-key actual))
-           (= (sb/check-if-schema expected actual) ::schema-valid))
+       (or (same-form? expected actual)
+           (same-form? expected (s/optional-key actual))
+           (= (sb/check-if-schema expected actual) sb/plumatic-valid))
        true
 
        (and (map? expected) (map? actual))

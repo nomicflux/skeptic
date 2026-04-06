@@ -5,11 +5,6 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(defn schema-equivalent?
-  [expected actual]
-  (= (abc/canonicalize-schema expected)
-     (abc/canonicalize-schema actual)))
-
 (defn ensure-cast-state
   [cast-state]
   (merge {:nu-bindings []

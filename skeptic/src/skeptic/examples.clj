@@ -5,75 +5,75 @@
 
 (s/def n :- s/Int 2)
 
-(defn with-let-not-schema
+(defn with-let-plain
   [x]
   (let [y (* x x)
         z (inc y)]
     (str z)))
 
-(s/defn with-schemas :- s/Str
+(s/defn with-annotations :- s/Str
   [x :- s/Int]
-  (with-let-not-schema x))
+  (with-let-plain x))
 
-(s/defn with-input-schema
+(s/defn with-annotated-input
   [x :- s/Int]
-  (with-let-not-schema x))
+  (with-let-plain x))
 
-(s/defn with-output-schema :- s/Str
+(s/defn with-annotated-output :- s/Str
   [x]
-  (with-let-not-schema x))
+  (with-let-plain x))
 
 (s/defn with-multiple-args-and-function-call :- s/Str
   "Another function."
   [x :- s/Int
    y :- s/Bool]
   (if y
-    (with-schemas x)
-    (-> x - with-schemas)))
+    (with-annotations x)
+    (-> x - with-annotations)))
 
-(s/defn with-one-input-schema
+(s/defn with-one-annotated-input
   [x :- s/Int
    y]
   (if y
-    (with-schemas x)
-    (-> x - with-schemas)))
+    (with-annotations x)
+    (-> x - with-annotations)))
 
-(s/defn mismatched-maybe-schema :- s/Str
+(s/defn mismatched-maybe-annotation :- s/Str
   "Another function. This one may not work."
   [x :- (s/maybe s/Int)]
-  (with-schemas x))
+  (with-annotations x))
 
-(s/defn mismatched-wrong-schema :- s/Str
+(s/defn mismatched-wrong-annotation :- s/Str
   "This one definitely won't work."
   [x :- s/Str]
-  (with-schemas x))
+  (with-annotations x))
 
-(defn with-schematized-anonymous-function
+(defn with-annotated-anonymous-function
   [z]
-  (let [l* (s/fn :- s/Str [x :- s/Int] (with-let-not-schema x))]
+  (let [l* (s/fn :- s/Str [x :- s/Int] (with-let-plain x))]
     (l* z)))
 
 (s/defn with-let-variables
   [z :- s/Int]
   (let [n 3
         m (+ n z)]
-    (mismatched-maybe-schema m)))
+    (mismatched-maybe-annotation m)))
 
-(defn multiple-arities-no-schemas
+(defn multiple-arities-basic
   ([]
-   (multiple-arities-no-schemas 1))
+   (multiple-arities-basic 1))
   ([x]
-   (multiple-arities-no-schemas x 2))
+   (multiple-arities-basic x 2))
   ([x & y]
    (apply + x y)))
 
-(s/defn multiple-arities-with-schemas :- s/Int
+(s/defn multiple-arities-with-annotations :- s/Int
   ([]
-   (multiple-arities-with-schemas 1))
+   (multiple-arities-with-annotations 1))
   ([x :- s/Int]
-   (multiple-arities-with-schemas x 2))
+   (multiple-arities-with-annotations x 2))
   ([x y]
-   (multiple-arities-with-schemas x y 3))
+   (multiple-arities-with-annotations x y 3))
   ([x :- s/Int
     y :- s/Int
     & z :- [s/Int]]
@@ -102,7 +102,7 @@
     & zs :- [s/Int]]
    (reduce + (+ x y) zs)))
 
-(s/defn sample-schema-bad-fn :- s/Int
+(s/defn sample-annotated-bad-fn :- s/Int
   [x :- s/Int]
   (int-add 1 (int-add nil x)))
 

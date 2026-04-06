@@ -1,7 +1,11 @@
 (ns skeptic.analysis.schema-base
-  (:require [schema.core :as s]
-            [skeptic.analysis.types :as at])
+  (:require [schema.core :as s])
   (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
+
+(defn- tagged-map?
+  [value tag-key tag]
+  (and (map? value)
+       (= tag (get value tag-key))))
 
 (defn any-schema?
   [s]
@@ -102,8 +106,7 @@
 
 (defn bottom-schema?
   [s]
-  (or (at/tagged-map? s custom-schema-tag-key bottom-schema-tag)
-      (at/same-class-name? s "skeptic.analysis.schema.BottomSchema")))
+  (tagged-map? s custom-schema-tag-key bottom-schema-tag))
 
 (def Bottom
   "Any value, including nil. But often exceptions."
@@ -116,8 +119,7 @@
 
 (defn join?
   [s]
-  (or (at/tagged-map? s custom-schema-tag-key join-schema-tag)
-      (at/same-class-name? s "skeptic.analysis.schema.Join")))
+  (tagged-map? s custom-schema-tag-key join-schema-tag))
 
 (defn join->set
   [s]
@@ -133,8 +135,7 @@
 
 (defn valued-schema?
   [s]
-  (or (at/tagged-map? s custom-schema-tag-key valued-schema-tag)
-      (at/same-class-name? s "skeptic.analysis.schema.ValuedSchema")))
+  (tagged-map? s custom-schema-tag-key valued-schema-tag))
 
 (defn variable
   [schema]
@@ -143,8 +144,7 @@
 
 (defn variable?
   [s]
-  (or (at/tagged-map? s custom-schema-tag-key variable-schema-tag)
-      (at/same-class-name? s "skeptic.analysis.schema.Variable")))
+  (tagged-map? s custom-schema-tag-key variable-schema-tag))
 
 (defn custom-schema?
   [s]
@@ -198,9 +198,18 @@
 (defn check-if-schema
   [s x]
   (case (schema-match? s x)
-    true :skeptic.analysis.schema/schema-valid
-    false :skeptic.analysis.schema/schema-invalid
+    true :skeptic.analysis.schema/plumatic-valid
+    false :skeptic.analysis.schema/plumatic-invalid
     nil :skeptic.analysis.schema/value))
+
+(def plumatic-valid
+  :skeptic.analysis.schema/plumatic-valid)
+
+(def plumatic-invalid
+  :skeptic.analysis.schema/plumatic-invalid)
+
+(def schema-value
+  :skeptic.analysis.schema/value)
 
 (defn custom-schema-match-value?
   [s x]
@@ -293,7 +302,6 @@
   (and (map? schema)
        (not (record? schema))
        (not (custom-schema? schema))
-       (not (at/semantic-type-value? schema))
        (not (s/optional-key? schema))))
 
 (defn- cartesian

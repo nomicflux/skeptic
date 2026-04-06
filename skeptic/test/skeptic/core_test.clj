@@ -9,7 +9,7 @@
             [skeptic.inconsistence.report :as inrep]))
 
 (def ui-internal-markers
-  [":skeptic.analysis.schema/"
+  [":skeptic.analysis.types/"
    "placeholder-type"
    "group-type"
    ":ref "
@@ -141,7 +141,7 @@
                                   :source-type (ab/schema->type s/Keyword)
                                   :target-type (ab/schema->type s/Str)}]})]
     (is (= 1 (count (:errors summary))))
-    (is (some-> summary :errors first (.contains "declared return schema")))
+    (is (some-> summary :errors first (.contains "declared return Plumatic Schema")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
     (is (some-> summary :errors first (.contains "[:name] has Keyword but expected Str")))
     (assert-no-ui-internals (first (:errors summary)))))
@@ -173,7 +173,7 @@
                                   :target-type (ab/schema->type s/Str)
                                   :path [{:kind :target-union-branch :index 1}]}]})]
     (is (= 1 (count (:errors summary))))
-    (is (some-> summary :errors first (.contains "has incompatible schema:")))
+    (is (some-> summary :errors first (.contains "expected Plumatic Schema")))
     (is (some-> summary :errors first (.contains "Keyword does not match any of: Int, Str")))
     (assert-no-ui-internals (first (:errors summary)))))
 
@@ -242,17 +242,17 @@
                   :rule :source-union
                   :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                 :cache s/Any})
-                                              (ato/normalize-type {:result actual-result
-                                                                   :cache s/Any})})
-                  :expected-type (ato/normalize-type {:result expected-result
-                                                      :cache s/Any})
+                                              (ato/coerce-boundary-type {:result actual-result
+                                                                         :cache s/Any})})
+                  :expected-type (ato/coerce-boundary-type {:result expected-result
+                                                            :cache s/Any})
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ato/normalize-type {:result actual-result
-                                                                                 :cache s/Any})})
-                                :target-type (ato/normalize-type {:result expected-result
-                                                                  :cache s/Any})}
+                                                            (ato/coerce-boundary-type {:result actual-result
+                                                                                       :cache s/Any})})
+                                :target-type (ato/coerce-boundary-type {:result expected-result
+                                                                        :cache s/Any})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result

@@ -3,7 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.normalize :as an]
-            [skeptic.schematize :as schematize]
+            [skeptic.typed-decls :as typed-decls]
             [skeptic.test-examples]))
 
 (defn T
@@ -11,7 +11,7 @@
   (ab/schema->type schema))
 
 (deftest declaration-index-contract-test
-  (let [dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
         forward-entry (an/normalize-entry (get dict 'skeptic.test-examples/forward-declared-target))
         recursive-entry (an/normalize-entry (get dict 'skeptic.test-examples/self-recursive-identity))]
     (is (= [(T s/Any)]

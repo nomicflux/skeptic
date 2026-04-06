@@ -15,7 +15,7 @@
   (ab/schema->type schema))
 
 (def ^:private ui-internal-markers
-  [":skeptic.analysis.schema/"
+  [":skeptic.analysis.types/"
    "placeholder-type"
    "group-type"
    ":ref "
@@ -72,7 +72,7 @@
 
     (is (not (:ok? unexpected)))
     (is (some #(= :unexpected-key (:reason %)) (:cast-results unexpected)))
-    (is (some #(str/includes? % "[:c] is not allowed by the expected schema") (:errors unexpected)))
+    (is (some #(str/includes? % "[:c] is not allowed by the expected Plumatic Schema") (:errors unexpected)))
     (run! assert-no-ui-internals (concat (:errors missing)
                                          (:errors unexpected)))))
 

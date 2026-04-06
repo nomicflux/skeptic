@@ -1,7 +1,7 @@
 (ns skeptic.analysis.types)
 
 (def semantic-type-tag-key
-  :skeptic.analysis.schema/semantic-type)
+  :skeptic.analysis.types/semantic-type)
 
 (defn tagged-map?
   [value tag-key tag]
@@ -20,67 +20,90 @@
     (.get field value)))
 
 (def dyn-type-tag
-  :skeptic.analysis.schema/dyn-type)
+  :skeptic.analysis.types/dyn-type)
 
 (def bottom-type-tag
-  :skeptic.analysis.schema/bottom-type)
+  :skeptic.analysis.types/bottom-type)
 
 (def ground-type-tag
-  :skeptic.analysis.schema/ground-type)
+  :skeptic.analysis.types/ground-type)
 
 (def refinement-type-tag
-  :skeptic.analysis.schema/refinement-type)
+  :skeptic.analysis.types/refinement-type)
 
 (def adapter-leaf-type-tag
-  :skeptic.analysis.schema/adapter-leaf-type)
+  :skeptic.analysis.types/adapter-leaf-type)
 
 (def optional-key-type-tag
-  :skeptic.analysis.schema/optional-key-type)
+  :skeptic.analysis.types/optional-key-type)
 
 (def fn-method-type-tag
-  :skeptic.analysis.schema/fn-method-type)
+  :skeptic.analysis.types/fn-method-type)
 
 (def fun-type-tag
-  :skeptic.analysis.schema/fun-type)
+  :skeptic.analysis.types/fun-type)
 
 (def maybe-type-tag
-  :skeptic.analysis.schema/maybe-type)
+  :skeptic.analysis.types/maybe-type)
 
 (def union-type-tag
-  :skeptic.analysis.schema/union-type)
+  :skeptic.analysis.types/union-type)
 
 (def intersection-type-tag
-  :skeptic.analysis.schema/intersection-type)
+  :skeptic.analysis.types/intersection-type)
 
 (def map-type-tag
-  :skeptic.analysis.schema/map-type)
+  :skeptic.analysis.types/map-type)
 
 (def vector-type-tag
-  :skeptic.analysis.schema/vector-type)
+  :skeptic.analysis.types/vector-type)
 
 (def set-type-tag
-  :skeptic.analysis.schema/set-type)
+  :skeptic.analysis.types/set-type)
 
 (def seq-type-tag
-  :skeptic.analysis.schema/seq-type)
+  :skeptic.analysis.types/seq-type)
 
 (def var-type-tag
-  :skeptic.analysis.schema/var-type)
+  :skeptic.analysis.types/var-type)
 
 (def placeholder-type-tag
-  :skeptic.analysis.schema/placeholder-type)
+  :skeptic.analysis.types/placeholder-type)
 
 (def value-type-tag
-  :skeptic.analysis.schema/value-type)
+  :skeptic.analysis.types/value-type)
 
 (def type-var-type-tag
-  :skeptic.analysis.schema/type-var-type)
+  :skeptic.analysis.types/type-var-type)
 
 (def forall-type-tag
-  :skeptic.analysis.schema/forall-type)
+  :skeptic.analysis.types/forall-type)
 
 (def sealed-dyn-type-tag
-  :skeptic.analysis.schema/sealed-dyn-type)
+  :skeptic.analysis.types/sealed-dyn-type)
+
+(def known-semantic-type-tags
+  #{dyn-type-tag
+    bottom-type-tag
+    ground-type-tag
+    refinement-type-tag
+    adapter-leaf-type-tag
+    optional-key-type-tag
+    fn-method-type-tag
+    fun-type-tag
+    maybe-type-tag
+    union-type-tag
+    intersection-type-tag
+    map-type-tag
+    vector-type-tag
+    set-type-tag
+    seq-type-tag
+    var-type-tag
+    placeholder-type-tag
+    value-type-tag
+    type-var-type-tag
+    forall-type-tag
+    sealed-dyn-type-tag})
 
 (defn ->DynT
   []
@@ -206,20 +229,26 @@
 (def BottomType
   (->BottomT))
 
+(defn semantic-type-tag
+  [value]
+  (when (map? value)
+    (get value semantic-type-tag-key)))
+
+(defn known-semantic-type-tag?
+  [tag]
+  (contains? known-semantic-type-tags tag))
+
 (defn dyn-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key dyn-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.DynT")))
+  (tagged-map? t semantic-type-tag-key dyn-type-tag))
 
 (defn bottom-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key bottom-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.BottomT")))
+  (tagged-map? t semantic-type-tag-key bottom-type-tag))
 
 (defn ground-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key ground-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.GroundT")))
+  (tagged-map? t semantic-type-tag-key ground-type-tag))
 
 (defn refinement-type?
   [t]
@@ -235,53 +264,43 @@
 
 (defn fn-method-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key fn-method-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.FnMethodT")))
+  (tagged-map? t semantic-type-tag-key fn-method-type-tag))
 
 (defn fun-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key fun-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.FunT")))
+  (tagged-map? t semantic-type-tag-key fun-type-tag))
 
 (defn maybe-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key maybe-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.MaybeT")))
+  (tagged-map? t semantic-type-tag-key maybe-type-tag))
 
 (defn union-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key union-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.UnionT")))
+  (tagged-map? t semantic-type-tag-key union-type-tag))
 
 (defn intersection-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key intersection-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.IntersectionT")))
+  (tagged-map? t semantic-type-tag-key intersection-type-tag))
 
 (defn map-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key map-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.MapT")))
+  (tagged-map? t semantic-type-tag-key map-type-tag))
 
 (defn vector-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key vector-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.VectorT")))
+  (tagged-map? t semantic-type-tag-key vector-type-tag))
 
 (defn set-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key set-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.SetT")))
+  (tagged-map? t semantic-type-tag-key set-type-tag))
 
 (defn seq-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key seq-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.SeqT")))
+  (tagged-map? t semantic-type-tag-key seq-type-tag))
 
 (defn var-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key var-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.VarT")))
+  (tagged-map? t semantic-type-tag-key var-type-tag))
 
 (defn type-var-type?
   [t]
@@ -297,37 +316,15 @@
 
 (defn placeholder-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key placeholder-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.PlaceholderT")))
+  (tagged-map? t semantic-type-tag-key placeholder-type-tag))
 
 (defn value-type?
   [t]
-  (or (tagged-map? t semantic-type-tag-key value-type-tag)
-      (same-class-name? t "skeptic.analysis.schema.ValueT")))
+  (tagged-map? t semantic-type-tag-key value-type-tag))
 
 (defn semantic-type-value?
   [value]
-  (or (dyn-type? value)
-      (bottom-type? value)
-      (ground-type? value)
-      (refinement-type? value)
-      (adapter-leaf-type? value)
-      (optional-key-type? value)
-      (fn-method-type? value)
-      (fun-type? value)
-      (maybe-type? value)
-      (union-type? value)
-      (intersection-type? value)
-      (map-type? value)
-      (vector-type? value)
-      (set-type? value)
-      (seq-type? value)
-      (var-type? value)
-      (type-var-type? value)
-      (forall-type? value)
-      (sealed-dyn-type? value)
-      (placeholder-type? value)
-      (value-type? value)))
+  (known-semantic-type-tag? (semantic-type-tag value)))
 
 (defn placeholder-display-form
   [ref]

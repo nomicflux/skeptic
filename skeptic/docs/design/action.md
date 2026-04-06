@@ -8,7 +8,7 @@
 
 ## Context
 
-The lein-skeptic plugin runs schema-based static type checking on Clojure projects. Certain sections of the analysis pipeline run slower than others, and there is no built-in way to determine which functions are responsible. External profiling tools require a separate workflow.
+The lein-skeptic plugin runs static type checking for projects that use Plumatic Schema on Clojure projects. Certain sections of the analysis pipeline run slower than others, and there is no built-in way to determine which functions are responsible. External profiling tools require a separate workflow.
 
 This project adds a `-p` / `--profile` flag to lein-skeptic that enables JVM-level sampling profiling via Java Flight Recorder (JFR) for the duration of a plugin run. It captures wall-clock time, memory allocation, and CPU consumption at function granularity, prints an actionable summary to stdout, and writes a raw `.jfr` file to disk. When `-p` is absent, the feature has zero overhead.
 
@@ -69,14 +69,14 @@ Three components: `leiningen.skeptic` (CLI + orchestration), `skeptic.core` (min
 
 **Returns:** integer `0` (no errors found) or `1` (errors found)
 
-**Body:** Identical to the current `get-project-schemas`, with two changes:
+**Body:** Identical to the current `check-project`, with two changes:
 1. Replace `(System/exit 1)` with `1`
 2. Replace `(do (println "No inconsistencies found") (System/exit 0))` with `(do (println "No inconsistencies found") 0)`
 
-#### Function: `get-project-schemas` (backward-compatible wrapper)
+#### Function: `check-project` (backward-compatible wrapper)
 
 ```clojure
-(defn get-project-schemas
+(defn check-project
   [opts root & paths]
   (System/exit (apply check-project opts root paths)))
 ```

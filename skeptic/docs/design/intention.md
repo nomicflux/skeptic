@@ -65,7 +65,7 @@ Running `lein skeptic` on a project has noticeable performance variation across 
 - Sampling-based profiling provides sufficient accuracy for identifying performance bottlenecks. Very short, infrequently-called functions may not appear — this is acceptable.
 - The profiler runs in the project JVM (created by `eval-in-project`), not in Leiningen's own JVM.
 - The raw output file goes to `target/skeptic-profile.<ext>` in the target project's root directory.
-- The profiling summary and raw file write must complete before `System/exit` is called by `get-project-schemas`. This is a sequencing constraint on the implementation.
+- The profiling summary and raw file write must complete before `System/exit` is called by `check-project`. This is a sequencing constraint on the implementation.
 
 ## Accepted Trade-offs
 

@@ -17,133 +17,128 @@
                                     (compact-context-map ~context))]
      ~@body))
 
-(defn localize-schema-value*
+(declare localize-value*)
+
+(defn- localize-unbound-var
+  [value seen-vars]
+  (localize-value* (at/read-instance-field value "v") seen-vars))
+
+(defn- localize-var
+  [value seen-vars]
+  (let [var-ref (or (sb/qualified-var-symbol value) value)]
+    (cond
+      (contains? seen-vars var-ref) (sb/placeholder-schema var-ref)
+      (bound? value) (localize-value* @value (conj seen-vars var-ref))
+      :else (sb/placeholder-schema var-ref))))
+
+(defn- localize-schema-base-value
+  [value seen-vars]
+  (cond
+    (sb/bottom-schema? value) sb/Bottom
+    (sb/join? value)
+    (apply sb/join (map #(localize-value* % seen-vars) (:schemas value)))
+    (sb/valued-schema? value)
+    (sb/valued-schema (localize-value* (:schema value) seen-vars)
+                      (localize-value* (:value value) seen-vars))
+    (sb/variable? value)
+    (sb/variable (localize-value* (:schema value) seen-vars))
+    :else value))
+
+(defn- localize-semantic-type
+  [value seen-vars]
+  (case (at/semantic-type-tag value)
+    :skeptic.analysis.types/dyn-type at/Dyn
+    :skeptic.analysis.types/bottom-type at/BottomType
+    :skeptic.analysis.types/ground-type
+    (at/->GroundT (:ground value) (:display-form value))
+    :skeptic.analysis.types/refinement-type
+    (at/->RefinementT (localize-value* (:base value) seen-vars)
+                      (:display-form value)
+                      (:accepts? value)
+                      (localize-value* (:adapter-data value) seen-vars))
+    :skeptic.analysis.types/adapter-leaf-type
+    (at/->AdapterLeafT (:adapter value)
+                       (:display-form value)
+                       (:accepts? value)
+                       (localize-value* (:adapter-data value) seen-vars))
+    :skeptic.analysis.types/optional-key-type
+    (at/->OptionalKeyT (localize-value* (:inner value) seen-vars))
+    :skeptic.analysis.types/fn-method-type
+    (at/->FnMethodT (localize-value* (:inputs value) seen-vars)
+                    (localize-value* (:output value) seen-vars)
+                    (:min-arity value)
+                    (:variadic? value))
+    :skeptic.analysis.types/fun-type
+    (at/->FunT (localize-value* (:methods value) seen-vars))
+    :skeptic.analysis.types/maybe-type
+    (at/->MaybeT (localize-value* (:inner value) seen-vars))
+    :skeptic.analysis.types/union-type
+    (at/->UnionT (localize-value* (:members value) seen-vars))
+    :skeptic.analysis.types/intersection-type
+    (at/->IntersectionT (localize-value* (:members value) seen-vars))
+    :skeptic.analysis.types/map-type
+    (at/->MapT (localize-value* (:entries value) seen-vars))
+    :skeptic.analysis.types/vector-type
+    (at/->VectorT (localize-value* (:items value) seen-vars)
+                  (:homogeneous? value))
+    :skeptic.analysis.types/set-type
+    (at/->SetT (localize-value* (:members value) seen-vars)
+               (:homogeneous? value))
+    :skeptic.analysis.types/seq-type
+    (at/->SeqT (localize-value* (:items value) seen-vars)
+               (:homogeneous? value))
+    :skeptic.analysis.types/var-type
+    (at/->VarT (localize-value* (:inner value) seen-vars))
+    :skeptic.analysis.types/placeholder-type
+    (at/->PlaceholderT (localize-value* (:ref value) seen-vars))
+    :skeptic.analysis.types/value-type
+    (at/->ValueT (localize-value* (:inner value) seen-vars)
+                 (localize-value* (:value value) seen-vars))
+    :skeptic.analysis.types/type-var-type
+    (at/->TypeVarT (:name value))
+    :skeptic.analysis.types/forall-type
+    (at/->ForallT (:binder value)
+                  (localize-value* (:body value) seen-vars))
+    :skeptic.analysis.types/sealed-dyn-type
+    (at/->SealedDynT (localize-value* (:ground value) seen-vars))
+    value))
+
+(defn- localize-raw-collection
+  [value seen-vars]
+  (cond
+    (vector? value) (mapv #(localize-value* % seen-vars) value)
+    (set? value) (into #{} (map #(localize-value* % seen-vars)) value)
+    (and (map? value) (not (record? value)))
+    (into {}
+          (map (fn [[k v]]
+                 [(localize-value* k seen-vars)
+                  (localize-value* v seen-vars)]))
+          value)
+    (seq? value) (doall (map #(localize-value* % seen-vars) value))
+    :else value))
+
+(defn localize-value*
   [value seen-vars]
   (cond
     (nil? value) nil
     (at/same-class-name? value "clojure.lang.Var$Unbound")
-    (localize-schema-value* (at/read-instance-field value "v") seen-vars)
+    (localize-unbound-var value seen-vars)
     (instance? clojure.lang.Var value)
-    (let [var-ref (or (sb/qualified-var-symbol value) value)]
-      (cond
-        (contains? seen-vars var-ref) (sb/placeholder-schema var-ref)
-        (bound? value) (localize-schema-value* @value (conj seen-vars var-ref))
-        :else (sb/placeholder-schema var-ref)))
-    (sb/bottom-schema? value) sb/Bottom
-    (sb/join? value)
-    (apply sb/join (map #(localize-schema-value* % seen-vars) (:schemas value)))
-    (at/same-class-name? value "skeptic.analysis.schema.Join")
-    (apply sb/join (map #(localize-schema-value* % seen-vars)
-                     (at/read-instance-field value "schemas")))
-    (sb/valued-schema? value)
-    (sb/valued-schema (localize-schema-value* (:schema value) seen-vars)
-                   (localize-schema-value* (:value value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.ValuedSchema")
-    (sb/valued-schema (localize-schema-value* (at/read-instance-field value "schema") seen-vars)
-                   (localize-schema-value* (at/read-instance-field value "value") seen-vars))
-    (sb/variable? value)
-    (sb/variable (localize-schema-value* (:schema value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.Variable")
-    (sb/variable (localize-schema-value* (at/read-instance-field value "schema") seen-vars))
-    (at/dyn-type? value) at/Dyn
-    (at/bottom-type? value) at/BottomType
-    (at/ground-type? value)
-    (at/->GroundT (:ground value) (:display-form value))
-    (at/same-class-name? value "skeptic.analysis.schema.GroundT")
-    (at/->GroundT (at/read-instance-field value "ground")
-               (at/read-instance-field value "display_form"))
-    (at/refinement-type? value)
-    (at/->RefinementT (localize-schema-value* (:base value) seen-vars)
-                   (:display-form value)
-                   (:accepts? value)
-                   (localize-schema-value* (:adapter-data value) seen-vars))
-    (at/adapter-leaf-type? value)
-    (at/->AdapterLeafT (:adapter value)
-                    (:display-form value)
-                    (:accepts? value)
-                    (localize-schema-value* (:adapter-data value) seen-vars))
-    (at/optional-key-type? value)
-    (at/->OptionalKeyT (localize-schema-value* (:inner value) seen-vars))
-    (at/fn-method-type? value)
-    (at/->FnMethodT (localize-schema-value* (:inputs value) seen-vars)
-                 (localize-schema-value* (:output value) seen-vars)
-                 (:min-arity value)
-                 (:variadic? value))
-    (at/same-class-name? value "skeptic.analysis.schema.FnMethodT")
-    (at/->FnMethodT (localize-schema-value* (at/read-instance-field value "inputs") seen-vars)
-                 (localize-schema-value* (at/read-instance-field value "output") seen-vars)
-                 (at/read-instance-field value "min_arity")
-                 (at/read-instance-field value "variadic_QMARK_"))
-    (at/fun-type? value)
-    (at/->FunT (localize-schema-value* (:methods value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.FunT")
-    (at/->FunT (localize-schema-value* (at/read-instance-field value "methods") seen-vars))
-    (at/maybe-type? value)
-    (at/->MaybeT (localize-schema-value* (:inner value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.MaybeT")
-    (at/->MaybeT (localize-schema-value* (at/read-instance-field value "inner") seen-vars))
-    (at/union-type? value)
-    (at/->UnionT (localize-schema-value* (:members value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.UnionT")
-    (at/->UnionT (localize-schema-value* (at/read-instance-field value "members") seen-vars))
-    (at/intersection-type? value)
-    (at/->IntersectionT (localize-schema-value* (:members value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.IntersectionT")
-    (at/->IntersectionT (localize-schema-value* (at/read-instance-field value "members") seen-vars))
-    (at/map-type? value)
-    (at/->MapT (localize-schema-value* (:entries value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.MapT")
-    (at/->MapT (localize-schema-value* (at/read-instance-field value "entries") seen-vars))
-    (at/vector-type? value)
-    (at/->VectorT (localize-schema-value* (:items value) seen-vars)
-               (:homogeneous? value))
-    (at/same-class-name? value "skeptic.analysis.schema.VectorT")
-    (at/->VectorT (localize-schema-value* (at/read-instance-field value "items") seen-vars)
-               (at/read-instance-field value "homogeneous_QMARK_"))
-    (at/set-type? value)
-    (at/->SetT (localize-schema-value* (:members value) seen-vars)
-            (:homogeneous? value))
-    (at/same-class-name? value "skeptic.analysis.schema.SetT")
-    (at/->SetT (localize-schema-value* (at/read-instance-field value "members") seen-vars)
-            (at/read-instance-field value "homogeneous_QMARK_"))
-    (at/seq-type? value)
-    (at/->SeqT (localize-schema-value* (:items value) seen-vars)
-            (:homogeneous? value))
-    (at/same-class-name? value "skeptic.analysis.schema.SeqT")
-    (at/->SeqT (localize-schema-value* (at/read-instance-field value "items") seen-vars)
-            (at/read-instance-field value "homogeneous_QMARK_"))
-    (at/var-type? value)
-    (at/->VarT (localize-schema-value* (:inner value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.VarT")
-    (at/->VarT (localize-schema-value* (at/read-instance-field value "inner") seen-vars))
-    (at/placeholder-type? value)
-    (at/->PlaceholderT (localize-schema-value* (:ref value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.PlaceholderT")
-    (at/->PlaceholderT (localize-schema-value* (at/read-instance-field value "ref") seen-vars))
-    (at/value-type? value)
-    (at/->ValueT (localize-schema-value* (:inner value) seen-vars)
-              (localize-schema-value* (:value value) seen-vars))
-    (at/same-class-name? value "skeptic.analysis.schema.ValueT")
-    (at/->ValueT (localize-schema-value* (at/read-instance-field value "inner") seen-vars)
-              (localize-schema-value* (at/read-instance-field value "value") seen-vars))
-    (at/type-var-type? value)
-    (at/->TypeVarT (:name value))
-    (at/forall-type? value)
-    (at/->ForallT (:binder value)
-               (localize-schema-value* (:body value) seen-vars))
-    (at/sealed-dyn-type? value)
-    (at/->SealedDynT (localize-schema-value* (:ground value) seen-vars))
-    (vector? value) (mapv #(localize-schema-value* % seen-vars) value)
-    (set? value) (into #{} (map #(localize-schema-value* % seen-vars)) value)
-    (and (map? value) (not (record? value)))
-    (into {}
-          (map (fn [[k v]]
-                 [(localize-schema-value* k seen-vars)
-                  (localize-schema-value* v seen-vars)]))
-          value)
-    (seq? value) (doall (map #(localize-schema-value* % seen-vars) value))
+    (localize-var value seen-vars)
+    (or (sb/bottom-schema? value)
+        (sb/join? value)
+        (sb/valued-schema? value)
+        (sb/variable? value))
+    (localize-schema-base-value value seen-vars)
+    (at/semantic-type-value? value)
+    (localize-semantic-type value seen-vars)
+    (or (vector? value)
+        (set? value)
+        (and (map? value) (not (record? value)))
+        (seq? value))
+    (localize-raw-collection value seen-vars)
     :else value))
 
-(defn localize-schema-value
+(defn localize-value
   [value]
-  (localize-schema-value* value #{}))
+  (localize-value* value #{}))

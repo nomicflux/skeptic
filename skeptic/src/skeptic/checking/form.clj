@@ -28,14 +28,14 @@
 (defmacro assert-schema
   [schema]
   #_
-  `(do (assert (valid-schema? ~schema) (format "Must be valid schema: %s" ~schema))
+  `(do (assert (valid-schema? ~schema) (format "Must be valid Plumatic Schema: %s" ~schema))
        ~schema)
   schema)
 
 (defmacro assert-has-schema
   [x]
   #_
-  `(do (assert (valid-schema? (:schema ~x)) (format "Must be valid schema: %s (%s)" (:schema ~x) (pr-str ~x)))
+  `(do (assert (valid-schema? (:schema ~x)) (format "Must be valid Plumatic Schema: %s (%s)" (:schema ~x) (pr-str ~x)))
        ~x)
   x)
 

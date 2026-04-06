@@ -8,7 +8,8 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
-            [skeptic.schematize :as schematize]
+            [skeptic.source :as source]
+            [skeptic.typed-decls :as typed-decls]
             [skeptic.test-examples :as test-examples])
   (:import [java.io File]))
 
@@ -70,7 +71,7 @@
                      arities)}))
 
 (def analysis-dict
-  (merge (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+  (merge (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
          {'skeptic.analysis-test/f
           (fn-entry 'skeptic.analysis-test/f s/Any [['value s/Any]])
           'skeptic.analysis-test/int-add
@@ -85,7 +86,7 @@
                                                         ['opts s/Any]])}))
 
 (def typed-test-examples-dict
-  (schematize/typed-ns-schemas {} 'skeptic.test-examples))
+  (typed-decls/typed-ns-entries {} 'skeptic.test-examples))
 
 (def sample-dict
   {'f
@@ -109,7 +110,7 @@
                  (map (fn [sym] [sym (T s/Any)]))
                  syms)})
 
-(defn local-schemas
+(defn local-types
   [m]
   {:locals m})
 
@@ -220,10 +221,10 @@
                          (checking/ns-exprs ~file)))
 
 (deftest restored-resolution-contract-test
-  (testing "unannotated helper lookup from ns-schemas alone stays plain Any"
-    (let [dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+  (testing "unannotated helper lookup from collected entries alone stays plain Any"
+    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
           form (->> 'skeptic.test-examples/unannotated-local-helper-g
-                    (schematize/get-fn-code {})
+                    (source/get-fn-code {})
                     read-string)
           ast (aa/annotate-form-loop dict form {:ns 'skeptic.test-examples})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
@@ -231,7 +232,7 @@
       (is (not (at/union-type? (:type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
-    (let [dict (schematize/typed-ns-schemas {} 'skeptic.test-examples)
+    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
                                                                          'skeptic.test-examples
                                                                          test-examples-file
