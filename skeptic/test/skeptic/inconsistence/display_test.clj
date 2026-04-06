@@ -26,21 +26,24 @@
 (deftest exact-key-form-test
   (is (= :a (sut/exact-key-form :a)))
   (is (= :a (sut/exact-key-form (s/optional-key :a))))
-  (is (= :a (sut/exact-key-form {:cleaned-key (s/optional-key :a)}))))
+  (is (= :a (sut/exact-key-form {:cleaned-key (s/optional-key :a)})))
+  (is (= :a (sut/exact-key-form (at/->OptionalKeyT (at/->ValueT (at/->GroundT :keyword 'Keyword) :a))))))
 
 (deftest format-and-block-user-form-test
   (is (= ":x" (sut/format-user-form :x)))
   (is (some? (sut/pretty-user-form {:a 1 :b 2})))
   (is (string? (sut/block-user-form :short))))
 
-(deftest user-type-and-display-form-test
+(deftest user-type-and-domain-form-test
   (is (= 'Int (sut/user-type-form (ab/schema->type s/Int))))
-  (is (= 'Str (sut/user-display-form s/Str))))
+  (is (= 'Str (sut/user-schema-form s/Str)))
+  (is (= :kw (sut/user-raw-form :kw))))
 
 (deftest describe-display-helpers-test
   (is (= "Int" (sut/describe-type (ab/schema->type s/Int))))
   (is (string? (sut/describe-type-block (ab/schema->type s/Int))))
   (is (= "Str" (sut/describe-schema s/Str)))
+  (is (= ":kw" (sut/describe-raw :kw)))
   (is (= ":kw" (sut/describe-item :kw))))
 
 (deftest user-fn-input-form-test

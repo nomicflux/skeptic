@@ -242,17 +242,17 @@
                   :rule :source-union
                   :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                 :cache s/Any})
-                                              (ato/coerce-boundary-type {:result actual-result
-                                                                         :cache s/Any})})
-                  :expected-type (ato/coerce-boundary-type {:result expected-result
-                                                            :cache s/Any})
+                                              (ato/normalize-type {:result actual-result
+                                                                   :cache (ab/schema->type s/Any)})})
+                  :expected-type (ato/normalize-type {:result expected-result
+                                                      :cache (ab/schema->type s/Any)})
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ato/coerce-boundary-type {:result actual-result
-                                                                                       :cache s/Any})})
-                                :target-type (ato/coerce-boundary-type {:result expected-result
-                                                                        :cache s/Any})}
+                                                            (ato/normalize-type {:result actual-result
+                                                                                 :cache (ab/schema->type s/Any)})})
+                                :target-type (ato/normalize-type {:result expected-result
+                                                                  :cache (ab/schema->type s/Any)})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result
@@ -272,3 +272,17 @@
                      (str/includes? value "Threal")
                      (not (str/includes? value "union"))))
               fields))))
+
+(deftest exception-report-fields-skip-blame-and-show-phase
+  (let [fields (sut/report-fields
+                {:report-kind :exception
+                 :phase :declaration
+                 :location {:file "test.clj" :line 7}
+                 :blame 'example/bad
+                 :source-expression "(bad)"
+                 :errors ["oops"]}
+                true)]
+    (is (some #{["Location: \t\t" "test.clj:7"]} fields))
+    (is (some #{["Phase: \t\t\t" "declaration"]} fields))
+    (is (some #{["Expression: \t\t" "(bad)"]} fields))
+    (is (not-any? #(= "Blame: \t\t\t" (first %)) fields))))

@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
@@ -59,13 +58,14 @@
     (s/optional-key? key)
     (exact-key-form (:k key))
 
+    (at/optional-key-type? key)
+    (exact-key-form (:inner key))
+
+    (at/value-type? key)
+    (literal-form (:value key))
+
     :else
-    (let [type (some-> key ato/coerce-boundary-type)]
-      (cond
-        (nil? type) nil
-        (at/optional-key-type? type) (exact-key-form (:inner type))
-        (at/value-type? type) (literal-form (:value type))
-        :else nil))))
+    (literal-form key)))
 
 (defn format-user-form
   [form]
@@ -96,6 +96,17 @@
   (or (some-> type abr/render-type-form)
       'Unknown))
 
+(defn user-schema-form
+  [schema]
+  (or (some-> schema abc/schema-display-form)
+      'Unknown))
+
+(defn user-raw-form
+  [value]
+  (or (literal-form value)
+      value
+      'Unknown))
+
 (defn user-fn-input-form
   [method]
   (let [inputs (mapv user-type-form (:inputs method))]
@@ -103,21 +114,6 @@
       (concat (take (:min-arity method) inputs)
               ['& (drop (:min-arity method) inputs)])
       inputs)))
-
-(defn user-display-form
-  [x]
-  (cond
-    (and (map? x) (contains? x :cleaned-key))
-    (user-display-form (:cleaned-key x))
-
-    (s/optional-key? x)
-    (user-display-form (:k x))
-
-    :else
-    (or (if (abc/schema? x)
-          (abc/schema-display-form x)
-          (some-> x abr/render-type-form))
-        'Unknown)))
 
 (defn describe-type
   [type]
@@ -128,9 +124,15 @@
   (block-user-form (user-type-form type)))
 
 (defn describe-schema
-  [x]
-  (format-user-form (user-display-form x)))
+  [schema]
+  (format-user-form (user-schema-form schema)))
+
+(defn describe-raw
+  [value]
+  (format-user-form (user-raw-form value)))
 
 (defn describe-item
   [x]
-  (format-user-form (user-display-form x)))
+  (if (at/semantic-type-value? x)
+    (describe-type x)
+    (describe-raw x)))

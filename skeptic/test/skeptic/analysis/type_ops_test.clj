@@ -7,10 +7,6 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(declare UnboundTypeSchemaRef)
-
-(def BoundTypeSchemaRef s/Int)
-
 (deftest tagged-polymorphic-type-helpers-test
   (let [type-var (at/->TypeVarT 'X)
         forall (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
@@ -34,7 +30,8 @@
 
 (deftest semantic-function-type-rendering-test
   (let [fun-type (at/->FunT [(at/->FnMethodT [(ab/schema->type s/Int)]
-                                             (ato/intersection-type [s/Any s/Int])
+                                             (ato/intersection-type [(ab/schema->type s/Any)
+                                                                     (ab/schema->type s/Int)])
                                              1
                                              false)])
         polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
@@ -72,13 +69,3 @@
   (is (thrown-with-msg? IllegalArgumentException
                         #"normalize-type only accepts canonical semantic types or internal type-like values"
                         (ato/normalize-type s/Int))))
-
-(deftest coerce-boundary-type-contract-test
-  (is (= (ab/schema->type s/Int)
-         (ato/coerce-boundary-type s/Int)))
-  (is (= (ab/schema->type #'BoundTypeSchemaRef)
-         (ato/coerce-boundary-type #'BoundTypeSchemaRef)))
-  (is (= (ab/schema->type (.getRawRoot ^clojure.lang.Var #'UnboundTypeSchemaRef))
-         (ato/coerce-boundary-type (.getRawRoot ^clojure.lang.Var #'UnboundTypeSchemaRef))))
-  (is (= (at/->OptionalKeyT (at/->ValueT (at/->GroundT :keyword 'Keyword) :a))
-         (ato/coerce-boundary-type (s/optional-key :a)))))

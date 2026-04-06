@@ -7,7 +7,7 @@
             [skeptic.analysis.types :as at]))
 
 (deftest domain-query-stores-semantic-type-test
-  (let [query (amo/domain-key-query s/Keyword 'k)]
+  (let [query (amo/domain-key-query (ab/schema->type s/Keyword) 'k)]
     (is (amo/map-key-query? query))
     (is (= :domain (:kind query)))
     (is (contains? query :type))
@@ -15,10 +15,10 @@
     (is (= (ab/schema->type s/Keyword)
            (amo/query-key-type query)))))
 
-(deftest map-key-query-coerces-raw-edge-inputs-test
-  (let [exact-query (amo/map-key-query :a)
-        optional-query (amo/map-key-query (s/optional-key :a))
-        domain-query (amo/map-key-query s/Keyword 'k)]
+(deftest explicit-map-key-query-contract-test
+  (let [exact-query (amo/exact-key-query nil :a :a)
+        optional-query (amo/exact-key-query nil :a :a)
+        domain-query (amo/domain-key-query (ab/schema->type s/Keyword) 'k)]
     (is (= :exact (:kind exact-query)))
     (is (= :a (:value exact-query)))
     (is (= :exact (:kind optional-query)))

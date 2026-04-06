@@ -57,7 +57,7 @@
   ([type source-form]
    {map-key-query-tag true
     :kind :domain
-    :type (ato/coerce-boundary-type type)
+    :type (ato/normalize-type type)
     :source-form source-form}))
 
 (defn exact-key-query?
@@ -65,28 +65,18 @@
   (and (map-key-query? query)
        (= :exact (:kind query))))
 
-(defn map-key-query
-  ([key]
-   (map-key-query key nil))
-  ([key source-form]
-   (let [key (if (map-key-query? key)
-               key
-               (ato/coerce-boundary-type key))]
-     (cond
-       (map-key-query? key)
-       (if (exact-key-query? key)
-         {map-key-query-tag true
-          :kind :exact
-          :value (:value key)
-          :source-form (:source-form key)}
-         (domain-key-query (:type key) (:source-form key)))
+(defn normalize-map-key-query
+  [query]
+  (cond
+    (map-key-query? query)
+    query
 
-       :else
-       (let [exact-values (finite-exact-key-values key)]
-         (if (and exact-values
-                  (= 1 (count exact-values)))
-           (exact-key-query nil (first exact-values) source-form)
-           (domain-key-query key source-form)))))))
+    :else
+    (let [exact-values (finite-exact-key-values query)]
+      (if (and exact-values
+               (= 1 (count exact-values)))
+        (exact-key-query nil (first exact-values) nil)
+        (domain-key-query query nil)))))
 
 (defn query-key-type
   [query]
@@ -239,7 +229,7 @@
 (defn map-lookup-candidates
   [entries key-query]
   (let [descriptor (map-entry-descriptor entries)
-        key-query (map-key-query key-query)]
+        key-query (normalize-map-key-query key-query)]
     (if (exact-key-query? key-query)
       (exact-key-candidates descriptor (:value key-query))
       (domain-key-candidates descriptor (query-key-type key-query)))))
@@ -256,7 +246,7 @@
    (map-get-type m key no-default))
   ([m key default]
    (let [m (as-type m)
-         key-query (map-key-query key)
+         key-query (normalize-map-key-query key)
          default-provided? (not= default no-default)
          default-type (when default-provided?
                         (as-type default))]

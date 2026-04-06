@@ -4,6 +4,8 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.schema.collect :as collect]))
 
+(declare typed-ns-results)
+
 (defn raw-arg-name
   [idx arg]
   (cond
@@ -73,8 +75,25 @@
 
 (defn typed-ns-entries
   [opts ns]
-  (->> (collect/ns-schemas opts ns)
-       (keep (fn [[qualified-sym schema-desc]]
-               (when-let [typed-entry (desc->typed-entry schema-desc)]
-                 [qualified-sym typed-entry])))
-       (into {})))
+  (:entries (typed-ns-results opts ns)))
+
+(defn typed-ns-results
+  [opts ns]
+  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)]
+    (reduce (fn [{:keys [entries errors]} [qualified-sym schema-desc]]
+              (try
+                (if-let [typed-entry (desc->typed-entry schema-desc)]
+                  {:entries (assoc entries qualified-sym typed-entry)
+                   :errors errors}
+                  {:entries entries
+                   :errors errors})
+                (catch Exception e
+                  {:entries entries
+                   :errors (conj errors
+                                 (collect/declaration-error-result ns
+                                                                   qualified-sym
+                                                                   (resolve qualified-sym)
+                                                                   e))})))
+            {:entries {}
+             :errors (vec errors)}
+            entries)))

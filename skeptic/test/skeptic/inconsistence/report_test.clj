@@ -129,10 +129,10 @@
                   :cast-result {:rule :source-union
                                 :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
-                                                            (ato/coerce-boundary-type {:result actual-result
-                                                                                       :cache s/Any})})
-                                :target-type (ato/coerce-boundary-type {:result expected-result
-                                                                        :cache s/Any})}
+                                                            (ato/normalize-type {:result actual-result
+                                                                                 :cache (ab/schema->type s/Any)})})
+                                :target-type (ato/normalize-type {:result expected-result
+                                                                  :cache (ab/schema->type s/Any)})}
                   :cast-results [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :source-type actual-result
@@ -173,6 +173,18 @@
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \"x\"\}" text))
     (is (str/includes? text "Declared return Plumatic Schema expects:"))
     (is (str/includes? text "[:name] has Keyword but expected Str"))))
+
+(deftest exception-summary-is-clear-and-user-facing
+  (let [summary (sut/report-summary
+                 {:report-kind :exception
+                  :phase :expression
+                  :blame '(bad-form)
+                  :exception-message "boom during analysis"})
+        [error] (:errors summary)]
+    (is (= 1 (count (:errors summary))))
+    (is (str/includes? error "Skeptic hit an exception while checking"))
+    (is (str/includes? error "boom during analysis"))
+    (is (str/includes? error "continued with the rest of the namespace"))))
 
 (deftest output-summary-omits-redundant-in-when-focus-equals-expression
   (let [summary (sut/report-summary

@@ -78,47 +78,43 @@
 
 (s/defn collect-schemas :- dschema/SchemaDesc
   [{:keys [schema ns name arglists] :as this}]
-  (try
-    (let [schema (abc/canonicalize-schema schema)]
-      (when-not (abc/schema? schema)
-        (throw (IllegalArgumentException.
-                (format "Invalid Plumatic Schema annotation for %s/%s: %s"
-                        ns
-                        name
-                        (pr-str schema)))))
-      (abc/canonicalize-entry
-       (if (or (class? schema) (set? schema) (vector? schema))
-         {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
-          :schema schema
-          :output schema
-          :arglists {}}
-         (let [{:keys [input-schemas output-schema]} (into {} schema)
-               inputs (count-map input-schemas)
-               args (arg-map arglists)
-               annotated-args (reduce
-                               (fn [acc next]
-                                 (let [input (get inputs next)
-                                       arg (get args next)]
-                                   (assoc acc
-                                          next
-                                          (cond-> {:arglist arg}
-                                            (= next :varargs)
-                                            (assoc :count (:count arg)
-                                                   :arglist (:args arg)
-                                                   :schema (some-> (get inputs (:count arg))
-                                                                   normalize-vararg-input-schemas))
+  (let [schema (abc/canonicalize-schema schema)]
+    (when-not (abc/schema? schema)
+      (throw (IllegalArgumentException.
+              (format "Invalid Plumatic Schema annotation for %s/%s: %s"
+                      ns
+                      name
+                      (pr-str schema)))))
+    (abc/canonicalize-entry
+     (if (or (class? schema) (set? schema) (vector? schema))
+       {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
+        :schema schema
+        :output schema
+        :arglists {}}
+       (let [{:keys [input-schemas output-schema]} (into {} schema)
+             inputs (count-map input-schemas)
+             args (arg-map arglists)
+             annotated-args (reduce
+                             (fn [acc next]
+                               (let [input (get inputs next)
+                                     arg (get args next)]
+                                 (assoc acc
+                                        next
+                                        (cond-> {:arglist arg}
+                                          (= next :varargs)
+                                          (assoc :count (:count arg)
+                                                 :arglist (:args arg)
+                                                 :schema (some-> (get inputs (:count arg))
+                                                                 normalize-vararg-input-schemas))
 
-                                            (not (nil? input))
-                                            (assoc :schema input)))))
-                               {}
-                               (keys args))]
-           {:name (str ns "/" name)
-            :schema schema
-            :output (or output-schema schema)
-            :arglists annotated-args}))))
-    (catch Exception e
-      (println "Exception collecting Plumatic Schema annotations:" (pr-str this))
-      (throw e))))
+                                          (not (nil? input))
+                                          (assoc :schema input)))))
+                             {}
+                             (keys args))]
+         {:name (str ns "/" name)
+          :schema schema
+          :output (or output-schema schema)
+          :arglists annotated-args})))))
 
 (s/defn fully-qualify-str :- s/Symbol
   [f :- s/Str]
@@ -173,14 +169,36 @@
                           :arglists arglists})
         (dynamic-desc v)))))
 
-(defn ns-schemas
+(defn declaration-error-result
+  [ns-sym qualified-sym v e]
+  {:report-kind :exception
+   :phase :declaration
+   :blame qualified-sym
+   :enclosing-form qualified-sym
+   :namespace ns-sym
+   :location (select-keys (meta v) [:file :line :column :end-line :end-column])
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage e)
+                          (str e))})
+
+(defn ns-schema-results
   [opts ns]
   (binding [*ns* (the-ns ns)]
-    (->> ns
-         symbol
-         ns-interns
-         vals
-         (keep (fn [v]
-                 (when-let [qualified-sym (sb/qualified-var-symbol v)]
-                   [qualified-sym (var-schema-desc v)])))
-         (into {}))))
+    (reduce (fn [{:keys [entries errors] :as acc} v]
+              (if-let [qualified-sym (sb/qualified-var-symbol v)]
+                (try
+                  (if-let [schema-desc (var-schema-desc v)]
+                    {:entries (assoc entries qualified-sym schema-desc)
+                     :errors errors}
+                    acc)
+                  (catch Exception e
+                    {:entries entries
+                     :errors (conj errors (declaration-error-result ns qualified-sym v e))}))
+                acc))
+            {:entries {}
+             :errors []}
+            (-> ns symbol ns-interns vals))))
+
+(defn ns-schemas
+  [opts ns]
+  (:entries (ns-schema-results opts ns)))

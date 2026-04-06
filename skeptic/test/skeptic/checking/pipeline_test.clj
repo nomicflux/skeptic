@@ -6,6 +6,7 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
             [skeptic.core :as core]
+            [skeptic.best-effort-examples]
             [skeptic.examples]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
@@ -26,6 +27,7 @@
 (def schema-collect-file (File. "src/skeptic/schema/collect.clj"))
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 (def utils-file (File. "src/skeptic/utils.clj"))
+(def best-effort-file (File. "test/skeptic/best_effort_examples.clj"))
 
 (def test-dict (in-test-examples (typed-decls/typed-ns-entries {} 'skeptic.test-examples)))
 (def examples-dict (typed-decls/typed-ns-entries {} 'skeptic.examples))
@@ -590,6 +592,46 @@
                        test-file
                        {:remove-context true}))
     (is (= before test-dict))))
+
+(deftest namespace-checking-keeps-going-after-declaration-errors
+  (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
+        results (vec (concat errors
+                             (sut/check-ns entries
+                                           'skeptic.best-effort-examples
+                                           best-effort-file
+                                           {:remove-context true})))
+        declaration-error (some #(when (= :declaration (:phase %)) %) results)
+        stray-form-result (some #(when (= 'skeptic.best-effort-examples/good-call
+                                        (:enclosing-form %))
+                                   %)
+                                results)]
+    (is (some? declaration-error))
+    (is (nil? stray-form-result))
+    (is (= 1 (count results)))))
+
+(deftest check-ns-localizes-expression-exceptions-and-continues
+  (let [real-analyze sut/analyze-source-exprs
+        exprs (vec (sut/ns-exprs test-file))
+        exploding-form (some #(when (= 'sample-bad-fn (second %)) %) exprs)]
+    (is (some? exploding-form))
+    (with-redefs [sut/analyze-source-exprs (fn [dict ns-sym source-file exprs]
+                                             (if (= exploding-form (first exprs))
+                                               (throw (ex-info "boom during analysis" {}))
+                                               (real-analyze dict ns-sym source-file exprs)))]
+      (let [results (vec (sut/check-ns test-dict
+                                       'skeptic.test-examples
+                                       test-file
+                                       {:remove-context true}))
+            exception-result (some #(when (= :expression (:phase %)) %) results)
+            later-mismatch (some #(when (= 'skeptic.test-examples/sample-mismatched-types
+                                          (:enclosing-form %))
+                                   %)
+                                results)]
+        (is (some? exception-result))
+        (is (= 'skeptic.test-examples/sample-bad-fn
+               (:enclosing-form exception-result)))
+        (is (= "boom during analysis" (:exception-message exception-result)))
+        (is (some? later-mismatch))))))
 
 (defn single-failure?
   [f blame]

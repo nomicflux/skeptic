@@ -1,11 +1,15 @@
 (ns skeptic.inconsistence.mismatch
   (:require [skeptic.colours :as colours]
+            [skeptic.analysis.types :as at]
             [skeptic.inconsistence.display :as disp]
             [skeptic.analysis.type-ops :as ato]))
 
 (defn- describe-display-block
   [value]
-  (disp/block-user-form (disp/user-display-form value)))
+  (disp/block-user-form
+   (if (at/semantic-type-value? value)
+     (disp/user-type-form value)
+     (disp/user-schema-form value))))
 
 (defn mismatched-nullable-msg
   [{:keys [expr arg]} _actual-type _expected-type]

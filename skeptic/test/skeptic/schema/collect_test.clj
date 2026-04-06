@@ -51,3 +51,14 @@
                                               :ns 'skeptic.schema.collect
                                               :name 'invalid
                                               :arglists '([])}))))
+
+(deftest ns-schema-results-localizes-invalid-declarations
+  (require 'skeptic.best-effort-examples)
+  (let [{:keys [entries errors]} (sut/ns-schema-results {} 'skeptic.best-effort-examples)]
+    (is (contains? entries 'skeptic.best-effort-examples/ok-plus))
+    (is (contains? entries 'skeptic.best-effort-examples/good-call))
+    (is (= 1 (count errors)))
+    (is (= :exception (:report-kind (first errors))))
+    (is (= :declaration (:phase (first errors))))
+    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
+           (:blame (first errors))))))

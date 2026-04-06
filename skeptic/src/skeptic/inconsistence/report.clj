@@ -33,6 +33,19 @@
        (str/join "\n\t- "
                  (map #(colours/yellow (str/replace % "\n" "\n\t  ")) detail-lines))))
 
+(defn exception-error-summary
+  [{:keys [phase blame exception-message]}]
+  (let [subject (if (= :declaration phase)
+                  (format "declared schema for %s" (pr-str blame))
+                  (format "expression %s" (colours/magenta (disp/ppr-str blame) true)))
+        skip-text (case phase
+                    :declaration "Skeptic skipped this declaration and continued with the rest of the namespace."
+                    "Skeptic skipped this expression and continued with the rest of the namespace.")]
+    (format "Skeptic hit an exception while checking %s.\n\n%s\n\n%s"
+            subject
+            (colours/yellow exception-message)
+            skip-text)))
+
 (defn report-ctx
   [{:keys [blame] :as report}]
   {:expr blame
@@ -149,6 +162,9 @@
 (defn summarize-errors
   [{:keys [report-kind cast-results] :as report}]
   (case report-kind
+    :exception
+    [(exception-error-summary report)]
+
     :output
     (let [ordered-leaves (ordered-output-leaves report)
           detail-lines (->> ordered-leaves
@@ -186,21 +202,25 @@
 
 (defn display-cast
   [{:keys [rule actual-type expected-type cast-result]}]
-  (let [rule (or (:rule cast-result) rule)
-        actual-type (or (:source-type cast-result) actual-type)
-        expected-type (or (:target-type cast-result) expected-type)]
-    {:rule rule
-     :rule-text (some-> rule name)
-     :actual-type actual-type
-     :expected-type expected-type
-     :actual-type-text (disp/describe-type-block actual-type)
-     :expected-type-text (disp/describe-type-block expected-type)}))
+  (when-not (= :exception (:report-kind cast-result))
+    (let [rule (or (:rule cast-result) rule)
+          actual-type (or (:source-type cast-result) actual-type)
+          expected-type (or (:target-type cast-result) expected-type)]
+      {:rule rule
+       :rule-text (some-> rule name)
+       :actual-type actual-type
+       :expected-type expected-type
+       :actual-type-text (disp/describe-type-block actual-type)
+       :expected-type-text (disp/describe-type-block expected-type)})))
 
 (defn report-summary
   [{:keys [location blame-side blame-polarity source-expression blame
-           focus-sources focuses enclosing-form expanded-expression]
+           focus-sources focuses enclosing-form expanded-expression
+           phase]
     :as report}]
   (merge {:location location
+          :report-kind (:report-kind report)
+          :phase phase
           :blame-side blame-side
           :blame-polarity blame-polarity
           :source-expression source-expression
@@ -210,11 +230,12 @@
           :enclosing-form enclosing-form
           :expanded-expression expanded-expression
           :errors (summarize-errors report)}
-         (display-cast (if (= :output (:report-kind report))
-                         (let [selected (or (primary-actionable-output-leaf report)
-                                            (:cast-result report))]
-                           (assoc report :cast-result selected))
-                         report))))
+         (or (display-cast (if (= :output (:report-kind report))
+                             (let [selected (or (primary-actionable-output-leaf report)
+                                                (:cast-result report))]
+                               (assoc report :cast-result selected))
+                             report))
+             {})))
 
 (defn cast-result->message
   [ctx cast-result]

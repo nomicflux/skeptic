@@ -80,35 +80,45 @@
 (defn report-fields
   ([summary]
    (report-fields summary false))
-  ([{:keys [location blame-side blame-polarity rule rule-text
+  ([{:keys [report-kind phase location blame-side blame-polarity rule rule-text
             actual-type actual-type-text expected-type expected-type-text
             source-expression blame focus-sources focuses enclosing-form
             expanded-expression]}
     verbose]
-   (remove nil?
-           [(when-let [location-text (format-location location)]
-              ["Location: \t\t" location-text])
-            ["Blame: \t\t\t" (format-blame blame-side blame-polarity)]
-            (when (and verbose
-                       (or rule-text rule))
-              ["Cast rule: \t\t" (or rule-text (some-> rule name))])
-            (when verbose
-              (when-let [actual-text (or actual-type-text
-                                         (some-> actual-type abr/render-type))]
-                ["Actual type: \t\t" actual-text]))
-            (when verbose
-              (when-let [expected-text (or expected-type-text
-                                           (some-> expected-type abr/render-type))]
-                ["Expected type: \t" expected-text]))
-            (when verbose
-              ["Expression: \t\t" (or source-expression (pr-str blame))])
-            (when verbose
-              (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
-                ["Affected input: \t" focus-text]))
-            (when (and verbose enclosing-form)
-              ["In enclosing form: \t" (pr-str enclosing-form)])
-            (when (and verbose expanded-expression)
-              ["Analyzed expression: \t" (pr-str expanded-expression)])])))
+   (if (= :exception report-kind)
+     (remove nil?
+             [(when-let [location-text (format-location location)]
+                ["Location: \t\t" location-text])
+              (when verbose
+                ["Phase: \t\t\t" (name phase)])
+              (when verbose
+                ["Expression: \t\t" (or source-expression (pr-str blame))])
+              (when (and verbose enclosing-form)
+                ["In enclosing form: \t" (pr-str enclosing-form)])])
+     (remove nil?
+             [(when-let [location-text (format-location location)]
+                ["Location: \t\t" location-text])
+              ["Blame: \t\t\t" (format-blame blame-side blame-polarity)]
+              (when (and verbose
+                         (or rule-text rule))
+                ["Cast rule: \t\t" (or rule-text (some-> rule name))])
+              (when verbose
+                (when-let [actual-text (or actual-type-text
+                                           (some-> actual-type abr/render-type))]
+                  ["Actual type: \t\t" actual-text]))
+              (when verbose
+                (when-let [expected-text (or expected-type-text
+                                             (some-> expected-type abr/render-type))]
+                  ["Expected type: \t" expected-text]))
+              (when verbose
+                ["Expression: \t\t" (or source-expression (pr-str blame))])
+              (when verbose
+                (when-let [focus-text (format-focuses (or focus-sources (map pr-str focuses)))]
+                  ["Affected input: \t" focus-text]))
+              (when (and verbose enclosing-form)
+                ["In enclosing form: \t" (pr-str enclosing-form)])
+              (when (and verbose expanded-expression)
+                ["Analyzed expression: \t" (pr-str expanded-expression)])]))))
 
 (defn check-project
   [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
@@ -131,13 +141,14 @@
        (when verbose (println "*** Checking" ns "***"))
        ;; (pprint/pprint (checking/annotate-ns ns))
        (try
-         (let [dict (typed-decls/typed-ns-entries opts ns)]
+         (let [{:keys [entries errors]} (typed-decls/typed-ns-results opts ns)]
            ;(when verbose
            ;  (println "Typed declaration dictionary:")
            ;  (pprint/pprint dict))
 	         (when analyzer
 	           (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns))))
-	         (doseq [result (checking/check-ns dict ns source-file opts)]
+	         (doseq [result (concat errors
+                                  (checking/check-ns entries ns source-file opts))]
 	           (println "---------")
 	           (let [{:keys [path context]} result
 	                 summary (inrep/report-summary result)]

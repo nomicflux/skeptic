@@ -221,6 +221,30 @@
          (remove file/is-ns-block?)
          doall)))
 
+(defn expression-exception-result
+  [ns-sym source-file source-form e]
+  {:report-kind :exception
+   :phase :expression
+   :blame source-form
+   :source-expression (cf/form-source source-form)
+   :location (cf/form-location source-file source-form)
+   :enclosing-form (enclosing-form ns-sym source-form)
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage e)
+                          (str e))})
+
+(defn check-ns-form
+  [dict ns source-file source-form opts]
+  (try
+    (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
+      (check-resolved-form dict
+                           ns
+                           source-form
+                           (first resolved)
+                           opts))
+    (catch Exception e
+      [(expression-exception-result ns source-file source-form e)])))
+
 (defn check-s-expr
   [dict s-expr {:keys [keep-empty remove-context ns source-file]}]
   (try
@@ -263,9 +287,5 @@
 (defn check-ns
   [dict ns source-file opts]
   (binding [*ns* (the-ns ns)]
-    (let [exprs (ns-exprs source-file)
-          {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)]
-      (mapcat (fn [source-form analyzed]
-                (check-resolved-form dict ns source-form analyzed opts))
-              exprs
-              resolved))))
+    (->> (ns-exprs source-file)
+         (mapcat #(check-ns-form dict ns source-file % opts)))))

@@ -65,3 +65,14 @@
       (is (= (T s/Any) (:output-type sample-fn)))
       (is (= [{:name 'x :optional? false :type (T s/Any)}]
              (get-in sample-fn [:arglists 1 :types]))))))
+
+(deftest typed-ns-results-omit-bad-declarations-and-keep-errors
+  (require 'skeptic.best-effort-examples)
+  (let [{:keys [entries errors]} (sut/typed-ns-results {} 'skeptic.best-effort-examples)]
+    (is (contains? entries 'skeptic.best-effort-examples/ok-plus))
+    (is (contains? entries 'skeptic.best-effort-examples/good-call))
+    (is (not (contains? entries 'skeptic.best-effort-examples/invalid-schema-decl)))
+    (is (= 1 (count errors)))
+    (is (= :declaration (:phase (first errors))))
+    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
+           (:blame (first errors))))))
