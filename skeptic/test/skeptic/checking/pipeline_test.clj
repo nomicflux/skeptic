@@ -633,6 +633,38 @@
         (is (= "boom during analysis" (:exception-message exception-result)))
         (is (some? later-mismatch))))))
 
+(deftest check-ns-localizes-lazy-expression-exceptions-and-continues
+  (let [real-check-resolved-form sut/check-resolved-form
+        exprs (vec (sut/ns-exprs test-file))
+        exploding-form (some #(when (= 'sample-bad-fn (second %)) %) exprs)]
+    (is (some? exploding-form))
+    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-form analyzed opts]
+                                            (if (= exploding-form source-form)
+                                              (map (fn [_]
+                                                     (throw (ex-info "boom during realization" {})))
+                                                   [::explode])
+                                              (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
+      (let [form-results (sut/check-ns-form test-dict
+                                            'skeptic.test-examples
+                                            test-file
+                                            exploding-form
+                                            {:remove-context true})
+            exception-result (first form-results)
+            results (vec (sut/check-ns test-dict
+                                       'skeptic.test-examples
+                                       test-file
+                                       {:remove-context true}))
+            later-mismatch (some #(when (= 'skeptic.test-examples/sample-mismatched-types
+                                          (:enclosing-form %))
+                                   %)
+                                results)]
+        (is (= 1 (count form-results)))
+        (is (= :expression (:phase exception-result)))
+        (is (= 'skeptic.test-examples/sample-bad-fn
+               (:enclosing-form exception-result)))
+        (is (= "boom during realization" (:exception-message exception-result)))
+        (is (some? later-mismatch))))))
+
 (defn single-failure?
   [f blame]
   (let [results (vec (check-fn test-dict f))

@@ -1,8 +1,10 @@
 (ns skeptic.core-test
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.checking.pipeline :as checking]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
@@ -286,3 +288,23 @@
     (is (some #{["Phase: \t\t\t" "declaration"]} fields))
     (is (some #{["Expression: \t\t" "(bad)"]} fields))
     (is (not-any? #(= "Blame: \t\t\t" (first %)) fields))))
+
+(deftest check-project-localizes-lazy-form-exceptions
+  (require 'skeptic.check-project-best-effort-examples)
+  (let [real-check-resolved-form checking/check-resolved-form
+        root (.getCanonicalPath (io/file "."))
+        output (with-out-str
+                 (with-redefs [checking/check-resolved-form
+                               (fn [dict ns-sym source-form analyzed opts]
+                                 (if (= 'exploding-form (second source-form))
+                                   (map (fn [_]
+                                          (throw (ex-info "boom during realization" {})))
+                                        [::explode])
+                                   (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
+                   (is (= 1 (sut/check-project {:namespace "skeptic.check-project-best-effort-examples"
+                                                :verbose true}
+                                               root
+                                               "test")))))]
+    (is (str/includes? output "boom during realization"))
+    (is (str/includes? output "skeptic.check-project-best-effort-examples/later-mismatch"))
+    (is (not (str/includes? output "Error parsing namespace skeptic.check-project-best-effort-examples")))))

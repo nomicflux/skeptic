@@ -279,7 +279,7 @@
            :type (ato/normalize-type
                   (into {}
                         (map (fn [k v]
-                               [(ac/semantic-map-key k)
+                               [(ac/map-literal-key-type k)
                                 (:type v)])
                              keys
                              vals))))))

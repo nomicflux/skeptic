@@ -189,29 +189,31 @@
 (defn check-resolved-form
   [dict ns-sym source-form analyzed {:keys [keep-empty remove-context]}]
   (let [bindings (ca/binding-index analyzed)
-        enclosing-form (enclosing-form ns-sym source-form)]
-    (cond->> (->> (ca/ast-nodes-preorder analyzed)
-                  (mapcat (fn [node]
-                            (abl/with-error-context (cf/node-error-context node enclosing-form)
-                              (let [call-result (match-s-exprs bindings
-                                                               enclosing-form
-                                                               node
-                                                               keep-empty)]
-                                (doall
-                                 (concat (when call-result
-                                           [call-result])
-                                         (or (def-output-results dict
-                                                                 bindings
-                                                                 ns-sym
-                                                                 source-form
-                                                                 enclosing-form
-                                                                 node)
-                                             []))))))))
-      (not keep-empty)
-      (remove (comp empty? :errors))
+        enclosing-form (enclosing-form ns-sym source-form)
+        results (->> (ca/ast-nodes-preorder analyzed)
+                     (mapcat (fn [node]
+                               (abl/with-error-context (cf/node-error-context node enclosing-form)
+                                 (let [call-result (match-s-exprs bindings
+                                                                  enclosing-form
+                                                                  node
+                                                                  keep-empty)]
+                                   (concat (when call-result
+                                             [call-result])
+                                           (or (def-output-results dict
+                                                                   bindings
+                                                                   ns-sym
+                                                                   source-form
+                                                                   enclosing-form
+                                                                   node)
+                                               []))))))
+                     vec)
+        results (cond->> results
+                  (not keep-empty)
+                  (remove (comp empty? :errors))
 
-      remove-context
-      (map #(dissoc % :context)))))
+                  remove-context
+                  (map #(dissoc % :context)))]
+    (vec results)))
 
 (defn ns-exprs
   [source-file]
@@ -237,11 +239,11 @@
   [dict ns source-file source-form opts]
   (try
     (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
-      (check-resolved-form dict
-                           ns
-                           source-form
-                           (first resolved)
-                           opts))
+      (vec (check-resolved-form dict
+                                ns
+                                source-form
+                                (first resolved)
+                                opts)))
     (catch Exception e
       [(expression-exception-result ns source-file source-form e)])))
 
@@ -287,5 +289,8 @@
 (defn check-ns
   [dict ns source-file opts]
   (binding [*ns* (the-ns ns)]
-    (->> (ns-exprs source-file)
-         (mapcat #(check-ns-form dict ns source-file % opts)))))
+    (reduce (fn [results source-form]
+              (into results
+                    (check-ns-form dict ns source-file source-form opts)))
+            []
+            (ns-exprs source-file))))

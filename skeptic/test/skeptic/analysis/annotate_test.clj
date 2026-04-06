@@ -4,6 +4,7 @@
             [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at]
             [skeptic.analysis-test :as atst]
             [skeptic.test-examples :as test-examples]))
@@ -403,6 +404,44 @@
                                            :c {:d 7 :e {:f 9}}}))]
       (is (= :const (:op root)))
       (is (at/map-type? (:type root))))))
+
+(deftest map-literal-key-boundary-test
+  (testing "literal raw keys are converted through the raw-value boundary"
+    (let [uuid-key #uuid "550e8400-e29b-41d4-a716-446655440000"
+          regex-key #"^[\u0020-\u007e]*$"
+          root (atst/analyze-form '(let [v 1]
+                                     {#uuid "550e8400-e29b-41d4-a716-446655440000" v
+                                      #"^[\u0020-\u007e]*$" v}))
+          map-node (:body root)
+          entries (-> map-node :type :entries)
+          key-types (keys entries)
+          uuid-entry (some #(when (and (at/value-type? %)
+                                       (= uuid-key (:value %)))
+                              %)
+                           key-types)
+          regex-entry (some #(when (and (at/value-type? %)
+                                        (instance? java.util.regex.Pattern (:value %))
+                                        (= (.pattern regex-key)
+                                           (.pattern ^java.util.regex.Pattern (:value %))))
+                               %)
+                            key-types)]
+      (is (= :map (:op map-node)))
+      (is (= (av/exact-runtime-value-type uuid-key) uuid-entry))
+      (is (= java.util.UUID (-> uuid-entry :inner :ground :class)))
+      (is (= (atst/T s/Int) (get entries uuid-entry)))
+      (is (some? regex-entry))
+      (is (= java.util.regex.Pattern (-> regex-entry :inner :ground :class)))
+      (is (= (.pattern regex-key)
+             (.pattern ^java.util.regex.Pattern (:value regex-entry))))
+      (is (= (atst/T s/Int) (get entries regex-entry)))))
+  (testing "non-literal keys use inferred semantic key types"
+    (let [root (atst/analyze-form '(let [v 1]
+                                     {k v})
+                                  (atst/local-types {'k {:type (atst/T s/Keyword)}}))
+          map-node (:body root)]
+      (is (= :map (:op map-node)))
+      (is (= {(atst/T s/Keyword) (atst/T s/Int)}
+             (-> map-node :type :entries))))))
 
 (deftest attach-type-info-let-test
   (testing "original empty let typed setup"

@@ -173,14 +173,18 @@
     (and (= :invoke (:op test-node))
          (ac/contains-call? (:fn test-node)))
     (let [[target-node key-node] (:args test-node)]
-      (when (keyword? (:form key-node))
-        (contains-key-test-assumption target-node (:form key-node))))
+      (when (ac/literal-map-key? key-node)
+        (let [key (ac/literal-node-value key-node)]
+          (when (keyword? key)
+            (contains-key-test-assumption target-node key)))))
 
     (and (= :static-call (:op test-node))
          (ac/static-contains-call? test-node))
     (let [[target-node key-node] (:args test-node)]
-      (when (keyword? (:form key-node))
-        (contains-key-test-assumption target-node (:form key-node))))
+      (when (ac/literal-map-key? key-node)
+        (let [key (ac/literal-node-value key-node)]
+          (when (keyword? key)
+            (contains-key-test-assumption target-node key)))))
 
     :else
     nil))

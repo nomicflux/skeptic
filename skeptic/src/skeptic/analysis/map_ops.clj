@@ -65,19 +65,6 @@
   (and (map-key-query? query)
        (= :exact (:kind query))))
 
-(defn normalize-map-key-query
-  [query]
-  (cond
-    (map-key-query? query)
-    query
-
-    :else
-    (let [exact-values (finite-exact-key-values query)]
-      (if (and exact-values
-               (= 1 (count exact-values)))
-        (exact-key-query nil (first exact-values) nil)
-        (domain-key-query query nil)))))
-
 (defn query-key-type
   [query]
   (if (exact-key-query? query)
@@ -228,8 +215,7 @@
 
 (defn map-lookup-candidates
   [entries key-query]
-  (let [descriptor (map-entry-descriptor entries)
-        key-query (normalize-map-key-query key-query)]
+  (let [descriptor (map-entry-descriptor entries)]
     (if (exact-key-query? key-query)
       (exact-key-candidates descriptor (:value key-query))
       (domain-key-candidates descriptor (query-key-type key-query)))))
@@ -246,7 +232,7 @@
    (map-get-type m key no-default))
   ([m key default]
    (let [m (as-type m)
-         key-query (normalize-map-key-query key)
+         key-query key
          default-provided? (not= default no-default)
          default-type (when default-provided?
                         (as-type default))]

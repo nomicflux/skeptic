@@ -2,6 +2,7 @@
   (:require [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at]))
 
 (defn node-info
@@ -13,17 +14,23 @@
   [node]
   (contains? #{:const :quote} (:op node)))
 
-(defn semantic-map-key
+(defn literal-node-value
   [node]
-  (ato/normalize-type
-   (if (literal-map-key? node)
-     (:form node)
-     (:type node))))
+  (case (:op node)
+    :const (:val node)
+    :quote (-> node :form second)
+    (:form node)))
+
+(defn map-literal-key-type
+  [node]
+  (if (literal-map-key? node)
+    (av/exact-runtime-value-type (literal-node-value node))
+    (or (:type node) at/Dyn)))
 
 (defn get-key-query
   [node]
   (if (literal-map-key? node)
-    (amo/exact-key-query (:type node) (:form node) (:form node))
+    (amo/exact-key-query nil (literal-node-value node) (:form node))
     (amo/domain-key-query (:type node) (:form node))))
 
 (defn local-binding-ast
