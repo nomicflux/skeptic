@@ -595,9 +595,14 @@
   [f blame]
   (let [results (vec (check-fn test-dict f))
         result (first results)]
-    (and (= 1 (count results))
-         (= blame (:blame result))
-         (seq (:errors result)))))
+    (cond
+      (not= 1 (count results)) (do (println (format "%d results returned" (count results))) false)
+      (not= blame (:blame result)) (do (println (format "Actual blame \"%s\" does not match expected blame \"%s\""
+                                                        (:blame result) blame))
+                                       false)
+      (empty? (:errors result)) (do (println "No errors returned in result")
+                                    false)
+      :else true)))
 
 (deftest checking-conditional-input-contracts
   (in-test-examples
@@ -662,3 +667,15 @@
      'skeptic.test-examples/mk-ab-str-success
      'skeptic.test-examples/mk-ab-int-returns-ab
      'skeptic.test-examples/mk-ab-str-returns-ab)))
+
+(deftest nested-conditional-contract-cond-thread
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/mk-takes-a-or-b-success-int
+     'skeptic.test-examples/mk-takes-a-or-b-success-str
+     'skeptic.test-examples/mk-takes-a-or-b-success-nil)
+
+   (are [f blame] (single-failure? f blame)
+     'skeptic.test-examples/mk-takes-a-or-b-failure-outer '(takes-a-or-b {:a :nope})
+     'skeptic.test-examples/mk-takes-a-or-b-failure-inner '(takes-a-or-b {:c {:d :nope}})
+     'skeptic.test-examples/mk-takes-a-or-b-failure-inner-inner '(takes-a-or-b {:c {:a :nope}}))))

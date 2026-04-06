@@ -576,10 +576,6 @@
   (s/conditional #(contains? % :a) HasA
                  #(contains? % :b) HasB))
 
-(s/defschema AB
-  (s/conditional #(contains? % :a) HasA
-                 #(contains? % :b) HasB))
-
 (s/defn takes-has-a :- HasA
   [x :- HasA]
   x)
@@ -594,7 +590,7 @@
     (contains? x :a) takes-has-a
     (contains? x :b) takes-has-b))
 
-(s/defn mk-ab :- AB
+(s/defn mk-ab :- HasAOrB
   [x]
   (cond-> {}
     (integer? x) (assoc :a x)
@@ -608,11 +604,11 @@
   []
   (mk-ab "hello"))
 
-(s/defn mk-ab-int-returns-ab :- AB
+(s/defn mk-ab-int-returns-ab :- HasAOrB
   []
   (mk-ab 1))
 
-(s/defn mk-ab-str-returns-ab :- AB
+(s/defn mk-ab-str-returns-ab :- HasAOrB
   []
   (mk-ab "hello"))
 
@@ -655,3 +651,35 @@
   (if (contains? x :a)
     (takes-has-a x)
     x))
+
+
+(s/defschema NestedHasAOrB
+  {:m (s/maybe HasAOrB)})
+
+(s/defn takes-a-or-b
+  [{{:keys [a b]} :m} :- NestedHasAOrB]
+  (or a b))
+
+(s/defn mk-takes-a-or-b-success-int
+  []
+  (takes-a-or-b {:m (mk-ab 1)}))
+
+(s/defn mk-takes-a-or-b-success-str
+  []
+  (takes-a-or-b {:m (mk-ab "hello")}))
+
+(s/defn mk-takes-a-or-b-success-nil
+  []
+  (takes-a-or-b {:m nil}))
+
+(s/defn mk-takes-a-or-b-failure-outer
+  []
+  (takes-a-or-b {:a :nope}))
+
+(s/defn mk-takes-a-or-b-failure-inner
+  []
+  (takes-a-or-b {:c {:d :nope}}))
+
+(s/defn mk-takes-a-or-b-failure-inner-inner
+  []
+  (takes-a-or-b {:c {:a :nope}}))
