@@ -154,7 +154,15 @@
     (let [root (atst/project-ast
                 (atst/analyze-form '(for [x [1 2]] (skeptic.test-examples/int-add x 0))))]
       (is (atst/find-projected-node root #(= :loop (:op %))))
-      (is (atst/find-projected-node root #(= :recur (:op %)))))))
+      (is (atst/find-projected-node root #(= :recur (:op %))))))
+
+  (testing "for expression is typed as a homogeneous seq of the body type"
+    (let [root (atst/project-ast
+                (atst/analyze-form atst/typed-test-examples-dict
+                                   '(for [x [1 2 3]] (skeptic.test-examples/int-add x 0))))]
+      (is (at/seq-type? (:type root)))
+      (is (:homogeneous? (:type root)))
+      (is (= (atst/T s/Int) (first (:items (:type root))))))))
 
 (deftest native-inc-annotates-via-dict-test
   (testing "clojure.core/inc gets Int output from native fn dict"

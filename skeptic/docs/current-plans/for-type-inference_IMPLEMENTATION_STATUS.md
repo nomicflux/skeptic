@@ -13,4 +13,8 @@
 - `annotate.clj`: `for-body-element-type` uses `sac/ast-nodes` to find `cons` / `clojure.core/cons` and the first arg type; `lazy-seq-new-type` uses it when the loop body type is unknown.
 - Gate: full `lein test` green, including `for-declared-str-seq-output-fails-when-body-is-int-seq`.
 
-## Phase 3 — Annotate regression test for `for` seq type (pending)
+## Phase 3 — Annotate regression test for `for` seq type (complete)
+
+- `annotate_test.clj` (`structural-analysis-test`): `for` over literals with `(int-add x 0)` and `typed-test-examples-dict` is annotated as homogeneous `SeqT` of `Int` (uses `cons`-walk path, not native `inc`).
+
+**Status: COMPLETE** (Phases 1–3).
