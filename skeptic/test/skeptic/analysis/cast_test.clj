@@ -168,3 +168,12 @@
     (is (avc/value-satisfies-type? empty-value (ab/schema->type schema)))
     (is (:ok? cast-result))
     (is (= :map (:rule cast-result)))))
+
+(deftest leaf-overlap-host-number-and-str-arg-test
+  (let [int-g (at/->GroundT :int 'Int)
+        num-g (at/->GroundT {:class java.lang.Number} 'Number)
+        maybe-obj (at/->MaybeT (at/->GroundT {:class java.lang.Object} 'Object))]
+    (is (:ok? (sut/check-cast int-g num-g)))
+    (is (not (:ok? (sut/check-cast num-g int-g))))
+    (is (:ok? (sut/check-cast int-g maybe-obj)))
+    (is (not (:ok? (sut/check-cast maybe-obj int-g))))))

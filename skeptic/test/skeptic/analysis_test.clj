@@ -42,6 +42,10 @@
   [schema]
   (ab/schema->type schema))
 
+;; `GroundT` for JVM `java.lang.Number` — expected annotation for native math
+;; (`Numbers` static-calls, `native-fn-dict` `+` / `inc`, etc.) in assertions.
+(def num-ground (at/->GroundT {:class java.lang.Number} 'Number))
+
 (defn arg-entry
   [[name schema]]
   {:type (T schema)

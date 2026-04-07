@@ -3,6 +3,7 @@
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
             [skeptic.core :as core]
@@ -147,6 +148,7 @@
      'skeptic.test-examples/loop-recur-accumulates-int-vec
      'skeptic.test-examples/loop-recur-nested-schema-map
      'skeptic.test-examples/for-first-int-success
+     'skeptic.test-examples/for-even-str-odd-int-declared-cond-pre-seq
      'skeptic.test-examples/narrowing-string-predicate-success
      'skeptic.test-examples/narrowing-keyword-invoke-presence-success
      'skeptic.test-examples/narrowing-case-success
@@ -172,6 +174,24 @@
    (let [res (check-fn test-dict 'skeptic.test-examples/for-declared-str-seq-body-int-seq)]
      (is (seq (result-errors res))
          (str "expected output mismatch errors; got none: " (pr-str res))))))
+
+(deftest for-even-str-odd-int-declared-int-seq-fails
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-int-seq)]
+     (is (seq (result-errors res))
+         (str "expected int-seq vs mixed str/int body errors; got none: " (pr-str res))))))
+
+(deftest for-even-str-odd-int-declared-str-seq-fails
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-str-seq)]
+     (is (seq (result-errors res))
+         (str "expected str-seq vs mixed str/int body errors; got none: " (pr-str res))))))
+
+(deftest for-even-str-odd-int-declared-cond-pre-seq-succeeds
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-cond-pre-seq)]
+     (is (empty? (result-errors res))
+         (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
 
 (deftest new-failing-function
   (in-test-examples
@@ -204,7 +224,13 @@
                                                         '(int-add 2 nil)
                                                         [(incm/mismatched-nullable-msg {:expr '(int-add 2 nil) :arg nil} (s/maybe s/Any) s/Int)]
                                                         '(int-add w 1 x y z)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)]]
+                                                        [(incm/mismatched-nullable-msg {:expr '(int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)
+                                                         (incm/mismatched-ground-type-msg {:expr '(int-add w 1 x y z) :arg 'y}
+                                                                                          (at/->GroundT {:class java.lang.Number} 'Number)
+                                                                                          (T s/Int))
+                                                         (incm/mismatched-ground-type-msg {:expr '(int-add w 1 x y z) :arg 'z}
+                                                                                          (at/->GroundT {:class java.lang.Number} 'Number)
+                                                                                          (T s/Int))]]
      'skeptic.test-examples/sample-mismatched-types ['(int-add x "hi")
                                                      [(incm/mismatched-ground-type-msg {:expr '(int-add x "hi") :arg "hi"} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/loop-recur-type-mismatch ['(recur "not-int")

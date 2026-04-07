@@ -69,7 +69,7 @@
                                                               (atst/locals 'f)))
           known-call (atst/project-ast (atst/analyze-form '(skeptic.test-examples/int-add 1 2)))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes dynamic-call)))
-      (is (= (atst/T s/Any) (:type dynamic-call)))
+      (is (= atst/num-ground (:type dynamic-call)))
       (assert-typed-call-metadata-only dynamic-call)
       (is (= (atst/T (s/make-fn-schema s/Any [[s/Any s/Any]]))
              (:fn-type unknown-invoke)))
@@ -100,7 +100,7 @@
   (testing "original generic application typed setup"
     (let [root (atst/project-ast (atst/analyze-form {} '(+ 1 2)))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (:actual-argtypes root)))
-      (is (= (atst/T s/Any) (:type root)))
+      (is (= atst/num-ground (:type root)))
       (assert-typed-call-metadata-only root)))
   (testing "original known application typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict

@@ -69,7 +69,7 @@
 
 (defn- convert-arglists
   [args {:keys [arglists output-type]}]
-  (let [arity (count args)
+  (let [arity (clojure.core/count args)
         direct-res (get arglists arity)
         {:keys [count] :as varargs-res} (get arglists :varargs)
         min-count count
@@ -77,9 +77,22 @@
     (if (or (and min-count varargs-res)
             direct-res)
       (let [res (if (and min-count (>= arity min-count)) varargs-res direct-res)
-            argtypes (mapv arglist-entry-type
-                           (or (:types res)
-                               (vec (repeat arity at/Dyn))))
+            raw-types (:types res)
+            argtypes (if (seq raw-types)
+                       (let [entries (mapv #(if (map? %) % {:type %}) raw-types)
+                             c (clojure.core/count entries)]
+                         (cond
+                           (zero? c)
+                           (vec (repeat arity at/Dyn))
+                           (>= c arity)
+                           (mapv arglist-entry-type (subvec entries 0 arity))
+                           :else
+                           (let [pad-n (- arity c)
+                                 last-e (peek entries)]
+                             (mapv arglist-entry-type
+                                   (vec (concat entries
+                                                (clojure.core/repeat pad-n last-e)))))))
+                       (vec (repeat arity at/Dyn)))
             fn-type (at/->FunT [(at/->FnMethodT argtypes
                                                output-type
                                                (clojure.core/count argtypes)
@@ -121,6 +134,12 @@
   (and (:arglists fn-node)
        (some typed-arglist-entry?
              (vals (:arglists fn-node)))))
+
+(defn seq-call?
+  [fn-node]
+  (let [resolved (or (var->sym (:var fn-node))
+                     (:form fn-node))]
+    (contains? #{'clojure.core/seq 'seq} resolved)))
 
 (defn merge-call?
   [fn-node]
@@ -237,6 +256,78 @@
   [node]
   (and (= clojure.lang.RT (:class node))
        (contains? #{'clojure.core/update 'update} (:method node))))
+
+(defn first-call?
+  [fn-node]
+  (contains? #{'clojure.core/first 'first} (resolved-call-sym fn-node)))
+
+(defn second-call?
+  [fn-node]
+  (contains? #{'clojure.core/second 'second} (resolved-call-sym fn-node)))
+
+(defn last-call?
+  [fn-node]
+  (contains? #{'clojure.core/last 'last} (resolved-call-sym fn-node)))
+
+(defn nth-call?
+  [fn-node]
+  (contains? #{'clojure.core/nth 'nth} (resolved-call-sym fn-node)))
+
+(defn rest-call?
+  [fn-node]
+  (contains? #{'clojure.core/rest 'rest} (resolved-call-sym fn-node)))
+
+(defn butlast-call?
+  [fn-node]
+  (contains? #{'clojure.core/butlast 'butlast} (resolved-call-sym fn-node)))
+
+(defn drop-last-call?
+  [fn-node]
+  (contains? #{'clojure.core/drop-last 'drop-last} (resolved-call-sym fn-node)))
+
+(defn take-call?
+  [fn-node]
+  (contains? #{'clojure.core/take 'take} (resolved-call-sym fn-node)))
+
+(defn drop-call?
+  [fn-node]
+  (contains? #{'clojure.core/drop 'drop} (resolved-call-sym fn-node)))
+
+(defn take-while-call?
+  [fn-node]
+  (contains? #{'clojure.core/take-while 'take-while} (resolved-call-sym fn-node)))
+
+(defn drop-while-call?
+  [fn-node]
+  (contains? #{'clojure.core/drop-while 'drop-while} (resolved-call-sym fn-node)))
+
+(defn concat-call?
+  [fn-node]
+  (contains? #{'clojure.core/concat 'concat} (resolved-call-sym fn-node)))
+
+(defn into-call?
+  [fn-node]
+  (contains? #{'clojure.core/into 'into} (resolved-call-sym fn-node)))
+
+(defn chunk-first-call?
+  [fn-node]
+  (contains? #{'clojure.core/chunk-first 'chunk-first} (resolved-call-sym fn-node)))
+
+(defn plus-invoke?
+  [fn-node]
+  (contains? #{'clojure.core/+ '+} (resolved-call-sym fn-node)))
+
+(defn multiply-invoke?
+  [fn-node]
+  (contains? #{'clojure.core/* '*} (resolved-call-sym fn-node)))
+
+(defn minus-invoke?
+  [fn-node]
+  (contains? #{'clojure.core/- '-} (resolved-call-sym fn-node)))
+
+(defn inc-invoke?
+  [fn-node]
+  (contains? #{'clojure.core/inc 'inc} (resolved-call-sym fn-node)))
 
 (defn call-info
   [fn-node args]

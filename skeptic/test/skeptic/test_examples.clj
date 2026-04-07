@@ -338,6 +338,18 @@
   []
   (for [x [1 2 3]] (inc x)))
 
+(s/defn for-even-str-odd-int-declared-int-seq :- [s/Int]
+  []
+  (for [x [1 2 3]] (if (even? x) (str x) x)))
+
+(s/defn for-even-str-odd-int-declared-str-seq :- [s/Str]
+  []
+  (for [x [1 2 3]] (if (even? x) (str x) x)))
+
+(s/defn for-even-str-odd-int-declared-cond-pre-seq :- [(s/cond-pre s/Int s/Str)]
+  []
+  (for [x [1 2 3]] (if (even? x) (str x) x)))
+
 (s/defn loop-recur-type-mismatch :- s/Int
   []
   (loop [x 0]

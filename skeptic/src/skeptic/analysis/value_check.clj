@@ -2,7 +2,8 @@
   (:require [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at])
+  (:import [java.lang Number Object]))
 
 (declare value-satisfies-type?)
 
@@ -113,6 +114,18 @@
               t (:ground target-type)]
           (cond
             (= s t) true
+            (and (= s :int)
+                 (map? t)
+                 (= Number (:class t)))
+            true
+            (and (map? s)
+                 (= Number (:class s))
+                 (= t :int))
+            false
+            (and (#{:int :str :keyword :symbol :bool} s)
+                 (map? t)
+                 (= Object (:class t)))
+            true
             (and (map? s) (:class s) (map? t) (:class t))
             (or (.isAssignableFrom ^Class (:class s) ^Class (:class t))
                 (.isAssignableFrom ^Class (:class t) ^Class (:class s)))

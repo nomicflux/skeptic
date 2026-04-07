@@ -61,15 +61,14 @@
 
 (defn vector-cast-slot-count
   [source-type target-type]
-  (let [source-count (count (:items source-type))
-        target-count (count (:items target-type))
-        source-homogeneous? (:homogeneous? source-type)
-        target-homogeneous? (:homogeneous? target-type)]
+  (let [sc (count (:items source-type))
+        tc (count (:items target-type))
+        sh (:homogeneous? source-type)
+        th (:homogeneous? target-type)]
     (cond
-      (and source-homogeneous? target-homogeneous?) 1
-      target-homogeneous? source-count
-      source-homogeneous? target-count
-      (= source-count target-count) source-count
+      (= sc tc) sc
+      (and th (= 1 tc)) sc
+      (and sh (= 1 sc)) tc
       :else nil)))
 
 (defn set-cast-children
@@ -237,7 +236,7 @@
     :else
     (let [children (->> (:members source-type)
                         (indexed-cast-requests :source-union-branch
-                                               #(cast-request % target-type opts))
+                                             #(cast-request % target-type opts))
                         (run-cast-requests check-cast))]
       (aggregate-all-children source-type
                               target-type

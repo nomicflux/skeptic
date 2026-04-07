@@ -13,9 +13,6 @@
 (defn broad-dynamic-schema?
   [schema]
   (contains? (set [s/Any
-                   s/Num
-                   Number
-                   java.lang.Number
                    Object
                    java.lang.Object])
              schema))
@@ -64,6 +61,9 @@
       (nil? schema) (at/->MaybeT at/Dyn)
       (= schema sb/Bottom) at/BottomType
       (sb/placeholder-schema? schema) (at/->PlaceholderT (sb/placeholder-ref schema))
+      (or (= schema s/Num)
+          (and (class? schema) (= schema java.lang.Number)))
+      (at/->GroundT {:class java.lang.Number} 'Number)
       (broad-dynamic-schema? schema) at/Dyn
       (instance? One schema) (import-schema-type (:schema (into {} schema)))
       (sb/schema-literal? schema) (ato/exact-value-type schema)

@@ -7,6 +7,7 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.native-fns :as anf]
             [skeptic.analysis-test :as atst]))
 
 (deftest structural-analysis-test
@@ -165,9 +166,46 @@
       (is (= (atst/T s/Int) (first (:items (:type root))))))))
 
 (deftest native-inc-annotates-via-dict-test
-  (testing "clojure.core/inc gets Int output from native fn dict"
+  (testing "clojure.core/inc static-call yields JVM Number (Numbers/inc)"
     (let [root (atst/project-ast (atst/analyze-form {} '(inc 1)))]
-      (is (= (atst/T s/Int) (:type root))))))
+      (is (= atst/num-ground (:type root))))))
+
+(deftest native-core-numbers-and-dict-smoke-test
+  (testing "Numbers static-call dec and nested +"
+    (is (= atst/num-ground (:type (atst/project-ast (atst/analyze-form {} '(dec 1))))))
+    (let [form '(+ 1 2 3)
+          raw (aa/annotate-form-loop {} form {:ns 'skeptic.analysis-test})
+          root (atst/project-ast raw)]
+      (is (= :static-call (:op root)))
+      (is (= 'add (:method root)))
+      (is (= :static-call (:op (first (:args raw)))))
+      (is (= atst/num-ground (:type root)))))
+  (testing "invoke + arities from native-fn-dict"
+    (is (= atst/num-ground (:type (atst/project-ast (atst/analyze-form {} '(+))))))
+    (is (= atst/num-ground (:type (atst/project-ast (atst/analyze-form {} '(+ 1)))))))
+  (testing "native-fn-dict + shape"
+    (let [e (get anf/native-fn-dict 'clojure.core/+)]
+      (is (every? #(contains? (:arglists e) %) [0 1 2 :varargs]))
+      (is (= 3 (get-in e [:arglists :varargs :count])))
+      (is (= 3 (count (get-in e [:arglists :varargs :types]))))))
+  (testing "adversarial: even? expects int arg type — Str actual does not cast"
+    (let [root (atst/project-ast (atst/analyze-form {} '(even? "a")))]
+      (is (= (atst/T s/Int) (first (:expected-argtypes root))))
+      (is (not (:ok? (cast/check-cast (atst/T s/Str) (first (:expected-argtypes root)))))))))
+
+(deftest native-seq-concat-and-tuple-adversarial-test
+  (testing "concat joins element types (not first collection only)"
+    (let [root (atst/project-ast (atst/analyze-form {} '(concat [1] ["a"])))]
+      (is (at/seq-type? (:type root)))
+      (is (:homogeneous? (:type root)))
+      (let [e (first (:items (:type root)))]
+        (is (at/union-type? e))
+        (is (= 2 (count (:members e)))))))
+  (testing "tuple first: slot type Int; fails cast to Str alone"
+    (let [root (atst/project-ast (atst/analyze-form {} '(first [1 "a"])))]
+      (is (= (atst/T s/Int) (:type root)))
+      (is (:ok? (cast/check-cast (:type root) (atst/T s/Int))))
+      (is (not (:ok? (cast/check-cast (:type root) (atst/T s/Str))))))))
 
 (deftest typed-binding-and-flow-test
   (testing "let-driven flow"
@@ -200,7 +238,7 @@
       (is (= [(atst/T s/Str) (atst/T s/Int)] (-> named-binary-fn :arglists (get 2) :types (->> (mapv :type)))))
       (is (= (atst/T s/Str) (:output-type named-binary-fn)))
       (is (= 2 (count (:arglists multi-fn))))
-      (is (= (atst/T s/Any) (:output-type body-fn)))))
+      (is (= atst/num-ground (:output-type body-fn)))))
 
   (testing "fn bodies, defs, and do blocks"
     (let [fn-call (atst/project-ast (atst/analyze-form '(fn [x]
@@ -353,7 +391,7 @@
   (testing "original empty let setup"
     (let [root (atst/project-ast (atst/analyze-form '(let [] (+ 1 2))))]
       (is (= :static-call (:op root)))
-      (is (= (atst/T s/Any) (:type root)))))
+      (is (= atst/num-ground (:type root)))))
   (testing "original simple let setup"
     (let [root (atst/project-ast (atst/analyze-form '(let [x 1] (+ 1 x))))]
       (is (= :let (:op root)))
@@ -403,7 +441,7 @@
                                              (str y x)
                                              (+ x y))))]
       (is (= :fn (:op root)))
-      (is (= at/Dyn (:output-type root)))
+      (is (= atst/num-ground (:output-type root)))
       (is (= 1 (count (atst/child-projection root :methods))))))
   (testing "original multi-arity fn setup"
     (let [root (atst/project-ast (atst/analyze-form '(fn* ([x] (+ x 1))
