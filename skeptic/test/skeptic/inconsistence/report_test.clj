@@ -147,9 +147,34 @@
     (is (str/includes? error "[:result] has:"))
     (is (not (str/includes? error "[:result] has #{")))
     (is (str/includes? declared-block "\n"))
+    (is (str/includes? declared-block ":result"))
     (is (not (str/includes? error "has inferred output type:")))
     (is (not (str/includes? error "(union")))
     (assert-no-ui-internals error)))
+
+(deftest output-summary-declared-type-shows-full-conditional-union
+  (let [bad (sut/output-cast-report sample-ctx (T conditional-int-or-str) (T s/Keyword))
+        summary (sut/report-summary
+                 (merge {:report-kind :output
+                         :blame :bad}
+                        (select-keys bad [:cast-result :cast-results :expected-type :actual-type])))
+        [err] (:errors summary)
+        text (strip-ansi err)]
+    (is (str/includes? text "Declared return type expects:"))
+    (is (str/includes? text "Problem fields:"))
+    (is (str/includes? text "does not match any of:"))
+    (is (str/includes? text "Int"))
+    (is (str/includes? text "Str"))
+    (assert-no-ui-internals text)))
+
+(deftest output-report-summary-uses-root-expected-type-metadata
+  (let [bad (sut/output-cast-report sample-ctx (T conditional-int-or-str) (T s/Keyword))
+        summary (sut/report-summary
+                 (merge {:report-kind :output
+                         :blame :bad}
+                        (select-keys bad [:cast-result :cast-results :expected-type :actual-type])))
+        root-target (:target-type (:cast-result bad))]
+    (is (= root-target (:expected-type summary)))))
 
 (deftest output-summary-uses-visible-path-as-headline-focus
   (let [summary (sut/report-summary

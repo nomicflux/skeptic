@@ -294,12 +294,12 @@
   (let [real-check-resolved-form checking/check-resolved-form
         source-file (java.io.File. "test/skeptic/check_project_best_effort_examples.clj")]
     (with-redefs [checking/check-resolved-form
-                  (fn [dict ns-sym source-form analyzed opts]
+                  (fn [dict ns-sym source-file source-form analyzed opts]
                     (if (= 'exploding-form (second source-form))
                       (map (fn [_]
                              (throw (ex-info "boom during realization" {})))
                            [::explode])
-                      (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
+                      (real-check-resolved-form dict ns-sym source-file source-form analyzed opts)))]
       (let [results (checking/check-namespace {:remove-context true}
                                               'skeptic.check-project-best-effort-examples
                                               source-file)

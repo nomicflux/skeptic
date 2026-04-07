@@ -133,15 +133,25 @@
   (first (filter actionable-output-leaf?
                  (ordered-output-leaves report))))
 
+(defn output-declared-expected-type
+  [{:keys [cast-result expected-type] :as report}]
+  (or (some-> cast-result :target-type)
+      (some-> (primary-actionable-output-leaf report) :target-type)
+      expected-type))
+
 (defn output-leaf-summary-message
-  [{:keys [expected-type cast-result] :as report}]
-  (let [expected-type (or (some-> (primary-actionable-output-leaf report) :target-type)
-                          (some-> cast-result :target-type)
-                          expected-type)]
+  [report]
+  (let [expected-type (output-declared-expected-type report)]
     (format "%s\n\nDeclared return type expects:\n\n%s"
             (output-summary-headline report
                                      "has an output mismatch against the declared return type.")
             (colours/yellow (disp/describe-type-block expected-type)))))
+
+(defn- augment-detail-lines-with-union-alternatives
+  [leaves detail-lines]
+  (if-let [u (pth/union-alternatives-line leaves)]
+    (conj detail-lines u)
+    detail-lines))
 
 (defn rebuilt-leaf-errors
   [report]
@@ -173,6 +183,8 @@
                             (keep #(pth/detail-line :output %))
                             distinct
                             vec)
+          detail-lines (augment-detail-lines-with-union-alternatives ordered-leaves
+                                                                      detail-lines)
           summary (if (primary-actionable-output-leaf report)
                     (output-leaf-summary-message report)
                     (output-summary-message report))]
@@ -185,9 +197,8 @@
                             (keep #(pth/detail-line :input %))
                             distinct
                             vec)
-          union-line (pth/union-alternatives-line cast-results)
-          detail-lines (cond-> detail-lines
-                         union-line (conj union-line))
+          detail-lines (augment-detail-lines-with-union-alternatives cast-results
+                                                                     detail-lines)
           leaf-errors (input-leaf-errors report)]
       (cond
         (and (seq detail-lines)
@@ -232,11 +243,18 @@
           :enclosing-form enclosing-form
           :expanded-expression expanded-expression
           :errors (summarize-errors report)}
-         (or (display-cast (if (= :output (:report-kind report))
-                             (let [selected (or (primary-actionable-output-leaf report)
-                                                (:cast-result report))]
-                               (assoc report :cast-result selected))
-                             report))
+         (or (if (= :output (:report-kind report))
+               (let [root-cr (:cast-result report)
+                     selected (or (primary-actionable-output-leaf report)
+                                  root-cr)
+                     base (display-cast (assoc report :cast-result selected))]
+                 (if (and base root-cr)
+                   (let [et (:target-type root-cr)]
+                     (merge base
+                            {:expected-type et
+                             :expected-type-text (disp/describe-type-block et)}))
+                   base))
+               (display-cast report))
              {})))
 
 (defn cast-result->message

@@ -62,36 +62,39 @@
       (ato/normalize-type output-type))))
 
 (defn def-output-results
-  [dict bindings ns-sym source-form enclosing-form node]
+  [dict bindings ns-sym source-file source-form enclosing-form node]
   (let [entry (some-> (ca/dict-entry dict ns-sym (:name node))
                       an/normalize-entry)
         expected-output (some-> (:output-type entry) ato/normalize-type)
         init-node (some-> node :init ca/unwrap-with-meta)
-        methods (:methods init-node)
-        source-bodies (map cf/method-source-body (cf/defn-decls source-form))]
+        methods (:methods init-node)]
     (when (and expected-output (seq methods))
-      (->> (map vector methods source-bodies)
-           (keep (fn [[method source-body]]
-                   (let [actual-output (method-output-type method)
-                         body (:body method)]
-                     (let [report (inrep/output-cast-report
-                                   {:expr (:name node)
-                                    :arg (or source-body (:form body))}
-                                   expected-output
-                                   actual-output)]
-                       (when-not (:ok? report)
-                         (let [source-body-location (when source-body
-                                                      (select-keys (meta source-body)
-                                                                   [:file :line :column :end-line :end-column]))
-                               source-expression (cf/form-source source-body)
-                               display {:expr (or source-body (:form body))
-                                        :source-expression source-expression
-                                        :expanded-expression (when (or (not= source-body (:form body))
-                                                                       (and source-expression
-                                                                            (not= source-expression (pr-str (:form body)))))
-                                                               (:form body))
-                                        :location source-body-location}]
-                           {:blame (:expr display)
+      (->> (map vector methods (cf/defn-decls source-form))
+           (keep (fn [[method decl]]
+                   (let [source-body (cf/method-source-body decl)
+                         actual-output (method-output-type method)
+                         body (:body method)
+                         source-body-location
+                         (cf/merge-location
+                          (when source-file (cf/form-location source-file decl))
+                          (when source-body
+                            (select-keys (meta source-body)
+                                         [:file :line :column :end-line :end-column])))
+                         report (inrep/output-cast-report
+                                 {:expr (:name node)
+                                  :arg (or source-body (:form body))}
+                                 expected-output
+                                 actual-output)]
+                     (when-not (:ok? report)
+                       (let [source-expression (cf/form-source source-body)
+                             display {:expr (or source-body (:form body))
+                                      :source-expression source-expression
+                                      :expanded-expression (when (or (not= source-body (:form body))
+                                                                     (and source-expression
+                                                                          (not= source-expression (pr-str (:form body)))))
+                                                             (:form body))
+                                      :location source-body-location}]
+                         {:blame (:expr display)
                           :report-kind :output
                           :source-expression (:source-expression display)
                           :expanded-expression (:expanded-expression display)
@@ -108,8 +111,8 @@
                           :expected-type (:expected-type report)
                           :actual-type (:actual-type report)
                           :cast-result (:cast-result report)
-                           :cast-results (:cast-results report)
-                           :errors (:errors report)}))))))))))
+                          :cast-results (:cast-results report)
+                          :errors (:errors report)})))))))))
 
 (defn input-error-group
   [expr arg-node expected actual]
@@ -190,7 +193,7 @@
     source-form))
 
 (defn check-resolved-form
-  [dict ns-sym source-form analyzed {:keys [keep-empty remove-context]}]
+  [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context]}]
   (let [bindings (ca/binding-index analyzed)
         enclosing-form (enclosing-form ns-sym source-form)
         results (->> (sac/ast-nodes analyzed)
@@ -205,6 +208,7 @@
                                            (or (def-output-results dict
                                                                    bindings
                                                                    ns-sym
+                                                                   source-file
                                                                    source-form
                                                                    enclosing-form
                                                                    node)
@@ -275,6 +279,7 @@
     (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
       (vec (check-resolved-form dict
                                 ns
+                                source-file
                                 source-form
                                 (first resolved)
                                 opts)))
@@ -298,6 +303,7 @@
                          0)]
         (check-resolved-form dict
                              ns
+                             source-file
                              (nth exprs expr-idx)
                              (nth resolved expr-idx)
                              {:keep-empty keep-empty

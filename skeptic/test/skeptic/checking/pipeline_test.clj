@@ -738,12 +738,12 @@
         exprs (vec (sut/ns-exprs test-file))
         exploding-form (some #(when (= 'sample-bad-fn (second %)) %) exprs)]
     (is (some? exploding-form))
-    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-form analyzed opts]
+    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-file source-form analyzed opts]
                                             (if (= exploding-form source-form)
                                               (map (fn [_]
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
-                                              (real-check-resolved-form dict ns-sym source-form analyzed opts)))]
+                                              (real-check-resolved-form dict ns-sym source-file source-form analyzed opts)))]
       (let [form-results (sut/check-ns-form test-dict
                                             'skeptic.test-examples
                                             test-file
@@ -799,6 +799,16 @@
      'skeptic.test-examples/both-any-int-input-str-failure '(takes-both-any-int "hi")
      'skeptic.test-examples/both-int-str-input-int-failure '(takes-both-int-str 1)
      'skeptic.test-examples/both-int-str-input-str-failure '(takes-both-int-str "hi"))))
+
+(deftest output-keyword-failure-includes-source-location
+  (in-test-examples
+   (let [results (check-fn test-dict 'skeptic.test-examples/conditional-output-keyword-failure)
+         r (first results)]
+     (is (= 1 (count results)))
+     (is (= :bad (:blame r)))
+     (is (some? (-> r :location :line)))
+     (is (some? (-> r :location :file)))
+     (is (str/includes? (str (-> r :location :file)) "test_examples.clj")))))
 
 (deftest checking-conditional-output-contracts
   (in-test-examples
