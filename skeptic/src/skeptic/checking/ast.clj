@@ -1,5 +1,5 @@
 (ns skeptic.checking.ast
-  (:require [clojure.tools.analyzer.ast :as ana.ast]
+  (:require [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.checking.form :as cf]))
 
@@ -19,20 +19,6 @@
               (conj acc x)))
           []
           xs))
-
-(defn child-nodes
-  [node]
-  (mapcat (fn [child]
-            (let [value (get node child)]
-              (cond
-                (vector? value) value
-                (map? value) [value]
-                :else [])))
-          (:children node)))
-
-(defn ast-nodes-preorder
-  [ast]
-  (tree-seq map? child-nodes ast))
 
 (defn node-ref
   [node]
@@ -65,7 +51,7 @@
               (assoc acc (:form node) node)
               acc))
           {}
-          (ana.ast/nodes ast)))
+          (sac/ast-nodes ast)))
 
 (defn local-resolution-path
   [bindings local-node]
@@ -79,7 +65,7 @@
 
 (defn local-vars-context
   [bindings node]
-  (->> (ana.ast/nodes node)
+  (->> (sac/ast-nodes node)
        (filter #(= :local (:op %)))
        (reduce (fn [acc local-node]
                  (if (contains? acc (:form local-node))
@@ -106,10 +92,14 @@
 
 (defn call-node?
   [node]
-  (and (contains? invoke-ops (:op node))
-       (vector? (:args node))
-       (seq (:expected-argtypes node))
-       (seq (:actual-argtypes node))))
+  (or (and (contains? invoke-ops (:op node))
+           (vector? (:args node))
+           (seq (:expected-argtypes node))
+           (seq (:actual-argtypes node)))
+      (and (= :recur (:op node))
+           (vector? (:exprs node))
+           (seq (:expected-argtypes node))
+           (seq (:actual-argtypes node)))))
 
 (defn dict-entry
   [dict ns-sym sym]

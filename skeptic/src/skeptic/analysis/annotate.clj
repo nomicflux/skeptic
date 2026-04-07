@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate
   (:require [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.jvm :as ana.jvm]
+            [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.calls :as ac]
@@ -501,6 +502,17 @@
                              keys
                              vals))))))
 
+(defn- for-body-element-type
+  [body]
+  (->> (sac/ast-nodes body)
+       (keep (fn [node]
+               (when (= :invoke (:op node))
+                 (let [fn-sym (or (ac/var->sym (:var (:fn node)))
+                                  (-> node :fn :form))]
+                   (when (contains? #{'clojure.core/cons 'cons} fn-sym)
+                     (some-> node :args first :type))))))
+       first))
+
 (defn- lazy-seq-new-type
   [class-node args]
   (when (and (= :const (:op class-node))
@@ -514,7 +526,10 @@
                        t (if (at/maybe-type? t)
                            (ato/normalize-type (:inner t))
                            t)]
-                   (if (ato/unknown-type? t) at/Dyn t))
+                   (if (ato/unknown-type? t)
+                     (or (some-> (for-body-element-type body) ato/normalize-type)
+                         at/Dyn)
+                     t))
                  at/Dyn)]
       (at/->SeqT [elem] true))))
 

@@ -1,6 +1,7 @@
 (ns skeptic.checking.ast-test
   (:require [clojure.test :refer [deftest is]]
             [clojure.tools.analyzer.jvm :as ana.jvm]
+            [skeptic.analysis.ast-children :as sac]
             [skeptic.checking.ast :as ca]))
 
 (deftest distinctv-test
@@ -11,8 +12,8 @@
   (let [leaf {:children [] :op :const :id :leaf}
         inner {:children [:a] :a leaf :op :vec :id :inner}
         root {:children [:b] :b inner :op :body :id :root}]
-    (is (= [inner] (ca/child-nodes root)))
-    (is (= [:root :inner :leaf] (map :id (ca/ast-nodes-preorder root))))))
+    (is (= [inner] (sac/child-nodes root)))
+    (is (= [:root :inner :leaf] (map :id (sac/ast-nodes root))))))
 
 (deftest node-ref-and-callee-ref-test
   (is (= {:form 'x :type :tx} (ca/node-ref {:form 'x :type :tx :extra 1})))

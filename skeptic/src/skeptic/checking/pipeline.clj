@@ -4,6 +4,7 @@
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
+            [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.checking.ast :as ca]
@@ -168,8 +169,9 @@
       (assert (>= (count actual-arglist) (count expected-arglist))
               (format "Actual should have at least as many elements as expected: %s %s\n%s"
                       expected-arglist actual-arglist node))
-      (let [matched (cf/spy :matched-arglists
-                            (ca/match-up-arglists (:args node)
+      (let [arg-nodes (if (= :recur (:op node)) (:exprs node) (:args node))
+            matched (cf/spy :matched-arglists
+                            (ca/match-up-arglists arg-nodes
                                                   (cf/spy :expected-argtypes expected-arglist)
                                                   (cf/spy :actual-argtypes actual-arglist)))]
         (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
@@ -191,7 +193,7 @@
   [dict ns-sym source-form analyzed {:keys [keep-empty remove-context]}]
   (let [bindings (ca/binding-index analyzed)
         enclosing-form (enclosing-form ns-sym source-form)
-        results (->> (ca/ast-nodes-preorder analyzed)
+        results (->> (sac/ast-nodes analyzed)
                      (mapcat (fn [node]
                                (abl/with-error-context (cf/node-error-context node enclosing-form)
                                  (let [call-result (match-s-exprs bindings
