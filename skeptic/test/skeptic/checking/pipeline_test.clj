@@ -141,11 +141,37 @@
      'skeptic.test-examples/map-unannotated-fn-input-success
      'skeptic.test-examples/simple-map-output-success
      'skeptic.test-examples/vec-literal-input-success
+     'skeptic.test-examples/loop-sum-success
+     'skeptic.test-examples/loop-returns-int-vec-literal
+     'skeptic.test-examples/loop-returns-nested-schema-map
+     'skeptic.test-examples/loop-recur-accumulates-int-vec
+     'skeptic.test-examples/loop-recur-nested-schema-map
+     'skeptic.test-examples/for-first-int-success
      'skeptic.test-examples/narrowing-string-predicate-success
      'skeptic.test-examples/narrowing-keyword-invoke-presence-success
      'skeptic.test-examples/narrowing-case-success
      'skeptic.test-examples/narrowing-assoc-get-success
      'skeptic.test-examples/narrowing-fn-qmark-success)))
+
+(deftest loop-return-matches-declared-vector-and-map-schemas
+  (in-test-examples
+   (are [f] (empty? (result-errors (check-fn test-dict f)))
+     'skeptic.test-examples/loop-returns-int-vec-literal
+     'skeptic.test-examples/loop-returns-nested-schema-map
+     'skeptic.test-examples/loop-recur-accumulates-int-vec
+     'skeptic.test-examples/loop-recur-nested-schema-map)))
+
+(deftest for-declared-int-seq-output-must-type-check
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/for-declared-int-seq-output)]
+     (is (empty? (result-errors res))
+         (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
+
+(deftest for-declared-str-seq-output-fails-when-body-is-int-seq
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/for-declared-str-seq-body-int-seq)]
+     (is (seq (result-errors res))
+         (str "expected output mismatch errors; got none: " (pr-str res))))))
 
 (deftest new-failing-function
   (in-test-examples
@@ -181,6 +207,8 @@
                                                         [(incm/mismatched-nullable-msg {:expr '(int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)]]
      'skeptic.test-examples/sample-mismatched-types ['(int-add x "hi")
                                                      [(incm/mismatched-ground-type-msg {:expr '(int-add x "hi") :arg "hi"} (T s/Str) (T s/Int))]]
+     'skeptic.test-examples/loop-recur-type-mismatch ['(recur "not-int")
+                                                      [(incm/mismatched-ground-type-msg {:expr '(recur "not-int") :arg "not-int"} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/sample-let-mismatched-types ['(int-add x s)
                                                          [(incm/mismatched-ground-type-msg {:expr '(int-add x s) :arg 's} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/sample-let-fn-bad1-fn ['(int-add y nil)

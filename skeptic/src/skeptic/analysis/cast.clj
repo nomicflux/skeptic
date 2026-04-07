@@ -65,6 +65,12 @@
        (and (at/seq-type? source-type) (at/seq-type? target-type))
        (ask/check-seq-cast check-cast source-type target-type polarity opts)
 
+       (and (at/seq-type? source-type) (at/vector-type? target-type))
+       (ask/check-seq-to-vector-cast check-cast source-type target-type polarity opts)
+
+       (and (at/vector-type? source-type) (at/seq-type? target-type))
+       (ask/check-vector-to-seq-cast check-cast source-type target-type polarity opts)
+
        (and (at/set-type? source-type) (at/set-type? target-type))
        (ask/check-set-cast check-cast source-type target-type polarity opts)
 

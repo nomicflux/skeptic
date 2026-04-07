@@ -400,6 +400,50 @@
                                 children))
       (ascs/cast-fail source-type target-type :seq polarity :seq-arity-mismatch))))
 
+(defn check-seq-to-vector-cast
+  [check-cast source-type target-type polarity opts]
+  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
+    (let [source-items (expand-vector-items source-type slot-count)
+          target-items (expand-vector-items target-type slot-count)
+          children (collection-cast-children check-cast
+                                             :seq-to-vector-index
+                                             source-items
+                                             target-items
+                                             opts)]
+      (aggregate-all-children source-type
+                              target-type
+                              :seq-to-vector
+                              polarity
+                              :seq-to-vector-element-failed
+                              children))
+    (ascs/cast-fail source-type
+                    target-type
+                    :seq-to-vector
+                    polarity
+                    :seq-to-vector-arity-mismatch)))
+
+(defn check-vector-to-seq-cast
+  [check-cast source-type target-type polarity opts]
+  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
+    (let [source-items (expand-vector-items source-type slot-count)
+          target-items (expand-vector-items target-type slot-count)
+          children (collection-cast-children check-cast
+                                             :vector-to-seq-index
+                                             source-items
+                                             target-items
+                                             opts)]
+      (aggregate-all-children source-type
+                              target-type
+                              :vector-to-seq
+                              polarity
+                              :vector-to-seq-element-failed
+                              children))
+    (ascs/cast-fail source-type
+                    target-type
+                    :vector-to-seq
+                    polarity
+                    :vector-to-seq-arity-mismatch)))
+
 (defn check-set-cast
   [check-cast source-type target-type polarity opts]
   (let [source-members (:members source-type)

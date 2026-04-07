@@ -294,6 +294,57 @@
   []
   (int-add (first [1 2]) 0))
 
+(s/defn loop-sum-success :- s/Int
+  []
+  (loop [acc 0
+         n 3]
+    (if (clojure.core/zero? n)
+      acc
+      (recur (int-add acc n) (clojure.core/dec n)))))
+
+(s/defn loop-returns-int-vec-literal :- [s/Int]
+  []
+  (loop [] [1 2 3]))
+
+(s/defn loop-returns-nested-schema-map :- {:a s/Str :b [s/Int]}
+  []
+  (loop [] {:a "hi" :b [1 2]}))
+
+(s/defn loop-recur-accumulates-int-vec :- [s/Int]
+  []
+  (loop [acc [1] more [2 3]]
+    (if (seq more)
+      (recur (conj acc (first more)) (rest more))
+      acc)))
+
+(s/defn loop-recur-nested-schema-map :- {:a s/Str :b [s/Int]}
+  []
+  (loop [m {:a "a" :b [1]} n 1]
+    (if (clojure.core/zero? n)
+      m
+      (recur {:a (clojure.core/str (:a m) "b")
+              :b (conj (:b m) 2)}
+             (clojure.core/dec n)))))
+
+(s/defn for-first-int-success :- s/Int
+  []
+  (int-add (first (for [x [1 2 3]] (int-add x 0))) 0))
+
+(s/defn for-declared-int-seq-output :- [s/Int]
+  []
+  (for [x [1 2 3]] (inc x)))
+
+(s/defn for-declared-str-seq-body-int-seq :- [s/Str]
+  []
+  (for [x [1 2 3]] (inc x)))
+
+(s/defn loop-recur-type-mismatch :- s/Int
+  []
+  (loop [x 0]
+    (if (clojure.core/< x 1)
+      (recur "not-int")
+      x)))
+
 (s/defn narrowing-string-predicate-success :- s/Int
   [x :- (s/cond-pre s/Str s/Int)]
   (if (string? x)

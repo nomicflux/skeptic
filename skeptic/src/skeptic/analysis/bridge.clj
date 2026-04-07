@@ -5,7 +5,8 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at])
-  (:import [schema.core One]))
+  (:import [clojure.lang IPersistentCollection]
+           [schema.core One]))
 
 (declare schema->type)
 
@@ -19,12 +20,6 @@
                    java.lang.Object])
              schema))
 
-(defn- collection-like-class?
-  [^Class c]
-  (or (isa? c java.util.Map)
-      (isa? c java.util.Collection)
-      (= c clojure.lang.LazySeq)))
-
 (defn primitive-ground-type
   [schema]
   (let [schema (sb/canonical-scalar-schema schema)]
@@ -35,8 +30,10 @@
       (= schema s/Symbol) (at/->GroundT :symbol 'Symbol)
       (= schema s/Bool) (at/->GroundT :bool 'Bool)
       (and (class? schema)
-           (not (broad-dynamic-schema? schema))
-           (not (collection-like-class? schema)))
+           (.isAssignableFrom IPersistentCollection ^Class schema))
+      nil
+      (and (class? schema)
+           (not (broad-dynamic-schema? schema)))
       (at/->GroundT {:class schema} (abc/schema-explain schema))
       :else nil)))
 
