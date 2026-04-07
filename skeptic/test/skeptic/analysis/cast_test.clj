@@ -122,6 +122,15 @@
     (is (not (avc/value-satisfies-type? [1 2 3] pair-int)))
     (is (not (avc/value-satisfies-type? [1 2 3] quad-int)))))
 
+(deftest collection-class-ground-types-cast-to-structural-types-test
+  (let [map-target (ab/schema->type {:a s/Int})
+        vec-target (ab/schema->type [s/Int])
+        set-target (ab/schema->type #{s/Int})]
+    (is (:ok? (sut/check-cast at/Dyn map-target)))
+    (is (:ok? (sut/check-cast at/Dyn vec-target)))
+    (is (:ok? (sut/check-cast at/Dyn set-target)))
+    (is (= :residual-dynamic (:rule (sut/check-cast at/Dyn map-target))))))
+
 (deftest schema-cast-adapter-rejects-semantic-inputs-test
   (let [check-cast (requiring-resolve 'skeptic.analysis.schema.cast/check-cast)]
     (is (thrown-with-msg? IllegalArgumentException

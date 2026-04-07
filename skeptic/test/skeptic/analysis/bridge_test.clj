@@ -72,6 +72,14 @@
     (is (= 'skeptic.analysis.bridge-test/RecursiveSchemaRef
            (-> recursive-type :items first :ref)))))
 
+(deftest primitive-ground-type-skips-collection-classes-test
+  (is (nil? (ab/primitive-ground-type clojure.lang.PersistentArrayMap)))
+  (is (nil? (ab/primitive-ground-type clojure.lang.PersistentVector)))
+  (is (nil? (ab/primitive-ground-type clojure.lang.LazySeq)))
+  (is (nil? (ab/primitive-ground-type clojure.lang.PersistentHashSet)))
+  (is (some? (ab/primitive-ground-type Exception)))
+  (is (some? (ab/primitive-ground-type s/Int))))
+
 (deftest schema-to-type-rejects-semantic-type-input-test
   (is (thrown-with-msg? IllegalArgumentException
                         #"Expected schema value"

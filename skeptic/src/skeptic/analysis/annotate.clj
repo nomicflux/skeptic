@@ -5,6 +5,7 @@
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
+            [skeptic.analysis.map-ops.algebra :as amoa]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.origin :as ao]
@@ -57,10 +58,10 @@
 
 (defn annotate-static-call
   [ctx node]
-  (let [args (mapv #(annotate-node ctx %) (:args node))]
-    (let [actual-argtypes (mapv :type args)
-          expected-argtypes (vec (repeat (count args) at/Dyn))
-          type (cond
+  (let [args (mapv #(annotate-node ctx %) (:args node))
+        actual-argtypes (mapv :type args)
+        expected-argtypes (vec (repeat (count args) at/Dyn))
+        type (cond
                  (ac/static-get-call? node)
                  (let [[target key-node default-node] args
                        key-type (ac/get-key-query key-node)]
@@ -72,18 +73,45 @@
                                        key-type)))
 
                  (ac/static-merge-call? node)
-                 (amo/merge-map-types (map :type args))
+                 (amoa/merge-types (map :type args))
+
+                 (and (ac/static-assoc-call? node)
+                      (>= (count args) 3))
+                 (let [[m kn vn] args
+                       lk (when (ac/literal-map-key? kn)
+                            (ac/literal-node-value kn))]
+                   (if (keyword? lk)
+                     (amoa/assoc-type (:type m) lk (:type vn))
+                     at/Dyn))
+
+                 (and (ac/static-dissoc-call? node)
+                      (>= (count args) 2))
+                 (let [[m kn] args
+                       lk (when (ac/literal-map-key? kn)
+                            (ac/literal-node-value kn))]
+                   (if (keyword? lk)
+                     (amoa/dissoc-type (:type m) lk)
+                     at/Dyn))
+
+                 (and (ac/static-update-call? node)
+                      (>= (count args) 3))
+                 (let [[m kn uf] args
+                       lk (when (ac/literal-map-key? kn)
+                            (ac/literal-node-value kn))]
+                   (if (keyword? lk)
+                     (amoa/update-type (:type m) lk (:type uf))
+                     at/Dyn))
 
                  (ac/static-contains-call? node)
                  bool-type
 
                  :else
                  at/Dyn)]
-      (assoc node
-             :args args
-             :actual-argtypes actual-argtypes
-             :expected-argtypes expected-argtypes
-             :type type))))
+    (assoc node
+           :args args
+           :actual-argtypes actual-argtypes
+           :expected-argtypes expected-argtypes
+           :type type)))
 
 (defn annotate-invoke
   [ctx node]
@@ -102,7 +130,34 @@
                                             key-type)))
 
                       (ac/merge-call? fn-node)
-                      (amo/merge-map-types (map :type args))
+                      (amoa/merge-types (map :type args))
+
+                      (and (ac/assoc-call? fn-node)
+                           (>= (count args) 3))
+                      (let [[m kn vn] args
+                            lk (when (ac/literal-map-key? kn)
+                                 (ac/literal-node-value kn))]
+                        (if (keyword? lk)
+                          (amoa/assoc-type (:type m) lk (:type vn))
+                          output-type))
+
+                      (and (ac/dissoc-call? fn-node)
+                           (>= (count args) 2))
+                      (let [[m kn] args
+                            lk (when (ac/literal-map-key? kn)
+                                 (ac/literal-node-value kn))]
+                        (if (keyword? lk)
+                          (amoa/dissoc-type (:type m) lk)
+                          output-type))
+
+                      (and (ac/update-call? fn-node)
+                           (>= (count args) 3))
+                      (let [[m kn uf] args
+                            lk (when (ac/literal-map-key? kn)
+                                 (ac/literal-node-value kn))]
+                        (if (keyword? lk)
+                          (amoa/update-type (:type m) lk (:type uf))
+                          output-type))
 
                       (ac/contains-call? fn-node)
                       bool-type
@@ -131,7 +186,13 @@
   (let [[bindings final-locals]
         (reduce (fn [[acc env] binding]
                   (let [annotated (annotate-binding (assoc ctx :locals env) binding)
-                        env-entry (or (ac/node-info annotated) {:type at/Dyn})]
+                        init (:init annotated)
+                        base-entry (or (ac/node-info annotated) {:type at/Dyn})
+                        env-entry (if (and (= :local (:op init))
+                                           (= :root (:kind (ao/node-origin init))))
+                                    (assoc base-entry :origin (ao/root-origin (:form init)
+                                                                             (:type init)))
+                                    base-entry)]
                     [(conj acc annotated)
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]
@@ -168,6 +229,67 @@
            :else else-node
            :type type
            :origin (or origin (ao/opaque-origin type)))))
+
+(defn- case-test-literal-nodes
+  [case-test-node]
+  (when case-test-node
+    (let [raw (or (:tests case-test-node)
+                  (when-let [t (:test case-test-node)]
+                    t))]
+      (when raw
+        (let [nodes (if (vector? raw) raw [raw])]
+          (vec (filter #(#{:const :quote} (:op %)) nodes)))))))
+
+(defn- case-test-literals
+  [case-test-node]
+  (mapv ac/literal-node-value (case-test-literal-nodes case-test-node)))
+
+(defn annotate-case
+  [{:keys [locals assumptions] :as ctx} node]
+  (let [test-node (annotate-node ctx (:test node))
+        tests (:tests node)
+        thens (:thens node)
+        default (:default node)
+        n (min (count tests) (count thens))
+        root (ao/local-root-origin test-node)
+        all-values (into [] (distinct (mapcat case-test-literals (take n tests))))
+        annotated-thens
+        (mapv (fn [i]
+                (let [lits (vec (distinct (case-test-literals (nth tests i))))
+                      assumption (when (and root (seq lits))
+                                   {:kind :value-equality
+                                    :root root
+                                    :values lits
+                                    :polarity true})
+                      {:keys [then-locals then-assumptions]}
+                      (ao/branch-local-envs locals assumptions assumption)
+                      then-body (:then (nth thens i))
+                      ann (annotate-node (assoc ctx
+                                                :locals then-locals
+                                                :assumptions then-assumptions)
+                                         then-body)]
+                  (assoc (nth thens i) :then ann)))
+              (range n))
+        default-assumption (when (and root (seq all-values))
+                             {:kind :value-equality
+                              :root root
+                              :values all-values
+                              :polarity false})
+        {:keys [then-locals then-assumptions]}
+        (ao/branch-local-envs locals assumptions default-assumption)
+        default-node (annotate-node (assoc ctx
+                                           :locals then-locals
+                                           :assumptions then-assumptions)
+                                    default)
+        branch-types (mapv (comp :type :then) annotated-thens)
+        joined (av/type-join* (conj branch-types (:type default-node)))]
+    (assoc node
+           :test test-node
+           :tests (vec (take n tests))
+           :thens annotated-thens
+           :default default-node
+           :type joined
+           :origin (ao/opaque-origin joined))))
 
 (defn arg-type-specs
   [dict ns-sym name params]
@@ -371,6 +493,7 @@
        :fn (annotate-fn ctx node)
        :fn-method (annotate-fn-method ctx node)
        :if (annotate-if ctx node)
+       :case (annotate-case ctx node)
        :invoke (annotate-invoke ctx node)
        :let (annotate-let ctx node)
        :local (annotate-local ctx node)

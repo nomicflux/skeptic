@@ -270,6 +270,62 @@
         g (fn [f] (f x))]
     (g f)))
 
+(s/defn map-literal-input-success :- s/Int
+  []
+  (int-add (:a {:a 1}) 0))
+
+(s/defn map-var-input-success :- s/Int
+  [m :- {:a s/Int}]
+  (int-add (:a m) 0))
+
+(s/defn map-annotated-fn-input-success :- s/Int
+  [m :- {:a s/Int}]
+  (int-add (:a m) 0))
+
+(defn map-unannotated-fn-input-success
+  [_m]
+  (int-add 1 1))
+
+(s/defn simple-map-output-success :- {:a s/Int}
+  []
+  {:a 1})
+
+(s/defn vec-literal-input-success :- s/Int
+  []
+  (int-add (first [1 2]) 0))
+
+(s/defn narrowing-string-predicate-success :- s/Int
+  [x :- (s/cond-pre s/Str s/Int)]
+  (if (string? x)
+    (count x)
+    (int-add x 1)))
+
+(s/defn narrowing-keyword-invoke-presence-success :- s/Int
+  [m :- {:a s/Int}]
+  (if (:a m)
+    (int-add (:a m) 1)
+    0))
+
+(s/defn narrowing-case-success :- s/Int
+  [x :- (s/cond-pre (s/eq :a) (s/eq :b))]
+  (case x
+    :a 1
+    :b 2))
+
+(s/defn narrowing-assoc-get-success :- s/Int
+  [m :- {:a s/Int}]
+  (int-add (:a (assoc m :a 1)) 0))
+
+(s/defn narrowing-fn-helper :- s/Int
+  [x :- s/Int]
+  x)
+
+(s/defn narrowing-fn-qmark-success :- s/Int
+  [f :- s/Any]
+  (if (fn? f)
+    (narrowing-fn-helper 1)
+    0))
+
 (defn sample-bad-parametric-fn
   [x]
   (let [f (fn [_y] nil)

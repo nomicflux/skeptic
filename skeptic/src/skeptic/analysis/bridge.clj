@@ -19,6 +19,12 @@
                    java.lang.Object])
              schema))
 
+(defn- collection-like-class?
+  [^Class c]
+  (or (isa? c java.util.Map)
+      (isa? c java.util.Collection)
+      (= c clojure.lang.LazySeq)))
+
 (defn primitive-ground-type
   [schema]
   (let [schema (sb/canonical-scalar-schema schema)]
@@ -29,7 +35,8 @@
       (= schema s/Symbol) (at/->GroundT :symbol 'Symbol)
       (= schema s/Bool) (at/->GroundT :bool 'Bool)
       (and (class? schema)
-           (not (broad-dynamic-schema? schema)))
+           (not (broad-dynamic-schema? schema))
+           (not (collection-like-class? schema)))
       (at/->GroundT {:class schema} (abc/schema-explain schema))
       :else nil)))
 

@@ -1,7 +1,6 @@
 (ns skeptic.analysis.calls
   (:require [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.normalize :as an]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at]))
 
@@ -141,6 +140,74 @@
                      (:form fn-node))]
     (contains? #{'clojure.core/get 'get} resolved)))
 
+(def ^:private type-predicate-sym->pred
+  '{clojure.core/nil? :nil?, nil? :nil?
+    clojure.core/some? :some?, some? :some?
+    clojure.core/string? :string?, string? :string?
+    clojure.core/keyword? :keyword?, keyword? :keyword?
+    clojure.core/integer? :integer?, integer? :integer?
+    clojure.core/int? :integer?, int? :integer?
+    clojure.core/number? :number?, number? :number?
+    clojure.core/boolean? :boolean?, boolean? :boolean?
+    clojure.core/symbol? :symbol?, symbol? :symbol?
+    clojure.core/map? :map?, map? :map?
+    clojure.core/vector? :vector?, vector? :vector?
+    clojure.core/set? :set?, set? :set?
+    clojure.core/seq? :seq?, seq? :seq?
+    clojure.core/fn? :fn?, fn? :fn?})
+
+(defn- resolved-call-sym
+  [fn-node]
+  (or (var->sym (:var fn-node))
+      (:form fn-node)))
+
+(defn- class-literal-node?
+  [node]
+  (and (= :const (:op node))
+       (class? (:val node))))
+
+(defn type-predicate-assumption-info
+  [fn-node args]
+  (let [sym (resolved-call-sym fn-node)
+        n (count args)]
+    (cond
+      (contains? #{'clojure.core/instance? 'instance?} sym)
+      (when (and (>= n 2)
+                 (class-literal-node? (first args)))
+        {:pred :instance?
+         :class (:val (first args))})
+
+      (contains? type-predicate-sym->pred sym)
+      (when (= n 1)
+        {:pred (type-predicate-sym->pred sym)})
+
+      :else nil)))
+
+(defn type-predicate-call?
+  [fn-node args]
+  (boolean (type-predicate-assumption-info fn-node args)))
+
+(defn keyword-invoke-on-local?
+  [node]
+  (and (= :invoke (:op node))
+       (let [fn-node (:fn node)
+             a0 (first (:args node))]
+         (and (#{:const :quote} (:op fn-node))
+              (keyword? (literal-node-value fn-node))
+              (= :local (:op a0))))))
+
+(defn assoc-call?
+  [fn-node]
+  (contains? #{'clojure.core/assoc 'assoc} (resolved-call-sym fn-node)))
+
+(defn dissoc-call?
+  [fn-node]
+  (contains? #{'clojure.core/dissoc 'dissoc} (resolved-call-sym fn-node)))
+
+(defn update-call?
+  [fn-node]
+  (contains? #{'clojure.core/update 'update} (resolved-call-sym fn-node)))
+
 (defn static-get-call?
   [node]
   (and (= clojure.lang.RT (:class node))
@@ -155,6 +222,21 @@
   [node]
   (and (= clojure.lang.RT (:class node))
        (contains? #{'clojure.core/contains? 'contains? 'contains} (:method node))))
+
+(defn static-assoc-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/assoc 'assoc} (:method node))))
+
+(defn static-dissoc-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/dissoc 'dissoc} (:method node))))
+
+(defn static-update-call?
+  [node]
+  (and (= clojure.lang.RT (:class node))
+       (contains? #{'clojure.core/update 'update} (:method node))))
 
 (defn call-info
   [fn-node args]

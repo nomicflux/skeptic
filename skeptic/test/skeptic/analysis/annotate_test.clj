@@ -66,6 +66,16 @@
       (is (= [:test :then :else] (mapv first (:children literal-if))))
       (is (= '(if (pos? x) 1 -1) (:form local-if)))))
 
+  (testing "case narrows discriminant and joins branch types"
+    (let [kw (s/cond-pre (s/eq :a) (s/eq :b))
+          root (atst/project-ast
+                (atst/analyze-form '(case x :a 1 :b 2)
+                                   (merge (atst/local-types {'x {:type (atst/T kw)}})
+                                          {:ns 'skeptic.analysis-test})))
+          case-node (first (filter #(= :case (:op %)) (atst/projected-nodes root)))]
+      (is (some? case-node) "tools.analyzer should emit :case under macro expansion")
+      (is (= (atst/T s/Int) (:type case-node)))))
+
   (testing "fn and def roots"
     (let [anon-fn (atst/project-ast (atst/analyze-form '(fn [x] x)))
           multi-fn (atst/project-ast (atst/analyze-form '(fn* ([x] (+ x 1))

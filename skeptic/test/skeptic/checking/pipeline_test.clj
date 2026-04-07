@@ -134,7 +134,18 @@
      'skeptic.test-examples/sample-missing-var-fn-fn
      'skeptic.test-examples/sample-namespaced-keyword-fn
      'skeptic.test-examples/sample-let-fn-fn
-     'skeptic.test-examples/sample-functional-fn)))
+     'skeptic.test-examples/sample-functional-fn
+     'skeptic.test-examples/map-literal-input-success
+     'skeptic.test-examples/map-var-input-success
+     'skeptic.test-examples/map-annotated-fn-input-success
+     'skeptic.test-examples/map-unannotated-fn-input-success
+     'skeptic.test-examples/simple-map-output-success
+     'skeptic.test-examples/vec-literal-input-success
+     'skeptic.test-examples/narrowing-string-predicate-success
+     'skeptic.test-examples/narrowing-keyword-invoke-presence-success
+     'skeptic.test-examples/narrowing-case-success
+     'skeptic.test-examples/narrowing-assoc-get-success
+     'skeptic.test-examples/narrowing-fn-qmark-success)))
 
 (deftest new-failing-function
   (in-test-examples

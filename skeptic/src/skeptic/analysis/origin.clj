@@ -1,5 +1,6 @@
 (ns skeptic.analysis.origin
   (:require [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -64,12 +65,31 @@
   [left right]
   (and (= (:kind left) (:kind right))
        (= (get-in left [:root :sym]) (get-in right [:root :sym]))
-       (= (:key left) (:key right))
-       (= (:polarity left) (:polarity right))))
+       (= (:polarity left) (:polarity right))
+       (case (:kind left)
+         :truthy-local true
+         :contains-key (= (:key left) (:key right))
+         :type-predicate (and (= (:pred left) (:pred right))
+                              (= (:class left) (:class right)))
+         :value-equality (= (:values left) (:values right))
+         false)))
 
 (defn opposite-assumption?
   [left right]
   (same-assumption? left (opposite-polarity right)))
+
+(defn same-assumption-proposition?
+  "Same narrowed fact on the same root, ignoring branch polarity."
+  [a b]
+  (and (= (:kind a) (:kind b))
+       (= (get-in a [:root :sym]) (get-in b [:root :sym]))
+       (case (:kind a)
+         :truthy-local true
+         :contains-key (= (:key a) (:key b))
+         :type-predicate (and (= (:pred a) (:pred b))
+                              (= (:class a) (:class b)))
+         :value-equality (= (:values a) (:values b))
+         false)))
 
 (defn assumption-root?
   [assumption root]
@@ -79,12 +99,19 @@
   [type assumption]
   (case (:kind assumption)
     :truthy-local
-    (if (:polarity assumption)
-      (ato/de-maybe-type type)
-      type)
+    (an/apply-truthy-local type (:polarity assumption))
 
     :contains-key
     (avc/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
+
+    :type-predicate
+    (an/partition-type-for-predicate type
+                                     {:pred (:pred assumption)
+                                      :class (:class assumption)}
+                                     (:polarity assumption))
+
+    :value-equality
+    (an/partition-type-for-values type (:values assumption) (:polarity assumption))
 
     type))
 
@@ -99,12 +126,36 @@
 
 (defn assumption-base-type
   [assumption assumptions]
-  (let [same-proposition? (fn [candidate]
-                            (and (= (:kind candidate) (:kind assumption))
-                                 (= (get-in candidate [:root :sym]) (get-in assumption [:root :sym]))
-                                 (= (:key candidate) (:key assumption))))]
+  (let [same-proposition? #(same-assumption-proposition? % assumption)]
     (refine-root-type (:root assumption)
                       (remove same-proposition? assumptions))))
+
+(defn- type-predicate-classification
+  [base pred-info]
+  (let [pos (an/partition-type-for-predicate base pred-info true)
+        neg (an/partition-type-for-predicate base pred-info false)]
+    (cond
+      (and (not (at/bottom-type? pos)) (at/bottom-type? neg)) :always
+      (and (at/bottom-type? pos) (not (at/bottom-type? neg))) :never
+      :else :unknown)))
+
+(defn- value-in-values-classification
+  [base values]
+  (let [pos (an/partition-type-for-values base values true)
+        neg (an/partition-type-for-values base values false)]
+    (cond
+      (at/bottom-type? pos) :never
+      (at/bottom-type? neg) :always
+      :else :unknown)))
+
+(defn- value-not-in-values-classification
+  [base values]
+  (let [pos (an/partition-type-for-values base values true)
+        neg (an/partition-type-for-values base values false)]
+    (cond
+      (at/bottom-type? neg) :never
+      (at/bottom-type? pos) :always
+      :else :unknown)))
 
 (defn assumption-truth
   [assumption assumptions]
@@ -120,6 +171,27 @@
         :always (if (:polarity assumption) :true :false)
         :never (if (:polarity assumption) :false :true)
         :unknown :unknown)
+
+      :type-predicate
+      (let [base (assumption-base-type assumption assumptions)
+            pred-info {:pred (:pred assumption) :class (:class assumption)}]
+        (case (type-predicate-classification base pred-info)
+          :always (if (:polarity assumption) :true :false)
+          :never (if (:polarity assumption) :false :true)
+          :unknown :unknown))
+
+      :value-equality
+      (let [base (assumption-base-type assumption assumptions)
+            vals (:values assumption)]
+        (if (:polarity assumption)
+          (case (value-in-values-classification base vals)
+            :always :true
+            :never :false
+            :unknown :unknown)
+          (case (value-not-in-values-classification base vals)
+            :always :true
+            :never :false
+            :unknown :unknown)))
 
       :truthy-local
       :unknown
@@ -171,6 +243,39 @@
       {:kind :truthy-local
        :root root
        :polarity true})
+
+    (= :instance? (:op test-node))
+    (let [target (:target test-node)
+          cls (:class test-node)]
+      (when (and (= :local (:op target))
+                 (class? cls)
+                 (local-root-origin target))
+        {:kind :type-predicate
+         :root (local-root-origin target)
+         :pred :instance?
+         :class cls
+         :polarity true}))
+
+    (and (= :invoke (:op test-node))
+         (ac/type-predicate-call? (:fn test-node) (:args test-node)))
+    (let [args (:args test-node)
+          info (ac/type-predicate-assumption-info (:fn test-node) args)
+          targ (if (= :instance? (:pred info))
+                 (second args)
+                 (first args))]
+      (when (and info (= :local (:op targ)) (local-root-origin targ))
+        (cond-> {:kind :type-predicate
+                 :root (local-root-origin targ)
+                 :pred (:pred info)
+                 :polarity true}
+          (:class info) (assoc :class (:class info)))))
+
+    (and (= :invoke (:op test-node))
+         (ac/keyword-invoke-on-local? test-node))
+    (let [kw (ac/literal-node-value (:fn test-node))
+          target (first (:args test-node))]
+      (when (keyword? kw)
+        (contains-key-test-assumption target kw)))
 
     (and (= :invoke (:op test-node))
          (ac/contains-call? (:fn test-node)))
