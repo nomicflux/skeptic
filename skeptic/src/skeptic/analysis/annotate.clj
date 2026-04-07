@@ -6,11 +6,13 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.map-ops.algebra :as amoa]
+            [skeptic.analysis.native-fns :as anf]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.value :as av])
+  (:import [clojure.lang LazySeq]))
 
 (declare annotate-node)
 
@@ -56,11 +58,51 @@
          (or (ac/lookup-entry dict ns node)
              {:type at/Dyn})))
 
+(defn- seqish-element-type
+  [t]
+  (when-some [t (some-> t ato/normalize-type)]
+    (cond
+      (and (at/vector-type? t) (:homogeneous? t)) (first (:items t))
+      (and (at/seq-type? t) (:homogeneous? t)) (first (:items t))
+      (at/vector-type? t) (av/type-join* (:items t))
+      (at/seq-type? t) (av/type-join* (:items t))
+      :else nil)))
+
+(defn- vector-to-homogeneous-seq-type
+  [t]
+  (when-some [t (some-> t ato/normalize-type)]
+    (when (at/vector-type? t)
+      (let [elem (if (:homogeneous? t)
+                   (first (:items t))
+                   (av/type-join* (:items t)))]
+        (at/->SeqT [(ato/normalize-type elem)] true)))))
+
+(defn annotate-instance-call
+  [ctx node]
+  (let [instance (annotate-node ctx (:instance node))
+        args (mapv #(annotate-node ctx %) (:args node))
+        method (:method node)
+        it (:type instance)
+        output (when (#{'nth} method)
+                 (when (at/vector-type? it)
+                   (ato/normalize-type
+                    (if (:homogeneous? it)
+                      (first (:items it))
+                      (av/type-join* (:items it))))))]
+    (assoc node
+           :instance instance
+           :args args
+           :type (or output at/Dyn))))
+
 (defn annotate-static-call
   [ctx node]
   (let [args (mapv #(annotate-node ctx %) (:args node))
         actual-argtypes (mapv :type args)
-        expected-argtypes (vec (repeat (count args) at/Dyn))
+        native-info (anf/static-call-native-info (:class node) (:method node) (count args))
+        default-expected (vec (repeat (count args) at/Dyn))
+        expected-argtypes (if native-info
+                            (:expected-argtypes native-info)
+                            default-expected)
         type (cond
                  (ac/static-get-call? node)
                  (let [[target key-node default-node] args
@@ -104,6 +146,9 @@
 
                  (ac/static-contains-call? node)
                  bool-type
+
+                 native-info
+                 (:output-type native-info)
 
                  :else
                  at/Dyn)]
@@ -202,6 +247,51 @@
            :bindings bindings
            :body body
            :type (:type body))))
+
+(defn- binding-recur-target-types
+  [bindings]
+  (mapv #(or (:type %) at/Dyn) bindings))
+
+(defn annotate-loop
+  [{:keys [locals recur-targets] :as ctx} node]
+  (let [loop-id (:loop-id node)
+        [bindings final-locals]
+        (reduce (fn [[acc env] binding]
+                  (let [annotated (annotate-binding (assoc ctx :locals env) binding)
+                        init (:init annotated)
+                        base-entry (or (ac/node-info annotated) {:type at/Dyn})
+                        env-entry (if (and (= :local (:op init))
+                                           (= :root (:kind (ao/node-origin init))))
+                                    (assoc base-entry :origin (ao/root-origin (:form init)
+                                                                             (:type init)))
+                                    base-entry)]
+                    [(conj acc annotated)
+                     (assoc env (:form binding) env-entry)]))
+                [[] locals]
+                (:bindings node))
+        targets (binding-recur-target-types bindings)
+        recur-ctx (assoc ctx
+                         :locals final-locals
+                         :recur-targets (cond-> (or recur-targets {})
+                                          loop-id (assoc loop-id targets)))
+        body (annotate-node recur-ctx (:body node))]
+    (assoc node
+           :bindings bindings
+           :body body
+           :type (:type body))))
+
+(defn annotate-recur
+  [{:keys [recur-targets] :as ctx} node]
+  (let [exprs (mapv #(annotate-node ctx %) (:exprs node))
+        targets (when-let [id (:loop-id node)]
+                  (get recur-targets id))
+        actual-argtypes (mapv #(ato/normalize-type (:type %)) exprs)]
+    (cond-> (assoc node
+                   :exprs exprs
+                   :type at/BottomType)
+      (and (seq targets) (= (count targets) (count exprs)))
+      (assoc :expected-argtypes (mapv ato/normalize-type targets)
+             :actual-argtypes actual-argtypes))))
 
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
@@ -305,7 +395,7 @@
               params))))
 
 (defn annotate-fn-method
-  [{:keys [locals dict name ns] :as ctx} node]
+  [{:keys [locals dict name ns recur-targets] :as ctx} node]
   (let [param-specs (arg-type-specs dict ns name (:params node))
         annotated-params (mapv (fn [param spec]
                                  (merge param spec))
@@ -315,7 +405,12 @@
                            (map (fn [param]
                                   [(:form param) (ac/node-info param)]))
                            annotated-params)
-        body (annotate-node (assoc ctx :locals param-locals)
+        recur-targets (cond-> (or recur-targets {})
+                        (:loop-id node)
+                        (assoc (:loop-id node) (mapv :type annotated-params)))
+        body (annotate-node (assoc ctx
+                                   :locals param-locals
+                                   :recur-targets recur-targets)
                             (:body node))]
     (assoc node
            :params annotated-params
@@ -406,6 +501,23 @@
                              keys
                              vals))))))
 
+(defn- lazy-seq-new-type
+  [class-node args]
+  (when (and (= :const (:op class-node))
+             (= LazySeq (:val class-node)))
+    (let [elem (if (and (seq args)
+                        (= :fn (:op (first args)))
+                        (= 1 (count (:methods (first args))))
+                        (empty? (:params (first (:methods (first args))))))
+                 (let [body (:body (first (:methods (first args))))
+                       t (-> body :type ato/normalize-type)
+                       t (if (at/maybe-type? t)
+                           (ato/normalize-type (:inner t))
+                           t)]
+                   (if (ato/unknown-type? t) at/Dyn t))
+                 at/Dyn)]
+      (at/->SeqT [elem] true))))
+
 (defn annotate-new
   [ctx node]
   (let [class-node (annotate-node ctx (:class node))
@@ -413,8 +525,9 @@
     (assoc node
            :class class-node
            :args args
-           :type (or (some-> (:val class-node) av/class->type)
-                     at/Dyn))))
+           :type (or (lazy-seq-new-type class-node args)
+                 (some-> (:val class-node) av/class->type)
+                 at/Dyn))))
 
 (defn annotate-with-meta
   [ctx node]
@@ -494,12 +607,15 @@
        :fn-method (annotate-fn-method ctx node)
        :if (annotate-if ctx node)
        :case (annotate-case ctx node)
+       :instance-call (annotate-instance-call ctx node)
        :invoke (annotate-invoke ctx node)
        :let (annotate-let ctx node)
+       :loop (annotate-loop ctx node)
        :local (annotate-local ctx node)
        :map (annotate-map ctx node)
        :new (annotate-new ctx node)
        :quote (annotate-quote ctx node)
+       :recur (annotate-recur ctx node)
        :set (annotate-set ctx node)
        :static-call (annotate-static-call ctx node)
        :the-var (annotate-var-like ctx node)
@@ -521,6 +637,7 @@
                                         [sym (an/normalize-entry entry)]))
                                  locals)
                    :assumptions (vec assumptions)
+                   :recur-targets {}
                    :name name
                    :ns ns}
                   ast)))
@@ -546,6 +663,6 @@
   ([dict form]
    (annotate-form-loop dict form {}))
   ([dict form opts]
-   (annotate-ast dict
+   (annotate-ast (merge anf/native-fn-dict dict)
                  (analyze-form form opts)
                  opts)))

@@ -3,11 +3,11 @@
             [clojure.tools.analyzer.ast :as ana.ast]
             [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
+            [skeptic.analysis.cast :as cast]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis-test :as atst]
-            [skeptic.test-examples :as test-examples]))
+            [skeptic.analysis-test :as atst]))
 
 (deftest structural-analysis-test
   (testing "throw form"
@@ -121,7 +121,45 @@
           set-form (atst/project-ast (atst/analyze-form '(let [x 1] #{x 2})))]
       (is (= :vector (:op (atst/child-projection vector-form :body))))
       (is (= :map (:op (atst/child-projection map-form :body))))
-      (is (= :set (:op (atst/child-projection set-form :body)))))))
+      (is (= :set (:op (atst/child-projection set-form :body))))))
+
+  (testing "loop and recur"
+    (let [simple (atst/project-ast (atst/analyze-form '(loop [x 1] x)))
+          with-recur (atst/project-ast
+                      (atst/analyze-form '(loop [x 0]
+                                           (if (clojure.core/< x 3)
+                                             (recur (clojure.core/inc x))
+                                             x))))]
+      (is (= :loop (:op simple)))
+      (is (= [:bindings :body] (mapv first (:children simple))))
+      (is (= 1 (count (atst/child-projection simple :bindings))))
+      (is (= (atst/T s/Int) (:type simple)))
+      (is (= :loop (:op with-recur)))
+      (is (= (atst/T s/Int) (:type with-recur)))
+      (is (some? (atst/find-projected-node with-recur #(= :recur (:op %)))))
+      (is (= at/BottomType
+             (:type (atst/find-projected-node with-recur #(= :recur (:op %))))))))
+
+  (testing "loop body vector/map literals cast to declared schemas [s/Int] and {:a s/Str :b [s/Int]}"
+    (let [vec-loop (atst/project-ast (atst/analyze-form '(loop [] [1 2 3])))
+          map-loop (atst/project-ast (atst/analyze-form '(loop [] {:a "hi" :b [1 2]})))]
+      (is (= :loop (:op vec-loop)))
+      (is (at/vector-type? (:type vec-loop)))
+      (is (:ok? (cast/check-cast (:type vec-loop) (atst/T [s/Int]))))
+      (is (= :loop (:op map-loop)))
+      (is (at/map-type? (:type map-loop)))
+      (is (:ok? (cast/check-cast (:type map-loop) (atst/T {:a s/Str :b [s/Int]}))))))
+
+  (testing "for macro expands to loop/recur in the analyzer AST (structural only)"
+    (let [root (atst/project-ast
+                (atst/analyze-form '(for [x [1 2]] (skeptic.test-examples/int-add x 0))))]
+      (is (atst/find-projected-node root #(= :loop (:op %))))
+      (is (atst/find-projected-node root #(= :recur (:op %)))))))
+
+(deftest native-inc-annotates-via-dict-test
+  (testing "clojure.core/inc gets Int output from native fn dict"
+    (let [root (atst/project-ast (atst/analyze-form {} '(inc 1)))]
+      (is (= (atst/T s/Int) (:type root))))))
 
 (deftest typed-binding-and-flow-test
   (testing "let-driven flow"
