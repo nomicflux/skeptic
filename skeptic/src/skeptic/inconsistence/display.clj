@@ -93,8 +93,9 @@
 
 (defn user-type-form
   [type]
-  (or (some-> type abr/render-type-form)
-      'Unknown))
+  (if (nil? type)
+    'Unknown
+    (abr/render-type-form type)))
 
 (defn user-schema-form
   [schema]
