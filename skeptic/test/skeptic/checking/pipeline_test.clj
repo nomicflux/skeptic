@@ -160,6 +160,9 @@
      'skeptic.test-examples/test-eq-nil
      'skeptic.test-examples/take-val
      'skeptic.test-examples/process-val
+     'skeptic.test-examples/multi-step-some->-success
+     'skeptic.test-examples/when-truthy-nil-local-success
+     'skeptic.test-examples/when-and-some?-success
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc
      'skeptic.test-examples/fn-chain-success)))

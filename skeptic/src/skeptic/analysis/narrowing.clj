@@ -125,9 +125,11 @@
         (combine-parts (cond-> []
                         (= :matches nil-c) (conj (ato/exact-value-type nil))
                         (not (at/bottom-type? inner-pos)) (conj inner-pos)))
-        (combine-parts (cond-> []
-                        (= :does-not-match nil-c) (conj (ato/exact-value-type nil))
-                        (not (at/bottom-type? inner-neg)) (conj inner-neg)))))))
+        (if (= :matches nil-c)
+          inner-neg
+          (combine-parts (cond-> []
+                          (= :does-not-match nil-c) (conj (ato/exact-value-type nil))
+                          (not (at/bottom-type? inner-neg)) (conj inner-neg))))))))
 
 (defn- partition-type-for-predicate*
   [type pred-info polarity]
@@ -135,13 +137,14 @@
     (cond
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
-      (ato/unknown-type? type) type
 
       (at/union-type? type)
       (combine-parts (map #(partition-type-for-predicate* % pred-info polarity) (:members type)))
 
       (at/maybe-type? type)
       (partition-maybe (:inner type) pred-info polarity)
+
+      (ato/unknown-type? type) type
 
       :else (partition-leaf type pred-info polarity))))
 
@@ -167,6 +170,9 @@
             (ato/union-type members)))
 
         (false-bool-value-type? t)
+        at/BottomType
+
+        (and (at/value-type? t) (nil? (:value t)))
         at/BottomType
 
         :else t))))

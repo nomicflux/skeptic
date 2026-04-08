@@ -844,6 +844,20 @@
   [x :- (s/maybe s/Int)]
   (some-> x take-val))
 
+(s/defn multi-step-some->-success :- (s/maybe s/Int)
+  []
+  (some-> {:a {:b {:c nil}}} :a :b :c take-val))
+
+(s/defn when-truthy-nil-local-success :- (s/maybe s/Int)
+  []
+  (let [x nil]
+    (when x (take-val x))))
+
+(s/defn when-and-some?-success :- (s/maybe s/Int)
+  []
+  (let [x nil y 2]
+    (when (and y (some? x)) (take-val x))))
+
 (s/defn takes-maybe-constrained :- (s/maybe (s/constrained s/Int pos?))
   [x :- (s/maybe (s/constrained s/Int pos?))]
   x)

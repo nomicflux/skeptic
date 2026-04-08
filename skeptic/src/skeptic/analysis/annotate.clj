@@ -410,14 +410,17 @@
                   (let [annotated (annotate-binding (assoc ctx :locals env) binding)
                         init (:init annotated)
                         base-entry (or (ac/node-info annotated) {:type at/Dyn})
-                        env-entry (cond-> base-entry
+                        alias-origin (and (= :local (:op init))
+                                          (= :root (:kind (ao/node-origin init)))
+                                          (ao/root-origin (:form init) (:type init)))
+                        base-origin (:origin base-entry)
+                        branch-test-sym (get-in base-origin [:test :root :sym])
+                        self-origin (when (or (nil? branch-test-sym)
+                                             (= branch-test-sym (:form binding)))
+                                      (ao/root-origin (:form binding) (:type base-entry)))
+                        env-entry (cond-> (assoc base-entry :origin (or alias-origin self-origin base-origin))
                                     (= :fn (:op init))
-                                    (assoc :fn-binding-node init)
-
-                                    (and (= :local (:op init))
-                                         (= :root (:kind (ao/node-origin init))))
-                                    (assoc :origin (ao/root-origin (:form init)
-                                                                     (:type init))))]
+                                    (assoc :fn-binding-node init))]
                     [(conj acc annotated)
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]

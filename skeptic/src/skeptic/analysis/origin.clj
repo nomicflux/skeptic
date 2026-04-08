@@ -302,6 +302,12 @@
          :pred :nil?
          :polarity true}))
 
+    (= :let (:op test-node))
+    (test->assumption (:body test-node))
+
+    (= :if (:op test-node))
+    (test->assumption (:then test-node))
+
     :else
     nil))
 
