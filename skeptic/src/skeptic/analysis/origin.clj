@@ -329,3 +329,23 @@
      :then-assumptions then-assumptions
      :else-locals (refine-locals-for-assumption locals else-assumptions)
      :else-assumptions else-assumptions}))
+
+(defn guard-assumption
+  [stmt-node]
+  (when (and (= :if (:op stmt-node))
+             (= :branch (get-in stmt-node [:origin :kind])))
+    (let [then-bottom? (at/bottom-type? (get-in stmt-node [:then :type]))
+          else-bottom? (at/bottom-type? (get-in stmt-node [:else :type]))
+          assumption   (get-in stmt-node [:origin :test])]
+      (when assumption
+        (cond
+          else-bottom? assumption
+          then-bottom? (opposite-polarity assumption)
+          :else nil)))))
+
+(defn apply-guard-assumption
+  [{:keys [locals assumptions] :as ctx} assumption]
+  (let [new-assumptions (conj (vec assumptions) assumption)]
+    (assoc ctx
+           :assumptions new-assumptions
+           :locals (refine-locals-for-assumption locals new-assumptions))))

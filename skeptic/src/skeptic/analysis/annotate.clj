@@ -396,8 +396,15 @@
 
 (defn annotate-do
   [ctx node]
-  (let [statements (mapv #((:recurse ctx) ctx %) (:statements node))
-        ret ((:recurse ctx) ctx (:ret node))]
+  (let [[statements final-ctx]
+        (reduce (fn [[acc ctx] stmt]
+                  (let [annotated ((:recurse ctx) ctx stmt)
+                        guard     (ao/guard-assumption annotated)
+                        new-ctx   (if guard (ao/apply-guard-assumption ctx guard) ctx)]
+                    [(conj acc annotated) new-ctx]))
+                [[] ctx]
+                (:statements node))
+        ret ((:recurse final-ctx) final-ctx (:ret node))]
     (assoc node
            :statements statements
            :ret ret

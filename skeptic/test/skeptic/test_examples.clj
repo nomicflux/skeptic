@@ -866,6 +866,11 @@
   (let [x nil y 2]
     (when (and y (some? x)) (take-val x))))
 
+(s/defn when-not-throw-nil-local-success :- s/Int
+  [x :- (s/maybe s/Int)]
+  (when-not x (throw (ex-info "no x" {})))
+  (take-val x))
+
 (s/defn takes-maybe-constrained :- (s/maybe (s/constrained s/Int pos?))
   [x :- (s/maybe (s/constrained s/Int pos?))]
   x)

@@ -172,6 +172,7 @@
      'skeptic.test-examples/multi-step-some->-success
      'skeptic.test-examples/when-truthy-nil-local-success
      'skeptic.test-examples/when-and-some?-success
+     'skeptic.test-examples/when-not-throw-nil-local-success
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc
      'skeptic.test-examples/fn-chain-success)))
