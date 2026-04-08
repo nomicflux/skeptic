@@ -171,7 +171,9 @@
      'skeptic.test-examples/process-val
      'skeptic.test-examples/multi-step-some->-success
      'skeptic.test-examples/when-truthy-nil-local-success
-     'skeptic.test-examples/when-and-some?-success
+     'skeptic.test-examples/when-and-some?-nil-success
+     'skeptic.test-examples/when-and-some?-and-nil-success
+     'skeptic.test-examples/when-and-some?-multi-nil-success
      'skeptic.test-examples/when-not-throw-nil-local-success
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc

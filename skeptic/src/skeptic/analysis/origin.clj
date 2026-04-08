@@ -59,7 +59,9 @@
 
 (defn opposite-polarity
   [assumption]
-  (update assumption :polarity not))
+  (case (:kind assumption)
+    :conjunction nil
+    (update assumption :polarity not)))
 
 (defn same-assumption?
   [left right]
@@ -72,6 +74,9 @@
          :type-predicate (and (= (:pred left) (:pred right))
                               (= (:class left) (:class right)))
          :value-equality (= (:values left) (:values right))
+         :conjunction (and (= :conjunction (:kind right))
+                           (= (count (:parts left)) (count (:parts right)))
+                           (every? true? (map same-assumption? (:parts left) (:parts right))))
          false)))
 
 (defn opposite-assumption?
@@ -89,6 +94,9 @@
          :type-predicate (and (= (:pred a) (:pred b))
                               (= (:class a) (:class b)))
          :value-equality (= (:values a) (:values b))
+         :conjunction (and (= :conjunction (:kind b))
+                           (= (count (:parts a)) (count (:parts b)))
+                           (every? true? (map same-assumption-proposition? (:parts a) (:parts b))))
          false)))
 
 (defn assumption-root?
@@ -195,6 +203,12 @@
 
       :truthy-local
       :unknown
+
+      :conjunction
+      (let [ts (mapv #(assumption-truth % assumptions) (:parts assumption))]
+        (cond (every? #{:true} ts) :true
+              (some #{:false} ts) :false
+              :else :unknown))
 
       :unknown)))
 
@@ -311,6 +325,43 @@
     :else
     nil))
 
+(defn local-binding-init-assumption
+  [test-node locals]
+  (when (and (= :local (:op test-node)) locals)
+    (when-let [entry (get locals (:form test-node))]
+      (when-let [init (:binding-init entry)]
+        (test->assumption init)))))
+
+(defn and-chain-assumptions
+  "Assumptions for `clojure.core/and` expansion: (let [g e1] (if g e2' g))."
+  [node]
+  (if (and (= :let (:op node))
+           (= 1 (count (:bindings node))))
+    (let [b (first (:bindings node))
+          sym (:form b)
+          init (:init b)
+          body (:body node)]
+      (if (and (= :if (:op body))
+               (= :local (:op (:test body)))
+               (= sym (:form (:test body))))
+        (vec (concat (when-some [a (test->assumption init)] [a])
+                     (and-chain-assumptions (:then body))))
+        (and-chain-assumptions body)))
+    (case (:op node)
+      :if (when-some [a (test->assumption (:test node))] [a])
+      :let (and-chain-assumptions (:body node))
+      :local []
+      (when-some [a (test->assumption node)] [a]))))
+
+(defn if-test-conjuncts
+  [test-node locals]
+  (let [chain (and-chain-assumptions test-node)]
+    (if (seq chain)
+      chain
+      (or (when-some [a (local-binding-init-assumption test-node locals)] [a])
+          (when-some [a (test->assumption test-node)] [a])
+          []))))
+
 (defn refine-locals-for-assumption
   [locals assumptions]
   (into {}
@@ -319,12 +370,13 @@
         locals))
 
 (defn branch-local-envs
-  [locals assumptions assumption]
-  (let [then-assumptions (cond-> (vec assumptions)
-                          assumption (conj assumption))
-        else-assumption (some-> assumption opposite-polarity)
-        else-assumptions (cond-> (vec assumptions)
-                          else-assumption (conj else-assumption))]
+  [locals assumptions conjuncts]
+  (let [conjuncts (vec conjuncts)
+        then-assumptions (into (vec assumptions) conjuncts)
+        else-assumptions (if (= 1 (count conjuncts))
+                           (let [opp (opposite-polarity (first conjuncts))]
+                             (cond-> (vec assumptions) opp (conj opp)))
+                           (vec assumptions))]
     {:then-locals (refine-locals-for-assumption locals then-assumptions)
      :then-assumptions then-assumptions
      :else-locals (refine-locals-for-assumption locals else-assumptions)
@@ -345,7 +397,10 @@
 
 (defn apply-guard-assumption
   [{:keys [locals assumptions] :as ctx} assumption]
-  (let [new-assumptions (conj (vec assumptions) assumption)]
+  (let [parts (if (and assumption (= :conjunction (:kind assumption)))
+                (:parts assumption)
+                (if assumption [assumption] []))
+        new-assumptions (into (vec assumptions) parts)]
     (assoc ctx
            :assumptions new-assumptions
            :locals (refine-locals-for-assumption locals new-assumptions))))

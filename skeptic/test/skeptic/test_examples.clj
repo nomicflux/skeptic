@@ -861,10 +861,31 @@
   (let [x nil]
     (when x (take-val x))))
 
-(s/defn when-and-some?-success :- (s/maybe s/Int)
+(s/defn maybe-x :- (s/maybe s/Int)
   []
-  (let [x nil y 2]
-    (when (and y (some? x)) (take-val x))))
+  nil)
+
+(s/defn when-and-some?-nil-success :- (s/maybe s/Int)
+  []
+  (let [x (maybe-x)] 
+  (when (some? x)
+    (take-val x))))
+
+(s/defn when-and-some?-and-nil-success :- (s/maybe s/Int)
+  []
+  (let [x (maybe-x)] 
+  (when (and (some? x)
+             (pos? x))
+    (take-val x))))
+
+(s/defn when-and-some?-multi-nil-success :- (s/maybe s/Int)
+  []
+  (let [x (maybe-x)
+        y (maybe-x)] 
+  (when (and (some? x)
+             (and (pos? x)
+                  (some? y)))
+    (take-val x))))
 
 (s/defn when-not-throw-nil-local-success :- s/Int
   [x :- (s/maybe s/Int)]

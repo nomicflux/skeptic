@@ -531,9 +531,9 @@
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
   (let [test-node ((:recurse ctx) ctx (:test node))
-        assumption (ao/test->assumption test-node)
+        conjuncts (ao/if-test-conjuncts test-node locals)
         {:keys [then-locals then-assumptions else-locals else-assumptions]}
-        (ao/branch-local-envs locals assumptions assumption)
+        (ao/branch-local-envs locals assumptions conjuncts)
         then-node ((:recurse ctx) (assoc ctx
                                          :locals then-locals
                                          :assumptions then-assumptions)
@@ -543,9 +543,11 @@
                                          :assumptions else-assumptions)
                    (:else node))
         type (av/type-join* [(:type then-node) (:type else-node)])
-        origin (when assumption
+        origin (when (seq conjuncts)
                  {:kind :branch
-                  :test assumption
+                  :test (if (= 1 (count conjuncts))
+                          (first conjuncts)
+                          {:kind :conjunction :parts conjuncts})
                   :then-origin (ao/node-origin then-node)
                   :else-origin (ao/node-origin else-node)})]
     (assoc node
@@ -587,7 +589,7 @@
                                     :values lits
                                     :polarity true})
                       {:keys [then-locals then-assumptions]}
-                      (ao/branch-local-envs locals assumptions assumption)
+                      (ao/branch-local-envs locals assumptions (if assumption [assumption] []))
                       then-body (:then (nth thens i))
                       ann ((:recurse ctx) (assoc ctx
                                                :locals then-locals
@@ -601,7 +603,7 @@
                               :values all-values
                               :polarity false})
         {:keys [then-locals then-assumptions]}
-        (ao/branch-local-envs locals assumptions default-assumption)
+        (ao/branch-local-envs locals assumptions (if default-assumption [default-assumption] []))
         default-node ((:recurse ctx) (assoc ctx
                                             :locals then-locals
                                             :assumptions then-assumptions)

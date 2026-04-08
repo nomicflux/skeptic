@@ -89,3 +89,14 @@
              (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output-type])))
       (is (= (atst/T {:value (s/maybe s/Int)})
              (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output-type]))))))
+
+(deftest and-chain-assumptions-two-some-test
+  (testing "expanded and collects each some? conjunct from macro shape"
+    (let [root (atst/analyze-form atst/analysis-dict '(and (some? x) (some? y))
+                                  {:locals {'x (atst/T (s/maybe s/Int))
+                                            'y (atst/T (s/maybe s/Str))}})
+          parts (ao/and-chain-assumptions root)]
+      (is (= 2 (count parts)))
+      (is (every? #(and (= :type-predicate (:kind %))
+                        (= :some? (:pred %)))
+                  parts)))))
