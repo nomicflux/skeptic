@@ -154,6 +154,7 @@
      'skeptic.test-examples/narrowing-case-success
      'skeptic.test-examples/narrowing-assoc-get-success
      'skeptic.test-examples/narrowing-fn-qmark-success
+     'skeptic.test-examples/fn-type-satisfies-pred-fn-success
      'skeptic.test-examples/format-hello-map-success
      'skeptic.test-examples/test-eq-nil
      'skeptic.test-examples/take-val

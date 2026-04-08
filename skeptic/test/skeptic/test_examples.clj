@@ -389,6 +389,10 @@
     (narrowing-fn-helper 1)
     0))
 
+(s/defn fn-type-satisfies-pred-fn-success :- (s/pred fn?)
+  [f :- (s/=> s/Int s/Int)]
+  f)
+
 (defn sample-bad-parametric-fn
   [x]
   (let [f (fn [_y] nil)

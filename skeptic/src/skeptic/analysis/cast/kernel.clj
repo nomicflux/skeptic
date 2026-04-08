@@ -481,5 +481,11 @@
       (ascs/cast-ok source-type target-type :leaf-overlap)
       (ascs/cast-fail source-type target-type :leaf-overlap polarity :leaf-mismatch))
 
+    (at/fun-type? source-type)
+    (if (and (at/adapter-leaf-type? target-type)
+             ((:accepts? target-type) identity))
+      (ascs/cast-ok source-type target-type :fun-fn-pred)
+      (ascs/cast-fail source-type target-type :fun-fn-pred polarity :mismatch))
+
     :else
     (ascs/cast-fail source-type target-type :mismatch polarity :mismatch)))
