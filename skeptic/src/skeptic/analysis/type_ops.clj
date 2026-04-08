@@ -41,6 +41,14 @@
     (seq? value) (at/->SeqT (mapv normalize-type value) (= 1 (count value)))
     :else (invalid-normalize-type-input value)))
 
+(defn- nil-value-type?
+  [t]
+  (and (at/value-type? t) (nil? (:value t))))
+
+(defn- nil-bearing-member?
+  [t]
+  (or (at/maybe-type? t) (nil-value-type? t)))
+
 (defn nil-bearing-type-members
   [members]
   (->> members
@@ -50,10 +58,11 @@
                    (:members member)
                    [member])))
        ((fn [members]
-          (let [nil-bearing? (some at/maybe-type? members)
-                {maybe-members true
-                 plain-members false} (group-by at/maybe-type? members)
-                maybe-bases (->> maybe-members
+          (let [nil-bearing? (some nil-bearing-member? members)
+                {nil-bearing-members true
+                 plain-members false} (group-by nil-bearing-member? members)
+                maybe-bases (->> nil-bearing-members
+                                 (remove nil-value-type?)
                                  (map :inner)
                                  set)
                 maybe-bases (if (and (contains? maybe-bases at/Dyn)
@@ -62,6 +71,7 @@
                               (disj maybe-bases at/Dyn)
                               maybe-bases)]
             {:nil-bearing? (boolean nil-bearing?)
+             :has-nil-value? (boolean (some nil-value-type? nil-bearing-members))
              :members (into (set plain-members) maybe-bases)})))))
 
 (defn normalize-intersection-members
@@ -76,14 +86,15 @@
 
 (defn union-type
   [members]
-  (let [{:keys [nil-bearing? members]} (nil-bearing-type-members members)
+  (let [{:keys [nil-bearing? has-nil-value? members]} (nil-bearing-type-members members)
         base (cond
                (empty? members) at/Dyn
                (= 1 (count members)) (first members)
                :else (at/->UnionT members))]
-    (if nil-bearing?
-      (at/->MaybeT base)
-      base)))
+    (cond
+      (and nil-bearing? has-nil-value? (empty? members)) (exact-value-type nil)
+      nil-bearing? (at/->MaybeT base)
+      :else base)))
 
 (defn intersection-type
   [members]

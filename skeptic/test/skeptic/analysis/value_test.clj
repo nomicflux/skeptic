@@ -13,7 +13,7 @@
 (deftest type-of-value-literals-test
   (testing "scalars"
     (is (= (T s/Int) (av/type-of-value 1)))
-    (is (= (T (s/maybe s/Any)) (av/type-of-value nil)))
+    (is (= (T (s/eq nil)) (av/type-of-value nil)))
     (is (= (T s/Str) (av/type-of-value "x")))
     (is (= (T s/Keyword) (av/type-of-value :x)))
     (is (= (T s/Bool) (av/type-of-value true)))))

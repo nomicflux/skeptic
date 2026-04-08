@@ -52,7 +52,7 @@
 (defn type-of-value
   [value]
   (cond
-    (nil? value) (at/->MaybeT at/Dyn)
+    (nil? value) (ato/exact-value-type nil)
     (or (integer? value)
         (string? value)
         (keyword? value)

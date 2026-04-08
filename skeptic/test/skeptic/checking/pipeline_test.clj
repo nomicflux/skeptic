@@ -153,7 +153,11 @@
      'skeptic.test-examples/narrowing-keyword-invoke-presence-success
      'skeptic.test-examples/narrowing-case-success
      'skeptic.test-examples/narrowing-assoc-get-success
-     'skeptic.test-examples/narrowing-fn-qmark-success)))
+     'skeptic.test-examples/narrowing-fn-qmark-success
+     'skeptic.test-examples/format-hello-map-success
+     'skeptic.test-examples/test-eq-nil
+     'skeptic.test-examples/take-val
+     'skeptic.test-examples/process-val)))
 
 (deftest loop-return-matches-declared-vector-and-map-schemas
   (in-test-examples
@@ -208,23 +212,23 @@
    (are [f errors] (= (set (partition 2 errors))
                       (result-pairs (check-fn test-dict f)))
      'skeptic.test-examples/sample-bad-fn ['(int-add nil x)
-                                           [(incm/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
+                                           [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-bad-let-fn ['(int-add x y)
-                                               [(incm/mismatched-nullable-msg {:expr '(int-add x y) :arg 'y} (s/maybe s/Any) s/Int)]]
+                                               [(incm/mismatched-schema-msg {:expr '(int-add x y) :arg 'y} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-let-bad-fn ['(int-add 1 nil)
-                                               [(incm/mismatched-nullable-msg {:expr '(int-add 1 nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                               [(incm/mismatched-schema-msg {:expr '(int-add 1 nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-multi-line-body ['(int-add nil x)
-                                                    [(incm/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
+                                                    [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-multi-line-let-body ['(int-add 1 (f x))
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add 1 (f x)) :arg '(f x)} (s/maybe s/Any) s/Int)]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add 1 (f x)) :arg '(f x)} (T (s/eq nil)) (T s/Int))]
                                                         '(int-add 2 3 4 nil)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add 2 3 4 nil) :arg nil} (s/maybe s/Any) s/Int)]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add 2 3 4 nil) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                         '(int-add nil x)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                         '(int-add 2 nil)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add 2 nil) :arg nil} (s/maybe s/Any) s/Int)]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add 2 nil) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                         '(int-add w 1 x y z)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add w 1 x y z) :arg 'w} (s/maybe s/Any) s/Int)
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add w 1 x y z) :arg 'w} (T (s/eq nil)) (T s/Int))
                                                          (incm/mismatched-ground-type-msg {:expr '(int-add w 1 x y z) :arg 'y}
                                                                                           (at/->GroundT {:class java.lang.Number} 'Number)
                                                                                           (T s/Int))
@@ -238,21 +242,21 @@
      'skeptic.test-examples/sample-let-mismatched-types ['(int-add x s)
                                                          [(incm/mismatched-ground-type-msg {:expr '(int-add x s) :arg 's} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/sample-let-fn-bad1-fn ['(int-add y nil)
-                                                   [(incm/mismatched-nullable-msg {:expr '(int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                                   [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-multi-arity-fn ['(int-add x y z nil)
-                                                   [(incm/mismatched-nullable-msg {:expr '(int-add x y z nil) :arg nil} (s/maybe s/Any) s/Int)]
+                                                   [(incm/mismatched-schema-msg {:expr '(int-add x y z nil) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                    '(int-add x y nil)
-                                                   [(incm/mismatched-nullable-msg {:expr '(int-add x y nil) :arg nil} (s/maybe s/Any) s/Int)]
+                                                   [(incm/mismatched-schema-msg {:expr '(int-add x y nil) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                    '(int-add x nil)
-                                                   [(incm/mismatched-nullable-msg {:expr '(int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                                   [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-metadata-fn ['(int-add x nil)
-                                                [(incm/mismatched-nullable-msg {:expr '(int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                                [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-doc-fn ['(int-add x nil)
-                                           [(incm/mismatched-nullable-msg {:expr '(int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                           [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-doc-and-metadata-fn ['(int-add x nil)
-                                                        [(incm/mismatched-nullable-msg {:expr '(int-add x nil) :arg nil} (s/maybe s/Any) s/Int)]]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-fn-once ['(int-add y nil)
-                                            [(incm/mismatched-nullable-msg {:expr '(int-add y nil) :arg nil} (s/maybe s/Any) s/Int)]])))
+                                            [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]])))
 
 (deftest no-implicit-parametric-generalization-regression
   (in-test-examples
@@ -343,7 +347,7 @@
 (deftest annotated-wrapper-regression
   (in-test-examples
    (is (= ['(int-add nil x)
-           [(incm/mismatched-nullable-msg {:expr '(int-add nil x) :arg nil} (s/maybe s/Any) s/Int)]]
+           [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil} (T (s/eq nil)) (T s/Int))]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/sample-annotated-bad-fn))))))
 
 (deftest checking-annotated-wrapper-regression

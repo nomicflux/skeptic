@@ -812,7 +812,23 @@
   []
   (takes-a-or-b {:c {:a :nope}}))
 
-(s/defn self-test :- HasAOrB 
+(defn format-hello-map-success
+  []
+  (format "Hello %s" {:a 1 :b 2}))
+
+(s/defn test-eq-nil :- (s/eq nil)
+  []
+  (doseq [x [1 2 3]] (println x)))
+
+(s/defn take-val :- s/Int
+  [x :- s/Int]
+  x)
+
+(s/defn process-val :- (s/maybe s/Int)
+  [x :- (s/maybe s/Int)]
+  (some-> x take-val))
+
+(s/defn self-test :- HasAOrB
   [x :- HasAOrB]
   x)
 

@@ -692,9 +692,16 @@
            :body body
            :type (:type body))))
 
+(defn- nil-value-type?
+  [t]
+  (and (at/value-type? t) (nil? (:value t))))
+
 (defn- binding-recur-target-types
   [bindings]
-  (mapv #(or (:type %) at/Dyn) bindings))
+  (mapv (fn [b]
+          (let [t (or (:type b) at/Dyn)]
+            (if (nil-value-type? t) (at/->MaybeT at/Dyn) t)))
+        bindings))
 
 (defn- widen-int-loop-counter-recur-targets
   "When a loop binding was inferred as :int but a recur operand is JVM Number

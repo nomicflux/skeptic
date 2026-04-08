@@ -29,7 +29,7 @@
                                                          (skeptic.test-examples/int-add x 2))))]
       (is (= (atst/T s/Int) (:type or-let)))
       (is (atst/find-projected-node or-let #(and (= :if (:op %))
-                                                  (= (atst/T (sb/join s/Any s/Int)) (:type %)))))))
+                                                  (= (atst/T (s/maybe s/Int)) (:type %)))))))
   (testing "if refinement and joins"
     (let [literal-if (atst/project-ast (atst/analyze-form '(if (even? 2) true "hello")))
           local-if (atst/project-ast (atst/analyze-form '(if (pos? x) 1 -1)
@@ -38,9 +38,9 @@
           or-form (atst/project-ast (atst/analyze-form '(or nil 1)))]
       (is (= (atst/T (sb/join s/Bool s/Str)) (:type literal-if)))
       (is (= (atst/T s/Int) (:type local-if)))
-      (is (= (atst/T (sb/join s/Any s/Int)) (:type maybe-if)))
+      (is (= (atst/T (s/maybe s/Int)) (:type maybe-if)))
       (is (= :let (:op or-form)))
-      (is (= (atst/T (sb/join s/Any s/Int)) (:type or-form))))))
+      (is (= (atst/T (s/maybe s/Int)) (:type or-form))))))
 
 (deftest attach-type-branch-refinement-test
   (testing "or/let typed setup exposes branch join on inner if"
@@ -50,7 +50,7 @@
                                                        (skeptic.test-examples/int-add x 2))))]
       (is (= (atst/T s/Int) (:type root)))
       (is (atst/find-projected-node root #(and (= :if (:op %))
-                                                (= (atst/T (sb/join s/Any s/Int)) (:type %)))))))
+                                                (= (atst/T (s/maybe s/Int)) (:type %)))))))
   (testing "literal if join"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(if (even? 2) true "hello")))]
@@ -62,12 +62,12 @@
   (testing "maybe-refinement if joins nilable branch with default"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(let [x nil] (if x x 1))))]
-      (is (= (atst/T (sb/join s/Any s/Int)) (:type root)))))
+      (is (= (atst/T (s/maybe s/Int)) (:type root)))))
   (testing "or macro matches expanded branch join"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
                                                     '(or nil 1)))]
       (is (= :let (:op root)))
-      (is (= (atst/T (sb/join s/Any s/Int)) (:type root))))))
+      (is (= (atst/T (s/maybe s/Int)) (:type root))))))
 
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"

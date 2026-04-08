@@ -2,7 +2,8 @@
   (:require [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.value :as av]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at])
+  (:import [clojure.lang Util]))
 
 (defn node-info
   [node]
@@ -241,6 +242,18 @@
   [node]
   (and (= clojure.lang.RT (:class node))
        (contains? #{'clojure.core/contains? 'contains? 'contains} (:method node))))
+
+(defn static-nil?-call?
+  [node]
+  (and (= Util (:class node))
+       (= 'identical (:method node))))
+
+(defn static-nil?-target
+  [node]
+  (let [[a b] (:args node)]
+    (cond
+      (and (= :const (:op b)) (nil? (:val b))) a
+      (and (= :const (:op a)) (nil? (:val a))) b)))
 
 (defn static-assoc-call?
   [node]

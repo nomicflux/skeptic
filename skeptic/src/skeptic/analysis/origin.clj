@@ -293,6 +293,15 @@
           (when (keyword? key)
             (contains-key-test-assumption target-node key)))))
 
+    (and (= :static-call (:op test-node))
+         (ac/static-nil?-call? test-node))
+    (when-let [targ (ac/static-nil?-target test-node)]
+      (when (and (= :local (:op targ)) (local-root-origin targ))
+        {:kind :type-predicate
+         :root (local-root-origin targ)
+         :pred :nil?
+         :polarity true}))
+
     :else
     nil))
 

@@ -219,7 +219,7 @@
                                                     '(let [f (fn [x] nil)]
                                                        (skeptic.test-examples/int-add 1 (f x)))))]
       (is (= (atst/T s/Int) (:type root)))
-      (is (= (atst/T (s/maybe s/Any))
+      (is (= (atst/T (s/eq nil))
              (:type (atst/find-projected-node root #(= '(f x) (:form %))))))
       (assert-typed-call-metadata-only (atst/find-projected-node root #(= '(f x) (:form %))))))
   (testing "local fn invocation keeps callable metadata with outer local"
@@ -227,6 +227,6 @@
                                                        (skeptic.test-examples/int-add 1 (f x)))
                                                      (atst/locals 'x)))]
       (is (= (atst/T s/Int) (:type root)))
-      (is (= (atst/T (s/maybe s/Any))
+      (is (= (atst/T (s/eq nil))
              (:type (atst/find-projected-node root #(= '(f x) (:form %))))))
       (assert-typed-call-metadata-only (atst/find-projected-node root #(= '(f x) (:form %)))))))
