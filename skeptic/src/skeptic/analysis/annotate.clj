@@ -79,7 +79,9 @@
                           (:params node)
                           raw-specs)
         annotated-params (mapv (fn [param spec]
-                                 (merge param spec))
+                                 (let [extra (when (at/fun-type? (:type spec))
+                                               (ac/fun-type->call-opts (:type spec)))]
+                                   (merge param spec extra)))
                                (:params node)
                                param-specs)
         param-locals (into locals

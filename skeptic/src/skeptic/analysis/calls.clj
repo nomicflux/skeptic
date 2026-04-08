@@ -114,6 +114,18 @@
          :argtypes argtypes
          :arglist argtypes}))))
 
+(defn fun-type->call-opts
+  [{:keys [methods]}]
+  (let [arglists (into {}
+                       (map (fn [{:keys [inputs output min-arity variadic?]}]
+                              (if variadic?
+                                [:varargs {:count min-arity :types inputs}]
+                                [min-arity {:types inputs}])))
+                       methods)
+        output-type (some :output methods)]
+    {:arglists arglists
+     :output-type (or output-type at/Dyn)}))
+
 (defn default-call-info
   [arity output]
   (let [output-type (or output at/Dyn)

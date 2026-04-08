@@ -161,7 +161,8 @@
      'skeptic.test-examples/take-val
      'skeptic.test-examples/process-val
      'skeptic.test-examples/abcde-maps
-     'skeptic.test-examples/a-dissoc)))
+     'skeptic.test-examples/a-dissoc
+     'skeptic.test-examples/fn-chain-success)))
 
 (deftest loop-return-matches-declared-vector-and-map-schemas
   (in-test-examples
@@ -260,7 +261,9 @@
      'skeptic.test-examples/sample-doc-and-metadata-fn ['(int-add x nil)
                                                         [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-fn-once ['(int-add y nil)
-                                            [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]])))
+                                            [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
+     'skeptic.test-examples/sample-bad-parametric-fn ['(. clojure.lang.Numbers (add 1 (g f)))
+                                                       [(incm/mismatched-schema-msg {:expr '(. clojure.lang.Numbers (add 1 (g f))) :arg '(g f)} (T (s/eq nil)) (at/->GroundT {:class java.lang.Number} 'Number))]])))
 
 (deftest abcde-maps-output-type-errors
   (in-test-examples
@@ -273,9 +276,16 @@
               (T [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Int}]))]]
           (result-errors (check-fn test-dict 'skeptic.test-examples/abcde-maps-bad))))))
 
-(deftest no-implicit-parametric-generalization-regression
+(deftest fn-chain-type-errors
   (in-test-examples
-   (is (empty? (check-fn test-dict 'skeptic.test-examples/sample-bad-parametric-fn)))))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/fn-chain-success)))
+   (is (= ['(g (f x))
+            [(incm/mismatched-ground-type-msg
+              {:expr '(g (f x)) :arg '(f x)}
+              (T s/Str)
+              (T s/Int))]]
+          (result-errors (check-fn test-dict 'skeptic.test-examples/fn-chain-failure))))))
+
 
 (deftest check-ns-uses-raw-forms
   (in-test-examples

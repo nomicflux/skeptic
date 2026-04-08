@@ -270,6 +270,18 @@
         g (fn [f] (f x))]
     (g f)))
 
+(s/defn fn-chain-success :- s/Int
+  [f :- (s/=> s/Int s/Int)
+   g :- (s/=> s/Int s/Int)
+   x :- s/Int]
+  (g (f x)))
+
+(s/defn fn-chain-failure :- s/Int
+  [f :- (s/=> s/Str s/Int)
+   g :- (s/=> s/Int s/Int)
+   x :- s/Int]
+  (g (f x)))
+
 (s/defn map-literal-input-success :- s/Int
   []
   (int-add (:a {:a 1}) 0))
