@@ -147,6 +147,18 @@
            :args args
            :type (or output at/Dyn))))
 
+(defn- reduce-assoc-pairs [m-type kv-pairs]
+  (reduce (fn [t [kn vn]]
+            (let [lk (when (ac/literal-map-key? kn) (ac/literal-node-value kn))]
+              (if (keyword? lk) (amoa/assoc-type t lk (:type vn)) t)))
+          m-type kv-pairs))
+
+(defn- reduce-dissoc-keys [m-type key-nodes]
+  (reduce (fn [t kn]
+            (let [lk (when (ac/literal-map-key? kn) (ac/literal-node-value kn))]
+              (if (keyword? lk) (amoa/dissoc-type t lk) t)))
+          m-type key-nodes))
+
 (defn annotate-static-call
   [ctx node]
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))
@@ -172,21 +184,13 @@
 
                  (and (ac/static-assoc-call? node)
                       (>= (count args) 3))
-                 (let [[m kn vn] args
-                       lk (when (ac/literal-map-key? kn)
-                            (ac/literal-node-value kn))]
-                   (if (keyword? lk)
-                     (amoa/assoc-type (:type m) lk (:type vn))
-                     at/Dyn))
+                 (let [[m & kvs] args]
+                   (reduce-assoc-pairs (:type m) (partition 2 kvs)))
 
                  (and (ac/static-dissoc-call? node)
                       (>= (count args) 2))
-                 (let [[m kn] args
-                       lk (when (ac/literal-map-key? kn)
-                            (ac/literal-node-value kn))]
-                   (if (keyword? lk)
-                     (amoa/dissoc-type (:type m) lk)
-                     at/Dyn))
+                 (let [[m & ks] args]
+                   (reduce-dissoc-keys (:type m) ks))
 
                  (and (ac/static-update-call? node)
                       (>= (count args) 3))
@@ -272,21 +276,13 @@
 
                       (and (ac/assoc-call? fn-node)
                            (>= (count args) 3))
-                      (let [[m kn vn] args
-                            lk (when (ac/literal-map-key? kn)
-                                 (ac/literal-node-value kn))]
-                        (if (keyword? lk)
-                          (amoa/assoc-type (:type m) lk (:type vn))
-                          output-type))
+                      (let [[m & kvs] args]
+                        (reduce-assoc-pairs (:type m) (partition 2 kvs)))
 
                       (and (ac/dissoc-call? fn-node)
                            (>= (count args) 2))
-                      (let [[m kn] args
-                            lk (when (ac/literal-map-key? kn)
-                                 (ac/literal-node-value kn))]
-                        (if (keyword? lk)
-                          (amoa/dissoc-type (:type m) lk)
-                          output-type))
+                      (let [[m & ks] args]
+                        (reduce-dissoc-keys (:type m) ks))
 
                       (and (ac/update-call? fn-node)
                            (>= (count args) 3))

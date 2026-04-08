@@ -159,7 +159,9 @@
      'skeptic.test-examples/format-hello-map-success
      'skeptic.test-examples/test-eq-nil
      'skeptic.test-examples/take-val
-     'skeptic.test-examples/process-val)))
+     'skeptic.test-examples/process-val
+     'skeptic.test-examples/abcde-maps
+     'skeptic.test-examples/a-dissoc)))
 
 (deftest loop-return-matches-declared-vector-and-map-schemas
   (in-test-examples
@@ -259,6 +261,17 @@
                                                         [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-fn-once ['(int-add y nil)
                                             [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]])))
+
+(deftest abcde-maps-output-type-errors
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/abcde-maps)))
+   (is (= ['(let [base {:a 1}] [(assoc base :b 2 :c 3 :d 4 :e "oops")])
+            [(incm/mismatched-output-schema-msg
+              {:expr 'abcde-maps-bad
+               :arg '(let [base {:a 1}] [(assoc base :b 2 :c 3 :d 4 :e "oops")])}
+              (T [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Str}])
+              (T [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Int}]))]]
+          (result-errors (check-fn test-dict 'skeptic.test-examples/abcde-maps-bad))))))
 
 (deftest no-implicit-parametric-generalization-regression
   (in-test-examples

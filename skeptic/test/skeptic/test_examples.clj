@@ -881,5 +881,20 @@
   (nested-conditional-test (mk-nested-ab 1)))
 
 (s/defn nested-conditional-test-success-b
-  [] 
+  []
   (nested-conditional-test (mk-nested-ab "hello")))
+
+(s/defn a-dissoc :- [{:a s/Int}]
+  []
+  (let [base {:a 1 :b 2 :c 3 :d 4 :e 5}]
+    [(dissoc base :b :c :d :e)]))
+
+(s/defn abcde-maps :- [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Int}]
+  []
+  (let [base {:a 1}]
+    [(assoc base :b 2 :c 3 :d 4 :e 5)]))
+
+(s/defn abcde-maps-bad :- [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Int}]
+  []
+  (let [base {:a 1}]
+    [(assoc base :b 2 :c 3 :d 4 :e "oops")]))
