@@ -1,6 +1,8 @@
 (ns skeptic.analysis.annotate
   (:require [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.jvm :as ana.jvm]
+            [skeptic.analysis.annotate.coll :as aac]
+            [skeptic.analysis.annotate.numeric :as aan]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
@@ -12,21 +14,15 @@
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.value :as av])
-  (:import [clojure.lang LazySeq]))
-
-(declare annotate-node)
-
-(def bool-type
-  (at/->GroundT :bool 'Bool))
+            [skeptic.analysis.value :as av]))
 
 (defn annotate-children
   [ctx node]
   (reduce (fn [acc key]
             (let [value (get acc key)
                   annotated (if (vector? value)
-                              (mapv #(annotate-node ctx %) value)
-                              (annotate-node ctx value))]
+                              (mapv #((:recurse ctx) ctx %) value)
+                              ((:recurse ctx) ctx value))]
               (assoc acc key annotated)))
           node
           (:children node)))
@@ -40,7 +36,7 @@
 (defn annotate-binding
   [ctx node]
   (if-let [init (:init node)]
-    (let [annotated-init (annotate-node ctx init)]
+    (let [annotated-init ((:recurse ctx) ctx init)]
       (merge node
              {:init annotated-init}
              (ac/node-info annotated-init)))
@@ -58,264 +54,6 @@
   (merge node
          (or (ac/lookup-entry dict ns node)
              {:type at/Dyn})))
-
-(defn- seqish-element-type
-  [t]
-  (when-some [t (some-> t ato/normalize-type)]
-    (cond
-      (and (at/vector-type? t) (:homogeneous? t)) (first (:items t))
-      (and (at/seq-type? t) (:homogeneous? t)) (first (:items t))
-      (at/vector-type? t) (av/type-join* (:items t))
-      (at/seq-type? t) (av/type-join* (:items t))
-      :else nil)))
-
-(defn- vector-to-homogeneous-seq-type
-  [t]
-  (when-some [t (some-> t ato/normalize-type)]
-    (when (at/vector-type? t)
-      (let [elem (if (:homogeneous? t)
-                   (first (:items t))
-                   (av/type-join* (:items t)))]
-        (at/->SeqT [(ato/normalize-type elem)] true)))))
-
-(defn- const-long-value
-  [node]
-  (when (= :const (:op node))
-    (let [v (:val node)]
-      (when (integer? v) v))))
-
-(def ^:private integral-arg-classes
-  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
-
-(defn- integral-ground-type?
-  [t]
-  (let [t (ato/normalize-type t)]
-    (cond
-      (and (at/ground-type? t) (= :int (:ground t))) true
-      (and (at/ground-type? t) (map? (:ground t)) (:class (:ground t)))
-      (contains? integral-arg-classes (:class (:ground t)))
-      (and (at/value-type? t) (integer? (:value t))) true
-      :else false)))
-
-(defn- inc-dec-narrow-int-output?
-  [arg-node arg-type]
-  (and (not= :const (:op arg-node))
-       (integral-ground-type? arg-type)))
-
-(defn- binary-integral-locals-narrow?
-  [arg-nodes arg-types]
-  (and (= 2 (count arg-nodes))
-       (not= :const (:op (first arg-nodes)))
-       (not= :const (:op (second arg-nodes)))
-       (integral-ground-type? (first arg-types))
-       (integral-ground-type? (second arg-types))))
-
-(defn- invoke-integral-math-narrow-type
-  [fn-node args actual-argtypes]
-  (cond
-    (and (ac/inc-invoke? fn-node) (= 1 (count args))
-         (inc-dec-narrow-int-output? (first args) (first actual-argtypes)))
-    (at/->GroundT :int 'Int)
-
-    (and (or (ac/plus-invoke? fn-node) (ac/multiply-invoke? fn-node))
-         (seq args)
-         (every? #(not= :const (:op %)) args)
-         (every? integral-ground-type? actual-argtypes))
-    (at/->GroundT :int 'Int)
-
-    (and (ac/minus-invoke? fn-node) (= 1 (count args))
-         (not= :const (:op (first args)))
-         (integral-ground-type? (first actual-argtypes)))
-    (at/->GroundT :int 'Int)
-
-    (and (ac/minus-invoke? fn-node) (= 2 (count args))
-         (binary-integral-locals-narrow? args actual-argtypes))
-    (at/->GroundT :int 'Int)
-
-    :else nil))
-
-(defn- narrow-static-numbers-output
-  [node args actual-argtypes native-info]
-  (let [out (:output-type native-info)
-        m (:method node)]
-    (or (when (#{'inc 'dec} m)
-          (when (and (= 1 (count args))
-                     (inc-dec-narrow-int-output? (first args) (first actual-argtypes)))
-            (at/->GroundT :int 'Int)))
-        (when (#{'add 'multiply} m)
-          (when (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT :int 'Int)))
-        (when (= 'minus m)
-          (cond
-            (and (= 1 (count args))
-                 (not= :const (:op (first args)))
-                 (integral-ground-type? (first actual-argtypes)))
-            (at/->GroundT :int 'Int)
-            (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT :int 'Int)
-            :else nil))
-        out)))
-
-(defn- vector-slot-type
-  [vtype idx]
-  (when (and (at/vector-type? vtype)
-             (integer? idx)
-             (<= 0 idx)
-             (< idx (count (:items vtype))))
-    (ato/normalize-type (nth (:items vtype) idx))))
-
-(defn- instance-nth-element-type
-  [coll-type idx-node]
-  (let [it (ato/normalize-type coll-type)
-        lit (const-long-value idx-node)]
-    (cond
-      (at/vector-type? it)
-      (or (when lit (vector-slot-type it lit))
-          (ato/normalize-type (if (:homogeneous? it)
-                                (first (:items it))
-                                (av/type-join* (:items it)))))
-
-      (at/seq-type? it)
-      (when (or (nil? lit) (and (nat-int? lit) (:homogeneous? it)))
-        (ato/normalize-type (if (:homogeneous? it)
-                              (first (:items it))
-                              (av/type-join* (:items it)))))
-
-      :else nil)))
-
-(defn- vec-homogeneous-items?
-  [items]
-  (and (seq items) (apply = items)))
-
-(defn- coll-first-type
-  [t]
-  (when-some [t (some-> t ato/normalize-type)]
-    (cond
-      (and (at/vector-type? t) (seq (:items t)))
-      (ato/normalize-type (first (:items t)))
-      (and (at/seq-type? t) (seq (:items t)))
-      (if (:homogeneous? t)
-        (ato/normalize-type (first (:items t)))
-        (av/type-join* (:items t)))
-      :else nil)))
-
-(defn- coll-second-type
-  [t]
-  (when-some [t (some-> t ato/normalize-type)]
-    (cond
-      (and (at/vector-type? t) (>= (count (:items t)) 2))
-      (ato/normalize-type (nth (:items t) 1))
-      (and (at/seq-type? t) (:homogeneous? t) (seq (:items t)))
-      (ato/normalize-type (first (:items t)))
-      (at/seq-type? t)
-      (av/type-join* (:items t))
-      :else nil)))
-
-(defn- coll-last-type
-  [t]
-  (when-some [t (some-> t ato/normalize-type)]
-    (cond
-      (and (at/vector-type? t) (seq (:items t)))
-      (ato/normalize-type (peek (vec (:items t))))
-      (and (at/seq-type? t) (seq (:items t)))
-      (if (:homogeneous? t)
-        (ato/normalize-type (first (:items t)))
-        (av/type-join* (:items t)))
-      :else nil)))
-
-(defn- coll-rest-output-type
-  [t]
-  (let [t (ato/normalize-type t)]
-    (cond
-      (and (at/vector-type? t) (> (count (:items t)) 1))
-      (let [tail (mapv ato/normalize-type (rest (:items t)))]
-        (at/->VectorT tail (vec-homogeneous-items? tail)))
-      (and (at/vector-type? t) (seq (:items t)))
-      (let [e (if (:homogeneous? t)
-                (first (:items t))
-                (av/type-join* (:items t)))]
-        (at/->SeqT [(ato/normalize-type e)] true))
-      (at/seq-type? t)
-      (let [e (if (:homogeneous? t)
-                (first (:items t))
-                (av/type-join* (:items t)))]
-        (at/->SeqT [e] (:homogeneous? t)))
-      :else nil)))
-
-(defn- coll-butlast-output-type
-  [t]
-  (let [t (ato/normalize-type t)]
-    (when (and (at/vector-type? t) (> (count (:items t)) 1))
-      (let [but (mapv ato/normalize-type (pop (vec (:items t))))]
-        (at/->VectorT but (vec-homogeneous-items? but))))))
-
-(defn- coll-drop-last-output-type
-  [t n]
-  (when (and (pos-int? n) (at/vector-type? (ato/normalize-type t)))
-    (let [t (ato/normalize-type t)
-          items (:items t)
-          c (count items)
-          k (min n c)
-          but (mapv ato/normalize-type (subvec (vec items) 0 (- c k)))]
-      (at/->VectorT but (vec-homogeneous-items? but)))))
-
-(defn- coll-take-prefix-type
-  [t n]
-  (when (and (nat-int? n) (at/vector-type? (ato/normalize-type t)))
-    (let [t (ato/normalize-type t)
-          items (:items t)
-          c (count items)
-          take-n (min n c)
-          pref (mapv ato/normalize-type (subvec (vec items) 0 take-n))]
-      (at/->VectorT pref (vec-homogeneous-items? pref)))))
-
-(defn- coll-drop-prefix-type
-  [t n]
-  (when (and (nat-int? n) (at/vector-type? (ato/normalize-type t)))
-    (let [t (ato/normalize-type t)
-          items (:items t)
-          c (count items)
-          skip (min n c)
-          tail (mapv ato/normalize-type (subvec (vec items) skip c))]
-      (if (empty? tail)
-        (at/->VectorT [] true)
-        (at/->VectorT tail (vec-homogeneous-items? tail))))))
-
-(defn- coll-same-element-seq-type
-  [t]
-  (when-let [e (seqish-element-type t)]
-    (at/->SeqT [e] true)))
-
-(defn- concat-output-type
-  [args]
-  (let [ts (map (comp ato/normalize-type :type) args)
-        elems (keep seqish-element-type ts)]
-    (if (empty? args)
-      (at/->SeqT [at/Dyn] true)
-      (when (and (seq elems) (= (count elems) (count args)))
-        (at/->SeqT [(av/type-join* elems)] true)))))
-
-(defn- into-output-type
-  [args]
-  (when (>= (count args) 2)
-    (let [to (ato/normalize-type (:type (first args)))
-          from (ato/normalize-type (:type (second args)))
-          e-to (seqish-element-type to)
-          e-from (seqish-element-type from)
-          e (cond
-              (and e-to e-from) (av/type-join* [e-to e-from])
-              e-from e-from
-              e-to e-to
-              :else nil)]
-      (when e
-        (if (at/vector-type? to)
-          (at/->VectorT [e] true)
-          (at/->SeqT [e] true))))))
-
-(defn- invoke-nth-output-type
-  [args]
-  (when (>= (count args) 2)
-    (instance-nth-element-type (:type (first args)) (second args))))
 
 (defn arg-type-specs
   [dict ns-sym name params]
@@ -351,10 +89,10 @@
         recur-targets (cond-> (or recur-targets {})
                         (:loop-id node)
                         (assoc (:loop-id node) (mapv :type annotated-params)))
-        body (annotate-node (assoc ctx
-                                   :locals param-locals
-                                   :recur-targets recur-targets)
-                            (:body node))]
+        body ((:recurse ctx) (assoc ctx
+                                    :locals param-locals
+                                    :recur-targets recur-targets)
+                             (:body node))]
     (assoc node
            :params annotated-params
            :body body
@@ -398,12 +136,12 @@
 
 (defn annotate-instance-call
   [ctx node]
-  (let [instance (annotate-node ctx (:instance node))
-        args (mapv #(annotate-node ctx %) (:args node))
+  (let [instance ((:recurse ctx) ctx (:instance node))
+        args (mapv #((:recurse ctx) ctx %) (:args node))
         method (:method node)
         it (:type instance)
         output (when (#{'nth} method)
-                 (instance-nth-element-type it (first args)))]
+                 (aac/instance-nth-element-type it (first args)))]
     (assoc node
            :instance instance
            :args args
@@ -411,7 +149,7 @@
 
 (defn annotate-static-call
   [ctx node]
-  (let [args (mapv #(annotate-node ctx %) (:args node))
+  (let [args (mapv #((:recurse ctx) ctx %) (:args node))
         actual-argtypes (mapv :type args)
         native-info (anf/static-call-native-info (:class node) (:method node) (count args))
         default-expected (vec (repeat (count args) at/Dyn))
@@ -460,19 +198,19 @@
                      at/Dyn))
 
                  (ac/static-contains-call? node)
-                 bool-type
+                 aan/bool-type
 
                  (and (ac/seq-call? node)
                       (= 1 (count args)))
                  (let [t (:type (first args))]
                    (or (cond
                          (at/seq-type? t) t
-                         (at/vector-type? t) (vector-to-homogeneous-seq-type t)
+                         (at/vector-type? t) (aac/vector-to-homogeneous-seq-type t)
                          :else nil)
                        at/Dyn))
 
                  native-info
-                 (narrow-static-numbers-output node args actual-argtypes native-info)
+                 (aan/narrow-static-numbers-output node args actual-argtypes native-info)
 
                  :else
                  at/Dyn)]
@@ -497,7 +235,7 @@
 
 (defn- annotate-unary-fn-invoke-with-arg-type-hint
   [ctx fn-ast node]
-  (let [args (mapv #(annotate-node ctx %) (:args node))
+  (let [args (mapv #((:recurse ctx) ctx %) (:args node))
         [src-fn pform]
         (if (= :fn (:op fn-ast))
           [fn-ast (:form (first (:params (first (:methods fn-ast)))))]
@@ -515,8 +253,8 @@
         [fn-node args]
         (if hint?
           (annotate-unary-fn-invoke-with-arg-type-hint ctx fn-ast node)
-          [(annotate-node ctx fn-ast)
-           (mapv #(annotate-node ctx %) (:args node))])
+          [((:recurse ctx) ctx fn-ast)
+           (mapv #((:recurse ctx) ctx %) (:args node))])
         {:keys [expected-argtypes output-type fn-type]} (ac/call-info fn-node args)
         output-type (cond
                       (ac/get-call? fn-node)
@@ -560,80 +298,80 @@
                           output-type))
 
                       (ac/contains-call? fn-node)
-                      bool-type
+                      aan/bool-type
 
                       (and (ac/first-call? fn-node)
                            (= 1 (count args)))
-                      (or (coll-first-type (:type (first args)))
+                      (or (aac/coll-first-type (:type (first args)))
                           output-type)
 
                       (and (ac/second-call? fn-node)
                            (= 1 (count args)))
-                      (or (coll-second-type (:type (first args)))
+                      (or (aac/coll-second-type (:type (first args)))
                           output-type)
 
                       (and (ac/last-call? fn-node)
                            (= 1 (count args)))
-                      (or (coll-last-type (:type (first args)))
+                      (or (aac/coll-last-type (:type (first args)))
                           output-type)
 
                       (and (ac/nth-call? fn-node)
                            (>= (count args) 2))
-                      (or (invoke-nth-output-type args)
+                      (or (aac/invoke-nth-output-type args)
                           output-type)
 
                       (and (ac/rest-call? fn-node)
                            (= 1 (count args)))
-                      (or (coll-rest-output-type (:type (first args)))
+                      (or (aac/coll-rest-output-type (:type (first args)))
                           output-type)
 
                       (and (ac/butlast-call? fn-node)
                            (= 1 (count args)))
-                      (or (coll-butlast-output-type (:type (first args)))
+                      (or (aac/coll-butlast-output-type (:type (first args)))
                           output-type)
 
                       (and (ac/drop-last-call? fn-node)
                            (or (= 1 (count args)) (= 2 (count args))))
                       (or (if (= 1 (count args))
-                            (coll-drop-last-output-type (:type (first args)) 1)
-                            (when-let [n (const-long-value (first args))]
-                              (coll-drop-last-output-type (:type (second args)) n)))
+                            (aac/coll-drop-last-output-type (:type (first args)) 1)
+                            (when-let [n (aac/const-long-value (first args))]
+                              (aac/coll-drop-last-output-type (:type (second args)) n)))
                           output-type)
 
                       (and (ac/take-call? fn-node)
                            (= 2 (count args)))
-                      (or (when-let [n (const-long-value (first args))]
-                            (coll-take-prefix-type (:type (second args)) n))
-                          (coll-same-element-seq-type (:type (second args)))
+                      (or (when-let [n (aac/const-long-value (first args))]
+                            (aac/coll-take-prefix-type (:type (second args)) n))
+                          (aac/coll-same-element-seq-type (:type (second args)))
                           output-type)
 
                       (and (ac/drop-call? fn-node)
                            (= 2 (count args)))
-                      (or (when-let [n (const-long-value (first args))]
-                            (coll-drop-prefix-type (:type (second args)) n))
-                          (coll-same-element-seq-type (:type (second args)))
+                      (or (when-let [n (aac/const-long-value (first args))]
+                            (aac/coll-drop-prefix-type (:type (second args)) n))
+                          (aac/coll-same-element-seq-type (:type (second args)))
                           output-type)
 
                       (and (ac/take-while-call? fn-node)
                            (= 2 (count args)))
-                      (or (coll-same-element-seq-type (:type (second args)))
+                      (or (aac/coll-same-element-seq-type (:type (second args)))
                           output-type)
 
                       (and (ac/drop-while-call? fn-node)
                            (= 2 (count args)))
-                      (or (coll-same-element-seq-type (:type (second args)))
+                      (or (aac/coll-same-element-seq-type (:type (second args)))
                           output-type)
 
                       (ac/concat-call? fn-node)
-                      (or (concat-output-type args)
+                      (or (aac/concat-output-type args)
                           output-type)
 
                       (ac/into-call? fn-node)
-                      (or (into-output-type args)
+                      (or (aac/into-output-type args)
                           output-type)
 
                       (and (ac/chunk-first-call? fn-node) (= 1 (count args)))
-                      (or (when-let [e (seqish-element-type (:type (first args)))]
+                      (or (when-let [e (aac/seqish-element-type (:type (first args)))]
                             (at/->SeqT [(ato/normalize-type e)] true))
                           output-type)
 
@@ -642,13 +380,13 @@
                       (let [t (:type (first args))]
                         (or (cond
                               (at/seq-type? t) t
-                              (at/vector-type? t) (vector-to-homogeneous-seq-type t)
+                              (at/vector-type? t) (aac/vector-to-homogeneous-seq-type t)
                               :else nil)
                             output-type))
 
                       :else
                       output-type)
-        narrow-t (invoke-integral-math-narrow-type fn-node args (mapv :type args))
+        narrow-t (aan/invoke-integral-math-narrow-type fn-node args (mapv :type args))
         output-type (or narrow-t output-type)]
     (assoc node
            :fn fn-node
@@ -660,8 +398,8 @@
 
 (defn annotate-do
   [ctx node]
-  (let [statements (mapv #(annotate-node ctx %) (:statements node))
-        ret (annotate-node ctx (:ret node))]
+  (let [statements (mapv #((:recurse ctx) ctx %) (:statements node))
+        ret ((:recurse ctx) ctx (:ret node))]
     (assoc node
            :statements statements
            :ret ret
@@ -686,7 +424,7 @@
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]
                 (:bindings node))
-        body (annotate-node (assoc ctx :locals final-locals) (:body node))]
+        body ((:recurse ctx) (assoc ctx :locals final-locals) (:body node))]
     (assoc node
            :bindings bindings
            :body body
@@ -751,15 +489,15 @@
                             :locals final-locals
                             :recur-targets (cond-> recur-targets
                                             loop-id (assoc loop-id targets-v0)))
-        body-v1 (annotate-node recur-ctx-v0 (:body node))
+        body-v1 ((:recurse recur-ctx-v0) recur-ctx-v0 (:body node))
         targets-v1 (widen-int-loop-counter-recur-targets targets-v0 body-v1 loop-id)
         body-final (if (= targets-v1 targets-v0)
                      body-v1
-                     (annotate-node (assoc ctx
-                                           :locals final-locals
-                                           :recur-targets (cond-> recur-targets
-                                                            loop-id (assoc loop-id targets-v1)))
-                                    (:body node)))]
+                     ((:recurse ctx) (assoc ctx
+                                            :locals final-locals
+                                            :recur-targets (cond-> recur-targets
+                                                             loop-id (assoc loop-id targets-v1)))
+                      (:body node)))]
     (assoc node
            :bindings bindings
            :body body-final
@@ -767,7 +505,7 @@
 
 (defn annotate-recur
   [{:keys [recur-targets] :as ctx} node]
-  (let [exprs (mapv #(annotate-node ctx %) (:exprs node))
+  (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
         targets (when-let [id (:loop-id node)]
                   (get recur-targets id))
         actual-argtypes (mapv #(ato/normalize-type (:type %)) exprs)]
@@ -780,18 +518,18 @@
 
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
-  (let [test-node (annotate-node ctx (:test node))
+  (let [test-node ((:recurse ctx) ctx (:test node))
         assumption (ao/test->assumption test-node)
         {:keys [then-locals then-assumptions else-locals else-assumptions]}
         (ao/branch-local-envs locals assumptions assumption)
-        then-node (annotate-node (assoc ctx
-                                        :locals then-locals
-                                        :assumptions then-assumptions)
-                                 (:then node))
-        else-node (annotate-node (assoc ctx
-                                        :locals else-locals
-                                        :assumptions else-assumptions)
-                                 (:else node))
+        then-node ((:recurse ctx) (assoc ctx
+                                         :locals then-locals
+                                         :assumptions then-assumptions)
+                   (:then node))
+        else-node ((:recurse ctx) (assoc ctx
+                                         :locals else-locals
+                                         :assumptions else-assumptions)
+                   (:else node))
         type (av/type-join* [(:type then-node) (:type else-node)])
         origin (when assumption
                  {:kind :branch
@@ -821,7 +559,7 @@
 
 (defn annotate-case
   [{:keys [locals assumptions] :as ctx} node]
-  (let [test-node (annotate-node ctx (:test node))
+  (let [test-node ((:recurse ctx) ctx (:test node))
         tests (:tests node)
         thens (:thens node)
         default (:default node)
@@ -839,10 +577,10 @@
                       {:keys [then-locals then-assumptions]}
                       (ao/branch-local-envs locals assumptions assumption)
                       then-body (:then (nth thens i))
-                      ann (annotate-node (assoc ctx
-                                                :locals then-locals
-                                                :assumptions then-assumptions)
-                                         then-body)]
+                      ann ((:recurse ctx) (assoc ctx
+                                               :locals then-locals
+                                               :assumptions then-assumptions)
+                           then-body)]
                   (assoc (nth thens i) :then ann)))
               (range n))
         default-assumption (when (and root (seq all-values))
@@ -852,10 +590,10 @@
                               :polarity false})
         {:keys [then-locals then-assumptions]}
         (ao/branch-local-envs locals assumptions default-assumption)
-        default-node (annotate-node (assoc ctx
-                                           :locals then-locals
-                                           :assumptions then-assumptions)
-                                    default)
+        default-node ((:recurse ctx) (assoc ctx
+                                            :locals then-locals
+                                            :assumptions then-assumptions)
+                      default)
         branch-types (mapv (comp :type :then) annotated-thens)
         joined (av/type-join* (conj branch-types (:type default-node)))]
     (assoc node
@@ -869,12 +607,12 @@
 (defn annotate-def
   [{:keys [locals] :as ctx} node]
   (let [meta-node (when-some [meta-node (:meta node)]
-                    (annotate-node ctx meta-node))
+                    ((:recurse ctx) ctx meta-node))
         init-node (when-some [init-node (:init node)]
-                    (annotate-node (assoc ctx
-                                          :locals locals
-                                          :name (:name node))
-                                   init-node))]
+                    ((:recurse ctx) (assoc ctx
+                                           :locals locals
+                                           :name (:name node))
+                     init-node))]
     (cond-> (assoc node
                    :type (at/->VarT (or (:type init-node) at/Dyn)))
       meta-node (assoc :meta meta-node)
@@ -882,15 +620,15 @@
 
 (defn annotate-vector
   [ctx node]
-  (let [items (mapv #(annotate-node ctx %) (:items node))
+  (let [items (mapv #((:recurse ctx) ctx %) (:items node))
         item-types (mapv #(ato/normalize-type (or (:type %) at/Dyn)) items)]
     (assoc node
            :items items
-           :type (at/->VectorT item-types (vec-homogeneous-items? item-types)))))
+           :type (at/->VectorT item-types (aac/vec-homogeneous-items? item-types)))))
 
 (defn annotate-set
   [ctx node]
-  (let [items (mapv #(annotate-node ctx %) (:items node))]
+  (let [items (mapv #((:recurse ctx) ctx %) (:items node))]
     (assoc node
            :items items
            :type (ato/normalize-type
@@ -900,8 +638,8 @@
 
 (defn annotate-map
   [ctx node]
-  (let [keys (mapv #(annotate-node ctx %) (:keys node))
-        vals (mapv #(annotate-node ctx %) (:vals node))]
+  (let [keys (mapv #((:recurse ctx) ctx %) (:keys node))
+        vals (mapv #((:recurse ctx) ctx %) (:vals node))]
     (assoc node
            :keys keys
            :vals vals
@@ -913,54 +651,21 @@
                              keys
                              vals))))))
 
-(defn- for-body-element-type
-  [body]
-  (let [cars (->> (sac/ast-nodes body)
-                  (keep (fn [node]
-                          (when (= :invoke (:op node))
-                            (let [fn-sym (or (ac/var->sym (:var (:fn node)))
-                                             (-> node :fn :form))]
-                              (when (contains? #{'clojure.core/cons 'cons} fn-sym)
-                                (some-> node :args first :type))))))
-                  vec)]
-    (when (seq cars)
-      (ato/normalize-type (av/type-join* cars)))))
-
-(defn- lazy-seq-new-type
-  [class-node args]
-  (when (and (= :const (:op class-node))
-             (= LazySeq (:val class-node)))
-    (let [elem (if (and (seq args)
-                        (= :fn (:op (first args)))
-                        (= 1 (count (:methods (first args))))
-                        (empty? (:params (first (:methods (first args))))))
-                 (let [body (:body (first (:methods (first args))))
-                       t (-> body :type ato/normalize-type)
-                       t (if (at/maybe-type? t)
-                           (ato/normalize-type (:inner t))
-                           t)]
-                   (if (ato/unknown-type? t)
-                     (or (some-> (for-body-element-type body) ato/normalize-type)
-                         at/Dyn)
-                     t))
-                 at/Dyn)]
-      (at/->SeqT [elem] true))))
-
 (defn annotate-new
   [ctx node]
-  (let [class-node (annotate-node ctx (:class node))
-        args (mapv #(annotate-node ctx %) (:args node))]
+  (let [class-node ((:recurse ctx) ctx (:class node))
+        args (mapv #((:recurse ctx) ctx %) (:args node))]
     (assoc node
            :class class-node
            :args args
-           :type (or (lazy-seq-new-type class-node args)
+           :type (or (aac/lazy-seq-new-type class-node args)
                  (some-> (:val class-node) av/class->type)
                  at/Dyn))))
 
 (defn annotate-with-meta
   [ctx node]
-  (let [meta-node (annotate-node ctx (:meta node))
-        expr-node (annotate-node ctx (:expr node))]
+  (let [meta-node ((:recurse ctx) ctx (:meta node))
+        expr-node ((:recurse ctx) ctx (:expr node))]
     (merge node
            {:meta meta-node
             :expr expr-node}
@@ -968,22 +673,22 @@
 
 (defn annotate-throw
   [ctx node]
-  (let [exception (annotate-node ctx (:exception node))]
+  (let [exception ((:recurse ctx) ctx (:exception node))]
     (assoc node
            :exception exception
            :type at/BottomType)))
 
 (defn annotate-catch
   [{:keys [locals] :as ctx} node]
-  (let [class-node (annotate-node ctx (:class node))
+  (let [class-node ((:recurse ctx) ctx (:class node))
         caught-type (or (some-> (:val class-node) av/class->type)
                         at/Dyn)
         local-node (merge (:local node)
                           {:type caught-type})
-        body (annotate-node (assoc ctx
-                                   :locals (assoc locals (:form (:local node))
-                                                  {:type caught-type}))
-                            (:body node))]
+        body ((:recurse ctx) (assoc ctx
+                                    :locals (assoc locals (:form (:local node))
+                                                   {:type caught-type}))
+              (:body node))]
     (assoc node
            :class class-node
            :local local-node
@@ -992,10 +697,10 @@
 
 (defn annotate-try
   [ctx node]
-  (let [body (annotate-node ctx (:body node))
+  (let [body ((:recurse ctx) ctx (:body node))
         catches (mapv #(annotate-catch ctx %) (:catches node))
         finally-node (when-some [finally-node (:finally node)]
-                       (annotate-node ctx finally-node))]
+                       ((:recurse ctx) ctx finally-node))]
     (cond-> (assoc node
                    :body body
                    :catches catches
@@ -1005,7 +710,7 @@
 
 (defn annotate-quote
   [ctx node]
-  (let [expr (annotate-node ctx (:expr node))]
+  (let [expr ((:recurse ctx) ctx (:expr node))]
     (assoc node
            :expr expr
            :type (av/type-of-value (-> node :form second)))))
@@ -1024,9 +729,10 @@
 
 (defn annotate-node
   [ctx node]
-  (abl/with-error-context (node-error-context node)
-    (abr/strip-derived-types
-     (case (:op node)
+  (let [ctx (assoc ctx :recurse annotate-node)]
+    (abl/with-error-context (node-error-context node)
+      (abr/strip-derived-types
+       (case (:op node)
        :binding (annotate-binding ctx node)
        :const (annotate-const ctx node)
        :def (annotate-def ctx node)
@@ -1053,7 +759,7 @@
        :vector (annotate-vector ctx node)
        :with-meta (annotate-with-meta ctx node)
        (assoc (annotate-children ctx node)
-              :type at/Dyn)))))
+              :type at/Dyn))))))
 
 (defn annotate-ast
   ([dict ast]
