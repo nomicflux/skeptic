@@ -22,7 +22,7 @@
       (at/refinement-type? type) (:display-form type)
       (at/adapter-leaf-type? type) (:display-form type)
       (at/optional-key-type? type) (list 'optional-key (render-type-form (:inner type)))
-      (at/value-type? type) (:value type)
+      (at/value-type? type) (let [v (:value type)] (if (nil? v) (symbol "nil") v))
       (at/type-var-type? type) (:name type)
       (at/forall-type? type) (list 'forall (:binder type) (render-type-form (:body type)))
       (at/sealed-dyn-type? type) (list 'sealed (render-type-form (:ground type)))

@@ -284,6 +284,11 @@
           (ascs/cast-ok source-type target-type :maybe-both [child])
           (ascs/cast-fail source-type target-type :maybe-both polarity :maybe-inner-failed [child])))
 
+      (and (at/maybe-type? target-type)
+           (at/value-type? source-type)
+           (nil? (:value source-type)))
+      (ascs/cast-ok source-type target-type :nil-satisfies-maybe)
+
       (at/maybe-type? target-type)
       (let [child (maybe-child source-type (:inner target-type))]
         (if (:ok? child)

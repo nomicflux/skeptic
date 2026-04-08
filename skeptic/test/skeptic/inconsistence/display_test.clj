@@ -37,7 +37,7 @@
 (deftest user-type-and-domain-form-test
   (is (= 'Int (sut/user-type-form (ab/schema->type s/Int))))
   (is (= false (sut/user-type-form (ab/schema->type (s/eq false)))))
-  (is (= nil (sut/user-type-form (ab/schema->type (s/eq nil)))))
+  (is (= (symbol "nil") (sut/user-type-form (ab/schema->type (s/eq nil)))))
   (is (= 'Str (sut/user-schema-form s/Str)))
   (is (= :kw (sut/user-raw-form :kw))))
 

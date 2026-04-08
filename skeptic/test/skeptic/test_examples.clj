@@ -832,6 +832,14 @@
   [x :- (s/maybe s/Int)]
   (some-> x take-val))
 
+(s/defn takes-maybe-constrained :- (s/maybe (s/constrained s/Int pos?))
+  [x :- (s/maybe (s/constrained s/Int pos?))]
+  x)
+
+(defn nil-satisfies-maybe-constrained-success
+  []
+  (takes-maybe-constrained nil))
+
 (s/defn self-test :- HasAOrB
   [x :- HasAOrB]
   x)
