@@ -44,27 +44,17 @@
        (cf/spy :match-up-expected (get expected n expected-vararg))
        (cf/spy :match-up-actual (get actual n))])))
 
-(defn binding-index
-  [ast]
-  (reduce (fn [acc node]
-            (if (= :binding (:op node))
-              (assoc acc (:form node) node)
-              acc))
-          {}
-          (sac/ast-nodes ast)))
-
 (defn local-resolution-path
-  [bindings local-node]
-  (if-let [binding (get bindings (:form local-node))]
-    (if-let [init (:init binding)]
+  [local-node]
+  (let [init (:binding-init local-node)]
+    (if init
       (cond-> [(node-ref init)]
         (callee-ref init)
         (conj (callee-ref init)))
-      [])
-    []))
+      [])))
 
 (defn local-vars-context
-  [bindings node]
+  [node]
   (->> (sac/ast-nodes node)
        (filter #(= :local (:op %)))
        (reduce (fn [acc local-node]
@@ -74,17 +64,17 @@
                           (:form local-node)
                           {:form (:form local-node)
                            :type (:type local-node)
-                           :resolution-path (local-resolution-path bindings local-node)})))
+                           :resolution-path (local-resolution-path local-node)})))
                {})))
 
 (defn call-refs
-  [bindings node]
+  [node]
   (let [fn-node (:fn node)]
     (cond
       (nil? fn-node) []
       (= :local (:op fn-node))
       (into [(node-ref fn-node)]
-            (local-resolution-path bindings fn-node))
+            (local-resolution-path fn-node))
       :else
       (cond-> []
         (node-ref fn-node)

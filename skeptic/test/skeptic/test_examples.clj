@@ -158,6 +158,14 @@
         z (int-add 2 3)]
     (int-add x y z)))
 
+(defn sample-shadow-bad-fn
+  [x]
+  (let [x (int-add 9 9)]
+    x)
+  (let [y (int-add 1 nil)
+        z (int-add 2 3)]
+    (int-add x y z)))
+
 (defn sample-if-fn
   [x]
   (if x

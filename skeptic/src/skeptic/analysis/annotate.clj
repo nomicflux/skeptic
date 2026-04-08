@@ -86,7 +86,7 @@
                                param-specs)
         param-locals (into locals
                            (map (fn [param]
-                                  [(:form param) (ac/node-info param)]))
+                                  [(:form param) (assoc (ac/node-info param) :binding-init nil)]))
                            annotated-params)
         recur-targets (cond-> (or recur-targets {})
                         (:loop-id node)
@@ -420,7 +420,9 @@
                                       (ao/root-origin (:form binding) (:type base-entry)))
                         env-entry (cond-> (assoc base-entry :origin (or alias-origin self-origin base-origin))
                                     (= :fn (:op init))
-                                    (assoc :fn-binding-node init))]
+                                    (assoc :fn-binding-node init)
+                                    (some? init)
+                                    (assoc :binding-init init))]
                     [(conj acc annotated)
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]
@@ -476,11 +478,13 @@
                   (let [annotated (annotate-binding (assoc ctx :locals env) binding)
                         init (:init annotated)
                         base-entry (or (ac/node-info annotated) {:type at/Dyn})
-                        env-entry (if (and (= :local (:op init))
-                                           (= :root (:kind (ao/node-origin init))))
-                                    (assoc base-entry :origin (ao/root-origin (:form init)
-                                                                             (:type init)))
-                                    base-entry)]
+                        env-entry (cond-> (if (and (= :local (:op init))
+                                                     (= :root (:kind (ao/node-origin init))))
+                                              (assoc base-entry :origin (ao/root-origin (:form init)
+                                                                                        (:type init)))
+                                              base-entry)
+                                    (some? init)
+                                    (assoc :binding-init init))]
                     [(conj acc annotated)
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]

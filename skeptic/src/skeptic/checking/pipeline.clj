@@ -62,7 +62,7 @@
       (ato/normalize-type output-type))))
 
 (defn def-output-results
-  [dict bindings ns-sym source-file source-form enclosing-form node]
+  [dict ns-sym source-file source-form enclosing-form node]
   (let [entry (some-> (ca/dict-entry dict ns-sym (:name node))
                       an/normalize-entry)
         expected-output (some-> (:output-type entry) ato/normalize-type)
@@ -101,9 +101,9 @@
                           :location (:location display)
                           :enclosing-form enclosing-form
                           :path nil
-                          :context {:local-vars (ca/local-vars-context bindings body)
+                          :context {:local-vars (ca/local-vars-context body)
                                     :refs (if (ca/call-node? body)
-                                            (ca/call-refs bindings body)
+                                            (ca/call-refs body)
                                             [])}
                           :blame-side (:blame-side report)
                           :blame-polarity (:blame-polarity report)
@@ -138,7 +138,7 @@
          :errors (:errors report)}))))
 
 (defn input-cast-result
-  [bindings enclosing-form node error-groups]
+  [enclosing-form node error-groups]
   (let [display (cf/display-expr node)
         primary-group (first error-groups)]
     {:blame (:expr display)
@@ -157,12 +157,12 @@
      :actual-type (:actual-type primary-group)
      :cast-result (:cast-result primary-group)
      :cast-results (vec (mapcat :cast-results error-groups))
-     :context {:local-vars (ca/local-vars-context bindings node)
-               :refs (ca/call-refs bindings node)}
+     :context {:local-vars (ca/local-vars-context node)
+               :refs (ca/call-refs node)}
      :errors (vec (mapcat :errors error-groups))}))
 
 (defn match-s-exprs
-  [bindings enclosing-form node keep-empty]
+  [enclosing-form node keep-empty]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (:expected-argtypes node))
           actual-arglist (vec (:actual-argtypes node))]
@@ -180,9 +180,9 @@
         (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
                                            (input-error-group (:form node) arg-node expected actual))
                                          matched))]
-          (input-cast-result bindings enclosing-form node error-groups)
+          (input-cast-result enclosing-form node error-groups)
           (when keep-empty
-            (input-cast-result bindings enclosing-form node [])))))))
+            (input-cast-result enclosing-form node [])))))))
 
 (defn enclosing-form
   [ns-sym source-form]
@@ -194,19 +194,14 @@
 
 (defn check-resolved-form
   [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context]}]
-  (let [bindings (ca/binding-index analyzed)
-        enclosing-form (enclosing-form ns-sym source-form)
+  (let [enclosing-form (enclosing-form ns-sym source-form)
         results (->> (sac/ast-nodes analyzed)
                      (mapcat (fn [node]
                                (abl/with-error-context (cf/node-error-context node enclosing-form)
-                                 (let [call-result (match-s-exprs bindings
-                                                                  enclosing-form
-                                                                  node
-                                                                  keep-empty)]
+                                 (let [call-result (match-s-exprs enclosing-form node keep-empty)]
                                    (concat (when call-result
                                              [call-result])
                                            (or (def-output-results dict
-                                                                   bindings
                                                                    ns-sym
                                                                    source-file
                                                                    source-form

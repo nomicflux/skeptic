@@ -107,6 +107,15 @@
             (mapv :form (get-in call-result [:context :refs]))))
      (is (every? some? (mapv :type (get-in call-result [:context :refs])))))))
 
+(deftest shadow-provenance-uses-param-binding
+  (in-test-examples
+   (let [results (check-fn test-dict 'skeptic.test-examples/sample-shadow-bad-fn {:keep-empty true})
+         call-result (first (filter #(= '(int-add x y z) (:blame %)) results))
+         local-vars (get-in call-result [:context :local-vars])]
+     (is (some? call-result))
+     (is (= [] (get-in local-vars ['x :resolution-path]))
+         "param x shadowed by inner let must have empty resolution path, not point to (int-add 9 9)"))))
+
 (deftest working-functions
   (in-test-examples
    (are [f] (try (let [res (check-fn test-dict f)]

@@ -31,35 +31,25 @@
     (is (= [:a :e0 :x0] (first pairs)))
     (is (= [nil :e1 :x2] (last pairs)))))
 
-(deftest binding-index-test
-  (let [ast (ana.jvm/analyze '(let [x 1 y 2] (+ x y)))
-        idx (ca/binding-index ast)]
-    (is (contains? idx 'x))
-    (is (contains? idx 'y))
-    (is (= :binding (:op (get idx 'x))))))
-
 (deftest local-resolution-path-test
   (let [fn-part {:form '+ :type :tf}
         init {:op :invoke :fn fn-part :form '(+ 1 2) :type :ti}
-        bindings {'g {:form 'g :init init}}
-        local-node {:form 'g :op :local}
-        path (ca/local-resolution-path bindings local-node)]
+        local-node {:form 'g :op :local :binding-init init}
+        path (ca/local-resolution-path local-node)]
     (is (= 2 (count path)))
     (is (= fn-part (second path)))))
 
 (deftest local-vars-context-test
   (let [ast (ana.jvm/analyze '(let [x 1] x))
-        bindings (ca/binding-index ast)
-        ctx (ca/local-vars-context bindings ast)]
+        ctx (ca/local-vars-context ast)]
     (is (contains? ctx 'x))
     (is (= 'x (:form (get ctx 'x))))
     (is (vector? (:resolution-path (get ctx 'x))))))
 
 (deftest call-refs-test
   (let [fn-local {:op :local :form 'f :type :tf}
-        invoke {:op :invoke :fn fn-local :args []}
-        bindings {'f {:form 'f :init {:op :const :val 1}}}]
-    (is (seq (ca/call-refs bindings invoke)))))
+        invoke {:op :invoke :fn fn-local :args []}]
+    (is (seq (ca/call-refs invoke)))))
 
 (deftest call-node?-test
   (is (ca/call-node? {:op :invoke
