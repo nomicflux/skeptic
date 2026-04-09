@@ -172,6 +172,12 @@
                      (:form fn-node))]
     (contains? #{'clojure.core/get 'get} resolved)))
 
+(defn blank-call?
+  [fn-node]
+  (let [resolved (or (var->sym (:var fn-node))
+                     (:form fn-node))]
+    (contains? #{'clojure.string/blank? 'blank?} resolved)))
+
 (def ^:private type-predicate-sym->pred
   '{clojure.core/nil? :nil?, nil? :nil?
     clojure.core/some? :some?, some? :some?

@@ -70,6 +70,7 @@
        (= (:polarity left) (:polarity right))
        (case (:kind left)
          :truthy-local true
+         :blank-check true
          :contains-key (= (:key left) (:key right))
          :type-predicate (and (= (:pred left) (:pred right))
                               (= (:class left) (:class right)))
@@ -91,6 +92,7 @@
        (= (get-in a [:root :sym]) (get-in b [:root :sym]))
        (case (:kind a)
          :truthy-local true
+         :blank-check true
          :contains-key (= (:key a) (:key b))
          :type-predicate (and (= (:pred a) (:pred b))
                               (= (:class a) (:class b)))
@@ -107,26 +109,34 @@
 
 (defn apply-assumption-to-root-type
   [type assumption]
-  (case (:kind assumption)
-    :truthy-local
-    (an/apply-truthy-local type (:polarity assumption))
+  (letfn [(non-blank-string-type [t]
+            (let [non-nil (an/partition-type-for-predicate t {:pred :some?} true)]
+              (an/partition-type-for-predicate non-nil {:pred :string?} true)))]
+    (case (:kind assumption)
+      :truthy-local
+      (an/apply-truthy-local type (:polarity assumption))
 
-    :contains-key
-    (avc/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
+      :blank-check
+      (if (:polarity assumption)
+        type
+        (non-blank-string-type type))
 
-    :type-predicate
-    (an/partition-type-for-predicate type
-                                     {:pred (:pred assumption)
-                                      :class (:class assumption)}
-                                     (:polarity assumption))
+      :contains-key
+      (avc/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
 
-    :value-equality
-    (an/partition-type-for-values type (:values assumption) (:polarity assumption))
+      :type-predicate
+      (an/partition-type-for-predicate type
+                                       {:pred (:pred assumption)
+                                        :class (:class assumption)}
+                                       (:polarity assumption))
 
-    :conditional-branch
-    (:narrowed-type assumption)
+      :value-equality
+      (an/partition-type-for-values type (:values assumption) (:polarity assumption))
 
-    type))
+      :conditional-branch
+      (:narrowed-type assumption)
+
+      type)))
 
 (defn refine-root-type
   [root assumptions]
@@ -212,6 +222,9 @@
       :truthy-local
       :unknown
 
+      :blank-check
+      :unknown
+
       :conjunction
       (let [ts (mapv #(assumption-truth % assumptions) (:parts assumption))]
         (cond (every? #{:true} ts) :true
@@ -291,6 +304,14 @@
                  :pred (:pred info)
                  :polarity true}
           (:class info) (assoc :class (:class info)))))
+
+    (and (= :invoke (:op test-node))
+         (ac/blank-call? (:fn test-node)))
+    (let [targ (first (:args test-node))]
+      (when (and (= :local (:op targ)) (local-root-origin targ))
+        {:kind :blank-check
+         :root (local-root-origin targ)
+         :polarity true}))
 
     (ac/keyword-invoke-on-local? test-node)
     (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]

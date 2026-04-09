@@ -925,3 +925,7 @@
 (deftest cond-three-branch-join-output
   (in-test-examples
    (is (= [] (check-fn test-dict 'skeptic.test-examples/cond-three-branch-join)))))
+
+(deftest when-not-blank-maybe-str
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/when-not-blank-maybe-str-success)))))

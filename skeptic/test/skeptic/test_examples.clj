@@ -899,6 +899,15 @@
   (when-not x (throw (ex-info "no x" {})))
   (take-val x))
 
+(s/defn takes-non-nil-str :- s/Str
+  [s :- s/Str]
+  s)
+
+(s/defn when-not-blank-maybe-str-success :- (s/maybe s/Str)
+  [x :- (s/maybe s/Str)]
+  (when-not (clojure.string/blank? x)
+    (takes-non-nil-str x)))
+
 (s/defn takes-maybe-constrained :- (s/maybe (s/constrained s/Int pos?))
   [x :- (s/maybe (s/constrained s/Int pos?))]
   x)
