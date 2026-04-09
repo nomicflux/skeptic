@@ -542,14 +542,25 @@
                                          :locals else-locals
                                          :assumptions else-assumptions)
                    (:else node))
-        type (av/type-join* [(:type then-node) (:type else-node)])
+        test-literal (when (#{:const :quote} (:op test-node))
+                       (ac/literal-node-value test-node))
+        test-truthy? (and (some? test-literal)
+                          (not (or (false? test-literal) (nil? test-literal))))
+        else-is-nil? (and (= :const (:op else-node))
+                          (nil? (:val else-node)))
+        narrow-null-fallback? (and test-truthy? else-is-nil?)
+        type (if narrow-null-fallback?
+               (:type then-node)
+               (av/type-join* [(:type then-node) (:type else-node)]))
         origin (when (seq conjuncts)
                  {:kind :branch
                   :test (if (= 1 (count conjuncts))
                           (first conjuncts)
                           {:kind :conjunction :parts conjuncts})
                   :then-origin (ao/node-origin then-node)
-                  :else-origin (ao/node-origin else-node)})]
+                  :else-origin (ao/node-origin else-node)})
+        origin (or (when narrow-null-fallback? (ao/node-origin then-node))
+                   origin)]
     (assoc node
            :test test-node
            :then then-node
@@ -605,11 +616,35 @@
 (defn- case-kw-root-info
   "Case tests may wrap the discriminant (e.g. hashing); scan the full test subtree."
   [test-node]
+  (letfn [(get-access-kw-and-target [n]
+            (cond
+              (and (= :invoke (:op n))
+                   (ac/get-call? (:fn n)))
+              (let [[target key-node] (:args n)]
+                (when (and (= :local (:op target))
+                           (ac/literal-map-key? key-node))
+                  (let [k (ac/literal-node-value key-node)]
+                    (when (keyword? k)
+                      [k target]))))
+
+              (and (= :static-call (:op n))
+                   (ac/static-get-call? n))
+              (let [[target key-node] (:args n)]
+                (when (and (= :local (:op target))
+                           (ac/literal-map-key? key-node))
+                  (let [k (ac/literal-node-value key-node)]
+                    (when (keyword? k)
+                      [k target]))))
+
+              :else nil))
+          (kw-and-target [n]
+            (or (ac/keyword-invoke-kw-and-target n)
+                (get-access-kw-and-target n)))]
   (some (fn [n]
-          (when-let [[kw targ] (ac/keyword-invoke-kw-and-target n)]
+          (when-let [[kw targ] (kw-and-target n)]
             (when-let [root (and (keyword? kw) (case-assumption-root-for-local targ))]
               {:kw kw :root root})))
-        (sac/ast-nodes test-node)))
+        (sac/ast-nodes test-node))))
 
 (defn- case-predicate-test-map
   "Map used to evaluate s/conditional branch preds for a case arm literal.

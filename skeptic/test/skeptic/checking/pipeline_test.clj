@@ -919,4 +919,9 @@
    (are [f] (= [] (check-fn test-dict f))
      'skeptic.test-examples/handles-a
      'skeptic.test-examples/handles-b
-     'skeptic.test-examples/handles-ab)))
+     'skeptic.test-examples/handles-ab
+     'skeptic.test-examples/handles-ab-destructured-route)))
+
+(deftest cond-three-branch-join-output
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/cond-three-branch-join)))))

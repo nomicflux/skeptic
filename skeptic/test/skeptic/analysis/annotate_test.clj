@@ -537,6 +537,30 @@
       (is (= {(atst/T s/Keyword) (atst/T s/Int)}
              (-> map-node :type :entries))))))
 
+(deftest case-conditional-narrowing-through-destructured-keyword-local-test
+  (let [conditional-route-map
+        (s/conditional
+          #(= :a (:route %)) {:route (s/eq :a) :a s/Int}
+          #(= :b (:route %)) {:route (s/eq :b) :c s/Bool})
+        root
+        (atst/project-ast
+          (atst/analyze-form
+            '((fn [x]
+                (let [route (get x :route)]
+                  (case route
+                    :a (skeptic.test-examples/takes-has-a x)
+                    :b x)))
+              input)
+            (atst/local-types {'input {:type (atst/T conditional-route-map)}})))
+        takes-a-call
+        (atst/find-projected-node root
+                                  #(= '(skeptic.test-examples/takes-has-a x) (:form %)))]
+    (is (some? takes-a-call))
+    (is (at/type-equal? (first (:actual-argtypes takes-a-call))
+                        (first (:expected-argtypes takes-a-call))))
+    (is (:ok? (cast/check-cast (first (:actual-argtypes takes-a-call))
+                               (first (:expected-argtypes takes-a-call)))))))
+
 (deftest attach-type-info-let-test
   (testing "original empty let typed setup"
     (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict

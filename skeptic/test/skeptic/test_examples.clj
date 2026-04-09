@@ -395,6 +395,13 @@
     :a 1
     :b 2))
 
+(s/defn cond-three-branch-join :- (s/cond-pre s/Int s/Str s/Keyword)
+  [x :- s/Int]
+  (cond
+    (pos? x) 1
+    (neg? x) "negative"
+    :else :zero))
+
 (s/defn narrowing-assoc-get-success :- s/Int
   [m :- {:a s/Int}]
   (int-add (:a (assoc m :a 1)) 0))
@@ -981,3 +988,9 @@
   (case (:route x)
     :a (handles-a x)
     :b (handles-b x)))
+
+(s/defn handles-ab-destructured-route :- (s/eq true)
+  [{:keys [route]} :- ConditionalAorB]
+  (case route
+    :a true
+    :b true))
