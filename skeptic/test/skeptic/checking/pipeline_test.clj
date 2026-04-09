@@ -53,7 +53,8 @@
                      (normalize-fn-code opts f)
                      (assoc opts
                             :ns 'skeptic.test-examples
-                            :source-file test-file))))
+                            :source-file test-file
+                            :check-def f))))
 
 (defn result-errors
   [results]

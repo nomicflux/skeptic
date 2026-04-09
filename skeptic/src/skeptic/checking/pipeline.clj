@@ -281,33 +281,25 @@
     (catch Exception e
       [(expression-exception-result ns source-file source-form e)])))
 
+(defn- find-source-form
+  "Locate the top-level form for the def name in source-file by name match.
+  Throws if not found — no index-0 fallback."
+  [s-expr source-file check-def]
+  (let [def-name (or (when check-def (-> check-def name symbol))
+                     (when (seq? s-expr) (second s-expr)))]
+    (if (and def-name source-file)
+      (let [exprs (ns-exprs source-file)]
+        (or (first (filter #(= def-name (second %)) exprs))
+            (throw (ex-info (str "No top-level form found for: " def-name)
+                            {:def-name def-name}))))
+      (cf/normalize-check-form s-expr))))
+
 (defn check-s-expr
-  [dict s-expr {:keys [keep-empty remove-context ns source-file]}]
-  (try
-    (binding [*ns* (the-ns ns)]
-      (let [source-form (cf/normalize-check-form s-expr)
-            exprs (if source-file
-                    (ns-exprs source-file)
-                    [source-form])
-            {:keys [resolved]} (analyze-source-exprs dict ns source-file exprs)
-            expr-idx (or (first (keep-indexed (fn [idx expr]
-                                                (when (= source-form
-                                                         (cf/normalize-check-form expr))
-                                                  idx))
-                                              exprs))
-                         0)]
-        (check-resolved-form dict
-                             ns
-                             source-file
-                             (nth exprs expr-idx)
-                             (nth resolved expr-idx)
-                             {:keep-empty keep-empty
-                              :remove-context remove-context})))
-    (catch Exception e
-      (println "Error parsing expression")
-      (println (pr-str s-expr))
-      (println e)
-      (throw e))))
+  [dict s-expr {:keys [keep-empty remove-context ns source-file check-def]}]
+  (binding [*ns* (the-ns ns)]
+    (let [source-form (find-source-form s-expr source-file check-def)]
+      (check-ns-form dict ns source-file source-form
+                     {:keep-empty keep-empty :remove-context remove-context}))))
 
 (defmacro block-in-ns
   [ns ^File file & body]
