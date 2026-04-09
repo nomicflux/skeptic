@@ -12,16 +12,16 @@
     (nil? entry) nil
 
     (at/semantic-type-value? entry)
-    {:type (ato/normalize-type entry)}
+    {:type (ato/normalize-type-for-declared-type entry)}
 
     (and (map? entry)
          (or (contains? entry :type)
              (contains? entry :output-type)
              (contains? entry :arglists)))
     (cond-> (merge (dissoc entry :type :output-type :arglists)
-                   {:type (ato/normalize-type (or (:type entry) at/Dyn))})
+                   {:type (ato/normalize-type-for-declared-type (or (:type entry) at/Dyn))})
       (contains? entry :output-type)
-      (assoc :output-type (ato/normalize-type (:output-type entry)))
+      (assoc :output-type (ato/normalize-type-for-declared-type (:output-type entry)))
 
       (contains? entry :arglists)
       (assoc :arglists (:arglists entry)))
@@ -38,7 +38,7 @@
   [sym type]
   {:kind :root
    :sym sym
-   :type (ato/normalize-type type)})
+   :type (ato/normalize-type-for-declared-type type)})
 
 (defn opaque-origin
   [type]
@@ -74,6 +74,7 @@
          :type-predicate (and (= (:pred left) (:pred right))
                               (= (:class left) (:class right)))
          :value-equality (= (:values left) (:values right))
+         :conditional-branch (at/type-equal? (:narrowed-type left) (:narrowed-type right))
          :conjunction (and (= :conjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
                            (every? true? (map same-assumption? (:parts left) (:parts right))))
@@ -94,6 +95,7 @@
          :type-predicate (and (= (:pred a) (:pred b))
                               (= (:class a) (:class b)))
          :value-equality (= (:values a) (:values b))
+         :conditional-branch (at/type-equal? (:narrowed-type a) (:narrowed-type b))
          :conjunction (and (= :conjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
                            (every? true? (map same-assumption-proposition? (:parts a) (:parts b))))
@@ -120,6 +122,9 @@
 
     :value-equality
     (an/partition-type-for-values type (:values assumption) (:polarity assumption))
+
+    :conditional-branch
+    (:narrowed-type assumption)
 
     type))
 
@@ -201,6 +206,9 @@
             :never :false
             :unknown :unknown)))
 
+      :conditional-branch
+      :unknown
+
       :truthy-local
       :unknown
 
@@ -232,7 +240,7 @@
                  (:type entry)
                  at/Dyn)]
     (cond-> (or entry {:type at/Dyn})
-      true (assoc :type (ato/normalize-type type))
+      true (assoc :type (ato/normalize-type-for-declared-type type))
       origin (assoc :origin origin))))
 
 (defn local-root-origin
@@ -284,10 +292,8 @@
                  :polarity true}
           (:class info) (assoc :class (:class info)))))
 
-    (and (= :invoke (:op test-node))
-         (ac/keyword-invoke-on-local? test-node))
-    (let [kw (ac/literal-node-value (:fn test-node))
-          target (first (:args test-node))]
+    (ac/keyword-invoke-on-local? test-node)
+    (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]
       (when (keyword? kw)
         (contains-key-test-assumption target kw)))
 

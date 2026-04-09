@@ -82,6 +82,9 @@
 (def sealed-dyn-type-tag
   :skeptic.analysis.types/sealed-dyn-type)
 
+(def conditional-type-tag
+  :skeptic.analysis.types/conditional-type)
+
 (def known-semantic-type-tags
   #{dyn-type-tag
     bottom-type-tag
@@ -103,7 +106,8 @@
     value-type-tag
     type-var-type-tag
     forall-type-tag
-    sealed-dyn-type-tag})
+    sealed-dyn-type-tag
+    conditional-type-tag})
 
 (defn ->DynT
   []
@@ -223,6 +227,11 @@
   {semantic-type-tag-key sealed-dyn-type-tag
    :ground ground})
 
+(defn ->ConditionalT
+  [branches]
+  {semantic-type-tag-key conditional-type-tag
+   :branches branches})
+
 (def Dyn
   (->DynT))
 
@@ -314,6 +323,10 @@
   [t]
   (tagged-map? t semantic-type-tag-key sealed-dyn-type-tag))
 
+(defn conditional-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key conditional-type-tag))
+
 (defn placeholder-type?
   [t]
   (tagged-map? t semantic-type-tag-key placeholder-type-tag))
@@ -343,6 +356,9 @@
     (value-type? t) (update t :inner strip-runtime-closures)
     (forall-type? t) (update t :body strip-runtime-closures)
     (sealed-dyn-type? t) (update t :ground strip-runtime-closures)
+
+    (conditional-type? t)
+    (update t :branches (fn [bs] (mapv (fn [[_ typ]] [nil (strip-runtime-closures typ)]) bs)))
 
     (union-type? t) (update t :members #(mapv strip-runtime-closures %))
     (intersection-type? t) (update t :members #(mapv strip-runtime-closures %))

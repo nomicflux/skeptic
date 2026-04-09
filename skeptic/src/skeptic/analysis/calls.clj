@@ -220,13 +220,35 @@
   (boolean (type-predicate-assumption-info fn-node args)))
 
 (defn keyword-invoke-on-local?
+  "True for `(:k x)` as either JVM analyzer `:invoke` or `:keyword-invoke`."
   [node]
-  (and (= :invoke (:op node))
-       (let [fn-node (:fn node)
-             a0 (first (:args node))]
-         (and (#{:const :quote} (:op fn-node))
-              (keyword? (literal-node-value fn-node))
-              (= :local (:op a0))))))
+  (or (and (= :invoke (:op node))
+           (let [fn-node (:fn node)
+                 a0 (first (:args node))]
+             (and (#{:const :quote} (:op fn-node))
+                  (keyword? (literal-node-value fn-node))
+                  (= :local (:op a0)))))
+      (and (= :keyword-invoke (:op node))
+           (= :local (:op (:target node))))))
+
+(defn keyword-invoke-kw-and-target
+  "When `keyword-invoke-on-local?`, returns `[kw-keyword target-node]`."
+  [node]
+  (cond
+    (= :keyword-invoke (:op node))
+    (when (= :local (:op (:target node)))
+      [(literal-node-value (:keyword node)) (:target node)])
+
+    (and (= :invoke (:op node))
+         (let [fn-node (:fn node)
+               a0 (first (:args node))]
+           (and (#{:const :quote} (:op fn-node))
+                (keyword? (literal-node-value fn-node))
+                (= :local (:op a0)))))
+    [(literal-node-value (:fn node)) (first (:args node))]
+
+    :else
+    nil))
 
 (defn assoc-call?
   [fn-node]

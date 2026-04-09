@@ -958,3 +958,26 @@
   []
   (let [base {:a 1}]
     [(assoc base :b 2 :c 3 :d 4 :e "oops")]))
+
+(s/defschema ConditionalAorB
+  (s/conditional
+    #(= :a (:route %)) HasA
+    #(= :b (:route %)) HasB))
+
+(s/defschema WithRouting
+  {:route (s/enum :a :ab)
+   :val   ConditionalAorB})
+
+(s/defn handles-a :- HasA
+  [x :- HasA]
+  x)
+
+(s/defn handles-b :- HasB
+  [x :- HasB]
+  x)
+
+(s/defn handles-ab :- ConditionalAorB
+  [x :- HasAOrB]
+  (case (:route x)
+    :a (handles-a x)
+    :b (handles-b x)))

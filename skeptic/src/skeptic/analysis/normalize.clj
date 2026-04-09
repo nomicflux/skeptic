@@ -25,7 +25,7 @@
                :else
                (throw (IllegalArgumentException.
                        (format "Expected type arg entry, got %s" (pr-str entry)))))
-        type (some-> (:type base) ato/normalize-type)]
+        type (some-> (:type base) ato/normalize-type-for-declared-type)]
     {:type type
      :optional? (boolean (:optional? base))
      :name (:name base)}))
@@ -62,8 +62,8 @@
                  :else
                  (throw (IllegalArgumentException.
                          (format "Expected type entry, got %s" (pr-str entry)))))
-          type (some-> (:type base) ato/normalize-type)
-          output-type (some-> (:output-type base) ato/normalize-type)
+          type (some-> (:type base) ato/normalize-type-for-declared-type)
+          output-type (some-> (:output-type base) ato/normalize-type-for-declared-type)
           arglists (some-> (:arglists base)
                            ((fn [arglists]
                               (into {}

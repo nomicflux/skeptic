@@ -913,3 +913,10 @@
      'skeptic.test-examples/mk-takes-a-or-b-failure-outer '(takes-a-or-b {:a :nope})
      'skeptic.test-examples/mk-takes-a-or-b-failure-inner '(takes-a-or-b {:c {:d :nope}})
      'skeptic.test-examples/mk-takes-a-or-b-failure-inner-inner '(takes-a-or-b {:c {:a :nope}}))))
+
+(deftest handles-ab-case-routing
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/handles-a
+     'skeptic.test-examples/handles-b
+     'skeptic.test-examples/handles-ab)))
