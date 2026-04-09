@@ -252,7 +252,9 @@
                                    (= 1 (count candidates))
                                    (= :optional-explicit (:kind (first candidates)))
                                    (not default-provided?))
-                            (at/->MaybeT base-value)
+                            (if (at/maybe-type? base-value)
+                              base-value
+                              (at/->MaybeT base-value))
                             base-value)]
            (if default-provided?
              (ato/union-type [base-value default-type])

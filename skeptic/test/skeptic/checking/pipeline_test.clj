@@ -177,6 +177,11 @@
      'skeptic.test-examples/when-not-throw-nil-local-success
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc
+     'skeptic.test-examples/some-to-lambda-success
+     'skeptic.test-examples/eq-nil-return-success
+     'skeptic.test-examples/closure-param-type-fn-success
+     'skeptic.test-examples/field-in-thread-success
+     'skeptic.test-examples/maybe-target-success
      'skeptic.test-examples/fn-chain-success)))
 
 (deftest loop-return-matches-declared-vector-and-map-schemas
@@ -214,6 +219,12 @@
 (deftest for-even-str-odd-int-declared-cond-pre-seq-succeeds
   (in-test-examples
    (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-cond-pre-seq)]
+     (is (empty? (result-errors res))
+         (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
+
+(deftest some-to-lambda-success-type-checks
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/some-to-lambda-success)]
      (is (empty? (result-errors res))
          (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
 

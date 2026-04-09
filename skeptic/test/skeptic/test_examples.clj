@@ -1003,3 +1003,55 @@
   (case route
     :a true
     :b true))
+
+(s/defn non-null-transform :- s/Num 
+  [x :- s/Num]
+  (* x 2))
+
+(s/defn some-to-lambda-success
+  [input :- (s/maybe s/Num)]
+  (some-> input 
+          non-null-transform
+          (#(- %))))
+
+(s/defschema Hooks 
+  {(s/optional-key :on-complete) (s/=> (s/eq nil) s/Int)
+   (s/optional-key :on-step)     (s/=> (s/eq nil) s/Int)
+   (s/optional-key :on-error)    (s/=> (s/eq nil) s/Str)})
+
+(defn opaque-logging-fn 
+  [msg]
+  ;; Do not create a type for pprint to pass
+  (clojure.pprint/pprint msg))
+
+(s/defn eq-nil-return-success :- Hooks 
+  []
+  {:on-complete (fn [_] (opaque-logging-fn "complete"))
+   :on-step     (fn [x] (doseq [y [1 2 3]] (when (= x y) (println "equal"))))
+   :on-error    (fn [_] (println "oops"))})
+
+(s/defn process-map 
+  [m :- {:route s/Str :record {:id s/Uuid :name s/Str}}]
+  m)
+
+(s/defn closure-param-type-fn-success
+  [a :- s/Any 
+   b :- (s/=> s/Any s/Any)
+   c :- s/Any]
+  (fn [x y z]
+    (process-map {:route   "start" 
+                  :record  y})))
+
+(s/defn field-in-thread-success :- [s/Int]
+  [items :- [HasA]]
+  (->> items 
+       (map :a)
+       (mapcat (fn [n] [n (dec n)]))))
+
+(s/defschema Source {(s/optional-key :n) (s/named (s/maybe s/Int) 'MaybeInt)})
+
+(s/defschema Target {:n (s/maybe s/Int)})
+
+(s/defn maybe-target-success :- Target 
+  [{:keys [n]} :- Source]
+  {:n n})

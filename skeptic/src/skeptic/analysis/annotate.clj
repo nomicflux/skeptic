@@ -93,7 +93,8 @@
                         (assoc (:loop-id node) (mapv :type annotated-params)))
         body ((:recurse ctx) (assoc ctx
                                     :locals param-locals
-                                    :recur-targets recur-targets)
+                                    :recur-targets recur-targets
+                                    :name nil)
                              (:body node))]
     (assoc node
            :params annotated-params
