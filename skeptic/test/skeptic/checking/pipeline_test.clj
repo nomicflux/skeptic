@@ -53,8 +53,7 @@
                      (normalize-fn-code opts f)
                      (assoc opts
                             :ns 'skeptic.test-examples
-                            :source-file test-file
-                            :check-def f))))
+                            :source-file test-file))))
 
 (defn result-errors
   [results]
@@ -220,12 +219,6 @@
 (deftest for-even-str-odd-int-declared-cond-pre-seq-succeeds
   (in-test-examples
    (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-cond-pre-seq)]
-     (is (empty? (result-errors res))
-         (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
-
-(deftest some-to-lambda-success-type-checks
-  (in-test-examples
-   (let [res (check-fn test-dict 'skeptic.test-examples/some-to-lambda-success)]
      (is (empty? (result-errors res))
          (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
 

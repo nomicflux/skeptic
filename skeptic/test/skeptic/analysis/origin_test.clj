@@ -7,7 +7,8 @@
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-examples :as test-examples]))
+            [skeptic.test-examples :as test-examples])
+  (:import [clojure.lang Numbers]))
 
 (deftest origin-constructors-unit-test
   (testing "opaque origin tags normalized type"
@@ -100,3 +101,18 @@
       (is (every? #(and (= :type-predicate (:kind %))
                         (= :some? (:pred %)))
                   parts)))))
+
+(deftest let-shadow-nil-check-root-origin-some-to-lambda-shape-test
+  (testing "shadowed let + param alias: nil? on shadow name still gets :root so outer else refines unary -"
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(fn [input]
+                                     (let [x input
+                                           x (if (nil? x) nil (skeptic.test-examples/non-null-transform x))]
+                                       (if (nil? x) nil (#(- %) x))))
+                                  {:locals {'input (atst/T (s/maybe s/Num))}})
+          minus (atst/find-projected-node (atst/project-ast root)
+                                          #(and (= :static-call (:op %))
+                                                (= Numbers (:class %))
+                                                (= 'minus (:method %))))]
+      (is (some? minus) "expected unary - lowered to Numbers/minus")
+      (is (= atst/num-ground (first (:actual-argtypes minus)))))))
