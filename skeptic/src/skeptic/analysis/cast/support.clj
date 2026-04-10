@@ -7,29 +7,11 @@
 
 (defn ensure-cast-state
   [cast-state]
-  (merge {:nu-bindings []
-          :abstract-vars #{}
-          :active-seals #{}}
-         cast-state))
+  (or cast-state {}))
 
 (defn cast-state
   [opts]
   (ensure-cast-state (:cast-state opts)))
-
-(defn with-abstract-var
-  [opts binder]
-  (assoc opts :cast-state (update (cast-state opts) :abstract-vars conj binder)))
-
-(defn with-nu-binding
-  [opts binder witness-type]
-  (assoc opts :cast-state (-> (cast-state opts)
-                              (update :nu-bindings conj {:type-var binder
-                                                         :witness-type (ato/normalize-type witness-type)})
-                              (update :abstract-vars conj binder))))
-
-(defn register-seal
-  [opts sealed-type]
-  (assoc opts :cast-state (update (cast-state opts) :active-seals conj (ato/normalize-type sealed-type))))
 
 (defn sealed-ground-name
   [type]
@@ -162,26 +144,74 @@
                 {:matches? (= value-type ground-type)
                  :cast-state (cast-state opts)})))))
 
+(defn cast-result-tree?
+  [value]
+  (and (map? value)
+       (contains? value :ok?)
+       (contains? value :rule)
+       (contains? value :children)))
+
+(defn seal-balance
+  [cast-result binder]
+  (let [children-balance (reduce + 0 (map #(seal-balance % binder) (:children cast-result)))
+        local-balance (cond
+                        (and (= :seal (:rule cast-result))
+                             (= binder (sealed-ground-name (:sealed-type cast-result))))
+                        1
+
+                        (and (= :sealed-collapse (:rule cast-result))
+                             (= binder (sealed-ground-name (:source-type cast-result))))
+                        -1
+
+                        :else
+                        0)]
+    (+ local-balance children-balance)))
+
+(defn leaked-sealed-type
+  [cast-result binder]
+  (cond
+    (and (= :seal (:rule cast-result))
+         (= binder (sealed-ground-name (:sealed-type cast-result))))
+    (:sealed-type cast-result)
+
+    :else
+    (some #(leaked-sealed-type % binder) (:children cast-result))))
+
 (defn exit-nu-scope
-  ([type binder]
-   (exit-nu-scope type binder {}))
-  ([type binder opts]
-   (let [type (ato/normalize-type type)
-         binder (or (ata/type-var-name (ato/normalize-type binder))
+  ([artifact binder]
+   (exit-nu-scope artifact binder {}))
+  ([artifact binder opts]
+   (let [binder (or (ata/type-var-name (ato/normalize-type binder))
                     binder)]
-     (if (contains-sealed-ground? type binder)
-       (cast-fail type
+     (if (cast-result-tree? artifact)
+       (if (pos? (seal-balance artifact binder))
+         (cast-fail (or (leaked-sealed-type artifact binder)
+                        (:source-type artifact))
+                    (at/->TypeVarT binder)
+                    :nu-tamper
+                    :global
+                    :nu-tamper
+                    [artifact]
+                    {:cast-state (cast-state opts)})
+         (cast-ok (:target-type artifact)
                   (at/->TypeVarT binder)
-                  :nu-tamper
-                  :global
-                  :nu-tamper
-                  []
-                  {:cast-state (cast-state opts)})
-       (cast-ok type
-                (at/->TypeVarT binder)
-                :nu-pass
-                []
-                {:cast-state (cast-state opts)})))))
+                  :nu-pass
+                  [artifact]
+                  {:cast-state (cast-state opts)}))
+       (let [type (ato/normalize-type artifact)]
+         (if (contains-sealed-ground? type binder)
+           (cast-fail type
+                      (at/->TypeVarT binder)
+                      :nu-tamper
+                      :global
+                      :nu-tamper
+                      []
+                      {:cast-state (cast-state opts)})
+           (cast-ok type
+                    (at/->TypeVarT binder)
+                    :nu-pass
+                    []
+                    {:cast-state (cast-state opts)})))))))
 
 (defn method-accepts-arity?
   [method arity]

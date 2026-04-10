@@ -90,6 +90,17 @@
           []
           source-members))
 
+(defn quantified-success
+  [source-type target-type rule binder child details opts]
+  (let [nu-exit (ascs/exit-nu-scope child binder opts)]
+    (if (:ok? nu-exit)
+      (ascs/cast-ok source-type target-type rule [child] details)
+      (-> nu-exit
+          (assoc :source-type source-type
+                 :target-type target-type
+                 :children [child])
+          (merge details)))))
+
 (defn check-quantified-cast
   [check-cast source-type target-type polarity opts]
   (cond
@@ -105,22 +116,24 @@
                        :cast-state (ascs/cast-state opts)})
       (let [child (check-cast source-type
                               (:body target-type)
-                              (ascs/with-abstract-var opts (:binder target-type)))]
+                              opts)
+            details {:binder (:binder target-type)
+                     :cast-state (ascs/cast-state opts)}]
         (if (:ok? child)
-          (ascs/cast-ok source-type
-                        target-type
-                        :generalize
-                        [child]
-                        {:binder (:binder target-type)
-                         :cast-state (ascs/cast-state opts)})
+          (quantified-success source-type
+                              target-type
+                              :generalize
+                              (:binder target-type)
+                              child
+                              details
+                              opts)
           (ascs/cast-fail source-type
                           target-type
                           :generalize
                           polarity
                           :generalize-failed
                           [child]
-                          {:binder (:binder target-type)
-                           :cast-state (ascs/cast-state opts)}))))
+                          details))))
 
     :else
     (let [instantiated (ata/type-substitute (:body source-type)
@@ -128,24 +141,25 @@
                                             at/Dyn)
           child (check-cast instantiated
                             target-type
-                            (ascs/with-nu-binding opts (:binder source-type) at/Dyn))]
+                            opts)
+          details {:binder (:binder source-type)
+                   :instantiated-type instantiated
+                   :cast-state (ascs/cast-state opts)}]
       (if (:ok? child)
-        (ascs/cast-ok source-type
-                      target-type
-                      :instantiate
-                      [child]
-                      {:binder (:binder source-type)
-                       :instantiated-type instantiated
-                       :cast-state (ascs/cast-state opts)})
+        (quantified-success source-type
+                            target-type
+                            :instantiate
+                            (:binder source-type)
+                            child
+                            details
+                            opts)
         (ascs/cast-fail source-type
                         target-type
                         :instantiate
                         polarity
                         :instantiate-failed
                         [child]
-                        {:binder (:binder source-type)
-                         :instantiated-type instantiated
-                         :cast-state (ascs/cast-state opts)})))))
+                        details)))))
 
 (defn check-abstract-type-cast
   [source-type target-type polarity opts]
@@ -158,7 +172,7 @@
                     :seal
                     []
                     {:sealed-type sealed-type
-                     :cast-state (:cast-state (ascs/register-seal opts sealed-type))}))
+                     :cast-state (ascs/cast-state opts)}))
 
     (at/type-var-type? target-type)
     (cond
@@ -176,14 +190,6 @@
                         :sealed-ground-mismatch
                         []
                         {:cast-state (ascs/cast-state opts)}))
-
-      (or (at/dyn-type? source-type)
-          (at/placeholder-type? source-type))
-      (ascs/cast-ok source-type
-                    target-type
-                    :type-var-target
-                    []
-                    {:cast-state (ascs/cast-state opts)})
 
       :else
       (ascs/cast-fail source-type

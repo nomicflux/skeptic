@@ -54,10 +54,14 @@
         sealed-type (:sealed-type sealed)
         collapsed (sut/check-cast sealed-type x)
         sealed-mismatch (sut/check-cast sealed-type y)
+        dyn-mismatch (sut/check-cast (ab/schema->type s/Any) x)
+        placeholder-mismatch (sut/check-cast (at/->PlaceholderT ::hole) x)
         abstract-mismatch (sut/check-cast (ab/schema->type s/Int) x)]
-    (is (:ok? generalized))
+    (is (not (:ok? generalized)))
     (is (= :generalize (:rule generalized)))
+    (is (= :generalize-failed (:reason generalized)))
     (is (= :type-var-target (-> generalized :children first :rule)))
+    (is (= :abstract-target-mismatch (-> generalized :children first :reason)))
     (is (not (:ok? capture)))
     (is (= :generalize (:rule capture)))
     (is (= :forall-capture (:reason capture)))
@@ -72,6 +76,12 @@
     (is (not (:ok? sealed-mismatch)))
     (is (= :sealed-collapse (:rule sealed-mismatch)))
     (is (= :sealed-ground-mismatch (:reason sealed-mismatch)))
+    (is (not (:ok? dyn-mismatch)))
+    (is (= :type-var-target (:rule dyn-mismatch)))
+    (is (= :abstract-target-mismatch (:reason dyn-mismatch)))
+    (is (not (:ok? placeholder-mismatch)))
+    (is (= :type-var-target (:rule placeholder-mismatch)))
+    (is (= :abstract-target-mismatch (:reason placeholder-mismatch)))
     (is (not (:ok? abstract-mismatch)))
     (is (= :type-var-target (:rule abstract-mismatch)))
     (is (= :abstract-target-mismatch (:reason abstract-mismatch)))))
@@ -98,6 +108,21 @@
       (is (= :global (:blame-polarity escape-result)))
       (is (:ok? safe-exit))
       (is (= :nu-pass (:rule safe-exit))))))
+
+(deftest quantified-boundary-tamper-test
+  (let [x (at/->TypeVarT 'X)
+        leaky-target (at/->ForallT 'X
+                                   (at/->FunT [(at/->FnMethodT [x]
+                                                               (ab/schema->type s/Any)
+                                                               1
+                                                               false)]))
+        result (sut/check-cast (ab/schema->type (s/=> s/Any s/Any))
+                               leaky-target)]
+    (is (not (:ok? result)))
+    (is (= :nu-tamper (:rule result)))
+    (is (= :nu-tamper (:reason result)))
+    (is (= :global (:blame-polarity result)))
+    (is (= :function (-> result :children first :rule)))))
 
 (deftest vector-cast-kernel-honors-homogeneous-targets-test
   (let [tuple-any (ab/schema->type [s/Any s/Any s/Any])
