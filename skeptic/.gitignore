@@ -15,3 +15,4 @@ pom.xml.asc
 .lsp/
 docs/current-plans
 docs/design
+.cursor/
