@@ -1,8 +1,9 @@
 # `skeptic.analysis.annotate` Function Map
 
-This document is source-derived from:
+This document is source-derived from the current annotate subtree:
 
 - `src/skeptic/analysis/annotate.clj`
+- `src/skeptic/analysis/annotate/api.clj`
 - `src/skeptic/analysis/annotate/base.clj`
 - `src/skeptic/analysis/annotate/coll.clj`
 - `src/skeptic/analysis/annotate/control.clj`
@@ -15,26 +16,39 @@ This document is source-derived from:
 - `src/skeptic/analysis/annotate/match.clj`
 - `src/skeptic/analysis/annotate/numeric.clj`
 - `src/skeptic/analysis/annotate/shared_call.clj`
+- `src/skeptic/analysis/annotate/test_api.clj`
 
 ## Governing Path
 
-The annotate subtree turns a `tools.analyzer` AST into a typed AST in four steps:
+The rebuilt annotate subtree is centered on one explicit recursive runner in
+`skeptic.analysis.annotate`.
 
-1. `annotate-form-loop` merges native function entries into the declaration dictionary, analyzes the form with `clojure.tools.analyzer.jvm`, and calls `annotate-ast`.
-2. `annotate-ast` builds the annotation context, including normalized locals, assumptions, recursion targets, name, and namespace.
-3. `annotate-node` dispatches by analyzer `:op` and delegates to one of the `annotate.*` sub-namespaces.
-4. The sub-namespaces either annotate structure directly, compute richer output types for calls, or refine types/origins from control-flow facts.
+Entry flow:
 
-## Interconnection Map
+1. `annotate-form-loop` merges `analysis.native-fns/native-fn-dict` into the
+   incoming declaration dictionary.
+2. `analyze-form` runs `clojure.tools.analyzer.jvm/analyze` with synthetic
+   binding nodes seeded for incoming locals.
+3. `annotate-ast` normalizes locals and seeds the annotation context:
+   `:dict`, `:locals`, `:assumptions`, `:recur-targets`, `:name`, and `:ns`.
+4. `annotate-node` installs itself as `:recurse`, wraps the node in
+   `bridge.localize/with-error-context`, dispatches by analyzer `:op`, and
+   strips derived display fields from the result.
 
-### Namespace-level graph
+The design rule is now:
+
+- recursion lives only in `annotate-node`
+- helper namespaces never recurse into each other directly
+- helper namespaces receive the runner through `ctx`
+
+## Namespace Graph
 
 ```mermaid
 flowchart TD
   AFL["annotate-form-loop"] --> AF["analyze-form"]
-  AFL --> AA["annotate-ast"]
-  AFL --> NF["analysis.native-fns/native-fn-dict"]
-  AA --> AN["annotate-node"]
+  AFL --> AAST["annotate-ast"]
+  AFL --> NF["native-fns/native-fn-dict"]
+  AAST --> AN["annotate-node"]
 
   AN --> AB["annotate.base"]
   AN --> ACTL["annotate.control"]
@@ -46,215 +60,328 @@ flowchart TD
 
   AI --> AFN
   AI --> AIO["annotate.invoke-output"]
-  AI --> ANUM["annotate.numeric"]
+  AI --> NUM["annotate.numeric"]
+  AI --> MAPOPS["analysis.map-ops"]
   AI --> CALLS["analysis.calls"]
 
+  AIO --> ASC["annotate.shared-call"]
   AIO --> ACOLL["annotate.coll"]
-  AIO --> ASC
-
-  ASC --> ACOLL
-  ASC --> AMP["annotate.map-path"]
-  ASC --> ANUM
-  ASC --> MAPOPS["analysis.map-ops"]
 
   AJ --> ASC
-  AJ --> ANUM
-  AJ --> NFN["analysis.native-fns/static-call-native-info"]
+  AJ --> ACOLL
+  AJ --> NUM
+  AJ --> NFS["native-fns/static-call-native-info"]
 
+  ASC --> AMP["annotate.map-path"]
+  ASC --> MAPALG["analysis.map-ops.algebra"]
+  ASC --> MAPOPS
+  ASC --> NUM
+  ASC --> ACOLL
+
+  ACTL --> AB
   ACTL --> ORIGIN["analysis.origin"]
   AM --> ORIGIN
-  ACTL --> AB
+  AM --> ASTN["analysis.ast-children"]
+  ACOLL --> ASTN
 ```
 
-### Main function-to-function flows
+## Main Flows
 
-- Entry flow:
-  `annotate-form-loop -> analyze-form -> annotate-ast -> annotate-node`.
-  `annotate-form-loop` also merges `analysis.native-fns/native-fn-dict` into the declaration dict before annotation starts.
 - Dispatch flow:
-  `annotate-node` is the central fan-out point.
-  It sends `:binding`, `:const`, `:local`, `:the-var`, and `:var` to `annotate.base`.
-  It sends `:do`, `:let`, `:loop`, `:recur`, and `:if` to `annotate.control`.
-  It sends `:def`, `:map`, `:new`, `:quote`, `:set`, `:throw`, `:try`, `:vector`, and `:with-meta` to `annotate.data`.
-  It sends `:fn` and `:fn-method` to `annotate.fn`, `:invoke` to `annotate.invoke`, `:instance-call` and `:static-call` to `annotate.jvm`, and `:case` to `annotate.match`.
-- Base/control connection:
-  `annotate.control/annotate-let` and `annotate.control/loop-one-binding` both call `annotate.base/annotate-binding` to keep binding annotation logic centralized.
-  `annotate.control/binding-env-entry` is the shared helper that turns those annotated bindings into local-environment entries.
-- Assumption/origin flow:
-  `annotate.control/annotate-do` threads `analysis.origin/guard-assumption` and `analysis.origin/apply-guard-assumption`.
-  `annotate.control/annotate-if` and `annotate.match/annotate-case` both call `analysis.origin/branch-local-envs` to derive branch-specific local environments.
-  `annotate.base/annotate-local` is the consumer of those assumptions through `analysis.origin/effective-entry`.
-- Function/callable flow:
-  `annotate.fn/annotate-fn` builds the callable metadata that `analysis.calls/call-info` later consumes at invoke sites.
-  `annotate.fn/fn-method-merge-param-nodes` also uses `analysis.calls/fun-type->call-opts` so function-typed parameters can themselves behave like typed callables.
-- Invoke hot path:
-  `annotate.invoke/annotate-invoke` optionally re-enters `annotate.fn/annotate-fn` through `resolve-unary-fn-arg-type-hint`.
-  It then calls `analysis.calls/call-info` for default arg/output typing, `annotate.invoke-output/invoke-output-type` for call-specific output refinement, and `annotate.numeric/invoke-integral-math-narrow-type` for arithmetic narrowing.
-- Invoke-output refinement path:
-  `annotate.invoke-output/invoke-output-type` is a second dispatcher layered on top of `annotate.invoke/annotate-invoke`.
-  For shared map/collection operations it delegates to `annotate.shared-call/shared-call-output-type`.
-  For collection selectors and transforms it delegates into `annotate.coll/*`.
-- JVM/static-call path:
-  `annotate.jvm/annotate-static-call` mirrors the invoke path for analyzer `:static-call` nodes.
-  It loads native signatures from `analysis.native-fns/static-call-native-info`, delegates shared specialization to `shared-static-output-type -> annotate.shared-call/shared-call-output-type`, and uses `annotate.numeric/narrow-static-numbers-output` for arithmetic narrowing.
-- Collection-typing path:
-  `annotate.data/annotate-vector` depends on `annotate.coll/vec-homogeneous-items?`.
-  `annotate.data/annotate-new` depends on `annotate.coll/lazy-seq-new-type`.
-  `annotate.jvm/annotate-instance-call` depends on `annotate.coll/instance-nth-element-type`.
-  `annotate.invoke-output/invoke-output-type` and `annotate.shared-call/shared-call-output-type` are the main consumers of the rest of `annotate.coll/*`.
-- Map-shape path:
-  `annotate.map-path/reduce-assoc-pairs` and `annotate.map-path/reduce-dissoc-keys` are now reached through `annotate.shared-call/shared-call-output-type`, which is shared by both `annotate.invoke-output` and `annotate.jvm`.
-- Case-narrowing path:
-  `annotate.match/annotate-case` depends on its own literal-extraction helpers, on `analysis.calls/*` to recognize keyword/get-style access, and on `analysis.origin/branch-local-envs` to apply arm-local narrowing.
-- Analyzer traversal path:
-  `annotate.control/widen-int-loop-counter-recur-targets`, `annotate.coll/for-body-element-type`, and `annotate.match/case-kw-root-info` are the places in this subtree that rescan already-annotated subtrees via `analysis.ast-children/ast-nodes`.
+  `annotate-dispatch` sends structural nodes to `base`, control-flow nodes to
+  `control`, data literals and exceptional forms to `data`, functions to `fn`,
+  ordinary and keyword calls to `invoke`, JVM calls to `jvm`, and `:case` to
+  `match`.
+- Generic fallback:
+  unsupported ops go through `base/annotate-children` and then receive `Dyn`.
+- Control/origin flow:
+  `control/annotate-do`, `control/annotate-if`, and `match/annotate-case`
+  thread assumptions through `analysis.origin`.
+- Callable flow:
+  `fn/annotate-fn` produces `:arglists`, `:output-type`, and function semantic
+  types that `analysis.calls/call-info` consumes later.
+- Invoke refinement flow:
+  `invoke/annotate-invoke` gets default call metadata from `analysis.calls`,
+  then refines outputs through `invoke_output` and `numeric`.
+- Keyword access flow:
+  `invoke/annotate-keyword-invoke` handles analyzer `:keyword-invoke`
+  directly with `analysis.map-ops/map-get-type`.
+- Static-call refinement flow:
+  `jvm/annotate-static-call` loads native signatures, applies shared map and
+  collection specialization first, then numeric narrowing.
+- Map-shape flow:
+  `shared_call` delegates literal-key assoc and dissoc rewriting to
+  `map_path`.
+- Tree-rescan flow:
+  `control/widen-int-loop-counter-recur-targets`,
+  `coll/for-body-element-type`, and `match/case-kw-root-info` rescan typed
+  subtrees through `analysis.ast-children/ast-nodes`.
 
 ## Namespace Map
 
 ### `skeptic.analysis.annotate`
 
-- `node-location`: Extracts source location fields from a node's form metadata.
-- `node-error-context`: Builds the error-context payload used by `bridge.localize/with-error-context`.
-- `annotate-node`: Main dispatcher over analyzer `:op`. It recurs through children, calls the appropriate specialized annotator, and strips derived display fields from the result.
-- `annotate-ast`: Seeds the annotation context with normalized locals, assumptions, recursion targets, function name, and namespace, then starts annotation at the root node.
-- `analyze-form`: Runs `tools.analyzer.jvm/analyze` on one form under a constructed analyzer environment.
-- `annotate-form-loop`: Top-level helper that merges native function signatures into the declaration dict, analyzes the form, and annotates the resulting AST.
+- `node-location`: extracts source location from form metadata.
+- `node-error-context`: builds the `with-error-context` payload for one node.
+- `annotate-generic`: annotates children structurally and assigns `Dyn`.
+- `annotate-dispatch`: ordered `:op` dispatcher for the whole subtree.
+- `annotate-node`: the recursive runner. Installs itself in `ctx`, wraps error
+  context, delegates to `annotate-dispatch`, and strips derived fields.
+- `normalize-locals`: normalizes incoming local entries with
+  `analysis.normalize/normalize-entry`.
+- `annotate-ast`: seeds the annotation context and starts annotation at the
+  root.
+- `target-ns`: resolves or creates the namespace used for analysis.
+- `analyze-env`: builds the analyzer env, including synthetic bindings for
+  incoming locals.
+- `analyze-form`: runs `tools.analyzer.jvm/analyze`.
+- `annotate-form-loop`: public entrypoint for annotation.
+
+### `skeptic.analysis.annotate.api`
+
+This namespace is the public accessor boundary for production code.
+
+- `def-node-getters`: macro that defines the simple field accessors.
+- node accessors:
+  `node-op`, `node-form`, `node-type`, `node-output-type`, `node-fn-type`,
+  `node-origin`, `node-var`, `node-name`, `node-class`, `node-method`,
+  `node-value`, `node-tag`, `node-raw-forms`, `node-test`, `node-body`,
+  `node-init`, `node-expr`, `node-ret`, `node-bindings`, `node-target`,
+  `node-keyword`, `node-arglists`, `node-arglist`, `call-fn-node`,
+  `call-args`, `recur-args`, `call-actual-argtypes`,
+  `call-expected-argtypes`, and `binding-init`.
+- `node-location`: source-location helper.
+- `node-info`: compact call/type metadata projection used internally by
+  annotation helpers.
+- `synthetic-binding-node`: analyzer-facing synthetic local node builder.
+- `node-children`: child-key enumeration in analyzer `:children` order.
+- `annotated-nodes`: preorder traversal of all annotated nodes.
+- `find-node`: subtree search by predicate.
+- `unwrap-with-meta`: strips nested `:with-meta` wrappers.
+- classification helpers:
+  `local-node?`, `if-node?`, `let-node?`, `recur-node?`, `call-node?`,
+  and `invoke-ops`.
+- provenance helpers:
+  `node-ref`, `callee-ref`, `local-resolution-path`, `local-vars-context`,
+  and `call-refs`.
+- function/def helpers:
+  `function-methods`, `method-body`, `def-init-node`, `then-node`,
+  `else-node`, `arglist-types`, `analyzed-def-entry`, `method-result-type`,
+  `resolved-def-entry`, and `resolved-def-output-type`.
+- branch helpers:
+  `branch-origin-kind` and `branch-test-assumption`.
+- metadata/compat helpers:
+  `typed-call-metadata-only?`, `strip-derived-types`, `def-node?`,
+  and `def-value-node`.
+
+### `skeptic.analysis.annotate.test_api`
+
+This namespace owns test-only projections and synthetic fixtures.
+
+- normalization helpers:
+  `normalize-symbol`, `normalize-form`, and `var->sym`.
+- `stable-keys`: the stable projected node surface used by tests.
+- projection helpers:
+  `project-ast`, `projected-nodes`, `find-projected-node`,
+  `child-projection`, `ast-by-name`, and `node-by-form`.
+- `arglist-types`: test-facing passthrough to the production accessor.
+- `annotate-form-loop`: test-facing passthrough to the production entrypoint.
+- synthetic fixtures:
+  `test-local-node`, `test-fn-node`, `test-typed-node`, `test-const-node`,
+  `test-invoke-node`, `test-invoke-form-node`, `test-with-meta-node`,
+  and `test-static-call-node`.
 
 ### `skeptic.analysis.annotate.base`
 
-- `annotate-children`: Generic recursive walker for nodes whose children can just be annotated structurally.
-- `annotate-const`: Assigns a type to a literal constant by calling `value/type-of-value`.
-- `annotate-binding`: Annotates a binding init and copies its call/type metadata onto the binding node.
-- `annotate-local`: Looks up the current local entry, applies any active assumptions/origin refinements, and falls back to `Dyn`.
-- `annotate-var-like`: Looks up var or symbol entries in the declaration dict and falls back to `Dyn`.
+- `annotate-child`: annotates one child value through the recursive runner.
+- `annotate-children`: generic child walker for unsupported or structural
+  nodes.
+- `annotate-const`: types literal constants with `value/type-of-value`.
+- `annotate-binding`: annotates `:init` and copies node info from the init.
+- `annotate-local`: resolves current locals, applying active assumptions
+  through `analysis.origin/effective-entry`.
+- `annotate-var-like`: resolves vars and symbols from the declaration dict.
 
 ### `skeptic.analysis.annotate.control`
 
-- `nil-test-leaf-node`: Peels `:do` and `:let` wrappers off a nil-test expression.
-- `nil-check-local-form-in-test?`: Recognizes nil checks against one local binding, both for ordinary predicate calls and the JVM `Util/identical` form.
-- `if-init-nil-check-binds-same-name?`: Detects the special `let` binding shape where an init is itself an `if` that nil-checks the same symbol.
-- `annotate-do`: Annotates statements left-to-right, feeding guard assumptions from earlier statements into later ones and into the return expression.
-- `annotate-let`: Annotates bindings in order, builds local entries and alias/root origins, and then annotates the body under the extended local environment.
-- `nil-value-type?`: Private helper that recognizes exact `nil` value types.
-- `binding-recur-target-types`: Computes the initial target types for loop recur operands, widening exact `nil` to `Maybe Dyn`.
-- `binding-base-entry`: Private helper that extracts the reusable metadata payload from one annotated binding.
-- `binding-alias-origin`: Private helper that preserves root-origin information for bindings aliased from rooted locals.
-- `binding-env-entry`: Private helper that turns one annotated binding into the local-env entry used by `let` and `loop`.
-- `widen-int-loop-counter-recur-targets`: Re-scans recur calls in a loop body and widens int loop counters to JVM `Number` when the recur operands come from numeric JVM helpers such as `inc` or `dec`.
-- `loop-one-binding`: Annotates one loop binding and prepares the local entry that downstream recur analysis should see.
-- `annotate-loop-body-with-recur-target-widening`: Private helper that encapsulates the two-pass loop-body annotation needed after recur-target widening.
-- `annotate-loop`: Annotates loop bindings, seeds recur targets, annotates the body, optionally widens recur targets, and re-annotates the body if widening changed the recur contract.
-- `annotate-recur`: Annotates recur operands, records `:expected-argtypes` from the active recur targets, and sets the recur expression type to `BottomType`.
-- `annotate-if`: Annotates the test, derives branch-local environments from origin assumptions, annotates both branches, and joins or narrows the result type/origin.
+- nil-check helpers:
+  `nil-test-leaf-node`, `nil-check-local-form-in-test?`,
+  and `if-init-nil-check-binds-same-name?`.
+- `annotate-do`: annotates statements left to right and threads guard
+  assumptions into later expressions.
+- binding helpers:
+  `binding-recur-target-types`, `binding-base-entry`, `binding-alias-origin`,
+  `binding-env-entry`, and `annotate-let-binding`.
+- `annotate-let`: sequentially annotates bindings, preserves alias/root
+  provenance, stores `:binding-init`, and annotates the body with the extended
+  local env.
+- loop helpers:
+  `widen-int-loop-counter-recur-targets`, `loop-one-binding`, and
+  `annotate-loop-body-with-recur-target-widening`.
+- `annotate-loop`: loop binding annotation plus two-pass recur-target widening.
+- `annotate-recur`: annotates recur operands and records expected and actual
+  arg types with `BottomType`.
+- branch helpers:
+  `truthy-literal?`, `nil-const-node?`, and `branch-origin`.
+- `annotate-if`: derives branch-local envs from `analysis.origin`, annotates
+  both branches, and records branch origin metadata.
 
 ### `skeptic.analysis.annotate.data`
 
-- `annotate-def`: Annotates `def` metadata and init expression, then wraps the init type in `VarT`.
-- `annotate-vector`: Annotates vector items and builds a `VectorT`, marking it homogeneous when all slot types are equal.
-- `annotate-set`: Annotates set items and collapses them into a normalized homogeneous set type.
-- `annotate-map`: Annotates key/value nodes and builds a map type keyed by literal key types when available.
-- `annotate-new`: Annotates constructor calls and special-cases `LazySeq` creation before falling back to the instantiated class type.
-- `annotate-with-meta`: Annotates the metadata expression and underlying expression, then copies the underlying node's call/type info upward.
-- `annotate-throw`: Annotates the thrown exception and gives the expression `BottomType`.
-- `annotate-catch`: Annotates a catch clause, binds the caught local to the caught class type, and types the clause by its body.
-- `annotate-try`: Annotates the body, catches, and optional finally, then joins the body/catch output types.
-- `annotate-quote`: Annotates the quoted inner expression and types the quote by the quoted runtime value.
+- `annotate-def`: annotates def metadata and init, then wraps the init type in
+  `VarT`.
+- `annotate-vector`: annotates vector items and constructs a `VectorT`.
+- `annotate-set`: annotates set members and joins them into a homogeneous set
+  type.
+- `annotate-map`: annotates keys and values and constructs a semantic map type
+  using literal-key typing when available.
+- `annotate-new`: annotates constructor calls and special-cases `LazySeq`.
+- `annotate-with-meta`: annotates metadata and wrapped expr, then copies the
+  wrapped node info upward.
+- `annotate-throw`: annotates the exception and returns `BottomType`.
+- `annotate-catch`: binds the catch local to the caught class type and types
+  the clause by its body.
+- `annotate-try`: joins body and catch result types, preserving `:finally`
+  structurally.
+- `annotate-quote`: types quoted forms from their quoted runtime value.
 
 ### `skeptic.analysis.annotate.fn`
 
-- `arg-type-specs`: Looks up declared argument specs for a function method by function name and arity, defaulting every parameter to `Dyn`.
-- `fn-method-param-specs-with-overrides`: Applies temporary parameter type overrides on top of the declared/default arg specs.
-- `fn-method-merge-param-nodes`: Merges parameter specs back into parameter AST nodes and attaches callable metadata when a parameter itself has a function type.
-- `annotate-fn-method`: Annotates one function method under parameter locals and recur targets, then records its output type and arglist metadata.
-- `method->arglist-entry`: Converts one annotated method into the normalized arglist-entry shape used elsewhere in the checker.
-- `annotate-fn`: Annotates all methods of a function, builds the function's arglist map, joins method outputs, and constructs the resulting `FunT`.
+- `arg-type-specs`: resolves declared arg specs for a named function arity or
+  falls back to `Dyn`.
+- `fn-method-param-specs-with-overrides`: overlays temporary parameter type
+  overrides.
+- `fn-method-merge-param-nodes`: merges parameter specs into analyzer param
+  nodes and adds callable metadata for function-typed params.
+- `param-locals`: builds the local env entries used inside a function method.
+- `annotate-fn-method`: annotates one method body under parameter locals and
+  recur targets.
+- `method->arglist-entry`: converts one method into the normalized arglist
+  entry shape.
+- `method-fn-type`: builds the semantic function-method type for one method.
+- `annotate-fn`: annotates all methods, joins outputs, builds arglists, and
+  produces the final `FunT`.
 
 ### `skeptic.analysis.annotate.coll`
 
-- `const-long-value`: Extracts an integer literal from a `:const` node.
-- `vec-homogeneous-items?`: Returns true when every vector slot type is equal.
-- `seqish-element-type`: Returns the element type for vectors and seqs, joining heterogeneous members when necessary.
-- `vector-to-homogeneous-seq-type`: Converts a vector type into a homogeneous seq type by joining vector slots when needed.
-- `vector-slot-type`: Returns one vector slot type when the index is in range.
-- `instance-nth-element-type`: Types `nth` over vectors and seqs, using a literal index when present.
-- `coll-first-type`: Returns the element type seen by `first`.
-- `coll-second-type`: Returns the element type seen by `second`.
-- `coll-last-type`: Returns the element type seen by `last`.
-- `coll-rest-output-type`: Computes the output type of `rest`.
-- `coll-butlast-output-type`: Computes the output type of `butlast` for vectors.
-- `coll-drop-last-output-type`: Computes the output type of `drop-last` for vectors when the drop count is known.
-- `coll-take-prefix-type`: Computes the output type of `take` for vectors when the take count is known.
-- `coll-drop-prefix-type`: Computes the output type of `drop` for vectors when the drop count is known.
-- `coll-same-element-seq-type`: Converts a seqish type into a homogeneous seq of the same element type.
-- `concat-output-type`: Computes the output type for `concat` by joining the element types of all arguments.
-- `into-output-type`: Computes the output type for `into` by combining the destination and source element types.
-- `invoke-nth-output-type`: Helper that pulls the target and index arguments into `instance-nth-element-type`.
-- `for-body-element-type`: Scans a `for` body for `cons` calls and joins their element types.
-- `lazy-seq-new-type`: Special-cases `LazySeq` construction, inferring the element type from the thunk body when possible.
+- literal/index helpers:
+  `const-long-value`, `vec-homogeneous-items?`, `vector-slot-type`.
+- element-shape helpers:
+  `seqish-element-type`, `vector-to-homogeneous-seq-type`,
+  `coll-first-type`, `coll-second-type`, `coll-last-type`,
+  and `coll-same-element-seq-type`.
+- collection transform helpers:
+  `coll-rest-output-type`, `coll-butlast-output-type`,
+  `coll-drop-last-output-type`, `coll-take-prefix-type`,
+  `coll-drop-prefix-type`, `concat-output-type`, and `into-output-type`.
+- `instance-nth-element-type`: `nth` typing for vectors and seqs.
+- `invoke-nth-output-type`: invoke-side `nth` helper.
+- `for-body-element-type`: scans a `for` body for `cons`-shaped construction.
+- `lazy-seq-new-type`: lazy-seq constructor typing and fallback inference.
 
 ### `skeptic.analysis.annotate.invoke`
 
-- `resolve-unary-fn-arg-type-hint`: Detects unary function invocations where the callee is an inline `fn` or a local bound to one, annotates the actual argument list once, and returns the override payload needed to re-annotate the unary function.
-- `annotate-invoke`: Annotates the callee and arguments, computes expected arg types via `calls/call-info`, refines the output via `invoke_output` and `numeric`, and records the normalized function type metadata on the node.
+- `resolve-unary-fn-arg-type-hint`: detects the supported unary specialization
+  cases for inline `fn` values and locals bound to unary `fn` values.
+- `annotate-fn-and-args`: shared callee-and-arg preparation for ordinary
+  invokes.
+- `build-invoke-node`: assembles the annotated invoke node with normalized call
+  metadata.
+- `annotate-invoke`: ordinary invoke annotation path.
+- `annotate-keyword-invoke`: dedicated analyzer `:keyword-invoke` path using
+  `analysis.map-ops/map-get-type`.
 
-### `skeptic.analysis.annotate.invoke-output`
+### `skeptic.analysis.annotate.invoke_output`
 
-- `invoke-output-type`: Ordered cond-chain that delegates shared `get`/`merge`/`assoc`/`dissoc`/`update`/`contains?`/`seq` refinement to `annotate.shared-call/shared-call-output-type`, handles invoke-only collection selectors and transforms locally, and otherwise preserves the default output type from `calls/call-info`.
+- `invoke-output-type`: ordered invoke-only output refinement chain.
+  Shared map and collection operations delegate to `shared_call`;
+  collection selectors and transformers delegate to `coll`;
+  everything else falls back to the default call output type.
 
 ### `skeptic.analysis.annotate.jvm`
 
-- `annotate-instance-call`: Annotates JVM instance calls and special-cases `nth`.
-- `shared-static-output-type`: Private dispatcher that recognizes the static-call operations sharing refinement logic with invoke and delegates them to `annotate.shared-call/shared-call-output-type`.
-- `static-native-output-type`: Private helper that handles native `clojure.lang.Numbers` output narrowing and the `Dyn` fallback for everything else.
-- `annotate-static-call`: Annotates static-call arguments, loads native arity/type info when available, computes expected argument types, and picks the shared specialized or native/default output type.
+- `annotate-instance-call`: conservative JVM instance-call annotation with
+  `nth` specialization.
+- `shared-static-output-type`: static-call dispatcher for the operations that
+  share refinement logic with ordinary invoke.
+- `static-native-output-type`: numeric-native narrowing or `Dyn` fallback.
+- `annotate-static-call`: full static-call path with native info, expected arg
+  types, shared specialization, and numeric narrowing.
 
-### `skeptic.analysis.annotate.shared-call`
+### `skeptic.analysis.annotate.shared_call`
 
-- `shared-call-output-type`: Shared output-refinement helper for `get`, `merge`, `assoc`, `dissoc`, `update`, `contains?`, and one-argument `seq`, used by both invoke and static-call annotation.
+- `shared-get-output-type`: `get` typing through `analysis.map-ops`.
+- `shared-update-output-type`: literal-key `update` specialization.
+- `shared-seq-output-type`: one-arg `seq` specialization for seqs and vectors.
+- `shared-call-output-type`: shared refinement entrypoint for `get`, `merge`,
+  `assoc`, `dissoc`, `update`, `contains?`, and one-arg `seq`.
 
-### `skeptic.analysis.annotate.map-path`
+### `skeptic.analysis.annotate.map_path`
 
-- `reduce-assoc-pairs`: Applies a sequence of literal keyword assoc operations to a map type.
-- `reduce-dissoc-keys`: Applies a sequence of literal keyword dissoc operations to a map type.
+- `reduce-assoc-pairs`: applies literal keyword assoc pairs to a map type.
+- `reduce-dissoc-keys`: applies literal keyword dissoc keys to a map type.
 
 ### `skeptic.analysis.annotate.match`
 
-- `case-test-literal-nodes`: Extracts literal test nodes from one `case` arm's analyzer representation.
-- `case-test-literals`: Converts those literal nodes into runtime literal values.
-- `case-discriminant-expr-node`: Unwraps analyzer-generated local bindings to recover the real discriminant expression for a `case`.
-- `case-discriminant-leaf-node`: Peels `:do` and `:let` wrappers off the discriminant.
-- `case-assumption-root-for-local`: Recovers a local root origin or synthesizes one when the local only has an opaque origin.
-- `case-get-access-kw-and-target`: Private helper that recognizes `get`-style map access on a local and returns the accessed keyword plus the target local.
-- `case-kw-and-target`: Generalized keyword-access recognizer that covers keyword invocation and `get`-style access.
-- `case-kw-root-info`: Scans the full `case` test subtree to recover keyword-access root information.
-- `case-predicate-test-map`: Builds the synthetic map passed to conditional-schema predicates when narrowing a `case` arm by literal.
-- `case-predicate-matches-lit?`: Evaluates one conditional-schema predicate against one literal.
-- `case-conditional-branches-from-type`: Extracts conditional-schema branches from the discriminant type, directly or from a union member.
-- `case-conditional-narrow-for-lits`: Narrows a `case` arm to the first conditional branch that matches each literal, mirroring Plumatic conditional dispatch.
-- `case-conditional-default-narrow`: Computes the default-arm narrowing by keeping conditional branches that no explicit arm literal matched.
-- `annotate-case-one-then`: Annotates one `case` then-arm under the equality or conditional-branch assumption generated for that arm.
-- `annotate-case`: Annotates the test, all explicit arms, and the default arm under branch-local assumptions, then joins the resulting branch types.
+- case literal helpers:
+  `case-test-literal-nodes`, `case-test-literals`.
+- discriminant recovery helpers:
+  `case-discriminant-expr-node`, `case-discriminant-leaf-node`,
+  `case-assumption-root-for-local`.
+- keyword/get access helpers:
+  `case-get-access-kw-and-target`, `case-kw-and-target`, `case-kw-root-info`.
+- conditional narrowing helpers:
+  `case-predicate-test-map`, `case-predicate-matches-lit?`,
+  `case-conditional-branches-from-type`,
+  `case-conditional-narrow-for-lits`, and
+  `case-conditional-default-narrow`.
+- branch builders:
+  `annotate-case-one-then` and `default-assumption`.
+- `annotate-case`: annotates the case test, arms, and default branch under the
+  correct local assumptions, then joins the branch types.
 
 ### `skeptic.analysis.annotate.numeric`
 
-Supporting defs:
+- constants:
+  `bool-type` and `integral-arg-classes`.
+- predicates:
+  `integral-ground-type?`, `inc-dec-narrow-int-output?`,
+  and `binary-integral-locals-narrow?`.
+- `invoke-integral-math-narrow-type`: invoke-side integer narrowing for
+  `inc`, `+`, `*`, and `-`.
+- `narrow-static-numbers-output`: static-call analogue for
+  `clojure.lang.Numbers`.
 
-- `bool-type`: Prebuilt `Bool` ground type used by `contains?` and similar branches.
-- `integral-arg-classes`: Set of runtime classes treated as integral for narrowing.
+## Public Boundary Summary
 
-Functions:
+Production code outside `skeptic.analysis.annotate*` should reach annotated AST
+details only through:
 
-- `integral-ground-type?`: Recognizes semantic types that should count as integral inputs.
-- `inc-dec-narrow-int-output?`: Detects unary `inc`/`dec` situations where the output can be narrowed back to `Int`.
-- `binary-integral-locals-narrow?`: Detects binary arithmetic over non-constant integral locals.
-- `invoke-integral-math-narrow-type`: Narrows invoke-call arithmetic results for `inc`, `+`, `*`, and `-` when the input types justify an `Int` result.
-- `narrow-static-numbers-output`: Static-call analogue of the invoke narrowing logic for `clojure.lang.Numbers`.
+- `skeptic.analysis.annotate/annotate-form-loop`
+- `skeptic.analysis.annotate.api`
+
+Tests outside the annotate subtree should reach test projections and synthetic
+annotate-shaped fixtures only through:
+
+- `skeptic.analysis.annotate.test-api`
 
 ## Shape Summary
 
-- Entry flow: `annotate-form-loop -> analyze-form -> annotate-ast -> annotate-node`
-- Structural node families: `base`, `control`, `data`, `fn`
-- Call-output refinement families: `invoke`, `invoke_output`, `shared_call`, `jvm`, `numeric`, `coll`, `map_path`
-- Path-sensitive narrowing family: `match`
+- Recursive runner:
+  `annotate-node`
+- Structural families:
+  `base`, `control`, `data`, `fn`
+- Call families:
+  `invoke`, `invoke_output`, `jvm`, `shared_call`
+- Collection and map helpers:
+  `coll`, `map_path`, `numeric`
+- Pattern and branch narrowing:
+  `match`
+- Access boundaries:
+  `api`, `test_api`
 
-The main design pattern in this subtree is: annotate child nodes first, reuse `skeptic.analysis.calls` to recover callable metadata, then attach semantic types, expected argument types, and branch-local refinements back onto the analyzer AST.
+The key change from the prior structure is that the rewrite is now explicitly
+organized around one runner-driven traversal plus thin, non-recursive helper
+namespaces. The subtree still annotates analyzer ASTs into first-order typed
+ASTs, but the current implementation makes the recursion boundary, API boundary,
+and shared refinement paths much more explicit.
