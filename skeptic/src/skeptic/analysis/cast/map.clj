@@ -151,6 +151,6 @@
                          source-domains)))))
 
 (defn check-map-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (let [children (map-children run-child source-type target-type opts)]
-    (ascs/aggregate-children source-type target-type :map polarity :map-cast-failed children)))
+    (ascs/aggregate-children source-type target-type :map (:polarity opts) :map-cast-failed children)))

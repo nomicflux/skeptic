@@ -28,32 +28,42 @@
     (conj domains range-child)))
 
 (defn- missing-method
-  [source-type target-type target-method polarity]
+  [source-type target-type target-method opts]
   (ascs/cast-fail source-type
                   target-type
                   :function-arity
-                  polarity
+                  (:polarity opts)
                   :arity-mismatch
                   []
                   {:target-method target-method}))
 
 (defn- method-result
-  [source-method target-method polarity children]
+  [source-method target-method opts children]
   (if (ascs/all-ok? children)
     (ascs/cast-ok source-method target-method :function-method children)
-    (ascs/cast-fail source-method target-method :function-method polarity :function-component-failed children)))
+    (ascs/cast-fail source-method
+                    target-method
+                    :function-method
+                    (:polarity opts)
+                    :function-component-failed
+                    children)))
 
 (defn- check-function-method
-  [run-child source-type target-method polarity opts]
+  [run-child source-type target-method opts]
   (if-let [source-method (ascs/matching-source-method source-type target-method)]
     (method-result source-method
                    target-method
-                   polarity
+                   opts
                    (method-children run-child source-method target-method opts))
-    (missing-method source-type nil target-method polarity)))
+    (missing-method source-type nil target-method opts)))
 
 (defn check-function-cast
-  [run-child source-type target-type polarity opts]
-  (let [children (mapv #(check-function-method run-child source-type % polarity opts)
+  [run-child source-type target-type opts]
+  (let [children (mapv #(check-function-method run-child source-type % opts)
                        (:methods target-type))]
-    (ascs/aggregate-children source-type target-type :function polarity :function-cast-failed children)))
+    (ascs/aggregate-children source-type
+                             target-type
+                             :function
+                             (:polarity opts)
+                             :function-cast-failed
+                             children)))

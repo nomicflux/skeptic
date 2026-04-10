@@ -3,18 +3,10 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value-check :as avc]))
 
-(defn- index-request
-  [kind idx source-type target-type opts]
-  {:source-type source-type
-   :target-type target-type
-   :opts opts
-   :path-segment {:kind kind
-                  :index idx}})
-
 (defn- aligned-children
   [run-child kind source-items target-items opts]
   (mapv (fn [idx source-item target-item]
-          (run-child (index-request kind idx source-item target-item opts)))
+          (run-child (ascs/indexed-request kind idx source-item target-item opts)))
         (range)
         source-items
         target-items))
@@ -36,24 +28,24 @@
       :else nil)))
 
 (defn- expanded-collection-result
-  [run-child source-type target-type polarity opts kind rule item-failure arity-failure]
+  [run-child source-type target-type opts kind rule item-failure arity-failure]
   (if-let [count' (slot-count source-type target-type)]
     (let [children (aligned-children run-child
                                      kind
                                      (expand-items source-type count')
                                      (expand-items target-type count')
                                      opts)]
-      (ascs/aggregate-children source-type target-type rule polarity item-failure children))
-    (ascs/cast-fail source-type target-type rule polarity arity-failure)))
+      (ascs/aggregate-children source-type target-type rule (:polarity opts) item-failure children))
+    (ascs/cast-fail source-type target-type rule (:polarity opts) arity-failure)))
 
 (defn- fixed-collection-result
-  [run-child source-type target-type polarity opts kind rule item-failure arity-failure]
+  [run-child source-type target-type opts kind rule item-failure arity-failure]
   (let [source-items (:items source-type)
         target-items (:items target-type)]
     (if (= (count source-items) (count target-items))
       (let [children (aligned-children run-child kind source-items target-items opts)]
-        (ascs/aggregate-children source-type target-type rule polarity item-failure children))
-      (ascs/cast-fail source-type target-type rule polarity arity-failure))))
+        (ascs/aggregate-children source-type target-type rule (:polarity opts) item-failure children))
+      (ascs/cast-fail source-type target-type rule (:polarity opts) arity-failure))))
 
 (defn- set-member-failure
   [source-member target-members polarity]
@@ -76,11 +68,10 @@
         (set-member-failure source-member target-members (:polarity opts)))))
 
 (defn check-vector-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (expanded-collection-result run-child
                               source-type
                               target-type
-                              polarity
                               opts
                               :vector-index
                               :vector
@@ -88,11 +79,10 @@
                               :vector-arity-mismatch))
 
 (defn check-seq-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (fixed-collection-result run-child
                            source-type
                            target-type
-                           polarity
                            opts
                            :seq-index
                            :seq
@@ -100,11 +90,10 @@
                            :seq-arity-mismatch))
 
 (defn check-seq-to-vector-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (expanded-collection-result run-child
                               source-type
                               target-type
-                              polarity
                               opts
                               :vector-index
                               :seq-to-vector
@@ -112,11 +101,10 @@
                               :seq-to-vector-arity-mismatch))
 
 (defn check-vector-to-seq-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (expanded-collection-result run-child
                               source-type
                               target-type
-                              polarity
                               opts
                               :seq-index
                               :vector-to-seq
@@ -124,12 +112,12 @@
                               :vector-to-seq-arity-mismatch))
 
 (defn check-set-cast
-  [run-child source-type target-type polarity opts]
+  [run-child source-type target-type opts]
   (if (= (count (:members source-type)) (count (:members target-type)))
     (let [children (mapv #(set-member-result run-child % (:members target-type) opts)
                          (:members source-type))]
-      (ascs/aggregate-children source-type target-type :set polarity :set-element-failed children))
-    (ascs/cast-fail source-type target-type :set polarity :set-cardinality-mismatch)))
+      (ascs/aggregate-children source-type target-type :set (:polarity opts) :set-element-failed children))
+    (ascs/cast-fail source-type target-type :set (:polarity opts) :set-cardinality-mismatch)))
 
 (defn check-leaf-cast
   [source-type target-type polarity]

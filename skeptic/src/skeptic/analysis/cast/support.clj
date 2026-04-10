@@ -4,20 +4,6 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(defn ensure-cast-state
-  [cast-state]
-  (or cast-state {}))
-
-(defn cast-state
-  [opts]
-  (ensure-cast-state (:cast-state opts)))
-
-(defn details-with-state
-  ([opts]
-   (details-with-state opts nil))
-  ([opts details]
-   (assoc (or details {}) :cast-state (cast-state opts))))
-
 (defn sealed-ground-name
   [type]
   (some-> type ato/normalize-type :ground ata/type-var-name))
@@ -68,6 +54,14 @@
   (cond-> result
     (some? segment) (update :path (fnil conj []) segment)))
 
+(defn indexed-request
+  [kind idx source-type target-type opts]
+  {:source-type source-type
+   :target-type target-type
+   :opts opts
+   :path-segment {:kind kind
+                  :index idx}})
+
 (defn all-ok?
   [results]
   (every? :ok? results))
@@ -77,13 +71,6 @@
   (if (all-ok? children)
     (cast-ok source-type target-type rule children)
     (cast-fail source-type target-type rule polarity reason children)))
-
-(defn cast-result-tree?
-  [value]
-  (and (map? value)
-       (contains? value :ok?)
-       (contains? value :rule)
-       (contains? value :children)))
 
 (defn semantic-type-children
   [type]
@@ -137,10 +124,12 @@
 (defn exit-nu-scope
   ([artifact binder]
    (exit-nu-scope artifact binder {}))
-  ([artifact binder opts]
-   (let [binder (or (ata/type-var-name (ato/normalize-type binder)) binder)
-         details (details-with-state opts)]
-     (if (cast-result-tree? artifact)
+  ([artifact binder _opts]
+   (let [binder (or (ata/type-var-name (ato/normalize-type binder)) binder)]
+     (if (and (map? artifact)
+              (contains? artifact :ok?)
+              (contains? artifact :rule)
+              (contains? artifact :children))
        (if (pos? (seal-balance artifact binder))
          (cast-fail (or (leaked-sealed-type artifact binder)
                         (:source-type artifact))
@@ -149,12 +138,12 @@
                     :global
                     :nu-tamper
                     [artifact]
-                    details)
-         (cast-ok (:target-type artifact) (at/->TypeVarT binder) :nu-pass [artifact] details))
+                    nil)
+         (cast-ok (:target-type artifact) (at/->TypeVarT binder) :nu-pass [artifact] nil))
        (let [type (ato/normalize-type artifact)]
          (if (contains-sealed-ground? type binder)
-           (cast-fail type (at/->TypeVarT binder) :nu-tamper :global :nu-tamper [] details)
-           (cast-ok type (at/->TypeVarT binder) :nu-pass [] details)))))))
+           (cast-fail type (at/->TypeVarT binder) :nu-tamper :global :nu-tamper [] nil)
+           (cast-ok type (at/->TypeVarT binder) :nu-pass [] nil)))))))
 
 (defn method-accepts-arity?
   [method arity]
@@ -176,10 +165,10 @@
 (defn check-type-test
   ([value-type ground-type]
    (check-type-test value-type ground-type {}))
-  ([value-type ground-type opts]
+  ([value-type ground-type _opts]
    (let [value-type (ato/normalize-type value-type)
          ground-type (ato/normalize-type ground-type)
-         details (details-with-state opts {:matches? (= value-type ground-type)})]
+         details {:matches? (= value-type ground-type)}]
      (if (at/sealed-dyn-type? value-type)
        (cast-fail value-type ground-type :is-tamper :global :is-tamper [] details)
        (cast-ok value-type ground-type :dynamic-test [] details)))))

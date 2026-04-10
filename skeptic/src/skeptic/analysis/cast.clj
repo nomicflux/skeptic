@@ -16,8 +16,7 @@
 
 (defn- dispatch-cast
   [run-cast source-type target-type opts]
-  (let [polarity (:polarity opts)
-        child-run #(run-child run-cast %)]
+  (let [child-run #(run-child run-cast %)]
     (cond
       (at/bottom-type? source-type)
       (ascs/cast-ok source-type target-type :bottom-source)
@@ -26,24 +25,24 @@
       (ascs/cast-ok source-type target-type :exact)
 
       (or (at/forall-type? target-type) (at/forall-type? source-type))
-      (quant/check-quantified-cast child-run source-type target-type polarity opts)
+      (quant/check-quantified-cast child-run source-type target-type opts)
 
       (or (at/type-var-type? target-type)
           (at/type-var-type? source-type)
           (at/sealed-dyn-type? source-type))
-      (quant/check-abstract-cast source-type target-type polarity opts)
+      (quant/check-abstract-cast source-type target-type opts)
 
       (at/dyn-type? target-type)
       (ascs/cast-ok source-type target-type :target-dyn)
 
       (or (at/union-type? target-type) (at/union-type? source-type))
-      (branch/check-union-cast child-run source-type target-type polarity opts)
+      (branch/check-union-cast child-run source-type target-type opts)
 
       (or (at/intersection-type? target-type) (at/intersection-type? source-type))
-      (branch/check-intersection-cast child-run source-type target-type polarity opts)
+      (branch/check-intersection-cast child-run source-type target-type opts)
 
       (or (at/maybe-type? source-type) (at/maybe-type? target-type))
-      (branch/check-maybe-cast child-run source-type target-type polarity opts)
+      (branch/check-maybe-cast child-run source-type target-type opts)
 
       (or (at/optional-key-type? source-type)
           (at/optional-key-type? target-type)
@@ -52,28 +51,28 @@
       (branch/check-wrapper-cast child-run source-type target-type opts)
 
       (and (at/fun-type? source-type) (at/fun-type? target-type))
-      (fun/check-function-cast child-run source-type target-type polarity opts)
+      (fun/check-function-cast child-run source-type target-type opts)
 
       (and (at/map-type? source-type) (at/map-type? target-type))
-      (cmap/check-map-cast child-run source-type target-type polarity opts)
+      (cmap/check-map-cast child-run source-type target-type opts)
 
       (and (at/vector-type? source-type) (at/vector-type? target-type))
-      (coll/check-vector-cast child-run source-type target-type polarity opts)
+      (coll/check-vector-cast child-run source-type target-type opts)
 
       (and (at/seq-type? source-type) (at/seq-type? target-type))
-      (coll/check-seq-cast child-run source-type target-type polarity opts)
+      (coll/check-seq-cast child-run source-type target-type opts)
 
       (and (at/seq-type? source-type) (at/vector-type? target-type))
-      (coll/check-seq-to-vector-cast child-run source-type target-type polarity opts)
+      (coll/check-seq-to-vector-cast child-run source-type target-type opts)
 
       (and (at/vector-type? source-type) (at/seq-type? target-type))
-      (coll/check-vector-to-seq-cast child-run source-type target-type polarity opts)
+      (coll/check-vector-to-seq-cast child-run source-type target-type opts)
 
       (and (at/set-type? source-type) (at/set-type? target-type))
-      (coll/check-set-cast child-run source-type target-type polarity opts)
+      (coll/check-set-cast child-run source-type target-type opts)
 
       :else
-      (coll/check-leaf-cast source-type target-type polarity))))
+      (coll/check-leaf-cast source-type target-type (:polarity opts)))))
 
 (defn- run-cast
   [source-type target-type opts]
