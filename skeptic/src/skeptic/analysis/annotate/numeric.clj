@@ -10,21 +10,20 @@
   #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
 
 (defn integral-ground-type?
-  [t]
-  (let [t (ato/normalize-type t)]
+  [type]
+  (let [type (ato/normalize-type type)]
     (cond
-      (and (at/ground-type? t) (= :int (:ground t))) true
-      (and (at/ground-type? t) (map? (:ground t)) (:class (:ground t)))
-      (contains? integral-arg-classes (:class (:ground t)))
-      (and (at/value-type? t) (integer? (:value t))) true
-      (at/refinement-type? t) (integral-ground-type? (:base t))
-      (at/intersection-type? t) (every? integral-ground-type? (:members t))
+      (and (at/ground-type? type) (= :int (:ground type))) true
+      (and (at/ground-type? type) (map? (:ground type)) (:class (:ground type)))
+      (contains? integral-arg-classes (:class (:ground type)))
+      (and (at/value-type? type) (integer? (:value type))) true
+      (at/refinement-type? type) (integral-ground-type? (:base type))
+      (at/intersection-type? type) (every? integral-ground-type? (:members type))
       :else false)))
 
 (defn inc-dec-narrow-int-output?
   [arg-node arg-type]
-  (and (not= :const (:op arg-node))
-       (integral-ground-type? arg-type)))
+  (and (not= :const (:op arg-node)) (integral-ground-type? arg-type)))
 
 (defn binary-integral-locals-narrow?
   [arg-nodes arg-types]
@@ -55,27 +54,26 @@
     (and (ac/minus-invoke? fn-node) (= 2 (count args))
          (binary-integral-locals-narrow? args actual-argtypes))
     (at/->GroundT :int 'Int)
-
     :else nil))
 
 (defn narrow-static-numbers-output
   [node args actual-argtypes native-info]
-  (let [out (:output-type native-info)
-        m (:method node)]
-    (or (when (#{'inc 'dec} m)
+  (let [method (:method node)]
+    (or (when (#{'inc 'dec} method)
           (when (and (= 1 (count args))
                      (inc-dec-narrow-int-output? (first args) (first actual-argtypes)))
             (at/->GroundT :int 'Int)))
-        (when (#{'add 'multiply} m)
+        (when (#{'add 'multiply} method)
           (when (binary-integral-locals-narrow? args actual-argtypes)
             (at/->GroundT :int 'Int)))
-        (when (= 'minus m)
+        (when (= 'minus method)
           (cond
             (and (= 1 (count args))
                  (not= :const (:op (first args)))
                  (integral-ground-type? (first actual-argtypes)))
             (at/->GroundT :int 'Int)
+
             (binary-integral-locals-narrow? args actual-argtypes)
             (at/->GroundT :int 'Int)
             :else nil))
-        out)))
+        (:output-type native-info))))

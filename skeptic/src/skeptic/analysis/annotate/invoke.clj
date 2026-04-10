@@ -1,58 +1,73 @@
 (ns skeptic.analysis.annotate.invoke
-  (:require [skeptic.analysis.annotate.fn :as aaf]
-            [skeptic.analysis.annotate.invoke-output :as aaio]
-            [skeptic.analysis.annotate.numeric :as aan]
+  (:require [skeptic.analysis.annotate.fn :as fn-annotate]
+            [skeptic.analysis.annotate.invoke-output :as invoke-output]
+            [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.type-ops :as ato]))
+            [skeptic.analysis.map-ops :as amo]
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]))
 
 (defn resolve-unary-fn-arg-type-hint
   [ctx fn-ast node]
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))
-        hint (cond
-               (and (= :fn (:op fn-ast))
-                    (= 1 (count (:methods fn-ast)))
-                    (= 1 (count args)))
-               {:src-fn fn-ast
-                :param-form (:form (first (:params (first (:methods fn-ast)))))
-                :args args}
+        local-fn (when (= :local (:op fn-ast))
+                   (some-> (get (:locals ctx) (:form fn-ast))
+                           :fn-binding-node))
+        source-fn (cond
+                    (and (= :fn (:op fn-ast))
+                         (= 1 (count (:methods fn-ast)))
+                         (= 1 (count args)))
+                    fn-ast
 
-               (= :local (:op fn-ast))
-               (let [e (get (:locals ctx) (:form fn-ast))
-                     fnode (:fn-binding-node e)]
-                 (when (and fnode
-                            (= :fn (:op fnode))
-                            (= 1 (count (:methods fnode)))
-                            (= 1 (count args)))
-                   {:src-fn fnode
-                    :param-form (:form (first (:params (first (:methods fnode)))))
-                    :args args}))
+                    (and (= :fn (:op local-fn))
+                         (= 1 (count (:methods local-fn)))
+                         (= 1 (count args)))
+                    local-fn
+                    :else nil)]
+    (when source-fn
+      (let [param-form (:form (first (:params (first (:methods source-fn)))))]
+        {:args args
+         :fn-node (fn-annotate/annotate-fn
+                   ctx
+                   source-fn
+                   {:param-type-overrides {param-form (or (:type (first args)) at/Dyn)}})}))))
 
-               :else nil)]
-    (when hint
-      (assoc hint
-             :fn-node (aaf/annotate-fn ctx
-                                       (:src-fn hint)
-                                       {:param-type-overrides {(:param-form hint)
-                                                               (or (:type (first args)) at/Dyn)}})))))
+(defn- annotate-fn-and-args
+  [ctx node]
+  (if-let [hint (resolve-unary-fn-arg-type-hint ctx (:fn node) node)]
+    [(:fn-node hint) (:args hint)]
+    [((:recurse ctx) ctx (:fn node))
+     (mapv #((:recurse ctx) ctx %) (:args node))]))
+
+(defn- build-invoke-node
+  [node fn-node args output-type fn-type expected-argtypes]
+  (assoc node
+         :fn fn-node
+         :args args
+         :actual-argtypes (mapv :type args)
+         :expected-argtypes (mapv ato/normalize-type expected-argtypes)
+         :type (ato/normalize-type output-type)
+         :fn-type (ato/normalize-type fn-type)))
 
 (defn annotate-invoke
   [ctx node]
-  (let [fn-ast (:fn node)
-        hint (resolve-unary-fn-arg-type-hint ctx fn-ast node)
-        [fn-node args]
-        (if hint
-          [(:fn-node hint) (:args hint)]
-          [((:recurse ctx) ctx fn-ast)
-           (mapv #((:recurse ctx) ctx %) (:args node))])
-        {:keys [expected-argtypes output-type fn-type]} (ac/call-info fn-node args)
-        output-type (aaio/invoke-output-type fn-node args output-type)
-        narrow-t (aan/invoke-integral-math-narrow-type fn-node args (mapv :type args))
-        output-type (or narrow-t output-type)]
+  (let [[fn-node args] (annotate-fn-and-args ctx node)
+        call-info (ac/call-info fn-node args)
+        output-type (invoke-output/invoke-output-type fn-node args (:output-type call-info))
+        output-type (or (numeric/invoke-integral-math-narrow-type
+                         fn-node args (mapv :type args))
+                        output-type)]
+    (build-invoke-node node fn-node args output-type (:fn-type call-info) (:expected-argtypes call-info))))
+
+(defn annotate-keyword-invoke
+  [ctx node]
+  (let [target ((:recurse ctx) ctx (:target node))
+        keyword-node ((:recurse ctx) ctx (:keyword node))
+        query (amo/exact-key-query nil (:val keyword-node) (:form keyword-node))
+        type (amo/map-get-type (:type target) query)]
     (assoc node
-           :fn fn-node
-           :args args
-           :actual-argtypes (mapv :type args)
-           :expected-argtypes (mapv ato/normalize-type expected-argtypes)
-           :type (ato/normalize-type output-type)
-           :fn-type (ato/normalize-type fn-type))))
+           :target target
+           :keyword keyword-node
+           :type type
+           :actual-argtypes [(:type target)]
+           :expected-argtypes [at/Dyn])))

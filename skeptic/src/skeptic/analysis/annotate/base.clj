@@ -4,30 +4,29 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]))
 
+(defn- annotate-child
+  [ctx value]
+  (cond
+    (vector? value) (mapv #((:recurse ctx) ctx %) value)
+    (map? value) ((:recurse ctx) ctx value)
+    :else value))
+
 (defn annotate-children
   [ctx node]
   (reduce (fn [acc key]
-            (let [value (get acc key)
-                  annotated (if (vector? value)
-                              (mapv #((:recurse ctx) ctx %) value)
-                              ((:recurse ctx) ctx value))]
-              (assoc acc key annotated)))
+            (assoc acc key (annotate-child ctx (get acc key))))
           node
           (:children node)))
 
 (defn annotate-const
   [_ctx node]
-  (let [type (av/type-of-value (:val node))]
-    (assoc node
-           :type type)))
+  (assoc node :type (av/type-of-value (:val node))))
 
 (defn annotate-binding
   [ctx node]
   (if-let [init (:init node)]
     (let [annotated-init ((:recurse ctx) ctx init)]
-      (merge node
-             {:init annotated-init}
-             (ac/node-info annotated-init)))
+      (merge node {:init annotated-init} (ac/node-info annotated-init)))
     node))
 
 (defn annotate-local

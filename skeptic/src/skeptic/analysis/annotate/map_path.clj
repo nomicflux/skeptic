@@ -4,14 +4,24 @@
 
 (defn reduce-assoc-pairs
   [m-type kv-pairs]
-  (reduce (fn [t [kn vn]]
-            (let [lk (when (ac/literal-map-key? kn) (ac/literal-node-value kn))]
-              (if (keyword? lk) (amoa/assoc-type t lk (:type vn)) t)))
-          m-type kv-pairs))
+  (reduce (fn [type [key-node value-node]]
+            (if-let [literal (and (ac/literal-map-key? key-node)
+                                  (ac/literal-node-value key-node))]
+              (if (keyword? literal)
+                (amoa/assoc-type type literal (:type value-node))
+                type)
+              type))
+          m-type
+          kv-pairs))
 
 (defn reduce-dissoc-keys
   [m-type key-nodes]
-  (reduce (fn [t kn]
-            (let [lk (when (ac/literal-map-key? kn) (ac/literal-node-value kn))]
-              (if (keyword? lk) (amoa/dissoc-type t lk) t)))
-          m-type key-nodes))
+  (reduce (fn [type key-node]
+            (if-let [literal (and (ac/literal-map-key? key-node)
+                                  (ac/literal-node-value key-node))]
+              (if (keyword? literal)
+                (amoa/dissoc-type type literal)
+                type)
+              type))
+          m-type
+          key-nodes))

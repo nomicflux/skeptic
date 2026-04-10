@@ -10,8 +10,7 @@
   (if (symbol? value)
     (let [name-part (name value)]
       (if (str/includes? name-part "__")
-        (symbol (namespace value)
-                (first (str/split name-part #"__")))
+        (symbol (namespace value) (first (str/split name-part #"__")))
         value))
     value))
 
@@ -22,42 +21,35 @@
 (defn var->sym
   [value]
   (when (instance? clojure.lang.Var value)
-    (let [m (meta value)]
-      (symbol (str (ns-name (:ns m)) "/" (:name m))))))
+    (let [meta-map (meta value)]
+      (symbol (str (ns-name (:ns meta-map)) "/" (:name meta-map))))))
 
 (def stable-keys
   [:op :form :body? :local :arg-id :variadic? :class :method :validated?
    :literal? :type :output-type :fn-type :types :arglist :arglists :param-specs
    :actual-argtypes :expected-argtypes :raw-forms])
 
-(declare project-node)
-
-(defn project-children
-  [node]
-  (mapv (fn [[key child]]
-          [key (project-node child)])
-        (aapi/node-children node)))
-
-(defn project-node
-  [node]
-  (cond
-    (nil? node) nil
-    (vector? node) (mapv project-node node)
-    (map? node)
-    (let [base (cond-> (select-keys node stable-keys)
-                 (aapi/node-form node) (update :form normalize-form)
-                 (aapi/node-raw-forms node) (update :raw-forms #(mapv normalize-form %))
-                 (and (= :def (aapi/node-op node)) (aapi/node-name node)) (assoc :name (aapi/node-name node))
-                 (#{:var :the-var} (aapi/node-op node)) (assoc :resolved-var (var->sym (:var node)))
-                 (seq (aapi/node-children node)) (assoc :children (project-children node)))]
-      (into {}
-            (remove (comp nil? val))
-            base))
-    :else node))
-
 (defn project-ast
   [root]
-  (project-node root))
+  (letfn [(project-node [node]
+            (cond
+              (nil? node) nil
+              (vector? node) (mapv project-node node)
+              (map? node)
+              (let [base (cond-> (select-keys node stable-keys)
+                           (aapi/node-form node) (update :form normalize-form)
+                           (aapi/node-raw-forms node) (update :raw-forms #(mapv normalize-form %))
+                           (and (= :def (aapi/node-op node)) (aapi/node-name node))
+                           (assoc :name (aapi/node-name node))
+                           (#{:var :the-var} (aapi/node-op node))
+                           (assoc :resolved-var (var->sym (:var node)))
+                           (seq (aapi/node-children node))
+                           (assoc :children
+                                  (mapv (fn [[key child]] [key (project-node child)])
+                                        (aapi/node-children node))))]
+                (into {} (remove (comp nil? val)) base))
+              :else node))]
+    (project-node root)))
 
 (defn projected-nodes
   [root]
@@ -66,9 +58,7 @@
              (cond
                (nil? node) nil
                (vector? node) (mapcat walk-projected node)
-               (map? node) (cons node
-                                 (mapcat (comp walk-projected second)
-                                         (:children node)))
+               (map? node) (cons node (mapcat (comp walk-projected second) (:children node)))
                :else nil)))]
     (walk-projected root)))
 
@@ -78,9 +68,7 @@
 
 (defn child-projection
   [node key]
-  (->> (:children node)
-       (some (fn [[child-key child]]
-               (when (= child-key key) child)))))
+  (some (fn [[child-key child]] (when (= child-key key) child)) (:children node)))
 
 (defn ast-by-name
   [asts sym]
@@ -102,26 +90,19 @@
 
 (defn test-local-node
   [sym init]
-  {:op :local
-   :form sym
-   :type (aapi/node-type init)
-   :binding-init init})
+  {:op :local :form sym :type (aapi/node-type init) :binding-init init})
 
 (defn test-fn-node
   [sym]
-  {:op :var
-   :form sym})
+  {:op :var :form sym})
 
 (defn test-typed-node
   [op form type]
-  {:op op
-   :form form
-   :type type})
+  {:op op :form form :type type})
 
 (defn test-const-node
   [value]
-  {:op :const
-   :val value})
+  {:op :const :val value})
 
 (defn test-invoke-node
   [fn-node args expected actual]
@@ -133,17 +114,12 @@
 
 (defn test-invoke-form-node
   [fn-node args form type]
-  (assoc (test-invoke-node fn-node args [] [])
-         :form form
-         :type type))
+  (assoc (test-invoke-node fn-node args [] []) :form form :type type))
 
 (defn test-with-meta-node
   [expr]
-  {:op :with-meta
-   :expr expr})
+  {:op :with-meta :expr expr})
 
 (defn test-static-call-node
   [class method]
-  {:op :static-call
-   :class class
-   :method method})
+  {:op :static-call :class class :method method})
