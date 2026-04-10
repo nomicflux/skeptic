@@ -17,6 +17,8 @@
       (and (at/ground-type? t) (map? (:ground t)) (:class (:ground t)))
       (contains? integral-arg-classes (:class (:ground t)))
       (and (at/value-type? t) (integer? (:value t))) true
+      (at/refinement-type? t) (integral-ground-type? (:base t))
+      (at/intersection-type? t) (every? integral-ground-type? (:members t))
       :else false)))
 
 (defn inc-dec-narrow-int-output?

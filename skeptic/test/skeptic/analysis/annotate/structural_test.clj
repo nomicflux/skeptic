@@ -190,6 +190,14 @@
       (is (= (atst/T s/Int) (first (:expected-argtypes root))))
       (is (not (:ok? (cast/check-cast (atst/T s/Str) (first (:expected-argtypes root)))))))))
 
+(deftest numbers-dec-narrows-for-constrained-local-test
+  (let [ctx (atst/local-types {'n (atst/T (s/constrained s/Int pos?))})
+        root (atst/project-ast
+              (atst/analyze-form '(. clojure.lang.Numbers (dec n)) ctx))]
+    (is (= (atst/T s/Int) (:type root)))
+    (is (not= atst/num-ground (:type root)))
+    (is (:ok? (cast/check-cast (:type root) (atst/T (s/constrained s/Int pos?)))))))
+
 (deftest native-seq-concat-and-tuple-adversarial-test
   (testing "concat joins element types (not first collection only)"
     (let [root (atst/project-ast (atst/analyze-form {} '(concat [1] ["a"])))]
