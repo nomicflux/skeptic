@@ -1,12 +1,11 @@
 (ns skeptic.checking.pipeline
   (:require [skeptic.analysis.annotate :as aa]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
-            [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.localize :as abl]
-            [skeptic.analysis.bridge.render :as abr]
             [skeptic.checking.ast :as ca]
             [skeptic.checking.form :as cf]
             [skeptic.file :as file]
@@ -17,24 +16,7 @@
 
 (defn analyzed-def-entry
   [ns-sym analyzed]
-  (let [node (ca/unwrap-with-meta analyzed)
-        init-node (some-> node :init ca/unwrap-with-meta)
-        value-node (or (some-> init-node :expr ca/unwrap-with-meta)
-                       init-node)
-        raw-name (some-> (:name node) name symbol)
-        qualified-name (when raw-name
-                         (ac/qualify-symbol ns-sym raw-name))]
-    (when (and (= :def (:op node))
-               qualified-name
-               value-node)
-      [qualified-name
-       (abr/strip-derived-types
-        (into {}
-              (remove (comp nil? val))
-              {:type (:type value-node)
-               :output-type (:output-type value-node)
-               :arglists (:arglists value-node)
-               :arglist (:arglist value-node)}))])))
+  (aapi/analyzed-def-entry ns-sym analyzed))
 
 (defn analyze-source-exprs
   [dict ns-sym source-file exprs]
@@ -54,26 +36,25 @@
 
 (defn method-output-type
   [method]
-  (let [body (:body method)
-        output-type (:output-type method)
-        tagged-output (some-> (:tag body) av/class->type)]
+  (let [{:keys [body output-type]} (aapi/method-result-type method)
+        tagged-output (some-> (aapi/node-tag body) av/class->type)]
     (if (incm/unknown-output-type? (ato/normalize-type output-type))
       (ato/normalize-type (or tagged-output output-type))
       (ato/normalize-type output-type))))
 
 (defn def-output-results
   [dict ns-sym source-file source-form enclosing-form node]
-  (let [entry (some-> (ca/dict-entry dict ns-sym (:name node))
+  (let [entry (some-> (ca/dict-entry dict ns-sym (aapi/node-name node))
                       an/normalize-entry)
         expected-output (some-> (:output-type entry) ato/normalize-type)
-        init-node (some-> node :init ca/unwrap-with-meta)
-        methods (:methods init-node)]
+        init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
+        methods (aapi/function-methods init-node)]
     (when (and expected-output (seq methods))
       (->> (map vector methods (cf/defn-decls source-form))
            (keep (fn [[method decl]]
                    (let [source-body (cf/method-source-body decl)
                          actual-output (method-output-type method)
-                         body (:body method)
+                         body (aapi/method-body method)
                          source-body-location
                          (cf/merge-location
                           (when source-file (cf/form-location source-file decl))
@@ -81,18 +62,18 @@
                             (select-keys (meta source-body)
                                          [:file :line :column :end-line :end-column])))
                          report (inrep/output-cast-report
-                                 {:expr (:name node)
-                                  :arg (or source-body (:form body))}
+                                 {:expr (aapi/node-name node)
+                                  :arg (or source-body (aapi/node-form body))}
                                  expected-output
                                  actual-output)]
                      (when-not (:ok? report)
                        (let [source-expression (cf/form-source source-body)
-                             display {:expr (or source-body (:form body))
+                             display {:expr (or source-body (aapi/node-form body))
                                       :source-expression source-expression
-                                      :expanded-expression (when (or (not= source-body (:form body))
+                                      :expanded-expression (when (or (not= source-body (aapi/node-form body))
                                                                      (and source-expression
-                                                                          (not= source-expression (pr-str (:form body)))))
-                                                             (:form body))
+                                                                          (not= source-expression (pr-str (aapi/node-form body)))))
+                                                             (aapi/node-form body))
                                       :location source-body-location}]
                          {:blame (:expr display)
                           :report-kind :output
@@ -117,7 +98,7 @@
 (defn input-error-group
   [expr arg-node expected actual]
   (let [arg-expr (if (some? arg-node)
-                   (:form arg-node)
+                   (aapi/node-form arg-node)
                    arg-node)
         report (inrep/cast-report {:expr expr
                                    :arg arg-expr}
@@ -164,21 +145,21 @@
 (defn match-s-exprs
   [enclosing-form node keep-empty]
   (when (ca/call-node? node)
-    (let [expected-arglist (vec (:expected-argtypes node))
-          actual-arglist (vec (:actual-argtypes node))]
+    (let [expected-arglist (vec (aapi/call-expected-argtypes node))
+          actual-arglist (vec (aapi/call-actual-argtypes node))]
       (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
               (format "Arglists must not be nil: %s %s\n%s"
                       expected-arglist actual-arglist node))
       (assert (>= (count actual-arglist) (count expected-arglist))
               (format "Actual should have at least as many elements as expected: %s %s\n%s"
                       expected-arglist actual-arglist node))
-      (let [arg-nodes (if (= :recur (:op node)) (:exprs node) (:args node))
+      (let [arg-nodes (if (aapi/recur-node? node) (aapi/recur-args node) (aapi/call-args node))
             matched (cf/spy :matched-arglists
                             (ca/match-up-arglists arg-nodes
                                                   (cf/spy :expected-argtypes expected-arglist)
                                                   (cf/spy :actual-argtypes actual-arglist)))]
         (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
-                                           (input-error-group (:form node) arg-node expected actual))
+                                           (input-error-group (aapi/node-form node) arg-node expected actual))
                                          matched))]
           (input-cast-result enclosing-form node error-groups)
           (when keep-empty
@@ -195,7 +176,7 @@
 (defn check-resolved-form
   [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context]}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
-        results (->> (sac/ast-nodes analyzed)
+        results (->> (aapi/annotated-nodes analyzed)
                      (mapcat (fn [node]
                                (abl/with-error-context (cf/node-error-context node enclosing-form)
                                  (let [call-result (match-s-exprs enclosing-form node keep-empty)]

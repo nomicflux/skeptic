@@ -1,6 +1,7 @@
 (ns skeptic.analysis.origin-test
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.examples]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.schema-base :as sb]
@@ -25,50 +26,50 @@
 
 (deftest typed-binding-and-refinement-test
   (testing "let-driven flow through or expands to refinable branch"
-    (let [or-let (atst/project-ast (atst/analyze-form '(let [y nil
-                                                             x (or y 1)]
-                                                         (skeptic.test-examples/int-add x 2))))]
-      (is (= (atst/T s/Int) (:type or-let)))
-      (is (atst/find-projected-node or-let #(and (= :if (:op %))
-                                                  (= (atst/T s/Int) (:type %)))))))
+    (let [or-let (atst/analyze-form '(let [y nil
+                                           x (or y 1)]
+                                       (skeptic.test-examples/int-add x 2)))]
+      (is (= (atst/T s/Int) (aapi/node-type or-let)))
+      (is (aapi/find-node or-let #(and (= :if (aapi/node-op %))
+                                       (= (atst/T s/Int) (aapi/node-type %)))))))
   (testing "if refinement and joins"
-    (let [literal-if (atst/project-ast (atst/analyze-form '(if (even? 2) true "hello")))
-          local-if (atst/project-ast (atst/analyze-form '(if (pos? x) 1 -1)
-                                                       (atst/locals 'x)))
-          maybe-if (atst/project-ast (atst/analyze-form '(let [x nil] (if x x 1))))
-          or-form (atst/project-ast (atst/analyze-form '(or nil 1)))]
-      (is (= (atst/T (sb/join s/Bool s/Str)) (:type literal-if)))
-      (is (= (atst/T s/Int) (:type local-if)))
-      (is (= (atst/T s/Int) (:type maybe-if)))
-      (is (= :let (:op or-form)))
-      (is (= (atst/T s/Int) (:type or-form))))))
+    (let [literal-if (atst/analyze-form '(if (even? 2) true "hello"))
+          local-if (atst/analyze-form '(if (pos? x) 1 -1)
+                                      (atst/locals 'x))
+          maybe-if (atst/analyze-form '(let [x nil] (if x x 1)))
+          or-form (atst/analyze-form '(or nil 1))]
+      (is (= (atst/T (sb/join s/Bool s/Str)) (aapi/node-type literal-if)))
+      (is (= (atst/T s/Int) (aapi/node-type local-if)))
+      (is (= (atst/T s/Int) (aapi/node-type maybe-if)))
+      (is (= :let (aapi/node-op or-form)))
+      (is (= (atst/T s/Int) (aapi/node-type or-form))))))
 
 (deftest attach-type-branch-refinement-test
   (testing "or/let typed setup exposes branch join on inner if"
-    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
-                                                    '(let [y nil
-                                                           x (or y 1)]
-                                                       (skeptic.test-examples/int-add x 2))))]
-      (is (= (atst/T s/Int) (:type root)))
-      (is (atst/find-projected-node root #(and (= :if (:op %))
-                                                (= (atst/T s/Int) (:type %)))))))
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(let [y nil
+                                         x (or y 1)]
+                                     (skeptic.test-examples/int-add x 2)))]
+      (is (= (atst/T s/Int) (aapi/node-type root)))
+      (is (aapi/find-node root #(and (= :if (aapi/node-op %))
+                                     (= (atst/T s/Int) (aapi/node-type %)))))))
   (testing "literal if join"
-    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
-                                                    '(if (even? 2) true "hello")))]
-      (is (= (atst/T (sb/join s/Bool s/Str)) (:type root)))))
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(if (even? 2) true "hello"))]
+      (is (= (atst/T (sb/join s/Bool s/Str)) (aapi/node-type root)))))
   (testing "symbol test if keeps output type when branches agree"
-    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
-                                                    '(if (pos? x) 1 -1)))]
-      (is (= (atst/T s/Int) (:type root)))))
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(if (pos? x) 1 -1))]
+      (is (= (atst/T s/Int) (aapi/node-type root)))))
   (testing "maybe-refinement if joins nilable branch with default"
-    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
-                                                    '(let [x nil] (if x x 1))))]
-      (is (= (atst/T s/Int) (:type root)))))
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(let [x nil] (if x x 1)))]
+      (is (= (atst/T s/Int) (aapi/node-type root)))))
   (testing "or macro matches expanded branch join"
-    (let [root (atst/project-ast (atst/analyze-form atst/typed-test-examples-dict
-                                                    '(or nil 1)))]
-      (is (= :let (:op root)))
-      (is (= (atst/T s/Int) (:type root))))))
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(or nil 1))]
+      (is (= :let (aapi/node-op root)))
+      (is (= (atst/T s/Int) (aapi/node-type root))))))
 
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
@@ -83,13 +84,17 @@
                                                      atst/examples-file
                                                      (atst/source-exprs-in 'skeptic.examples atst/examples-file))]
       (is (= (atst/T (sb/join s/Int s/Str))
-             (get-in test-res [:resolved-defs 'skeptic.test-examples/sample-if-mixed-fn :output-type])))
+             (aapi/resolved-def-output-type (:resolved-defs test-res)
+                                            'skeptic.test-examples/sample-if-mixed-fn)))
       (is (= (atst/T s/Int)
-             (get-in test-res [:resolved-defs 'skeptic.test-examples/flat-multi-step-g :output-type])))
+             (aapi/resolved-def-output-type (:resolved-defs test-res)
+                                            'skeptic.test-examples/flat-multi-step-g)))
       (is (= (atst/T (s/maybe s/Int))
-             (get-in example-res [:resolved-defs 'skeptic.examples/flat-maybe-multi-step-f :output-type])))
+             (aapi/resolved-def-output-type (:resolved-defs example-res)
+                                            'skeptic.examples/flat-maybe-multi-step-f)))
       (is (= (atst/T {:value (s/maybe s/Int)})
-             (get-in example-res [:resolved-defs 'skeptic.examples/nested-maybe-multi-step-f :output-type]))))))
+             (aapi/resolved-def-output-type (:resolved-defs example-res)
+                                            'skeptic.examples/nested-maybe-multi-step-f))))))
 
 (deftest and-chain-assumptions-two-some-test
   (testing "expanded and collects each some? conjunct from macro shape"
@@ -110,9 +115,9 @@
                                            x (if (nil? x) nil (skeptic.test-examples/non-null-transform x))]
                                        (if (nil? x) nil (#(- %) x))))
                                   {:locals {'input (atst/T (s/maybe s/Num))}})
-          minus (atst/find-projected-node (atst/project-ast root)
-                                          #(and (= :static-call (:op %))
-                                                (= Numbers (:class %))
-                                                (= 'minus (:method %))))]
+          minus (aapi/find-node root
+                                #(and (= :static-call (aapi/node-op %))
+                                      (= Numbers (aapi/node-class %))
+                                      (= 'minus (aapi/node-method %))))]
       (is (some? minus) "expected unary - lowered to Numbers/minus")
-      (is (= atst/num-ground (first (:actual-argtypes minus)))))))
+      (is (= atst/num-ground (first (aapi/call-actual-argtypes minus)))))))

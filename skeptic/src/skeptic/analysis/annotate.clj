@@ -5,12 +5,12 @@
             [skeptic.analysis.annotate.control :as aactl]
             [skeptic.analysis.annotate.data :as aad]
             [skeptic.analysis.annotate.fn :as aaf]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.invoke :as aai]
             [skeptic.analysis.annotate.jvm :as aaj]
             [skeptic.analysis.annotate.match :as aam]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.calls :as ac]
             [skeptic.analysis.native-fns :as anf]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.types :as at]))
@@ -86,7 +86,7 @@
                               :ns (ns-name target-ns)
                               :locals (into {}
                                             (map-indexed (fn [idx sym]
-                                                           [sym (ac/local-binding-ast idx sym)]))
+                                                           [sym (aapi/synthetic-binding-node idx sym)]))
                                             (keys locals)))
                  source-file
                  (assoc :file source-file)))]

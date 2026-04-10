@@ -1,15 +1,9 @@
 (ns skeptic.checking.ast
-  (:require [skeptic.analysis.ast-children :as sac]
+  (:require [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
             [skeptic.checking.form :as cf]))
 
-(def invoke-ops
-  #{:instance-call
-    :invoke
-    :keyword-invoke
-    :prim-invoke
-    :protocol-invoke
-    :static-call})
+(def invoke-ops aapi/invoke-ops)
 
 (defn distinctv
   [xs]
@@ -22,16 +16,11 @@
 
 (defn node-ref
   [node]
-  (when node
-    (select-keys node [:form :type])))
+  (aapi/node-ref node))
 
 (defn callee-ref
   [node]
-  (when node
-    (case (:op node)
-      :invoke (node-ref (:fn node))
-      :with-meta (recur (:expr node))
-      nil)))
+  (aapi/callee-ref node))
 
 (defn match-up-arglists
   [arg-nodes expected actual]
@@ -46,50 +35,19 @@
 
 (defn local-resolution-path
   [local-node]
-  (let [init (:binding-init local-node)]
-    (if init
-      (cond-> [(node-ref init)]
-        (callee-ref init)
-        (conj (callee-ref init)))
-      [])))
+  (aapi/local-resolution-path local-node))
 
 (defn local-vars-context
   [node]
-  (->> (sac/ast-nodes node)
-       (filter #(= :local (:op %)))
-       (reduce (fn [acc local-node]
-                 (if (contains? acc (:form local-node))
-                   acc
-                   (assoc acc
-                          (:form local-node)
-                          {:form (:form local-node)
-                           :type (:type local-node)
-                           :resolution-path (local-resolution-path local-node)})))
-               {})))
+  (aapi/local-vars-context node))
 
 (defn call-refs
   [node]
-  (let [fn-node (:fn node)]
-    (cond
-      (nil? fn-node) []
-      (= :local (:op fn-node))
-      (into [(node-ref fn-node)]
-            (local-resolution-path fn-node))
-      :else
-      (cond-> []
-        (node-ref fn-node)
-        (conj (node-ref fn-node))))))
+  (aapi/call-refs node))
 
 (defn call-node?
   [node]
-  (or (and (contains? invoke-ops (:op node))
-           (vector? (:args node))
-           (seq (:expected-argtypes node))
-           (seq (:actual-argtypes node)))
-      (and (= :recur (:op node))
-           (vector? (:exprs node))
-           (seq (:expected-argtypes node))
-           (seq (:actual-argtypes node)))))
+  (aapi/call-node? node))
 
 (defn dict-entry
   [dict ns-sym sym]
@@ -98,6 +56,4 @@
 
 (defn unwrap-with-meta
   [node]
-  (if (= :with-meta (:op node))
-    (recur (:expr node))
-    node))
+  (aapi/unwrap-with-meta node))

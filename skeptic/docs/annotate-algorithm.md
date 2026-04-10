@@ -350,6 +350,14 @@ That last invariant is the main rewrite constraint imposed by `Blame for All`: t
 
 This section records the public annotate-subtree symbols that are actually called outside the annotation subtree today.
 
+The intended rewrite boundary is now:
+
+- `skeptic.analysis.annotate/annotate-form-loop` for running annotation
+- `skeptic.analysis.annotate.api` for all production access to annotated results
+- `skeptic.analysis.annotate.test-api` for test-only projections, queries, and synthetic fixtures
+
+Outside `skeptic.analysis.annotate*`, callers must treat annotated results as opaque. They must not read annotated node maps directly, walk child structure directly, or depend on field names as contracts.
+
 ### Production Boundary
 
 #### `skeptic.analysis.annotate/annotate-form-loop`
@@ -374,70 +382,118 @@ Output:
 
 - annotated analyzer AST rooted at the analyzed form
 
-Observed external callers:
+Observed external production caller:
 
 - `skeptic.checking.pipeline/analyze-source-exprs`
-- `skeptic.analysis-test/analyze-form`
-- direct use in `skeptic.analysis.annotate.integration-test`
-- direct use in `skeptic.analysis.annotate.structural-test`
 
-#### `skeptic.analysis.annotate/node-location`
+#### `skeptic.analysis.annotate.api`
 
-Observed arity:
+This namespace is now the production accessor boundary for annotated output. The rewrite must preserve the fact that external production code reaches annotation results only through named helpers here, not through node-map keyword reads.
 
-- `[node]`
+Observed externally used helper groups:
 
-Input:
+- node identity and classification
+  - `node-location`
+  - `node-info`
+  - `node-op`
+  - `node-form`
+  - `node-type`
+  - `node-output-type`
+  - `node-fn-type`
+  - `node-origin`
+  - `node-name`
+  - `node-class`
+  - `node-method`
+  - `node-tag`
+  - `node-target`
+  - `node-keyword`
+  - `local-node?`
+  - `if-node?`
+  - `let-node?`
+  - `recur-node?`
+  - `call-node?`
+  - `invoke-ops`
+- tree navigation and node search
+  - `annotated-nodes`
+  - `find-node`
+  - `unwrap-with-meta`
+- call and callable metadata
+  - `call-fn-node`
+  - `call-args`
+  - `recur-args`
+  - `call-actual-argtypes`
+  - `call-expected-argtypes`
+  - `typed-call-metadata-only?`
+- binding and local-resolution helpers
+  - `binding-init`
+  - `local-resolution-path`
+  - `local-vars-context`
+  - `synthetic-binding-node`
+- function and definition helpers
+  - `node-arglists`
+  - `function-methods`
+  - `method-body`
+  - `def-init-node`
+  - `analyzed-def-entry`
+  - `method-result-type`
+  - `resolved-def-output-type`
+- branch and refinement helpers
+  - `node-test`
+  - `node-body`
+  - `node-init`
+  - `node-bindings`
+  - `then-node`
+  - `else-node`
+  - `branch-origin-kind`
+  - `branch-test-assumption`
 
-- annotated or unannotated analyzer node whose form metadata may contain source coordinates
+Observed external production consumers:
 
-Output:
+- `skeptic.analysis.calls`
+- `skeptic.analysis.origin`
+- `skeptic.checking.ast`
+- `skeptic.checking.form`
+- `skeptic.checking.pipeline`
 
-- a map containing any present subset of:
-  - `:file`
-  - `:line`
-  - `:column`
-  - `:end-line`
-  - `:end-column`
+### Test-Only Boundary
 
-Observed external caller:
+`skeptic.analysis.annotate.test-api` owns the test-facing helpers that were previously implemented in non-annotate test code. Tests outside annotate now rely on this namespace instead of projecting or synthesizing annotate nodes themselves.
 
-- `skeptic.checking.form/display-expr`
+Observed externally used test helpers:
 
-### Test-Only Public Helpers Still Called Outside The Subtree
+- annotation wrapper
+  - `annotate-form-loop`
+- stable projection and query helpers
+  - `stable-keys`
+  - `arglist-types`
+  - `project-ast`
+  - `projected-nodes`
+  - `find-projected-node`
+  - `child-projection`
+  - `ast-by-name`
+  - `node-by-form`
+- synthetic test fixtures for annotate-shaped nodes
+  - `test-local-node`
+  - `test-fn-node`
+  - `test-typed-node`
+  - `test-const-node`
+  - `test-invoke-node`
+  - `test-invoke-form-node`
+  - `test-with-meta-node`
+  - `test-static-call-node`
 
-These are not part of the production pipeline boundary, but they are public annotate-subtree symbols currently called from tests outside their defining namespaces.
+Observed external test consumers:
 
-#### `skeptic.analysis.annotate.coll`
+- `skeptic.analysis-test`
+- `skeptic.analysis.calls-test`
+- `skeptic.checking.ast-test`
 
-Externally called helpers:
+### Internal-Only Annotate Namespaces Still Directly Tested Inside The Subtree
 
-- `seqish-element-type [t] -> element-type-or-nil`
-- `coll-first-type [t] -> element-type-or-nil`
-- `coll-rest-output-type [t] -> collection-type-or-nil`
-- `coll-take-prefix-type [t n] -> vector-type-or-nil`
-- `coll-drop-prefix-type [t n] -> vector-type-or-nil`
-- `concat-output-type [args] -> seq-type-or-nil`
-- `into-output-type [args] -> collection-type-or-nil`
-- `invoke-nth-output-type [args] -> element-type-or-nil`
+These are still direct test targets, but only from tests inside the annotate subtree itself:
 
-Observed external caller:
-
-- `skeptic.analysis.annotate.coll-test`
-
-#### `skeptic.analysis.annotate.numeric`
-
-Externally called helpers:
-
-- `integral-ground-type? [t] -> boolean`
-- `invoke-integral-math-narrow-type [fn-node args actual-argtypes] -> type-or-nil`
-- `narrow-static-numbers-output [node args actual-argtypes native-info] -> type`
-
-Observed external caller:
-
-- `skeptic.analysis.annotate.numeric-test`
-
-No annotate-subtree constant is externally referenced outside the subtree in the current source scan.
+- `skeptic.analysis.annotate.coll`
+- `skeptic.analysis.annotate.numeric`
 
 ## Behavioral Test Record
 

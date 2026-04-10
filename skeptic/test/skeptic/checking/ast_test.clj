@@ -1,6 +1,7 @@
 (ns skeptic.checking.ast-test
   (:require [clojure.test :refer [deftest is]]
             [clojure.tools.analyzer.jvm :as ana.jvm]
+            [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.checking.ast :as ca]))
 
@@ -16,14 +17,14 @@
     (is (= [:root :inner :leaf] (map :id (sac/ast-nodes root))))))
 
 (deftest node-ref-and-callee-ref-test
-  (is (= {:form 'x :type :tx} (ca/node-ref {:form 'x :type :tx :extra 1})))
+  (is (= {:form 'x :type :tx} (ca/node-ref (assoc (aat/test-typed-node :local 'x :tx) :extra 1))))
   (is (nil? (ca/node-ref nil)))
   (is (= {:form 'f :type :tf}
-         (ca/callee-ref {:op :invoke :fn {:form 'f :type :tf}})))
+         (ca/callee-ref (aat/test-invoke-node (aat/test-typed-node :var 'f :tf) [] [:e] [:a]))))
   (is (= {:form 'g :type :tg}
-         (ca/callee-ref {:op :with-meta
-                         :expr {:op :invoke :fn {:form 'g :type :tg}}})))
-  (is (nil? (ca/callee-ref {:op :const}))))
+         (ca/callee-ref (aat/test-with-meta-node
+                         (aat/test-invoke-node (aat/test-typed-node :var 'g :tg) [] [:e] [:a])))))
+  (is (nil? (ca/callee-ref (aat/test-const-node 1)))))
 
 (deftest match-up-arglists-test
   (let [pairs (ca/match-up-arglists [:a :b nil] [:e0 :e1] [:x0 :x1 :x2])]
@@ -32,12 +33,12 @@
     (is (= [nil :e1 :x2] (last pairs)))))
 
 (deftest local-resolution-path-test
-  (let [fn-part {:form '+ :type :tf}
-        init {:op :invoke :fn fn-part :form '(+ 1 2) :type :ti}
-        local-node {:form 'g :op :local :binding-init init}
+  (let [fn-part (aat/test-typed-node :var '+ :tf)
+        init (aat/test-invoke-form-node fn-part [] '(+ 1 2) :ti)
+        local-node (aat/test-local-node 'g init)
         path (ca/local-resolution-path local-node)]
     (is (= 2 (count path)))
-    (is (= fn-part (second path)))))
+    (is (= (ca/node-ref fn-part) (second path)))))
 
 (deftest local-vars-context-test
   (let [ast (ana.jvm/analyze '(let [x 1] x))
@@ -47,16 +48,13 @@
     (is (vector? (:resolution-path (get ctx 'x))))))
 
 (deftest call-refs-test
-  (let [fn-local {:op :local :form 'f :type :tf}
-        invoke {:op :invoke :fn fn-local :args []}]
+  (let [fn-local (aat/test-local-node 'f (aat/test-typed-node :const nil :tf))
+        invoke (aat/test-invoke-node fn-local [] [:e] [:a])]
     (is (seq (ca/call-refs invoke)))))
 
 (deftest call-node?-test
-  (is (ca/call-node? {:op :invoke
-                      :args [:a]
-                      :expected-argtypes [:e]
-                      :actual-argtypes [:a]}))
-  (is (not (ca/call-node? {:op :invoke :args [] :expected-argtypes [] :actual-argtypes []})))
+  (is (ca/call-node? (aat/test-invoke-node (aat/test-fn-node 'f) [:a] [:e] [:a])))
+  (is (not (ca/call-node? (aat/test-invoke-node (aat/test-fn-node 'f) [] [] []))))
   (is (not (ca/call-node? {:op :const}))))
 
 (deftest dict-entry-test
@@ -65,9 +63,8 @@
 
 (deftest unwrap-with-meta-test
   (is (= {:op :const :val 1}
-         (ca/unwrap-with-meta {:op :with-meta
-                               :expr {:op :with-meta
-                                      :expr {:op :const :val 1}}}))))
+         (ca/unwrap-with-meta (aat/test-with-meta-node
+                               (aat/test-with-meta-node {:op :const :val 1}))))))
 
 (deftest invoke-ops-test
   (is (contains? ca/invoke-ops :invoke))

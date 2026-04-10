@@ -1,5 +1,5 @@
 (ns skeptic.checking.form
-  (:require [skeptic.analysis.annotate :as aa]
+  (:require [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.bridge.canonicalize :as abc])
   (:import [java.io File]))
 
@@ -156,14 +156,14 @@
 
 (defn display-expr
   [node]
-  (let [expr (:form node)
+  (let [expr (aapi/node-form node)
         source-expression (form-source expr)]
     {:expr expr
      :source-expression source-expression
      :expanded-expression (when (and source-expression
                                      (not= source-expression (pr-str expr)))
                             expr)
-     :location (aa/node-location node)}))
+     :location (aapi/node-location node)}))
 
 (defn node-error-context
   [node enclosing-form]

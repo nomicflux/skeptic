@@ -1,5 +1,6 @@
 (ns skeptic.analysis.origin
-  (:require [skeptic.analysis.calls :as ac]
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.calls :as ac]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
@@ -53,8 +54,8 @@
 
 (defn node-origin
   [node]
-  (or (:origin node)
-      (when-let [type (:type node)]
+  (or (aapi/node-origin node)
+      (when-let [type (aapi/node-type node)]
         (opaque-origin type))))
 
 (defn opposite-polarity
@@ -273,16 +274,16 @@
 (defn test->assumption
   [test-node]
   (cond
-    (= :local (:op test-node))
+    (aapi/local-node? test-node)
     (when-let [root (local-root-origin test-node)]
       {:kind :truthy-local
        :root root
        :polarity true})
 
-    (= :instance? (:op test-node))
-    (let [target (:target test-node)
-          cls (:class test-node)]
-      (when (and (= :local (:op target))
+    (= :instance? (aapi/node-op test-node))
+    (let [target (aapi/node-target test-node)
+          cls (aapi/node-class test-node)]
+      (when (and (aapi/local-node? target)
                  (class? cls)
                  (local-root-origin target))
         {:kind :type-predicate
@@ -291,24 +292,24 @@
          :class cls
          :polarity true}))
 
-    (and (= :invoke (:op test-node))
-         (ac/type-predicate-call? (:fn test-node) (:args test-node)))
-    (let [args (:args test-node)
-          info (ac/type-predicate-assumption-info (:fn test-node) args)
+    (and (= :invoke (aapi/node-op test-node))
+         (ac/type-predicate-call? (aapi/call-fn-node test-node) (aapi/call-args test-node)))
+    (let [args (aapi/call-args test-node)
+          info (ac/type-predicate-assumption-info (aapi/call-fn-node test-node) args)
           targ (if (= :instance? (:pred info))
                  (second args)
                  (first args))]
-      (when (and info (= :local (:op targ)) (local-root-origin targ))
+      (when (and info (aapi/local-node? targ) (local-root-origin targ))
         (cond-> {:kind :type-predicate
                  :root (local-root-origin targ)
                  :pred (:pred info)
                  :polarity true}
           (:class info) (assoc :class (:class info)))))
 
-    (and (= :invoke (:op test-node))
-         (ac/blank-call? (:fn test-node)))
-    (let [targ (first (:args test-node))]
-      (when (and (= :local (:op targ)) (local-root-origin targ))
+    (and (= :invoke (aapi/node-op test-node))
+         (ac/blank-call? (aapi/call-fn-node test-node)))
+    (let [targ (first (aapi/call-args test-node))]
+      (when (and (aapi/local-node? targ) (local-root-origin targ))
         {:kind :blank-check
          :root (local-root-origin targ)
          :polarity true}))
@@ -318,65 +319,65 @@
       (when (keyword? kw)
         (contains-key-test-assumption target kw)))
 
-    (and (= :invoke (:op test-node))
-         (ac/contains-call? (:fn test-node)))
-    (let [[target-node key-node] (:args test-node)]
+    (and (= :invoke (aapi/node-op test-node))
+         (ac/contains-call? (aapi/call-fn-node test-node)))
+    (let [[target-node key-node] (aapi/call-args test-node)]
       (when (ac/literal-map-key? key-node)
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key)
             (contains-key-test-assumption target-node key)))))
 
-    (and (= :static-call (:op test-node))
+    (and (= :static-call (aapi/node-op test-node))
          (ac/static-contains-call? test-node))
-    (let [[target-node key-node] (:args test-node)]
+    (let [[target-node key-node] (aapi/call-args test-node)]
       (when (ac/literal-map-key? key-node)
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key)
             (contains-key-test-assumption target-node key)))))
 
-    (and (= :static-call (:op test-node))
+    (and (= :static-call (aapi/node-op test-node))
          (ac/static-nil?-call? test-node))
     (when-let [targ (ac/static-nil?-target test-node)]
-      (when (and (= :local (:op targ)) (local-root-origin targ))
+      (when (and (aapi/local-node? targ) (local-root-origin targ))
         {:kind :type-predicate
          :root (local-root-origin targ)
          :pred :nil?
          :polarity true}))
 
-    (= :let (:op test-node))
-    (test->assumption (:body test-node))
+    (aapi/let-node? test-node)
+    (test->assumption (aapi/node-body test-node))
 
-    (= :if (:op test-node))
-    (test->assumption (:then test-node))
+    (aapi/if-node? test-node)
+    (test->assumption (aapi/then-node test-node))
 
     :else
     nil))
 
 (defn local-binding-init-assumption
   [test-node locals]
-  (when (and (= :local (:op test-node)) locals)
-    (when-let [entry (get locals (:form test-node))]
-      (when-let [init (:binding-init entry)]
+  (when (and (aapi/local-node? test-node) locals)
+    (when-let [entry (get locals (aapi/node-form test-node))]
+      (when-let [init (aapi/binding-init entry)]
         (test->assumption init)))))
 
 (defn and-chain-assumptions
   "Assumptions for `clojure.core/and` expansion: (let [g e1] (if g e2' g))."
   [node]
-  (if (and (= :let (:op node))
-           (= 1 (count (:bindings node))))
-    (let [b (first (:bindings node))
-          sym (:form b)
-          init (:init b)
-          body (:body node)]
-      (if (and (= :if (:op body))
-               (= :local (:op (:test body)))
-               (= sym (:form (:test body))))
+  (if (and (aapi/let-node? node)
+           (= 1 (count (aapi/node-bindings node))))
+    (let [b (first (aapi/node-bindings node))
+          sym (aapi/node-form b)
+          init (aapi/node-init b)
+          body (aapi/node-body node)]
+      (if (and (aapi/if-node? body)
+               (aapi/local-node? (aapi/node-test body))
+               (= sym (aapi/node-form (aapi/node-test body))))
         (vec (concat (when-some [a (test->assumption init)] [a])
-                     (and-chain-assumptions (:then body))))
+                     (and-chain-assumptions (aapi/then-node body))))
         (and-chain-assumptions body)))
-    (case (:op node)
-      :if (when-some [a (test->assumption (:test node))] [a])
-      :let (and-chain-assumptions (:body node))
+    (case (aapi/node-op node)
+      :if (when-some [a (test->assumption (aapi/node-test node))] [a])
+      :let (and-chain-assumptions (aapi/node-body node))
       :local []
       (when-some [a (test->assumption node)] [a]))))
 
@@ -411,11 +412,11 @@
 
 (defn guard-assumption
   [stmt-node]
-  (when (and (= :if (:op stmt-node))
-             (= :branch (get-in stmt-node [:origin :kind])))
-    (let [then-bottom? (at/bottom-type? (get-in stmt-node [:then :type]))
-          else-bottom? (at/bottom-type? (get-in stmt-node [:else :type]))
-          assumption   (get-in stmt-node [:origin :test])]
+  (when (and (aapi/if-node? stmt-node)
+             (= :branch (aapi/branch-origin-kind stmt-node)))
+    (let [then-bottom? (at/bottom-type? (aapi/node-type (aapi/then-node stmt-node)))
+          else-bottom? (at/bottom-type? (aapi/node-type (aapi/else-node stmt-node)))
+          assumption   (aapi/branch-test-assumption stmt-node)]
       (when assumption
         (cond
           else-bottom? assumption

@@ -1,10 +1,8 @@
 (ns skeptic.analysis-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
-            [clojure.tools.analyzer.ast :as ana.ast]
-            [clojure.walk :as walk]
+  (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
-            [skeptic.analysis.annotate :as aa]
+            [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
@@ -120,104 +118,45 @@
 
 (defn analyze-form
   ([form]
-   (aa/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test}))
+   (aat/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test}))
   ([arg1 arg2]
    (if (map? arg1)
-     (aa/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test})
-     (aa/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test}
-                                                      arg2))))
+     (aat/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test})
+     (aat/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test}
+                                                       arg2))))
   ([dict form opts]
-   (aa/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test}
-                                           opts))))
+   (aat/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test}
+                                            opts))))
 
-(defn normalize-symbol
-  [value]
-  (if (symbol? value)
-    (let [name-part (name value)]
-      (if (str/includes? name-part "__")
-        (symbol (namespace value)
-                (first (str/split name-part #"__")))
-        value))
-    value))
-
-(defn normalize-form
-  [form]
-  (walk/postwalk normalize-symbol form))
-
-(defn var->sym
-  [value]
-  (when (instance? clojure.lang.Var value)
-    (let [m (meta value)]
-      (symbol (str (ns-name (:ns m)) "/" (:name m))))))
-
-(def stable-keys
-  [:op :form :body? :local :arg-id :variadic? :class :method :validated?
-   :literal? :type :output-type :fn-type :types :arglist :arglists :param-specs
-   :actual-argtypes :expected-argtypes :raw-forms])
+(def stable-keys aat/stable-keys)
 
 (defn arglist-types
   [root arity]
-  (-> root :arglists (get arity) :types (->> (mapv :type))))
-
-(declare project-node)
-
-(defn project-children
-  [node]
-  (mapv (fn [key]
-          [key (project-node (get node key))])
-        (:children node)))
-
-(defn project-node
-  [node]
-  (cond
-    (nil? node) nil
-    (vector? node) (mapv project-node node)
-    (map? node)
-    (let [base (cond-> (select-keys node stable-keys)
-                 (:form node) (update :form normalize-form)
-                 (:raw-forms node) (update :raw-forms #(mapv normalize-form %))
-                 (and (= :def (:op node)) (:name node)) (assoc :name (:name node))
-                 (#{:var :the-var} (:op node)) (assoc :resolved-var (var->sym (:var node)))
-                 (:children node) (assoc :children (project-children node)))]
-      (into {}
-            (remove (comp nil? val))
-            base))
-    :else node))
+  (aat/arglist-types root arity))
 
 (defn project-ast
   [root]
-  (project-node root))
+  (aat/project-ast root))
 
 (defn projected-nodes
   [root]
-  (letfn [(walk-projected [node]
-            (lazy-seq
-             (cond
-               (nil? node) nil
-               (vector? node) (mapcat walk-projected node)
-               (map? node) (cons node
-                                 (mapcat (comp walk-projected second)
-                                         (:children node)))
-               :else nil)))]
-    (walk-projected root)))
+  (aat/projected-nodes root))
 
 (defn find-projected-node
   [root pred]
-  (some #(when (pred %) %) (projected-nodes root)))
+  (aat/find-projected-node root pred))
 
 (defn child-projection
   [node key]
-  (->> (:children node)
-       (some (fn [[child-key child]]
-               (when (= child-key key) child)))))
+  (aat/child-projection node key))
 
 (defn ast-by-name
   [asts sym]
-  (some #(when (= sym (:name %)) %) asts))
+  (aat/ast-by-name asts sym))
 
 (defn node-by-form
   [ast form]
-  (some #(when (= form (:form %)) %) (ana.ast/nodes ast)))
+  (aat/node-by-form ast form))
 
 (defmacro source-exprs-in
   [ns-sym file]
@@ -230,10 +169,10 @@
           form (->> 'skeptic.test-examples/unannotated-local-helper-g
                     (source/get-fn-code {})
                     read-string)
-          ast (aa/annotate-form-loop dict form {:ns 'skeptic.test-examples})
+          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
-      (is (= (T s/Any) (:type call-node)))
-      (is (not (at/union-type? (:type call-node))))))
+      (is (= (T s/Any) (aapi/node-type call-node)))
+      (is (not (at/union-type? (aapi/node-type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
     (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
@@ -243,7 +182,8 @@
                                                                          (source-exprs-in 'skeptic.test-examples test-examples-file))
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-f :output-type])))
-      (is (= (T s/Int) (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type])))
-      (is (= [(T s/Int)] (:actual-argtypes call-node)))
-      (is (not (at/union-type? (get-in resolved-defs ['skeptic.test-examples/flat-multi-step-g :output-type])))))))
+      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples/flat-multi-step-f)))
+      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples/flat-multi-step-g)))
+      (is (= [(T s/Int)] (aapi/call-actual-argtypes call-node)))
+      (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
+                                                              'skeptic.test-examples/flat-multi-step-g)))))))
