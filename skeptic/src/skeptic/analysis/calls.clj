@@ -17,7 +17,7 @@
 (defn literal-node-value
   [node]
   (case (aapi/node-op node)
-    :const (:val node)
+    :const (aapi/node-value node)
     :quote (-> node aapi/node-form second)
     (aapi/node-form node)))
 
@@ -53,7 +53,7 @@
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
-                            (var->sym (:var node))])]
+                            (var->sym (aapi/node-var node))])]
     (some (comp an/normalize-entry dict) candidates)))
 
 (defn- arglist-entry-type
@@ -142,31 +142,31 @@
 
 (defn seq-call?
   [fn-node]
-  (let [resolved (or (var->sym (:var fn-node))
+  (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/seq 'seq} resolved)))
 
 (defn merge-call?
   [fn-node]
-  (let [resolved (or (var->sym (:var fn-node))
+  (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/merge 'merge} resolved)))
 
 (defn contains-call?
   [fn-node]
-  (let [resolved (or (var->sym (:var fn-node))
+  (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/contains? 'contains? 'contains} resolved)))
 
 (defn get-call?
   [fn-node]
-  (let [resolved (or (var->sym (:var fn-node))
+  (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/get 'get} resolved)))
 
 (defn blank-call?
   [fn-node]
-  (let [resolved (or (var->sym (:var fn-node))
+  (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.string/blank? 'blank?} resolved)))
 
@@ -188,7 +188,7 @@
 
 (defn- resolved-call-sym
   [fn-node]
-  (or (var->sym (:var fn-node))
+  (or (var->sym (aapi/node-var fn-node))
       (aapi/node-form fn-node)))
 
 (defn- class-literal-node?

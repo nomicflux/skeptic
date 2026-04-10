@@ -356,7 +356,13 @@ The intended rewrite boundary is now:
 - `skeptic.analysis.annotate.api` for all production access to annotated results
 - `skeptic.analysis.annotate.test-api` for test-only projections, queries, and synthetic fixtures
 
-Outside `skeptic.analysis.annotate*`, callers must treat annotated results as opaque. They must not read annotated node maps directly, walk child structure directly, or depend on field names as contracts.
+Raw annotate data may exist outside `skeptic.analysis.annotate*`.
+
+The rule is about access discipline, not data presence:
+
+- outside `skeptic.analysis.annotate*`, callers may hold or return raw annotated maps and vectors
+- outside `skeptic.analysis.annotate*`, callers must not read annotate details directly by keywords or bespoke traversal logic
+- outside `skeptic.analysis.annotate*`, callers must use annotate-owned helper functions for node access, tree traversal, projections, and annotate-derived summaries
 
 ### Production Boundary
 
@@ -388,7 +394,7 @@ Observed external production caller:
 
 #### `skeptic.analysis.annotate.api`
 
-This namespace is now the production accessor boundary for annotated output. The rewrite must preserve the fact that external production code reaches annotation results only through named helpers here, not through node-map keyword reads.
+This namespace is the production accessor boundary for annotated output. The rewrite must preserve the fact that external production code reaches annotation details only through named helpers here, not through bespoke outside-code interpretation.
 
 Observed externally used helper groups:
 
@@ -405,6 +411,7 @@ Observed externally used helper groups:
   - `node-class`
   - `node-method`
   - `node-tag`
+  - `node-var`
   - `node-target`
   - `node-keyword`
   - `local-node?`
@@ -457,7 +464,7 @@ Observed external production consumers:
 
 ### Test-Only Boundary
 
-`skeptic.analysis.annotate.test-api` owns the test-facing helpers that were previously implemented in non-annotate test code. Tests outside annotate now rely on this namespace instead of projecting or synthesizing annotate nodes themselves.
+`skeptic.analysis.annotate.test-api` owns the test-facing helpers that were previously implemented in non-annotate test code. Tests outside annotate now rely on this namespace instead of defining their own annotate-shape projections, searches, or synthetic node builders.
 
 Observed externally used test helpers:
 
