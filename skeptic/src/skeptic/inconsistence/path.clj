@@ -11,42 +11,6 @@
 
 (def ^:private pretty-type-threshold 80)
 
-(defn cast-leaf-results
-  ([cast-result]
-   (cast-leaf-results cast-result []))
-  ([cast-result parent-path]
-   (let [path (into (vec parent-path) (or (:path cast-result) []))]
-     (cond
-       (or (nil? cast-result) (:ok? cast-result))
-       []
-
-       (and (seq (:children cast-result))
-            (contains? #{:target-union
-                         :source-union
-                         :target-intersection
-                         :source-intersection
-                         :maybe-both
-                         :maybe-target
-                         :generalize
-                         :instantiate
-                         :function
-                         :function-method
-                         :map
-                         :vector
-                         :seq
-                         :set}
-                       (:rule cast-result)))
-       (->> (:children cast-result)
-            (mapcat #(cast-leaf-results % path))
-            vec)
-
-       :else
-       [(assoc cast-result :path path)]))))
-
-(defn primary-cast-failure
-  [cast-result]
-  (or (first (cast-leaf-results cast-result))
-      cast-result))
 
 (defn plain-key
   [k]
@@ -202,7 +166,7 @@
     message))
 
 (defn detail-line
-  [report-kind {:keys [reason path source-type target-type actual-key expected-key]}]
+  [report-kind {:keys [reason path actual-type expected-type actual-key expected-key]}]
   (case reason
     :missing-key
     (missing-detail path expected-key)
@@ -218,7 +182,7 @@
       (str path-text " is nullable, but expected is not")
       "a nullable value was provided where the type requires a non-null value")
 
-    (mismatch-detail path source-type target-type)))
+    (mismatch-detail path actual-type expected-type)))
 
 (defn union-alternatives-line
   [cast-results]
@@ -227,20 +191,20 @@
                                                    visible-path
                                                    seq))
                                   vec)
-        source-types (->> without-visible-path
-                          (map :source-type)
+        actual-types (->> without-visible-path
+                          (map :actual-type)
                           distinct
                           vec)
-        target-types (->> without-visible-path
-                          (map :target-type)
-                          distinct
-                          vec)]
+        expected-types (->> without-visible-path
+                            (map :expected-type)
+                            distinct
+                            vec)]
     (when (and (seq without-visible-path)
-               (= 1 (count source-types))
-               (> (count target-types) 1))
-      (str (disp/describe-type (first source-types))
+               (= 1 (count actual-types))
+               (> (count expected-types) 1))
+      (str (disp/describe-type (first actual-types))
            " does not match any of: "
-           (str/join ", " (map disp/describe-type target-types))))))
+           (str/join ", " (map disp/describe-type expected-types))))))
 
 (s/defn missing-key-message :- (s/maybe s/Str)
   [{:keys [expr arg]} :- ErrorMsgCtx

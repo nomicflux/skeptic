@@ -529,7 +529,7 @@
     (is (not-any? #(str/includes? % "[:user :name]") (:errors result)))
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
-           (-> result :cast-results first :path)))))
+           (-> result :cast-diagnostics first :path)))))
 
 (deftest check-results-carry-cast-metadata
   (let [results (vec (sut/check-ns static-call-examples-dict
@@ -551,8 +551,8 @@
       (is (keyword? (:rule result)))
       (is (some? (:expected-type result)))
       (is (some? (:actual-type result)))
-      (is (map? (:cast-result result)))
-      (is (seq (:cast-results result))))
+      (is (map? (:cast-summary result)))
+      (is (seq (:cast-diagnostics result))))
     (is (= "(nested-multi-step-takes-str (get (nested-multi-step-g) :value))"
            (:source-expression nested-result)))
     (is (= {:file "src/skeptic/static_call_examples.clj"
@@ -660,7 +660,7 @@
      (is (some #(str/includes? % "[:user :name]") (:errors result)))
      (is (= [{:kind :map-key :key :user}
              {:kind :map-key :key :name}]
-            (-> result :cast-results first :path))))))
+            (-> result :cast-diagnostics first :path))))))
 
 (deftest vector-call-mismatch-renders-index-paths
   (in-test-examples
@@ -671,7 +671,7 @@
             (:blame result)))
      (is (some #(str/includes? % "[1]") (:errors result)))
      (is (= [{:kind :vector-index :index 1}]
-            (-> result :cast-results first :path))))))
+            (-> result :cast-diagnostics first :path))))))
 
 (deftest vector-literal-tuples-derive-homogeneous-views-at-check-boundary
   (in-test-examples
@@ -685,11 +685,11 @@
                                       {:remove-context true}))]
      (is (some? pair-result))
      (is (= '(takes-int-pair [x y z]) (:blame pair-result)))
-     (is (= :vector-arity-mismatch (-> pair-result :cast-result :reason)))
+     (is (= :vector-arity-mismatch (-> pair-result :cast-diagnostics first :reason)))
 
      (is (some? quad-result))
      (is (= '(takes-int-quad [x y z]) (:blame quad-result)))
-     (is (= :vector-arity-mismatch (-> quad-result :cast-result :reason))))))
+     (is (= :vector-arity-mismatch (-> quad-result :cast-diagnostics first :reason))))))
 
 (deftest printer-path-renders-only-user-facing-data
   (in-test-examples

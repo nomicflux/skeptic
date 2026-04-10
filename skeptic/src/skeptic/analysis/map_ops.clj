@@ -8,6 +8,10 @@
   ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
   ([a b opts] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b opts)))
 
+(defn- cast-ok?'
+  [a b]
+  ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' a b)))
+
 (defn- value-satisfies-type?'
   [value type]
   ((requiring-resolve 'skeptic.analysis.value-check/value-satisfies-type?) value type))
@@ -159,7 +163,7 @@
       false
 
       :else
-      (:ok? (check-cast' source-key target-key)))))
+      (cast-ok?' source-key target-key))))
 
 (defn key-domain-overlap?
   [source-key target-key]
@@ -191,8 +195,8 @@
       (key-domain-overlap? source-key (:inner target-key))
 
       :else
-      (or (:ok? (check-cast' source-key target-key))
-          (:ok? (check-cast' target-key source-key))
+      (or (cast-ok?' source-key target-key)
+          (cast-ok?' target-key source-key)
           (leaf-overlap?' source-key target-key)))))
 
 (defn exact-key-candidates

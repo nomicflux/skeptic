@@ -91,8 +91,8 @@
                           :rule (:rule report)
                           :expected-type (:expected-type report)
                           :actual-type (:actual-type report)
-                          :cast-result (:cast-result report)
-                          :cast-results (:cast-results report)
+                          :cast-summary (:cast-summary report)
+                          :cast-diagnostics (:cast-diagnostics report)
                           :errors (:errors report)})))))))))
 
 (defn input-error-group
@@ -114,8 +114,8 @@
          :rule (:rule report)
          :expected-type (:expected-type report)
          :actual-type (:actual-type report)
-         :cast-result (:cast-result report)
-         :cast-results (:cast-results report)
+         :cast-summary (:cast-summary report)
+         :cast-diagnostics (:cast-diagnostics report)
          :errors (:errors report)}))))
 
 (defn input-cast-result
@@ -136,8 +136,8 @@
      :rule (:rule primary-group)
      :expected-type (:expected-type primary-group)
      :actual-type (:actual-type primary-group)
-     :cast-result (:cast-result primary-group)
-     :cast-results (vec (mapcat :cast-results error-groups))
+     :cast-summary (:cast-summary primary-group)
+     :cast-diagnostics (vec (mapcat :cast-diagnostics error-groups))
      :context {:local-vars (ca/local-vars-context node)
                :refs (ca/call-refs node)}
      :errors (vec (mapcat :errors error-groups))}))

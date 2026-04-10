@@ -3,7 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
-            [skeptic.inconsistence.path :as path]))
+            [skeptic.analysis.cast.result :as cast-result]))
 
 (defn T
   [schema]
@@ -22,16 +22,16 @@
                                      (T {:a s/Int}))]
     (is (:ok? ok))
     (is (= :map (:rule ok)))
-    (is (some #(= :missing-key (:reason %)) (path/cast-leaf-results missing)))
-    (is (some #(= :unexpected-key (:reason %)) (path/cast-leaf-results unexpected)))
+    (is (some #(= :missing-key (:reason %)) (cast-result/leaf-diagnostics missing)))
+    (is (some #(= :unexpected-key (:reason %)) (cast-result/leaf-diagnostics unexpected)))
     (is (some #(= :map-key-domain-not-covered (:reason %))
-              (path/cast-leaf-results domain-failure)))
-    (is (some #(= :nullable-key (:reason %)) (path/cast-leaf-results nullable-key)))))
+              (cast-result/leaf-diagnostics domain-failure)))
+    (is (some #(= :nullable-key (:reason %)) (cast-result/leaf-diagnostics nullable-key)))))
 
 (deftest map-leaf-paths-stay-visible-test
   (let [result (sut/check-cast (T {:user {:name s/Keyword}})
                                (T {:user {:name s/Str}}))
-        [leaf] (path/cast-leaf-results result)]
+        [leaf] (cast-result/leaf-diagnostics result)]
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
            (:path leaf)))))

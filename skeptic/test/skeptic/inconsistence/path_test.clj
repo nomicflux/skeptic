@@ -46,7 +46,7 @@
   (let [report (inc/cast-report sample-ctx
                                 (T {:user {:name s/Str}})
                                 (T {:user {:name s/Keyword}}))
-        leaf (first (:cast-results report))
+        leaf (first (:cast-diagnostics report))
         error (first (:errors report))]
     (is (not (:ok? report)))
     (is (= [{:kind :map-key :key :user}
@@ -67,11 +67,11 @@
                                    (T {:a s/Int
                                        :c s/Int}))]
     (is (not (:ok? missing)))
-    (is (some #(= :missing-key (:reason %)) (:cast-results missing)))
+    (is (some #(= :missing-key (:reason %)) (:cast-diagnostics missing)))
     (is (some #(str/includes? % "[:b] is missing") (:errors missing)))
 
     (is (not (:ok? unexpected)))
-    (is (some #(= :unexpected-key (:reason %)) (:cast-results unexpected)))
+    (is (some #(= :unexpected-key (:reason %)) (:cast-diagnostics unexpected)))
     (is (some #(str/includes? % "[:c] is not allowed by the expected type") (:errors unexpected)))
     (run! assert-no-ui-internals (concat (:errors missing)
                                          (:errors unexpected)))))
@@ -89,13 +89,13 @@
                                   (T {:user {(s/optional-key :name) s/Str}}))]
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
-           (-> missing :cast-results first :path)))
+           (-> missing :cast-diagnostics first :path)))
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :age}]
-           (-> unexpected :cast-results first :path)))
+           (-> unexpected :cast-diagnostics first :path)))
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
-           (-> nullable :cast-results first :path)))
+           (-> nullable :cast-diagnostics first :path)))
     (is (some #(str/includes? % "[:user :name]") (:errors missing)))
     (is (some #(str/includes? % "[:user :age]") (:errors unexpected)))
     (is (some #(str/includes? % "[:user :name]") (:errors nullable)))
@@ -107,7 +107,7 @@
   (let [report (inc/cast-report sample-ctx
                                 (T {:account {:state {s/Keyword s/Int}}})
                                 (T {:account {:state {:name s/Str}}}))
-        [leaf] (:cast-results report)
+        [leaf] (:cast-diagnostics report)
         [error] (:errors report)]
     (is (not (:ok? report)))
     (is (= [{:kind :map-key :key :account}
@@ -122,8 +122,8 @@
   (let [message (inc/cast-result->message
                  {:expr '{:a 1}
                   :arg '{:a 1}}
-                 {:source-type (ab/schema->type {(s/optional-key :a) s/Int})
-                  :target-type (ab/schema->type {:a s/Int})
+                 {:actual-type (ab/schema->type {(s/optional-key :a) s/Int})
+                  :expected-type (ab/schema->type {:a s/Int})
                   :rule :map-nullable-key
                   :reason :nullable-key
                   :actual-key (s/optional-key :a)
@@ -134,7 +134,7 @@
   (let [report (inc/cast-report sample-ctx
                                (T [s/Int s/Int])
                                (T [s/Int s/Str]))
-        leaf (first (:cast-results report))
+        leaf (first (:cast-diagnostics report))
         error (first (:errors report))]
     (is (not (:ok? report)))
     (is (= [{:kind :vector-index :index 1}]
@@ -145,8 +145,8 @@
 (deftest rendered-path-hides-internal-cast-branches
   (let [message (inc/cast-result->message
                  sample-ctx
-                 {:source-type (ab/schema->type s/Int)
-                  :target-type (ab/schema->type s/Str)
+                 {:actual-type (ab/schema->type s/Int)
+                  :expected-type (ab/schema->type s/Str)
                   :rule :leaf-overlap
                   :reason :leaf-mismatch
                   :path [{:kind :source-union-branch :index 1}

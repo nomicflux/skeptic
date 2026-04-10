@@ -149,7 +149,7 @@
 
 (defn type-compatible-map-value?
   [value-type expected-type]
-  (:ok? (check-cast' value-type expected-type)))
+  ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' value-type expected-type)))
 
 (defn set-value-satisfies-type?
   [value members]

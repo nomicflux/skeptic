@@ -135,13 +135,13 @@
 (deftest report-summary-collapses-output-into-single-entry
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-result {:source-type (ab/schema->type {:name s/Keyword})
-                                :target-type (ab/schema->type {:name s/Str})}
-                  :cast-results [{:reason :leaf-mismatch
+                  :cast-summary {:actual-type (ab/schema->type {:name s/Keyword})
+                                :expected-type (ab/schema->type {:name s/Str})}
+                  :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :path [{:kind :map-key :key :name}]
-                                  :source-type (ab/schema->type s/Keyword)
-                                  :target-type (ab/schema->type s/Str)}]})]
+                                  :actual-type (ab/schema->type s/Keyword)
+                                  :expected-type (ab/schema->type s/Str)}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "declared return type")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
@@ -151,9 +151,9 @@
 (deftest report-summary-hides-internal-cast-branches
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-result {:source-type (ab/schema->type {:b s/Int})
-                                :target-type (ab/schema->type {:b s/Int})}
-                  :cast-results [{:reason :missing-key
+                  :cast-summary {:actual-type (ab/schema->type {:b s/Int})
+                                :expected-type (ab/schema->type {:b s/Int})}
+                  :cast-diagnostics [{:reason :missing-key
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :b}]}]})]
     (is (= 1 (count (:errors summary))))
@@ -166,13 +166,13 @@
                   :blame '(takes-either-branch :bad)
                   :focuses [:bad]
                   :errors ["err-1" "err-2"]
-                  :cast-results [{:reason :leaf-mismatch
-                                  :source-type (ab/schema->type s/Keyword)
-                                  :target-type (ab/schema->type s/Int)
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                  :actual-type (ab/schema->type s/Keyword)
+                                  :expected-type (ab/schema->type s/Int)
                                   :path [{:kind :target-union-branch :index 0}]}
                                  {:reason :leaf-mismatch
-                                  :source-type (ab/schema->type s/Keyword)
-                                  :target-type (ab/schema->type s/Str)
+                                  :actual-type (ab/schema->type s/Keyword)
+                                  :expected-type (ab/schema->type s/Str)
                                   :path [{:kind :target-union-branch :index 1}]}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "expected type")))
@@ -185,15 +185,15 @@
                  {:report-kind :input
                   :blame '(simplify gt_fn [g r b])
                   :focuses ['[g r b]]
-                  :cast-result {:rule :vector
-                                :source-type (ab/schema->type [s/Any])
-                                :target-type (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
+                  :cast-summary {:rule :vector
+                                :actual-type (ab/schema->type [s/Any])
+                                :expected-type (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
                                                                              false)}
                                                                        false)]
                                                            true)}
-                  :cast-results [{:reason :leaf-mismatch
-                                  :source-type (ab/schema->type s/Any)
-                                  :target-type placeholder
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                  :actual-type (ab/schema->type s/Any)
+                                  :expected-type placeholder
                                   :path [{:kind :vector-index :index 0}]}]})
         fields (sut/report-fields summary)
         printed (str/join "\n"
@@ -218,12 +218,12 @@
                  {:rule :leaf-overlap
                   :actual-type (ab/schema->type s/Keyword)
                   :expected-type (ab/schema->type s/Int)
-                  :cast-result {:rule :target-union
-                                :source-type (ab/schema->type s/Keyword)
-                                :target-type (ab/schema->type (s/either s/Int s/Str))}
+                  :cast-summary {:rule :target-union
+                                :actual-type (ab/schema->type s/Keyword)
+                                :expected-type (ab/schema->type (s/either s/Int s/Str))}
                   :source-expression "(takes-either-branch :bad)"
                   :errors ["err"]
-                  :cast-results []})
+                  :cast-diagnostics []})
                 true)]
     (is (some #{["Cast rule: \t\t" "target-union"]} fields))
     (is (some #{["Actual type: \t\t" "Keyword"]} fields))
@@ -248,17 +248,17 @@
                                                                    :cache (ab/schema->type s/Any)})})
                   :expected-type (ato/normalize-type {:result expected-result
                                                       :cache (ab/schema->type s/Any)})
-                  :cast-result {:rule :source-union
-                                :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
+                  :cast-summary {:rule :source-union
+                                :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
                                                                               :cache s/Any})
                                                             (ato/normalize-type {:result actual-result
                                                                                  :cache (ab/schema->type s/Any)})})
-                                :target-type (ato/normalize-type {:result expected-result
+                                :expected-type (ato/normalize-type {:result expected-result
                                                                   :cache (ab/schema->type s/Any)})}
-                  :cast-results [{:reason :leaf-mismatch
+                  :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
-                                  :source-type actual-result
-                                  :target-type expected-result
+                                  :actual-type actual-result
+                                  :expected-type expected-result
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :result}]}]})
         fields (sut/report-fields summary true)]

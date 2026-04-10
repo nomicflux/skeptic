@@ -4,6 +4,7 @@
             [skeptic.analysis.cast.function :as fun]
             [skeptic.analysis.cast.map :as cmap]
             [skeptic.analysis.cast.quantified :as quant]
+            [skeptic.analysis.cast.result :as result]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
@@ -86,3 +87,7 @@
          target-type (ato/normalize-type target-type)
          opts (assoc opts :polarity polarity)]
      (run-cast source-type target-type opts))))
+
+(defn compatible?
+  [source-type target-type]
+  (result/ok? (check-cast source-type target-type)))

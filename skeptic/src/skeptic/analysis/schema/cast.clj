@@ -1,6 +1,7 @@
 (ns skeptic.analysis.schema.cast
   (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.cast :as ac]))
+            [skeptic.analysis.cast :as ac]
+            [skeptic.analysis.cast.result :as result]))
 
 (defn- import-boundary-type
   [schema]
@@ -14,3 +15,7 @@
          target-type (import-boundary-type target-type)
          opts (assoc opts :polarity polarity)]
      (ac/check-cast source-type target-type opts))))
+
+(defn compatible?
+  [source-type target-type]
+  (result/ok? (check-cast source-type target-type)))

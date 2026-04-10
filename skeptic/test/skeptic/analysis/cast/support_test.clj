@@ -3,8 +3,8 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as cast]
+            [skeptic.analysis.cast.result :as cast-result]
             [skeptic.analysis.cast.support :as sut]
-            [skeptic.inconsistence.path :as path]
             [skeptic.analysis.types :as at]))
 
 (defn T
@@ -25,10 +25,10 @@
     (is (= plain (sut/optional-key-inner plain)))
     (is (= [{:kind :map-key :key :name}] (:path result)))))
 
-(deftest cast-leaf-results-compatibility-test
+(deftest leaf-diagnostics-test
   (let [result (cast/check-cast (T {:user {:name s/Keyword}})
                                 (T {:user {:name s/Str}}))
-        leaves (path/cast-leaf-results result)]
+        leaves (cast-result/leaf-diagnostics result)]
     (is (= 1 (count leaves)))
     (is (= :leaf-mismatch (:reason (first leaves))))
     (is (= [{:kind :map-key :key :user}

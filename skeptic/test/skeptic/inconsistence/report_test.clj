@@ -107,7 +107,7 @@
     (is (not (:ok? report)))
     (is (= [{:kind :map-key :key :user}
             {:kind :map-key :key :name}]
-           (-> report :cast-results first :path)))
+           (-> report :cast-diagnostics first :path)))
     (is (= 1 (count (:errors report))))
     (is (str/includes? error "declared return type"))
     (is (str/includes? error "{:user {:name Keyword}}"))
@@ -126,19 +126,19 @@
                   :blame 'add-with-cache
                   :focuses ['(let [result (simplify gt_fn [g r b])]
                                {:result result})]
-                  :cast-result {:rule :source-union
-                                :source-type (at/->UnionT #{(ab/schema->type {:result s/Any
-                                                                              :cache s/Any})
-                                                            (ato/normalize-type {:result actual-result
-                                                                                 :cache (ab/schema->type s/Any)})})
-                                :target-type (ato/normalize-type {:result expected-result
-                                                                  :cache (ab/schema->type s/Any)})}
-                  :cast-results [{:reason :leaf-mismatch
-                                  :rule :leaf-overlap
-                                  :source-type actual-result
-                                  :target-type expected-result
-                                  :path [{:kind :source-union-branch :index 1}
-                                         {:kind :map-key :key :result}]}]})
+                  :cast-summary {:rule :source-union
+                                 :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
+                                                                               :cache s/Any})
+                                                             (ato/normalize-type {:result actual-result
+                                                                                  :cache (ab/schema->type s/Any)})})
+                                 :expected-type (ato/normalize-type {:result expected-result
+                                                                     :cache (ab/schema->type s/Any)})}
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                      :rule :leaf-overlap
+                                      :actual-type actual-result
+                                      :expected-type expected-result
+                                      :path [{:kind :source-union-branch :index 1}
+                                             {:kind :map-key :key :result}]}]})
         [error] (:errors summary)
         declared-block (second (re-find #"(?s)Declared return type expects:\n\n(.*?)\n\nProblem fields:" error))]
     (is (= 1 (count (:errors summary))))
@@ -157,7 +157,7 @@
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
-                        (select-keys bad [:cast-result :cast-results :expected-type :actual-type])))
+                        (select-keys bad [:cast-summary :cast-diagnostics :expected-type :actual-type])))
         [err] (:errors summary)
         text (strip-ansi err)]
     (is (str/includes? text "Declared return type expects:"))
@@ -172,8 +172,8 @@
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
-                        (select-keys bad [:cast-result :cast-results :expected-type :actual-type])))
-        root-target (:target-type (:cast-result bad))]
+                        (select-keys bad [:cast-summary :cast-diagnostics :expected-type :actual-type])))
+        root-target (:expected-type (:cast-summary bad))]
     (is (= root-target (:expected-type summary)))))
 
 (deftest output-summary-uses-visible-path-as-headline-focus
@@ -183,16 +183,16 @@
                            :nickname "x"}
                   :focuses ['{:name :bad
                               :nickname "x"}]
-                  :cast-result {:rule :map
-                                :source-type (T {:name s/Keyword
-                                                 :nickname (s/maybe s/Str)})
-                                :target-type (T {:name s/Str
-                                                 :nickname (s/maybe s/Str)})}
-                  :cast-results [{:reason :leaf-mismatch
-                                  :rule :leaf-overlap
-                                  :source-type (T s/Keyword)
-                                  :target-type (T s/Str)
-                                  :path [{:kind :map-key :key :name}]}]})
+                  :cast-summary {:rule :map
+                                 :actual-type (T {:name s/Keyword
+                                                  :nickname (s/maybe s/Str)})
+                                 :expected-type (T {:name s/Str
+                                                    :nickname (s/maybe s/Str)})}
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                      :rule :leaf-overlap
+                                      :actual-type (T s/Keyword)
+                                      :expected-type (T s/Str)
+                                      :path [{:kind :map-key :key :name}]}]})
         [error] (:errors summary)
         text (strip-ansi error)]
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \"x\"\}" text))
@@ -216,14 +216,14 @@
                  {:report-kind :output
                   :blame '(get counts :count "zero")
                   :focuses ['(get counts :count "zero")]
-                  :cast-result {:rule :source-union
-                                :source-type (ato/union-type [(T s/Int) (T s/Str)])
-                                :target-type (T s/Int)}
-                  :cast-results [{:reason :leaf-mismatch
-                                  :rule :leaf-overlap
-                                  :source-type (T s/Str)
-                                  :target-type (T s/Int)
-                                  :path []}]})
+                  :cast-summary {:rule :source-union
+                                 :actual-type (ato/union-type [(T s/Int) (T s/Str)])
+                                 :expected-type (T s/Int)}
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                      :rule :leaf-overlap
+                                      :actual-type (T s/Str)
+                                      :expected-type (T s/Int)
+                                      :path []}]})
         [error] (:errors summary)
         text (strip-ansi error)]
     (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return type\." text))
@@ -235,14 +235,14 @@
                  {:report-kind :output
                   :blame 'bad-user
                   :focuses ['bad-user]
-                  :cast-result {:rule :source-union
-                                :source-type (ab/schema->type (sb/join s/Any s/Keyword))
-                                :target-type (T s/Int)}
-                  :cast-results [{:reason :leaf-mismatch
-                                  :rule :leaf-overlap
-                                  :source-type (T s/Any)
-                                  :target-type (T s/Int)
-                                  :path []}]})
+                  :cast-summary {:rule :source-union
+                                 :actual-type (ab/schema->type (sb/join s/Any s/Keyword))
+                                 :expected-type (T s/Int)}
+                  :cast-diagnostics [{:reason :leaf-mismatch
+                                      :rule :leaf-overlap
+                                      :actual-type (T s/Any)
+                                      :expected-type (T s/Int)
+                                      :path []}]})
         [error] (:errors summary)]
     (is (str/includes? error "has inferred output type:"))
     (is (str/includes? error "Problem fields:"))
@@ -254,13 +254,12 @@
         incompatible (sut/output-cast-report sample-ctx (T {:a s/Int}) (T {:b s/Any}))]
     (is (:ok? compatible))
     (is (= :map (:rule compatible)))
-    (is (= :map (:rule (:cast-result compatible))))
-    (is (= :residual-dynamic (-> compatible :cast-result :children first :rule)))
+    (is (= :map (:rule (:cast-summary compatible))))
 
     (is (not (:ok? incompatible)))
-    (is (= :map (:rule (:cast-result incompatible))))
-    (is (some #(= :missing-key (:reason %)) (:cast-results incompatible)))
-    (is (some #(= :unexpected-key (:reason %)) (:cast-results incompatible)))))
+    (is (= :map (:rule (:cast-summary incompatible))))
+    (is (some #(= :missing-key (:reason %)) (:cast-diagnostics incompatible)))
+    (is (some #(= :unexpected-key (:reason %)) (:cast-diagnostics incompatible)))))
 
 (deftest broad-key-map-cast-regression-test
   (let [failing-report (sut/cast-report sample-ctx
@@ -272,7 +271,7 @@
                                         s/Keyword s/Int})]
     (is (not (:ok? failing-report)))
     (is (some #(= :map-key-domain-not-covered (:reason %))
-              (:cast-results failing-report)))
+              (:cast-diagnostics failing-report)))
     (run! assert-no-ui-internals (:errors failing-report))
 
     (is (:ok? successful-cast))
@@ -283,10 +282,10 @@
                  {:report-kind :input
                   :blame '(int-add y nil)
                   :focuses [nil]
-                  :cast-results [{:reason :nullable-source
-                                  :source-type (T (s/maybe s/Any))
-                                  :target-type (T s/Int)
-                                  :path []}]})
+                  :cast-diagnostics [{:reason :nullable-source
+                                      :actual-type (T (s/maybe s/Any))
+                                      :expected-type (T s/Int)
+                                      :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
     (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+has inferred type incompatible with the expected type:" (strip-ansi error)))
@@ -298,10 +297,10 @@
                  {:report-kind :input
                   :blame '(int-add x y nil)
                   :focuses ['y nil]
-                  :cast-results [{:reason :nullable-source
-                                  :source-type (T (s/maybe s/Any))
-                                  :target-type (T s/Int)
-                                  :path []}]})
+                  :cast-diagnostics [{:reason :nullable-source
+                                      :actual-type (T (s/maybe s/Any))
+                                      :expected-type (T s/Int)
+                                      :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
     (is (re-find #"(?s)^\(int-add x y nil\)\s+\tin\s+\(int-add x y nil\)\s+has inferred type incompatible with the expected type:" (strip-ansi error)))
@@ -311,13 +310,13 @@
   (let [type-var (at/->TypeVarT 'X)
         sealed (at/->SealedDynT type-var)
         inspect-message (sut/cast-result->message sample-ctx
-                                                  {:source-type sealed
-                                                   :target-type (T s/Int)
+                                                  {:actual-type sealed
+                                                   :expected-type (T s/Int)
                                                    :rule :is-tamper
                                                    :reason :is-tamper})
         escape-message (sut/cast-result->message sample-ctx
-                                                 {:source-type sealed
-                                                  :target-type type-var
+                                                 {:actual-type sealed
+                                                  :expected-type type-var
                                                   :rule :nu-tamper
                                                   :reason :nu-tamper})]
     (is (str/includes? inspect-message "inspect a sealed value"))
