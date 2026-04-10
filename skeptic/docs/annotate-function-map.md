@@ -48,7 +48,6 @@ flowchart TD
   AI --> AIO["annotate.invoke-output"]
   AI --> ANUM["annotate.numeric"]
   AI --> CALLS["analysis.calls"]
-  AI --> ASC["annotate.shared-call"]
 
   AIO --> ACOLL["annotate.coll"]
   AIO --> ASC
@@ -102,9 +101,9 @@ flowchart TD
   `annotate.data/annotate-vector` depends on `annotate.coll/vec-homogeneous-items?`.
   `annotate.data/annotate-new` depends on `annotate.coll/lazy-seq-new-type`.
   `annotate.jvm/annotate-instance-call` depends on `annotate.coll/instance-nth-element-type`.
-  `annotate.invoke-output/invoke-output-type` is the main consumer of the rest of `annotate.coll/*`.
+  `annotate.invoke-output/invoke-output-type` and `annotate.shared-call/shared-call-output-type` are the main consumers of the rest of `annotate.coll/*`.
 - Map-shape path:
-  `annotate.map-path/reduce-assoc-pairs` and `annotate.map-path/reduce-dissoc-keys` are shared by both `annotate.invoke-output` and `annotate.jvm`.
+  `annotate.map-path/reduce-assoc-pairs` and `annotate.map-path/reduce-dissoc-keys` are now reached through `annotate.shared-call/shared-call-output-type`, which is shared by both `annotate.invoke-output` and `annotate.jvm`.
 - Case-narrowing path:
   `annotate.match/annotate-case` depends on its own literal-extraction helpers, on `analysis.calls/*` to recognize keyword/get-style access, and on `analysis.origin/branch-local-envs` to apply arm-local narrowing.
 - Analyzer traversal path:
@@ -255,7 +254,7 @@ Functions:
 
 - Entry flow: `annotate-form-loop -> analyze-form -> annotate-ast -> annotate-node`
 - Structural node families: `base`, `control`, `data`, `fn`
-- Call-output refinement families: `invoke`, `invoke_output`, `jvm`, `numeric`, `coll`, `map_path`
+- Call-output refinement families: `invoke`, `invoke_output`, `shared_call`, `jvm`, `numeric`, `coll`, `map_path`
 - Path-sensitive narrowing family: `match`
 
 The main design pattern in this subtree is: annotate child nodes first, reuse `skeptic.analysis.calls` to recover callable metadata, then attach semantic types, expected argument types, and branch-local refinements back onto the analyzer AST.
