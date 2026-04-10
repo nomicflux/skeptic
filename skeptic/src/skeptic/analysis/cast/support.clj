@@ -110,15 +110,6 @@
   (cond-> result
     (some? segment) (update :path (fnil conj []) segment)))
 
-(defn indexed-cast-children
-  [segment-kind build-child xs]
-  (mapv (fn [idx x]
-          (with-cast-path (build-child x)
-            {:kind segment-kind
-             :index idx}))
-        (range)
-        xs))
-
 (defn all-ok?
   [results]
   (every? :ok? results))

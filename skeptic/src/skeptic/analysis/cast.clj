@@ -23,9 +23,7 @@
            (at/forall-type? source-type))
        (ask/check-quantified-cast check-cast source-type target-type polarity opts)
 
-       (or (and (at/type-var-type? source-type)
-                (at/dyn-type? target-type))
-           (at/type-var-type? target-type)
+       (or (at/type-var-type? target-type)
            (at/type-var-type? source-type)
            (at/sealed-dyn-type? source-type))
        (ask/check-abstract-type-cast source-type target-type polarity opts)
@@ -45,10 +43,8 @@
            (at/maybe-type? target-type))
        (ask/check-maybe-cast check-cast source-type target-type polarity opts)
 
-       (at/optional-key-type? source-type)
-       (ask/check-wrapper-cast check-cast source-type target-type opts)
-
-       (or (at/optional-key-type? target-type)
+       (or (at/optional-key-type? source-type)
+           (at/optional-key-type? target-type)
            (at/var-type? source-type)
            (at/var-type? target-type))
        (ask/check-wrapper-cast check-cast source-type target-type opts)

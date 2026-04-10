@@ -218,38 +218,87 @@
                     []
                     {:cast-state (ascs/cast-state opts)})))
 
+(defn source-union-result
+  [check-cast source-type target-type polarity opts]
+  (let [children (->> (:members source-type)
+                      (indexed-cast-requests :source-union-branch
+                                             #(cast-request % target-type opts))
+                      (run-cast-requests check-cast))]
+    (aggregate-all-children source-type
+                            target-type
+                            :source-union
+                            polarity
+                            :source-branch-failed
+                            children)))
+
+(defn target-union-result
+  [check-cast source-type target-type polarity opts]
+  (let [children (->> (:members target-type)
+                      (indexed-cast-requests :target-union-branch
+                                             #(cast-request source-type % opts))
+                      (run-cast-requests check-cast))]
+    (if-let [success (some #(when (:ok? %) %) children)]
+      (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
+      (ascs/cast-fail source-type target-type :target-union polarity :no-union-branch children))))
+
 (defn check-union-cast
   [check-cast source-type target-type polarity opts]
   (cond
-    (and (at/union-type? source-type) (at/union-type? target-type))
-    (let [children (->> (:members source-type)
-                        (indexed-cast-requests :source-union-branch
-                                               #(cast-request % target-type opts))
-                        (run-cast-requests check-cast))]
-      (aggregate-all-children source-type target-type
-                              :source-union polarity
-                              :source-branch-failed children))
+    (at/union-type? source-type)
+    (source-union-result check-cast source-type target-type polarity opts)
 
     (at/union-type? target-type)
-    (let [children (->> (:members target-type)
-                        (indexed-cast-requests :target-union-branch
-                                               #(cast-request source-type % opts))
-                        (run-cast-requests check-cast))]
-      (if-let [success (some #(when (:ok? %) %) children)]
-        (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
-        (ascs/cast-fail source-type target-type :target-union polarity :no-union-branch children)))
+    (target-union-result check-cast source-type target-type polarity opts)))
 
-    :else
-    (let [children (->> (:members source-type)
-                        (indexed-cast-requests :source-union-branch
-                                             #(cast-request % target-type opts))
-                        (run-cast-requests check-cast))]
+(defn unwrap-wrapper
+  [type]
+  (cond
+    (at/optional-key-type? type) (:inner type)
+    (at/var-type? type) (:inner type)
+    :else type))
+
+(defn collection-aggregate
+  [check-cast source-type target-type polarity opts segment-kind rule element-failure arity-failure]
+  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
+    (let [source-items (expand-vector-items source-type slot-count)
+          target-items (expand-vector-items target-type slot-count)
+          children (collection-cast-children check-cast
+                                             segment-kind
+                                             source-items
+                                             target-items
+                                             opts)]
       (aggregate-all-children source-type
                               target-type
-                              :source-union
+                              rule
                               polarity
-                              :source-branch-failed
-                              children))))
+                              element-failure
+                              children))
+    (ascs/cast-fail source-type target-type rule polarity arity-failure)))
+
+(defn exact-arity-collection-cast
+  [check-cast source-type target-type polarity opts segment-kind rule element-failure arity-failure]
+  (let [source-items (:items source-type)
+        target-items (:items target-type)]
+    (if (= (count source-items) (count target-items))
+      (let [children (collection-cast-children check-cast
+                                               segment-kind
+                                               source-items
+                                               target-items
+                                               opts)]
+        (aggregate-all-children source-type
+                                target-type
+                                rule
+                                polarity
+                                element-failure
+                                children))
+      (ascs/cast-fail source-type target-type rule polarity arity-failure))))
+
+(defn check-wrapper-cast
+  [check-cast source-type target-type opts]
+  (if (or (at/optional-key-type? source-type)
+          (at/var-type? source-type))
+    (check-cast (unwrap-wrapper source-type) target-type opts)
+    (check-cast source-type (unwrap-wrapper target-type) opts)))
 
 (defn check-intersection-cast
   [check-cast source-type target-type polarity opts]
@@ -303,21 +352,6 @@
 
       :else
       (ascs/cast-fail source-type target-type :maybe-source polarity :nullable-source))))
-
-(defn check-wrapper-cast
-  [check-cast source-type target-type opts]
-  (cond
-    (at/optional-key-type? source-type)
-    (check-cast (:inner source-type) target-type opts)
-
-    (at/optional-key-type? target-type)
-    (check-cast source-type (:inner target-type) opts)
-
-    (at/var-type? source-type)
-    (check-cast (:inner source-type) target-type opts)
-
-    :else
-    (check-cast source-type (:inner target-type) opts)))
 
 (defn function-domain-requests
   [source-method target-method opts]
@@ -376,83 +410,51 @@
 
 (defn check-vector-cast
   [check-cast source-type target-type polarity opts]
-  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
-    (let [source-items (expand-vector-items source-type slot-count)
-          target-items (expand-vector-items target-type slot-count)
-          children (collection-cast-children check-cast
-                                             :vector-index
-                                             source-items
-                                             target-items
-                                             opts)]
-      (aggregate-all-children source-type
-                              target-type
-                              :vector
-                              polarity
-                              :vector-element-failed
-                              children))
-    (ascs/cast-fail source-type target-type :vector polarity :vector-arity-mismatch)))
+  (collection-aggregate check-cast
+                        source-type
+                        target-type
+                        polarity
+                        opts
+                        :vector-index
+                        :vector
+                        :vector-element-failed
+                        :vector-arity-mismatch))
 
 (defn check-seq-cast
   [check-cast source-type target-type polarity opts]
-  (let [source-items (:items source-type)
-        target-items (:items target-type)]
-    (if (= (count source-items) (count target-items))
-      (let [children (collection-cast-children check-cast
-                                               :seq-index
-                                               source-items
-                                               target-items
-                                               opts)]
-        (aggregate-all-children source-type
-                                target-type
-                                :seq
-                                polarity
-                                :seq-element-failed
-                                children))
-      (ascs/cast-fail source-type target-type :seq polarity :seq-arity-mismatch))))
+  (exact-arity-collection-cast check-cast
+                               source-type
+                               target-type
+                               polarity
+                               opts
+                               :seq-index
+                               :seq
+                               :seq-element-failed
+                               :seq-arity-mismatch))
 
 (defn check-seq-to-vector-cast
   [check-cast source-type target-type polarity opts]
-  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
-    (let [source-items (expand-vector-items source-type slot-count)
-          target-items (expand-vector-items target-type slot-count)
-          children (collection-cast-children check-cast
-                                             :seq-to-vector-index
-                                             source-items
-                                             target-items
-                                             opts)]
-      (aggregate-all-children source-type
-                              target-type
-                              :seq-to-vector
-                              polarity
-                              :seq-to-vector-element-failed
-                              children))
-    (ascs/cast-fail source-type
-                    target-type
-                    :seq-to-vector
-                    polarity
-                    :seq-to-vector-arity-mismatch)))
+  (collection-aggregate check-cast
+                        source-type
+                        target-type
+                        polarity
+                        opts
+                        :seq-to-vector-index
+                        :seq-to-vector
+                        :seq-to-vector-element-failed
+                        :seq-to-vector-arity-mismatch))
 
 (defn check-vector-to-seq-cast
   [check-cast source-type target-type polarity opts]
-  (if-let [slot-count (vector-cast-slot-count source-type target-type)]
-    (let [source-items (expand-vector-items source-type slot-count)
-          target-items (expand-vector-items target-type slot-count)
-          children (collection-cast-children check-cast
-                                             :vector-to-seq-index
-                                             source-items
-                                             target-items
-                                             opts)]
-      (aggregate-all-children source-type
-                              target-type
-                              :vector-to-seq
-                              polarity
-                              :vector-to-seq-element-failed
-                              children))
-    (ascs/cast-fail source-type
-                    target-type
-                    :vector-to-seq
-                    polarity
-                    :vector-to-seq-arity-mismatch)))
+  (collection-aggregate check-cast
+                        source-type
+                        target-type
+                        polarity
+                        opts
+                        :vector-to-seq-index
+                        :vector-to-seq
+                        :vector-to-seq-element-failed
+                        :vector-to-seq-arity-mismatch))
 
 (defn check-set-cast
   [check-cast source-type target-type polarity opts]

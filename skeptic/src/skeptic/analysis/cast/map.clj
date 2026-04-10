@@ -31,15 +31,20 @@
       [success]
       results)))
 
-(defn candidate-value-cast-results
-  [check-cast source-value target-entries path-key opts]
-  (->> target-entries
-       (mapv (fn [target-entry]
-               (ask/cast-request source-value
-                                 (:value target-entry)
-                                 opts
-                                 (map-path-segment path-key))))
-       (run-candidate-casts check-cast)))
+(defn candidate-requests
+  [source-value target-entries opts path-segment]
+  (mapv (fn [target-entry]
+          (ask/cast-request source-value
+                            (:value target-entry)
+                            opts
+                            path-segment))
+        target-entries))
+
+(defn execute-candidate-plan
+  [check-cast target-candidates requests empty-results]
+  (if (empty? target-candidates)
+    empty-results
+    (run-candidate-casts check-cast requests)))
 
 (defn plan-exact-target-entry-casts
   [source-descriptor target-entry opts]
@@ -85,32 +90,32 @@
       (cond-> value-results
         nullable-result (conj nullable-result)))))
 
-(defn plan-exact-source-entry-casts
-  [source-entry target-domain-entries opts]
-  (let [target-candidates (->> target-domain-entries
-                               (filter #(asm/key-domain-covered? (ato/exact-value-type (:exact-value source-entry))
-                                                                 (:inner-key-type %)))
-                               vec)]
-    {:target-candidates target-candidates
-     :requests (mapv (fn [target-entry]
-                       (ask/cast-request (:value source-entry)
-                                         (:value target-entry)
-                                         opts))
-                     target-candidates)}))
+(defn plan-target-entry-casts
+  [source-entry target-candidates opts]
+  {:target-candidates target-candidates
+   :requests (candidate-requests (:value source-entry)
+                                 target-candidates
+                                 opts
+                                 nil)})
 
 (defn exact-source-entry-cast-results
   [check-cast source-type target-type source-entry target-domain-entries opts]
-  (let [{:keys [target-candidates requests]}
-        (plan-exact-source-entry-casts source-entry target-domain-entries opts)]
-    (if (empty? target-candidates)
-      [(map-entry-failure source-type
-                          target-type
-                          :map-unexpected-key
-                          (:polarity opts)
-                          :unexpected-key
-                          (:key source-entry)
-                          {:actual-key (:key source-entry)})]
-      (run-candidate-casts check-cast requests))))
+  (let [target-candidates (->> target-domain-entries
+                               (filter #(asm/key-domain-covered? (ato/exact-value-type (:exact-value source-entry))
+                                                                 (:inner-key-type %)))
+                               vec)
+        {:keys [requests]}
+        (plan-target-entry-casts source-entry target-candidates opts)]
+    (execute-candidate-plan check-cast
+                            target-candidates
+                            requests
+                            [(map-entry-failure source-type
+                                                target-type
+                                                :map-unexpected-key
+                                                (:polarity opts)
+                                                :unexpected-key
+                                                (:key source-entry)
+                                                {:actual-key (:key source-entry)})])))
 
 (defn expand-domain-entry
   [source-entry]
@@ -126,36 +131,27 @@
               (:members source-key-type))
       [source-entry])))
 
-(defn plan-domain-entry-casts
-  [source-entry target-domain-entries opts]
-  (let [source-key-type (:inner-key-type source-entry)
-        target-candidates (->> target-domain-entries
-                               (filter #(asm/key-domain-covered? source-key-type
-                                                                 (:inner-key-type %)))
-                               vec)]
-    {:target-candidates target-candidates
-     :requests (mapv (fn [target-entry]
-                       (ask/cast-request (:value source-entry)
-                                         (:value target-entry)
-                                         opts))
-                     target-candidates)}))
-
 (defn domain-entry-cast-results
   [check-cast source-type target-type source-entry target-domain-entries opts]
   (mapcat (fn [entry]
             (let [source-key-type (:inner-key-type entry)
-                  {:keys [target-candidates requests]}
-                  (plan-domain-entry-casts entry target-domain-entries opts)]
-              (if (empty? target-candidates)
-                [(ascs/cast-fail source-type
-                                 target-type
-                                 :map-key-domain
-                                 (:polarity opts)
-                                 :map-key-domain-not-covered
-                                 []
-                                 {:actual-key (:key entry)
-                                  :source-key-domain source-key-type})]
-                (run-candidate-casts check-cast requests))))
+                  target-candidates (->> target-domain-entries
+                                         (filter #(asm/key-domain-covered? source-key-type
+                                                                           (:inner-key-type %)))
+                                         vec)
+                  {:keys [requests]}
+                  (plan-target-entry-casts entry target-candidates opts)]
+              (execute-candidate-plan check-cast
+                                      target-candidates
+                                      requests
+                                      [(ascs/cast-fail source-type
+                                                       target-type
+                                                       :map-key-domain
+                                                       (:polarity opts)
+                                                       :map-key-domain-not-covered
+                                                       []
+                                                       {:actual-key (:key entry)
+                                                        :source-key-domain source-key-type})])))
           (expand-domain-entry source-entry)))
 
 (defn map-cast-children

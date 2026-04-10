@@ -14,7 +14,7 @@ The cast subtree is organized around one public entrypoint and three support lay
 1. `skeptic.analysis.cast/check-cast` normalizes the two semantic types and dispatches by type shape.
 2. `skeptic.analysis.cast.kernel/*` implements the generic cast rules for quantified types, abstract types, unions, intersections, wrappers, functions, vectors, seqs, sets, and leaf types.
 3. `skeptic.analysis.cast.map/*` handles the special map-coverage algorithm by planning casts over exact keys, unexpected keys, and domain keys.
-4. `skeptic.analysis.cast.support/*` carries cast-state, result construction, path helpers, and a few reusable checks.
+4. `skeptic.analysis.cast.support/*` carries result construction, path helpers, sealed-value helpers, and the tamper checks used by quantified casts.
 
 ## Interconnection Map
 
@@ -48,16 +48,19 @@ flowchart TD
 - Shared aggregation path:
   `kernel/check-union-cast`, `kernel/check-intersection-cast`, `kernel/check-function-cast`, `kernel/check-vector-cast`, `kernel/check-seq-cast`, `kernel/check-seq-to-vector-cast`, `kernel/check-vector-to-seq-cast`, `kernel/check-set-cast`, and `map/check-map-cast` all converge on `kernel/aggregate-all-children`, which in turn converges on `support/cast-ok` or `support/cast-fail`.
 - Quantified-state path:
-  `kernel/check-quantified-cast` is the only generic rule that uses `support/with-abstract-var`, `support/with-nu-binding`, and `support/cast-state` to thread quantified-state information through recursive casts.
+  `kernel/check-quantified-cast` delegates successful quantified children through `kernel/quantified-success`, and that helper runs `support/exit-nu-scope` before returning the final cast result.
 - Sealed-abstract path:
-  `kernel/check-abstract-type-cast` is the rule that uses `support/register-seal`, `support/sealed-ground-name`, and `support/cast-state` to manage the seal/collapse behavior for abstract types.
+  `kernel/check-abstract-type-cast` is the rule that uses `support/sealed-ground-name` and `support/cast-state` to manage the seal/collapse behavior for abstract types.
+- Union path:
+  `kernel/check-union-cast` now dispatches explicitly through `kernel/source-union-result` and `kernel/target-union-result`.
+  When both sides are unions, the source-union rule wins because `check-union-cast` checks `source-type` first.
 - Function path:
   `kernel/check-function-cast -> kernel/check-function-method-cast -> kernel/function-domain-requests -> kernel/run-cast-requests`.
   The same method rule also creates one range request with `kernel/cast-request` and `kernel/run-cast-request`.
   Method selection itself goes through `support/matching-source-method` and `support/method-accepts-arity?`.
 - Collection path:
-  `kernel/check-vector-cast`, `kernel/check-seq-cast`, `kernel/check-seq-to-vector-cast`, and `kernel/check-vector-to-seq-cast` all use `kernel/collection-cast-children`.
-  Vector/seq conversions additionally depend on `kernel/vector-cast-slot-count` and `kernel/expand-vector-items`.
+  `kernel/check-vector-cast`, `kernel/check-seq-to-vector-cast`, and `kernel/check-vector-to-seq-cast` all use `kernel/collection-aggregate`, which in turn uses `kernel/collection-cast-children`, `kernel/vector-cast-slot-count`, and `kernel/expand-vector-items`.
+  `kernel/check-seq-cast` uses `kernel/exact-arity-collection-cast`, which also converges on `kernel/collection-cast-children`.
 - Set path:
   `kernel/check-set-cast` uses `kernel/set-cast-children`, which is the only collection matcher in this subtree that tries several target candidates per source element instead of zipping positions.
 - Leaf path:
@@ -65,7 +68,7 @@ flowchart TD
 - Map path:
   `map/check-map-cast -> map/map-cast-children`.
   `map/map-cast-children` fans out into `map/exact-target-entry-cast-results`, `map/exact-source-entry-cast-results`, and `map/domain-entry-cast-results`.
-  Those three functions depend on the corresponding `plan-*` helpers plus `kernel/cast-request`, `kernel/run-cast-requests`, and `support/cast-fail`.
+  Those three functions depend on `map/plan-exact-target-entry-casts`, `map/plan-target-entry-casts`, `map/candidate-requests`, `map/execute-candidate-plan`, plus `kernel/cast-request`, `kernel/run-cast-requests`, and `support/cast-fail`.
 - Map-descriptor path:
   The whole map rule is driven by `analysis.map-ops/map-entry-descriptor`, `analysis.map-ops/effective-exact-entries`, `analysis.map-ops/exact-key-candidates`, `analysis.map-ops/exact-key-entry`, and `analysis.map-ops/key-domain-covered?`.
 - Path-reporting path:
@@ -74,36 +77,32 @@ flowchart TD
 
 ### Utility entrypoints not on the main `check-cast` path
 
-- `support/indexed-cast-children`
 - `support/check-type-test`
-- `support/exit-nu-scope`
-- `map/candidate-value-cast-results`
 
-These functions are defined in the cast subtree but are not referenced by other `skeptic/src` files in the current workspace.
+`support/check-type-test` is still defined in the cast subtree but is not referenced by other `skeptic/src` files in the current workspace.
 
 ## Namespace Map
 
 ### `skeptic.analysis.cast`
 
-- `check-cast`: Public dispatcher. Normalizes both types, sets the active polarity in `opts`, then chooses the rule family in a fixed order: bottom and exact equality first, then quantified and abstract rules, then dynamic/union/intersection/maybe/wrapper/function/map/collection cases, and finally leaf comparison.
+- `check-cast`: Public dispatcher. Normalizes both types, sets the active polarity in `opts`, then chooses the rule family in a fixed order: bottom and exact equality first, then quantified and abstract rules, then dynamic/union/intersection/maybe/wrapper/function/map/collection cases, and finally leaf comparison. The wrapper branch is now a single combined dispatch for `OptionalKeyT` and `VarT`.
 
 ### `skeptic.analysis.cast.support`
 
-- `ensure-cast-state`: Fills in missing cast-state fields with defaults for `:nu-bindings`, `:abstract-vars`, and `:active-seals`.
+- `ensure-cast-state`: Normalizes the optional `:cast-state` map from opts and now leaves it as `{}` when missing.
 - `cast-state`: Reads `:cast-state` from opts and normalizes it through `ensure-cast-state`.
-- `with-abstract-var`: Adds a quantified binder to the active abstract-variable set.
-- `with-nu-binding`: Records a binder-to-witness binding and also marks the binder abstract.
-- `register-seal`: Adds a normalized sealed-dynamic witness to the active seal set.
 - `sealed-ground-name`: Pulls a type-variable-style name back out of a sealed dynamic ground.
 - `contains-sealed-ground?`: Walks a semantic type recursively to see whether a given binder appears inside any sealed dynamic ground.
 - `cast-result`: Low-level constructor for the cast result map, including blame-side and blame-polarity fields.
 - `cast-ok`: Convenience constructor for successful cast results.
 - `cast-fail`: Convenience constructor for failing cast results.
 - `with-cast-path`: Appends one visible path segment to a cast result.
-- `indexed-cast-children`: Builds child results and tags each one with an indexed path segment.
 - `all-ok?`: Returns true only when every child result succeeded.
 - `check-type-test`: Evaluates a dynamic type test. It succeeds for normal values and fails globally for sealed dynamics because those represent tampering-sensitive abstractions.
-- `exit-nu-scope`: Checks that a type leaving a quantified scope no longer contains the quantified binder in any sealed ground.
+- `cast-result-tree?`: Detects whether an artifact is already a cast-result tree rather than a plain semantic type.
+- `seal-balance`: Walks a successful cast-result tree and counts seals minus matching collapses for one binder.
+- `leaked-sealed-type`: Finds one still-live sealed value for a binder inside a cast-result tree.
+- `exit-nu-scope`: Checks that a quantified result leaving scope no longer contains unmatched seals for the quantified binder. It accepts either a plain semantic type or a cast-result tree and returns `:nu-tamper` on unmatched seals.
 - `method-accepts-arity?`: Arity matcher for `FnMethodT`, including variadic methods.
 - `matching-source-method`: Finds the first source function method whose arity can satisfy a target method.
 - `optional-key-inner`: Unwraps `OptionalKeyT` and otherwise returns the input unchanged.
@@ -121,18 +120,19 @@ These functions are defined in the cast subtree but are not referenced by other 
 - `expand-vector-items`: Expands a homogeneous vector type into concrete slots for a requested arity.
 - `vector-cast-slot-count`: Computes the compatible slot count for vector/vector and vector/seq casts, including homogeneous expansion.
 - `set-cast-children`: For each source set member, tries all target members and keeps the first success or records an element failure.
+- `quantified-success`: Shared success path for quantified casts. Runs `support/exit-nu-scope` before returning the final quantified result.
 
-#### Quantified and abstract rules
+#### Quantified, abstract, union, and wrapper rules
 
-- `check-quantified-cast`: Handles both quantified target types (`generalize`) and quantified source types (`instantiate`), while managing abstract binders and nu-bindings in cast-state.
-- `check-abstract-type-cast`: Handles type variables and sealed dynamics, including sealing source abstractions, collapsing matching seals, and rejecting incompatible abstract targets or sources.
-
-#### Union, intersection, maybe, and wrapper rules
-
-- `check-union-cast`: For source unions, every source branch must cast to the target. For target unions, any target branch may succeed.
+- `check-quantified-cast`: Handles both quantified target types (`generalize`) and quantified source types (`instantiate`). Successful quantified casts now flow through `quantified-success`, which enforces the `nu`-scope exit check before returning.
+- `check-abstract-type-cast`: Handles type variables and sealed dynamics, including sealing source abstractions, collapsing matching seals, and rejecting raw `Dyn` or placeholders for type-variable targets.
+- `source-union-result`: Implements the source-union rule where every source branch must cast to the target.
+- `target-union-result`: Implements the target-union rule where any target branch may succeed.
+- `check-union-cast`: Chooses between `source-union-result` and `target-union-result`, with source-union precedence when both sides are unions.
 - `check-intersection-cast`: For target intersections, every target component must accept the source. For source intersections, each source component is checked against the target.
 - `check-maybe-cast`: Handles `MaybeT` on either side, including the special case where exact `nil` satisfies a maybe target.
-- `check-wrapper-cast`: Strips `OptionalKeyT` and `VarT` wrappers and recurs on the inner types.
+- `unwrap-wrapper`: Shared helper that strips one `OptionalKeyT` or `VarT` layer.
+- `check-wrapper-cast`: Strips `OptionalKeyT` and `VarT` wrappers through `unwrap-wrapper` and then recurs on the inner types.
 
 #### Function rules
 
@@ -142,10 +142,12 @@ These functions are defined in the cast subtree but are not referenced by other 
 
 #### Collection and leaf rules
 
-- `check-vector-cast`: Aligns vector slots, expands homogeneous vectors when needed, then casts slot-by-slot.
-- `check-seq-cast`: Casts seq items positionally when arities match.
-- `check-seq-to-vector-cast`: Casts seq items into vector slots using the same slot-expansion logic as vector casts.
-- `check-vector-to-seq-cast`: Casts vector items into seq slots using the same slot-expansion logic as vector casts.
+- `collection-aggregate`: Shared helper for collection casts that use vector-style slot expansion before aggregating child results.
+- `exact-arity-collection-cast`: Shared helper for collection casts that require exact positional arity.
+- `check-vector-cast`: Aligns vector slots through `collection-aggregate`, expands homogeneous vectors when needed, then casts slot-by-slot.
+- `check-seq-cast`: Casts seq items positionally through `exact-arity-collection-cast`.
+- `check-seq-to-vector-cast`: Casts seq items into vector slots through `collection-aggregate`.
+- `check-vector-to-seq-cast`: Casts vector items into seq slots through `collection-aggregate`.
 - `check-set-cast`: Requires equal set cardinality, then matches each source member against some target member.
 - `check-leaf-cast`: Final fallback for value, dynamic, placeholder, ground, refinement, adapter-leaf, and function-vs-adapter-leaf combinations.
 
@@ -159,20 +161,20 @@ These functions are defined in the cast subtree but are not referenced by other 
 #### Candidate execution helpers
 
 - `run-candidate-casts`: Runs a set of requests and collapses the result to a single success when any candidate succeeds; otherwise preserves the full failure set.
-- `candidate-value-cast-results`: Builds candidate value-cast requests for a source value against several target entries.
+- `candidate-requests`: Builds value-cast requests for one source value against several target entries.
+- `execute-candidate-plan`: Runs a precomputed request set or returns the caller-provided failure result when there are no candidates.
 
 #### Exact-key planning
 
 - `plan-exact-target-entry-casts`: For one exact target entry, finds candidate source entries and builds the corresponding value-cast requests.
 - `exact-target-entry-cast-results`: Executes the target-entry plan and also reports missing required keys or nullable-key mismatches.
-- `plan-exact-source-entry-casts`: For one exact source entry that is not already matched exactly, finds compatible target domain entries.
+- `plan-target-entry-casts`: Shared planner for source-entry-to-target-entry value casts once the target candidate set is known.
 - `exact-source-entry-cast-results`: Executes that plan or reports an unexpected source key when no target domain entry covers it.
 
 #### Domain-key planning
 
 - `expand-domain-entry`: Splits a union-valued source domain key into one entry per member so coverage checks happen member-by-member.
-- `plan-domain-entry-casts`: Finds target domain entries whose key domains cover a source domain entry.
-- `domain-entry-cast-results`: Executes those domain-entry casts or emits a `:map-key-domain` failure when the target key domain does not cover the source key domain.
+- `domain-entry-cast-results`: Finds target domain entries whose key domains cover each expanded source domain entry, then executes those casts or emits a `:map-key-domain` failure when coverage is missing.
 
 #### Map subtree driver
 
