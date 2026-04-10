@@ -1,80 +1,34 @@
 (ns skeptic.analysis.annotate.invoke-output
   (:require [skeptic.analysis.annotate.coll :as aac]
-            [skeptic.analysis.annotate.map-path :as aamp]
-            [skeptic.analysis.annotate.numeric :as aan]
+            [skeptic.analysis.annotate.shared-call :as aasc]
             [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.map-ops :as amo]
-            [skeptic.analysis.map-ops.algebra :as amoa]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]))
-
-(defn- invoke-branch-get
-  [args]
-  (let [[target key-node default-node] args
-        key-type (ac/get-key-query key-node)]
-    (if default-node
-      (amo/map-get-type (:type target)
-                        key-type
-                        (:type default-node))
-      (amo/map-get-type (:type target)
-                        key-type))))
-
-(defn- invoke-branch-merge
-  [args]
-  (amoa/merge-types (map :type args)))
-
-(defn- invoke-branch-assoc
-  [args]
-  (let [[m & kvs] args]
-    (aamp/reduce-assoc-pairs (:type m) (partition 2 kvs))))
-
-(defn- invoke-branch-dissoc
-  [args]
-  (let [[m & ks] args]
-    (aamp/reduce-dissoc-keys (:type m) ks)))
-
-(defn- invoke-branch-update
-  [args output-type]
-  (let [[m kn uf] args
-        lk (when (ac/literal-map-key? kn)
-             (ac/literal-node-value kn))]
-    (if (keyword? lk)
-      (amoa/update-type (:type m) lk (:type uf))
-      output-type)))
-
-(defn- invoke-branch-seq-one-arg
-  [args]
-  (let [t (:type (first args))]
-    (or (cond
-          (at/seq-type? t) t
-          (at/vector-type? t) (aac/vector-to-homogeneous-seq-type t)
-          :else nil)
-        at/Dyn)))
 
 (defn invoke-output-type
   "Single cond chain; order matches legacy annotate-invoke."
   [fn-node args output-type]
   (cond
     (ac/get-call? fn-node)
-    (invoke-branch-get args)
+    (aasc/shared-call-output-type :get args output-type)
 
     (ac/merge-call? fn-node)
-    (invoke-branch-merge args)
+    (aasc/shared-call-output-type :merge args output-type)
 
     (and (ac/assoc-call? fn-node)
          (>= (count args) 3))
-    (invoke-branch-assoc args)
+    (aasc/shared-call-output-type :assoc args output-type)
 
     (and (ac/dissoc-call? fn-node)
          (>= (count args) 2))
-    (invoke-branch-dissoc args)
+    (aasc/shared-call-output-type :dissoc args output-type)
 
     (and (ac/update-call? fn-node)
          (>= (count args) 3))
-    (invoke-branch-update args output-type)
+    (aasc/shared-call-output-type :update args output-type)
 
     (ac/contains-call? fn-node)
-    aan/bool-type
+    (aasc/shared-call-output-type :contains args output-type)
 
     (and (ac/first-call? fn-node)
          (= 1 (count args)))
@@ -153,7 +107,7 @@
 
     (and (ac/seq-call? fn-node)
          (= 1 (count args)))
-    (invoke-branch-seq-one-arg args)
+    (aasc/shared-call-output-type :seq args output-type)
 
     :else
     output-type))

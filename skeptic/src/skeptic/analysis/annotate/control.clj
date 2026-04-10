@@ -56,16 +56,16 @@
            :ret ret
            :type (:type ret))))
 
+(declare binding-base-entry
+         binding-env-entry)
+
 (defn annotate-let
   [{:keys [locals] :as ctx} node]
   (let [[bindings final-locals]
         (reduce (fn [[acc env] binding]
                   (let [annotated (aab/annotate-binding (assoc ctx :locals env) binding)
                         init (:init annotated)
-                        base-entry (or (ac/node-info annotated) {:type at/Dyn})
-                        alias-origin (and (= :local (:op init))
-                                          (= :root (:kind (ao/node-origin init)))
-                                          (ao/root-origin (:form init) (:type init)))
+                        base-entry (binding-base-entry annotated)
                         base-origin (:origin base-entry)
                         branch-test-sym (get-in base-origin [:test :root :sym])
                         bsym (:form binding)
@@ -73,11 +73,11 @@
                                              (= branch-test-sym bsym)
                                              (if-init-nil-check-binds-same-name? init bsym))
                                       (ao/root-origin bsym (:type base-entry)))
-                        env-entry (cond-> (assoc base-entry :origin (or alias-origin self-origin base-origin))
-                                    (= :fn (:op init))
-                                    (assoc :fn-binding-node init)
-                                    (some? init)
-                                    (assoc :binding-init init))]
+                        env-entry (binding-env-entry annotated
+                                                     {:base-entry base-entry
+                                                      :fallback-origin (or self-origin
+                                                                           base-origin)
+                                                      :track-fn-binding? true})]
                     [(conj acc annotated)
                      (assoc env (:form binding) env-entry)]))
                 [[] locals]
@@ -98,6 +98,29 @@
           (let [t (or (:type b) at/Dyn)]
             (if (nil-value-type? t) (at/->MaybeT at/Dyn) t)))
         bindings))
+
+(defn- binding-base-entry
+  [annotated]
+  (or (ac/node-info annotated) {:type at/Dyn}))
+
+(defn- binding-alias-origin
+  [init]
+  (and (= :local (:op init))
+       (= :root (:kind (ao/node-origin init)))
+       (ao/root-origin (:form init) (:type init))))
+
+(defn- binding-env-entry
+  [annotated {:keys [base-entry fallback-origin track-fn-binding?]}]
+  (let [init (:init annotated)
+        base-entry (or base-entry (binding-base-entry annotated))
+        origin (or (binding-alias-origin init)
+                   fallback-origin
+                   (:origin base-entry))]
+    (cond-> (assoc base-entry :origin origin)
+      (and track-fn-binding? (= :fn (:op init)))
+      (assoc :fn-binding-node init)
+      (some? init)
+      (assoc :binding-init init))))
 
 (defn- widen-int-loop-counter-recur-targets
   "When a loop binding was inferred as :int but a recur operand is JVM Number
@@ -127,16 +150,23 @@
 (defn- loop-one-binding
   [ctx env binding]
   (let [annotated (aab/annotate-binding (assoc ctx :locals env) binding)
-        init (:init annotated)
-        base-entry (or (ac/node-info annotated) {:type at/Dyn})
-        env-entry (cond-> (if (and (= :local (:op init))
-                                   (= :root (:kind (ao/node-origin init))))
-                            (assoc base-entry :origin (ao/root-origin (:form init)
-                                                                      (:type init)))
-                            base-entry)
-                    (some? init)
-                    (assoc :binding-init init))]
+        base-entry (binding-base-entry annotated)
+        env-entry (binding-env-entry annotated
+                                     {:base-entry base-entry
+                                      :fallback-origin (:origin base-entry)})]
     [annotated (assoc env (:form binding) env-entry)]))
+
+(defn- annotate-loop-body-with-recur-target-widening
+  [ctx node final-locals recur-targets loop-id targets-v0 body-v1]
+  (let [targets-v1 (widen-int-loop-counter-recur-targets targets-v0 body-v1 loop-id)]
+    (if (= targets-v1 targets-v0)
+      body-v1
+      ;; Re-annotate so widened recur target types flow back through recur sites.
+      ((:recurse ctx) (assoc ctx
+                             :locals final-locals
+                             :recur-targets (cond-> recur-targets
+                                              loop-id (assoc loop-id targets-v1)))
+       (:body node)))))
 
 (defn annotate-loop
   [{:keys [locals recur-targets] :as ctx} node]
@@ -154,14 +184,14 @@
                             :recur-targets (cond-> recur-targets
                                             loop-id (assoc loop-id targets-v0)))
         body-v1 ((:recurse recur-ctx-v0) recur-ctx-v0 (:body node))
-        targets-v1 (widen-int-loop-counter-recur-targets targets-v0 body-v1 loop-id)
-        body-final (if (= targets-v1 targets-v0)
-                     body-v1
-                     ((:recurse ctx) (assoc ctx
-                                            :locals final-locals
-                                            :recur-targets (cond-> recur-targets
-                                                             loop-id (assoc loop-id targets-v1)))
-                      (:body node)))]
+        body-final (annotate-loop-body-with-recur-target-widening
+                    ctx
+                    node
+                    final-locals
+                    recur-targets
+                    loop-id
+                    targets-v0
+                    body-v1)]
     (assoc node
            :bindings bindings
            :body body-final

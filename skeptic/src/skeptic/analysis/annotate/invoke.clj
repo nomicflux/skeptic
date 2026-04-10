@@ -6,39 +6,43 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]))
 
-(defn unary-fn-invoke-with-arg-type-hint?
-  [ctx fn-ast node]
-  (or (and (= :fn (:op fn-ast))
-           (= 1 (count (:methods fn-ast)))
-           (= 1 (count (:args node))))
-      (and (= :local (:op fn-ast))
-           (let [e (get (:locals ctx) (:form fn-ast))
-                 fnode (:fn-binding-node e)]
-             (and fnode
-                  (= :fn (:op fnode))
-                  (= 1 (count (:methods fnode)))
-                  (= 1 (count (:args node))))))))
-
-(defn annotate-unary-fn-invoke-with-arg-type-hint
+(defn resolve-unary-fn-arg-type-hint
   [ctx fn-ast node]
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))
-        [src-fn pform]
-        (if (= :fn (:op fn-ast))
-          [fn-ast (:form (first (:params (first (:methods fn-ast)))))]
-          (let [e (get (:locals ctx) (:form fn-ast))
-                fnode (:fn-binding-node e)]
-            [fnode (:form (first (:params (first (:methods fnode)))))]))
-        ovs {pform (or (:type (first args)) at/Dyn)}
-        fn-node (aaf/annotate-fn ctx src-fn {:param-type-overrides ovs})]
-    [fn-node args]))
+        hint (cond
+               (and (= :fn (:op fn-ast))
+                    (= 1 (count (:methods fn-ast)))
+                    (= 1 (count args)))
+               {:src-fn fn-ast
+                :param-form (:form (first (:params (first (:methods fn-ast)))))
+                :args args}
+
+               (= :local (:op fn-ast))
+               (let [e (get (:locals ctx) (:form fn-ast))
+                     fnode (:fn-binding-node e)]
+                 (when (and fnode
+                            (= :fn (:op fnode))
+                            (= 1 (count (:methods fnode)))
+                            (= 1 (count args)))
+                   {:src-fn fnode
+                    :param-form (:form (first (:params (first (:methods fnode)))))
+                    :args args}))
+
+               :else nil)]
+    (when hint
+      (assoc hint
+             :fn-node (aaf/annotate-fn ctx
+                                       (:src-fn hint)
+                                       {:param-type-overrides {(:param-form hint)
+                                                               (or (:type (first args)) at/Dyn)}})))))
 
 (defn annotate-invoke
   [ctx node]
   (let [fn-ast (:fn node)
-        hint? (unary-fn-invoke-with-arg-type-hint? ctx fn-ast node)
+        hint (resolve-unary-fn-arg-type-hint ctx fn-ast node)
         [fn-node args]
-        (if hint?
-          (annotate-unary-fn-invoke-with-arg-type-hint ctx fn-ast node)
+        (if hint
+          [(:fn-node hint) (:args hint)]
           [((:recurse ctx) ctx fn-ast)
            (mapv #((:recurse ctx) ctx %) (:args node))])
         {:keys [expected-argtypes output-type fn-type]} (ac/call-info fn-node args)

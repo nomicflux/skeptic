@@ -12,6 +12,82 @@ Use it as the high-level algorithm reference for the library's core cast and bla
 3. The plugin can be run via `lein skeptic`, and is in ../lein-skeptic
 4. Linting is performed via `clj-kondo --lint <dir>`
 
+## Namespace Map
+
+Primary execution path:
+
+- `leiningen.skeptic`:
+  Leiningen plugin entrypoint. Parses CLI flags, selects the Skeptic profile, and runs the checker in the target project.
+- `skeptic.profiling`:
+  Optional profiling wrapper around a run. Used by the plugin before invoking the main checker.
+- `skeptic.core`:
+  Top-level checker/report printer. Discovers namespaces from source paths, invokes namespace checking, and formats user-facing output.
+- `skeptic.checking.pipeline`:
+  Main per-namespace pipeline. Reads forms, annotates analyzer ASTs, compares inferred vs declared types, and emits mismatch/exception results.
+
+Source namespace families:
+
+- `skeptic.checking.*`:
+  Checking-time orchestration and presentation of analyzed forms.
+  `skeptic.checking.ast` extracts call/local context from annotated ASTs.
+  `skeptic.checking.form` normalizes source forms and source-location metadata.
+  `skeptic.checking` is currently a marker namespace.
+- `skeptic.schema`, `skeptic.schema.collect`, `skeptic.typed-decls`:
+  Declaration admission pipeline.
+  `skeptic.schema` defines the admitted schema description shape.
+  `skeptic.schema.collect` reads var metadata and admits raw Plumatic schema declarations.
+  `skeptic.typed-decls` converts admitted schema descriptions into typed entries via `schema->type`.
+- `skeptic.analysis.bridge` and `skeptic.analysis.bridge.*`:
+  Schema-domain to type-domain boundary.
+  `skeptic.analysis.bridge` imports schemas into semantic types.
+  `skeptic.analysis.bridge.canonicalize` normalizes schema forms.
+  `skeptic.analysis.bridge.localize` resolves schema values into the current project context and carries localized error context.
+  `skeptic.analysis.bridge.render` renders semantic types for reports and strips derived display-only fields.
+  `skeptic.analysis.bridge.algebra` contains schema-boundary set/join helpers.
+- `skeptic.analysis.types`, `skeptic.analysis.type-ops`, `skeptic.analysis.type-algebra`, `skeptic.analysis.normalize`:
+  Core type-domain representation and normalization.
+  `skeptic.analysis.types` is the canonical semantic type data model.
+  `skeptic.analysis.type-ops` builds, normalizes, unions, intersects, and de-`maybe`s types.
+  `skeptic.analysis.type-algebra` holds extra type-combination helpers.
+  `skeptic.analysis.normalize` normalizes typed declaration entries before analysis.
+- `skeptic.analysis.annotate` and `skeptic.analysis.annotate.*`:
+  Analyzer AST typing/inference.
+  `skeptic.analysis.annotate` dispatches on analyzer `:op` values.
+  Sub-namespaces split the work by AST area: `base`, `control`, `data`, `fn`, `invoke`, `invoke-output`, `jvm`, `match`, `numeric`, `coll`, and `map-path`.
+- `skeptic.analysis.calls`, `skeptic.analysis.native-fns`, `skeptic.analysis.value`, `skeptic.analysis.value-check`, `skeptic.analysis.map-ops`, `skeptic.analysis.map-ops.algebra`, `skeptic.analysis.narrowing`, `skeptic.analysis.origin`, `skeptic.analysis.ast-children`, `skeptic.analysis.annotation`:
+  Analysis helpers used by annotation and checking.
+  Call resolution and callable metadata live in `calls` and `native-fns`.
+  Runtime-value typing and compatibility checks live in `value`, `value-check`, `map-ops`, and `map-ops.algebra`.
+  Flow-sensitive refinements live in `narrowing`.
+  Provenance tracking lives in `origin`.
+  AST traversal/indexing helpers live in `ast-children` and `annotation`.
+- `skeptic.analysis.cast`, `skeptic.analysis.cast.kernel`, `skeptic.analysis.cast.map`, `skeptic.analysis.cast.support`:
+  Core cast engine in the type domain.
+  `cast` is the dispatcher.
+  `cast.kernel` holds the general cast rules.
+  `cast.map` handles map-specific casting.
+  `cast.support` carries cast-result structures, blame/path helpers, and common utilities.
+- `skeptic.analysis.schema-base`, `skeptic.analysis.schema.cast`, `skeptic.analysis.schema.map-ops`, `skeptic.analysis.schema.value-check`, `skeptic.analysis.schema.valued`:
+  Legacy or boundary-facing schema-domain helpers.
+  Keep new semantic work in the type domain unless an external schema-facing API specifically requires schema forms.
+- `skeptic.inconsistence.*`:
+  Mismatch reporting.
+  `report` builds summaries from cast results.
+  `path` computes visible blame paths and detail lines.
+  `display` renders types/schemas for users.
+  `mismatch` contains older mismatch message helpers.
+- `skeptic.file`, `skeptic.source`, `skeptic.colours`, `skeptic.utils`, `skeptic.type-vars`:
+  General support namespaces for file reading, source lookup, terminal formatting, schema-desc merging, and simple type-var values.
+- `skeptic.examples`, `skeptic.static-call-examples`:
+  Example/demo namespaces used for exercising analysis behavior.
+- `skeptic.analysis`, `skeptic.checking`, `skeptic.core-fns`:
+  Currently minimal marker namespaces, not active orchestration points.
+
+Tests:
+
+- `skeptic/test/...` mirrors the source namespace layout.
+  Most tests use the same namespace family plus a `-test` suffix, so the nearest test is usually in the matching subtree.
+
 ## Core Rules
 
 1. No re-exports.
