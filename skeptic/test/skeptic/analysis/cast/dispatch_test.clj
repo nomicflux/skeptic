@@ -1,0 +1,54 @@
+(ns skeptic.analysis.cast.dispatch-test
+  (:require [clojure.test :refer [deftest is]]
+            [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.cast :as sut]
+            [skeptic.analysis.types :as at]))
+
+(defn T
+  [schema]
+  (ab/schema->type schema))
+
+(deftest dispatch-precedence-and-root-rules-test
+  (let [exact (sut/check-cast (T s/Int) (T s/Int))
+        target-dyn (sut/check-cast (T s/Int) (T s/Any))
+        target-union (sut/check-cast (T s/Int) (T (s/either s/Int s/Str)))
+        source-union (sut/check-cast (T (s/either s/Int s/Str)) (T s/Int))
+        target-intersection (sut/check-cast (T s/Int) (T (s/both s/Any s/Int)))
+        maybe-source (sut/check-cast (T (s/maybe s/Any)) (T s/Int))
+        vector-target (sut/check-cast (T [s/Any s/Any]) (T [s/Int]))
+        bottom-source (sut/check-cast at/BottomType (T s/Int))]
+    (is (= :exact (:rule exact)))
+    (is (= :target-dyn (:rule target-dyn)))
+    (is (= :target-union (:rule target-union)))
+    (is (= :source-union (:rule source-union)))
+    (is (= :target-intersection (:rule target-intersection)))
+    (is (= :maybe-source (:rule maybe-source)))
+    (is (= :vector (:rule vector-target)))
+    (is (= :bottom-source (:rule bottom-source)))))
+
+(deftest function-polarity-and-method-selection-test
+  (let [domain-failure (sut/check-cast (T (s/=> s/Int s/Int))
+                                       (T (s/=> s/Int s/Str)))
+        domain-child (first (-> domain-failure :children first :children))
+        range-failure (sut/check-cast (T (s/=> s/Str s/Int))
+                                      (T (s/=> s/Int s/Int)))
+        range-child (last (-> range-failure :children first :children))]
+    (is (= :function (:rule domain-failure)))
+    (is (= :negative (:blame-polarity domain-child)))
+    (is (= :function (:rule range-failure)))
+    (is (= :positive (:blame-polarity range-child)))))
+
+(deftest result-tree-contract-test
+  (let [result (sut/check-cast (T {:user {:name s/Keyword}})
+                               (T {:user {:name s/Str}}))]
+    (is (false? (:ok? result)))
+    (is (vector? (:children result)))
+    (is (every? #(contains? result %) [:ok?
+                                       :blame-side
+                                       :blame-polarity
+                                       :rule
+                                       :source-type
+                                       :target-type
+                                       :children
+                                       :reason]))))

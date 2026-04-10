@@ -3,18 +3,36 @@
 This document is source-derived from:
 
 - `src/skeptic/analysis/cast.clj`
-- `src/skeptic/analysis/cast/kernel.clj`
-- `src/skeptic/analysis/cast/map.clj`
 - `src/skeptic/analysis/cast/support.clj`
+- `src/skeptic/analysis/cast/quantified.clj`
+- `src/skeptic/analysis/cast/branch.clj`
+- `src/skeptic/analysis/cast/function.clj`
+- `src/skeptic/analysis/cast/collection.clj`
+- `src/skeptic/analysis/cast/map.clj`
+
+It describes the current rewritten subtree, not the deleted `cast.kernel` layout.
 
 ## Governing Path
 
-The cast subtree is organized around one public entrypoint and three support layers:
+The rebuilt cast subtree is organized around one public entrypoint, one private
+recursive runner, and six non-recursive rule/helper namespaces:
 
-1. `skeptic.analysis.cast/check-cast` normalizes the two semantic types and dispatches by type shape.
-2. `skeptic.analysis.cast.kernel/*` implements the generic cast rules for quantified types, abstract types, unions, intersections, wrappers, functions, vectors, seqs, sets, and leaf types.
-3. `skeptic.analysis.cast.map/*` handles the special map-coverage algorithm by planning casts over exact keys, unexpected keys, and domain keys.
-4. `skeptic.analysis.cast.support/*` carries result construction, path helpers, sealed-value helpers, and the tamper checks used by quantified casts.
+1. `skeptic.analysis.cast/check-cast` normalizes the two semantic types, sets
+   default polarity, and hands work to the private runner.
+2. `skeptic.analysis.cast/run-cast` is the only recursive function in the
+   subtree. It owns dispatch order and all recursive descent.
+3. `skeptic.analysis.cast.support/*` owns cast-result construction, path
+   helpers, seal accounting, arity helpers, and cast-aware type tests.
+4. `skeptic.analysis.cast.quantified/*` owns `forall`, abstract type variable,
+   sealed dynamic, and scope-exit behavior.
+5. `skeptic.analysis.cast.branch/*` owns unions, intersections, nullable types,
+   and transparent wrappers.
+6. `skeptic.analysis.cast.function/*` owns function-method matching and
+   contravariant domain checks.
+7. `skeptic.analysis.cast.collection/*` owns vectors, seqs, cross-casts, sets,
+   and the leaf fallback.
+8. `skeptic.analysis.cast.map/*` owns the map coverage algorithm and delegates
+   key-domain reasoning to `skeptic.analysis.map-ops`.
 
 ## Interconnection Map
 
@@ -22,173 +40,291 @@ The cast subtree is organized around one public entrypoint and three support lay
 
 ```mermaid
 flowchart TD
-  CC["cast/check-cast"] --> K["cast.kernel generic rules"]
-  CC --> M["cast.map map rule"]
-  CC --> S["cast.support result helpers"]
+  CC["cast/check-cast"] --> RC["cast/run-cast"]
+  RC --> SUP["cast.support"]
+  RC --> Q["cast.quantified"]
+  RC --> B["cast.branch"]
+  RC --> F["cast.function"]
+  RC --> C["cast.collection"]
+  RC --> M["cast.map"]
 
-  K --> KR["kernel request helpers"]
-  K --> S
-  K --> CC
+  Q --> SUP
+  Q --> TA["analysis.type-algebra"]
 
-  M --> MP["map planners"]
-  MP --> KR
-  MP --> S
-  MP --> MV["analysis.map-ops + value-check"]
+  B --> SUP
 
-  S --> TA["type-algebra"]
-  S --> TR["bridge.render"]
+  F --> SUP
+  F --> BR["bridge.render flip-polarity"]
+
+  C --> SUP
+  C --> VC["analysis.value-check"]
+
+  M --> SUP
+  M --> MO["analysis.map-ops"]
+  M --> TO["analysis.type-ops"]
+  M --> VC
+
+  SUP --> BR2["bridge.render polarity->side"]
+  SUP --> TA
+  SUP --> TO
 ```
 
 ### Main function-to-function flows
 
-- Dispatcher fan-out:
-  `check-cast` either returns directly through `support/cast-ok`, or delegates to `kernel/check-quantified-cast`, `kernel/check-abstract-type-cast`, `kernel/check-union-cast`, `kernel/check-intersection-cast`, `kernel/check-maybe-cast`, `kernel/check-wrapper-cast`, `kernel/check-function-cast`, `map/check-map-cast`, `kernel/check-vector-cast`, `kernel/check-seq-cast`, `kernel/check-seq-to-vector-cast`, `kernel/check-vector-to-seq-cast`, `kernel/check-set-cast`, or `kernel/check-leaf-cast`.
-- Recursive cycle:
-  Most non-leaf rules do not recurse by calling `check-cast` directly. They build `kernel/cast-request` values, run them through `kernel/run-cast-request` or `kernel/run-cast-requests`, and those helpers call back into `check-cast`.
-- Shared aggregation path:
-  `kernel/check-union-cast`, `kernel/check-intersection-cast`, `kernel/check-function-cast`, `kernel/check-vector-cast`, `kernel/check-seq-cast`, `kernel/check-seq-to-vector-cast`, `kernel/check-vector-to-seq-cast`, `kernel/check-set-cast`, and `map/check-map-cast` all converge on `kernel/aggregate-all-children`, which in turn converges on `support/cast-ok` or `support/cast-fail`.
-- Quantified-state path:
-  `kernel/check-quantified-cast` delegates successful quantified children through `kernel/quantified-success`, and that helper runs `support/exit-nu-scope` before returning the final cast result.
-- Sealed-abstract path:
-  `kernel/check-abstract-type-cast` is the rule that uses `support/sealed-ground-name` and `support/cast-state` to manage the seal/collapse behavior for abstract types.
-- Union path:
-  `kernel/check-union-cast` now dispatches explicitly through `kernel/source-union-result` and `kernel/target-union-result`.
-  When both sides are unions, the source-union rule wins because `check-union-cast` checks `source-type` first.
+- Public entrypoint path:
+  `check-cast` normalizes `source-type` and `target-type` with
+  `type-ops/normalize-type`, injects default `:polarity :positive`, and calls
+  the private `run-cast`.
+- Recursive runner path:
+  `run-cast -> dispatch-cast`.
+  `dispatch-cast` is the central ordered dispatcher. It creates `child-run`
+  from `run-child`, and every recursive helper receives that function rather
+  than calling `check-cast` or each other directly.
+- Child-request path:
+  `run-child` takes one request map with `:source-type`, `:target-type`, `:opts`,
+  and optional `:path-segment`, calls `run-cast` recursively, then attaches the
+  path via `support/with-cast-path` if needed.
+- Quantified path:
+  `dispatch-cast -> quantified/check-quantified-cast`.
+  That splits into `generalize-cast` or `instantiate-cast`, both of which run
+  exactly one child cast through `child-run`, then call `support/exit-nu-scope`
+  through `quantified-success`.
+- Abstract/sealed path:
+  `dispatch-cast -> quantified/check-abstract-cast`.
+  That rule either seals `X -> Dyn`, collapses `SealedDyn(X) -> X`, or returns
+  one of the abstract mismatch failures.
+- Union/intersection path:
+  `dispatch-cast -> branch/check-union-cast` or
+  `branch/check-intersection-cast`.
+  These helpers build indexed child requests and aggregate them through
+  `support/aggregate-children`.
+- Nullable/wrapper path:
+  `dispatch-cast -> branch/check-maybe-cast` or
+  `branch/check-wrapper-cast`.
+  `check-maybe-cast` attaches a `{:kind :maybe-value}` path segment on its one
+  child request; `check-wrapper-cast` unwraps one `OptionalKeyT` or `VarT`
+  layer and immediately re-enters the recursive runner.
 - Function path:
-  `kernel/check-function-cast -> kernel/check-function-method-cast -> kernel/function-domain-requests -> kernel/run-cast-requests`.
-  The same method rule also creates one range request with `kernel/cast-request` and `kernel/run-cast-request`.
-  Method selection itself goes through `support/matching-source-method` and `support/method-accepts-arity?`.
+  `dispatch-cast -> function/check-function-cast ->
+  check-function-method -> method-children`.
+  Domain requests flip polarity with `bridge.render/flip-polarity`; range
+  requests preserve polarity.
 - Collection path:
-  `kernel/check-vector-cast`, `kernel/check-seq-to-vector-cast`, and `kernel/check-vector-to-seq-cast` all use `kernel/collection-aggregate`, which in turn uses `kernel/collection-cast-children`, `kernel/vector-cast-slot-count`, and `kernel/expand-vector-items`.
-  `kernel/check-seq-cast` uses `kernel/exact-arity-collection-cast`, which also converges on `kernel/collection-cast-children`.
-- Set path:
-  `kernel/check-set-cast` uses `kernel/set-cast-children`, which is the only collection matcher in this subtree that tries several target candidates per source element instead of zipping positions.
-- Leaf path:
-  `kernel/check-leaf-cast` is where the subtree exits into value-level compatibility checks through `analysis.value-check/value-satisfies-type?` and `analysis.value-check/leaf-overlap?`.
+  `dispatch-cast -> collection/check-vector-cast`,
+  `check-seq-cast`, `check-seq-to-vector-cast`,
+  `check-vector-to-seq-cast`, `check-set-cast`, or `check-leaf-cast`.
+  Position-wise collection checks create indexed child requests; the set rule is
+  the only collection matcher that tries multiple target candidates per source
+  member.
 - Map path:
-  `map/check-map-cast -> map/map-cast-children`.
-  `map/map-cast-children` fans out into `map/exact-target-entry-cast-results`, `map/exact-source-entry-cast-results`, and `map/domain-entry-cast-results`.
-  Those three functions depend on `map/plan-exact-target-entry-casts`, `map/plan-target-entry-casts`, `map/candidate-requests`, `map/execute-candidate-plan`, plus `kernel/cast-request`, `kernel/run-cast-requests`, and `support/cast-fail`.
-- Map-descriptor path:
-  The whole map rule is driven by `analysis.map-ops/map-entry-descriptor`, `analysis.map-ops/effective-exact-entries`, `analysis.map-ops/exact-key-candidates`, `analysis.map-ops/exact-key-entry`, and `analysis.map-ops/key-domain-covered?`.
-- Path-reporting path:
-  `map/map-entry-failure` combines `support/cast-fail` with `analysis.value-check/with-map-path`.
-  Generic child requests use `support/with-cast-path` instead.
+  `dispatch-cast -> map/check-map-cast -> map-children`.
+  `map-children` fans out into exact target checks, extra exact source checks,
+  and source domain checks.
+- External consumer path:
+  production code outside the subtree reaches this logic through
+  `analysis.map-ops` and `analysis.value-check` via `requiring-resolve
+  'skeptic.analysis.cast/check-cast`, and directly uses
+  `cast.support/optional-key-inner` and `cast.support/with-cast-path`.
 
 ### Utility entrypoints not on the main `check-cast` path
 
 - `support/check-type-test`
 
-`support/check-type-test` is still defined in the cast subtree but is not referenced by other `skeptic/src` files in the current workspace.
+`check-type-test` is still a cast-subtree API surface, but it is not part of
+the `check-cast` dispatch graph. It implements the sealed-value tamper rule for
+dynamic type tests.
+
+## Dispatch Order In `skeptic.analysis.cast`
+
+`dispatch-cast` checks rules in this exact order:
+
+1. bottom source
+2. exact equality
+3. quantified source or target
+4. abstract type variable or sealed dynamic
+5. dynamic target
+6. union
+7. intersection
+8. nullable
+9. transparent wrapper
+10. function
+11. map
+12. vector
+13. seq
+14. seq-to-vector
+15. vector-to-seq
+16. set
+17. leaf fallback
+
+This ordering is implemented directly in `cast.clj`, so it is the subtree’s
+governing control flow rather than a secondary convention.
 
 ## Namespace Map
 
 ### `skeptic.analysis.cast`
 
-- `check-cast`: Public dispatcher. Normalizes both types, sets the active polarity in `opts`, then chooses the rule family in a fixed order: bottom and exact equality first, then quantified and abstract rules, then dynamic/union/intersection/maybe/wrapper/function/map/collection cases, and finally leaf comparison. The wrapper branch is now a single combined dispatch for `OptionalKeyT` and `VarT`.
+- `run-child`: Adapts one request map back into the recursive runner and
+  attaches a path segment after the child result is produced.
+- `dispatch-cast`: Implements the ordered rule selection and builds the
+  `child-run` adapter that all helper namespaces use for recursive descent.
+- `run-cast`: The only recursive function in the subtree.
+- `check-cast`: Public entrypoint. Normalizes both input types, sets default
+  polarity, and invokes `run-cast`.
 
 ### `skeptic.analysis.cast.support`
 
-- `ensure-cast-state`: Normalizes the optional `:cast-state` map from opts and now leaves it as `{}` when missing.
-- `cast-state`: Reads `:cast-state` from opts and normalizes it through `ensure-cast-state`.
-- `sealed-ground-name`: Pulls a type-variable-style name back out of a sealed dynamic ground.
-- `contains-sealed-ground?`: Walks a semantic type recursively to see whether a given binder appears inside any sealed dynamic ground.
-- `cast-result`: Low-level constructor for the cast result map, including blame-side and blame-polarity fields.
-- `cast-ok`: Convenience constructor for successful cast results.
-- `cast-fail`: Convenience constructor for failing cast results.
-- `with-cast-path`: Appends one visible path segment to a cast result.
-- `all-ok?`: Returns true only when every child result succeeded.
-- `check-type-test`: Evaluates a dynamic type test. It succeeds for normal values and fails globally for sealed dynamics because those represent tampering-sensitive abstractions.
-- `cast-result-tree?`: Detects whether an artifact is already a cast-result tree rather than a plain semantic type.
-- `seal-balance`: Walks a successful cast-result tree and counts seals minus matching collapses for one binder.
-- `leaked-sealed-type`: Finds one still-live sealed value for a binder inside a cast-result tree.
-- `exit-nu-scope`: Checks that a quantified result leaving scope no longer contains unmatched seals for the quantified binder. It accepts either a plain semantic type or a cast-result tree and returns `:nu-tamper` on unmatched seals.
-- `method-accepts-arity?`: Arity matcher for `FnMethodT`, including variadic methods.
-- `matching-source-method`: Finds the first source function method whose arity can satisfy a target method.
-- `optional-key-inner`: Unwraps `OptionalKeyT` and otherwise returns the input unchanged.
+- `ensure-cast-state`, `cast-state`, `details-with-state`: Normalize and attach
+  the optional `:cast-state` payload in result details.
+- `sealed-ground-name`: Pulls a type-variable-style name out of a sealed
+  dynamic ground.
+- `cast-result`, `cast-ok`, `cast-fail`: Construct the cast-result tree shape
+  used throughout the subtree and by reporting code outside it.
+- `with-cast-path`: Appends one visible path segment to a result tree. This is
+  used both internally and by `analysis.value-check`.
+- `all-ok?`, `aggregate-children`: Shared success/failure aggregation helpers.
+- `cast-result-tree?`: Distinguishes a result tree from a plain semantic type.
+- `semantic-type-children`, `contains-sealed-ground?`: Walk semantic types
+  looking for sealed values tied to a binder.
+- `rule-seal-delta`, `seal-balance`, `leaked-sealed-type`: Walk result trees
+  and count surviving seals versus matching collapses.
+- `exit-nu-scope`: Enforces the quantified boundary check by rejecting any
+  result tree or type that still contains a surviving seal for the exiting
+  binder.
+- `method-accepts-arity?`, `matching-source-method`: Function-arity helpers
+  shared by the function rule.
+- `optional-key-inner`: Unwraps `OptionalKeyT` for external callers and for
+  map-key logic elsewhere in the tree.
+- `check-type-test`: Implements the sealed-value tamper rule for dynamic type
+  tests and returns `:matches?` metadata for non-sealed checks.
 
-### `skeptic.analysis.cast.kernel`
+### `skeptic.analysis.cast.quantified`
 
-#### Request and child orchestration
+- `quantified-failure`: Small helper for wrapping one failed quantified child.
+- `quantified-success`: Shared success path for generalize and instantiate. It
+  runs `support/exit-nu-scope` before returning the final cast result.
+- `generalize-cast`: Implements casts to `forall`. It rejects binder capture via
+  `type-algebra/type-free-vars`, then checks the source against the quantified
+  body.
+- `instantiate-cast`: Implements casts from `forall`. It substitutes the binder
+  with dynamic via `type-algebra/type-substitute`, then checks the instantiated
+  body against the target.
+- `sealed-match?`, `type-var-target-result`: Helpers for the matching-seal
+  collapse rule.
+- `check-abstract-cast`: Handles `TypeVarT`, `SealedDynT`, sealing, collapse,
+  and abstract mismatch failures.
+- `check-quantified-cast`: Chooses between generalization and instantiation.
 
-- `cast-request`: Packages one recursive cast request, optionally with a path segment.
-- `run-cast-request`: Executes one request through the recursive `check-cast` function and attaches the path segment if present.
-- `run-cast-requests`: Executes a vector of requests.
-- `indexed-cast-requests`: Builds requests over a collection while tagging each one with an indexed path segment.
-- `aggregate-all-children`: Returns `cast-ok` when every child succeeded, otherwise `cast-fail` with the accumulated children.
-- `collection-cast-children`: Shared helper for position-wise vector and seq casting.
-- `expand-vector-items`: Expands a homogeneous vector type into concrete slots for a requested arity.
-- `vector-cast-slot-count`: Computes the compatible slot count for vector/vector and vector/seq casts, including homogeneous expansion.
-- `set-cast-children`: For each source set member, tries all target members and keeps the first success or records an element failure.
-- `quantified-success`: Shared success path for quantified casts. Runs `support/exit-nu-scope` before returning the final quantified result.
+### `skeptic.analysis.cast.branch`
 
-#### Quantified, abstract, union, and wrapper rules
+- `indexed-request`, `run-indexed-children`: Build and execute indexed child
+  requests for branch-sensitive rules.
+- `one-child-result`: Shared wrapper for single-child nullable cases.
+- `source-union-result`, `target-union-result`: Implement the source-union and
+  target-union branches, preserving source-union precedence when both sides are
+  unions.
+- `check-union-cast`: Ordered union dispatcher.
+- `target-intersection-result`, `source-intersection-result`: Implement the two
+  intersection directions.
+- `check-intersection-cast`: Ordered intersection dispatcher.
+- `maybe-child`, `check-maybe-cast`: Handle `MaybeT` on either side, including
+  exact `nil` to maybe-target success.
+- `unwrap-wrapper`, `check-wrapper-cast`: Strip one `OptionalKeyT` or `VarT`
+  layer and immediately re-enter recursive checking.
 
-- `check-quantified-cast`: Handles both quantified target types (`generalize`) and quantified source types (`instantiate`). Successful quantified casts now flow through `quantified-success`, which enforces the `nu`-scope exit check before returning.
-- `check-abstract-type-cast`: Handles type variables and sealed dynamics, including sealing source abstractions, collapsing matching seals, and rejecting raw `Dyn` or placeholders for type-variable targets.
-- `source-union-result`: Implements the source-union rule where every source branch must cast to the target.
-- `target-union-result`: Implements the target-union rule where any target branch may succeed.
-- `check-union-cast`: Chooses between `source-union-result` and `target-union-result`, with source-union precedence when both sides are unions.
-- `check-intersection-cast`: For target intersections, every target component must accept the source. For source intersections, each source component is checked against the target.
-- `check-maybe-cast`: Handles `MaybeT` on either side, including the special case where exact `nil` satisfies a maybe target.
-- `unwrap-wrapper`: Shared helper that strips one `OptionalKeyT` or `VarT` layer.
-- `check-wrapper-cast`: Strips `OptionalKeyT` and `VarT` wrappers through `unwrap-wrapper` and then recurs on the inner types.
+### `skeptic.analysis.cast.function`
 
-#### Function rules
+- `domain-request`: Builds contravariant argument checks and flips polarity.
+- `range-request`: Builds the covariant return check.
+- `method-children`: Executes all domain checks plus one range check for a
+  matched source method and target method.
+- `missing-method`: Produces the arity-mismatch failure when no source method
+  can satisfy a target method.
+- `method-result`: Aggregates one target method’s children.
+- `check-function-method`: Matches one target method to one source method using
+  `support/matching-source-method`.
+- `check-function-cast`: Runs `check-function-method` for every target method
+  and aggregates them under the `:function` rule.
 
-- `function-domain-requests`: Builds contravariant argument casts from target inputs to source inputs and flips polarity for those checks.
-- `check-function-method-cast`: Checks one target method against a matching source method by combining domain child casts with one range cast.
-- `check-function-cast`: Runs `check-function-method-cast` for every target method and aggregates the results.
+### `skeptic.analysis.cast.collection`
 
-#### Collection and leaf rules
-
-- `collection-aggregate`: Shared helper for collection casts that use vector-style slot expansion before aggregating child results.
-- `exact-arity-collection-cast`: Shared helper for collection casts that require exact positional arity.
-- `check-vector-cast`: Aligns vector slots through `collection-aggregate`, expands homogeneous vectors when needed, then casts slot-by-slot.
-- `check-seq-cast`: Casts seq items positionally through `exact-arity-collection-cast`.
-- `check-seq-to-vector-cast`: Casts seq items into vector slots through `collection-aggregate`.
-- `check-vector-to-seq-cast`: Casts vector items into seq slots through `collection-aggregate`.
-- `check-set-cast`: Requires equal set cardinality, then matches each source member against some target member.
-- `check-leaf-cast`: Final fallback for value, dynamic, placeholder, ground, refinement, adapter-leaf, and function-vs-adapter-leaf combinations.
+- `index-request`, `aligned-children`: Shared position-wise child-request
+  builders for vector and seq rules.
+- `expand-items`, `slot-count`: Implement the homogeneous expansion policy used
+  by vectors and vector/seq cross-casts.
+- `expanded-collection-result`: Shared helper for rules that allow homogeneous
+  expansion.
+- `fixed-collection-result`: Shared helper for rules that require exact stored
+  arity.
+- `set-member-failure`, `set-member-result`: Implement the set rule’s
+  “try every target member for one source member” behavior.
+- `check-vector-cast`: Vector/vector rule.
+- `check-seq-cast`: Seq/seq rule.
+- `check-seq-to-vector-cast`: Seq/vector cross-cast rule.
+- `check-vector-to-seq-cast`: Vector/seq cross-cast rule.
+- `check-set-cast`: Cardinality-sensitive set rule.
+- `check-leaf-cast`: Final fallback for exact values, target exact values,
+  residual dynamic and placeholders, leaf overlap, and function-vs-adapter-leaf
+  checks.
 
 ### `skeptic.analysis.cast.map`
 
-#### Path and failure helpers
+- `map-entry-failure`: Builds map-specific failures and attaches visible map-key
+  paths through `value-check/with-map-path`.
+- `candidate-request`, `candidate-results`: Build and evaluate several target
+  candidate value casts for one source entry.
+- `exact-target-plan`: Finds source candidates for one exact target key and
+  prepares the corresponding child requests.
+- `missing-target-entry`, `nullable-key-result`: Exact-target failure helpers.
+- `exact-target-results`: Runs required/optional target exact-key checks,
+  including nullable-key mismatches.
+- `exact-source-results`: Handles extra exact source keys by searching for a
+  covering target domain entry and otherwise producing `:unexpected-key`.
+- `expand-domain-entry`: Splits a union-valued source domain key into one entry
+  per member before coverage checks.
+- `domain-entry-result`, `domain-entry-results`: Handle source domain entries
+  and emit `:map-key-domain-not-covered` when no target domain covers a source
+  branch.
+- `map-children`: Orchestrates the three map passes:
+  target exact entries,
+  extra source exact entries,
+  source domain entries.
+- `check-map-cast`: Aggregates all map children under the `:map` rule.
 
-- `map-path-segment`: Converts an exact key into a visible `{:kind :map-key ...}` path segment when possible.
-- `map-entry-failure`: Builds a map-specific failure result and attaches the failing key path.
+## External Boundaries And Consumers
 
-#### Candidate execution helpers
+The cast subtree currently exposes three live interfaces that code outside the
+subtree depends on:
 
-- `run-candidate-casts`: Runs a set of requests and collapses the result to a single success when any candidate succeeds; otherwise preserves the full failure set.
-- `candidate-requests`: Builds value-cast requests for one source value against several target entries.
-- `execute-candidate-plan`: Runs a precomputed request set or returns the caller-provided failure result when there are no candidates.
+- `skeptic.analysis.cast/check-cast`
+- `skeptic.analysis.cast.support/optional-key-inner`
+- `skeptic.analysis.cast.support/with-cast-path`
 
-#### Exact-key planning
+Source-derived consumer paths:
 
-- `plan-exact-target-entry-casts`: For one exact target entry, finds candidate source entries and builds the corresponding value-cast requests.
-- `exact-target-entry-cast-results`: Executes the target-entry plan and also reports missing required keys or nullable-key mismatches.
-- `plan-target-entry-casts`: Shared planner for source-entry-to-target-entry value casts once the target candidate set is known.
-- `exact-source-entry-cast-results`: Executes that plan or reports an unexpected source key when no target domain entry covers it.
-
-#### Domain-key planning
-
-- `expand-domain-entry`: Splits a union-valued source domain key into one entry per member so coverage checks happen member-by-member.
-- `domain-entry-cast-results`: Finds target domain entries whose key domains cover each expanded source domain entry, then executes those casts or emits a `:map-key-domain` failure when coverage is missing.
-
-#### Map subtree driver
-
-- `map-cast-children`: Builds the full child-result set for a map cast by combining three passes:
-  required and optional target exact entries,
-  extra exact source entries,
-  and source domain entries.
-- `check-map-cast`: Public map-rule entrypoint. Runs `map-cast-children` and aggregates the results under the `:map` rule.
+- `analysis.map-ops` calls `check-cast` via `requiring-resolve` and uses
+  `optional-key-inner` directly for map descriptor and key-domain logic.
+- `analysis.value-check` calls `check-cast` via `requiring-resolve`, uses
+  `optional-key-inner` for exact-key extraction, and uses `with-cast-path` to
+  attach visible map-key paths.
+- `analysis.schema.cast` is the schema-boundary adapter over `check-cast`.
+- `inconsistence.report` calls `check-cast` directly to build reporting trees.
 
 ## Shape Summary
 
-- Dispatcher: `check-cast`
-- Generic recursive rules: `kernel.clj`
-- Map-specific coverage algorithm: `map.clj`
-- State/result/path utilities: `support.clj`
+- Public entrypoint: `check-cast`
+- Recursive owner: `run-cast`
+- Generic result/state/path helpers: `support.clj`
+- Quantified and abstract rules: `quantified.clj`
+- Union/intersection/nullable/wrapper rules: `branch.clj`
+- Function rules: `function.clj`
+- Collection and leaf rules: `collection.clj`
+- Map coverage algorithm: `map.clj`
 
-The main design pattern in this subtree is: build child requests first, run them through the recursive `check-cast`, then aggregate the resulting child tree into one cast result with blame metadata and visible paths.
+The main design pattern in the rewritten subtree is:
+
+1. `check-cast` normalizes inputs and enters `run-cast`.
+2. `dispatch-cast` chooses exactly one rule family in priority order.
+3. Helpers build small child request maps and invoke the provided `child-run`.
+4. `run-child` is the only bridge back into recursion.
+5. `support/*` helpers construct and aggregate result trees with blame metadata
+   and visible paths.

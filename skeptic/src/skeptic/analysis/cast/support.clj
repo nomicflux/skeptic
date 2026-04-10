@@ -1,6 +1,5 @@
 (ns skeptic.analysis.cast.support
-  (:require [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.bridge.render :as abr]
+  (:require [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
@@ -13,56 +12,15 @@
   [opts]
   (ensure-cast-state (:cast-state opts)))
 
+(defn details-with-state
+  ([opts]
+   (details-with-state opts nil))
+  ([opts details]
+   (assoc (or details {}) :cast-state (cast-state opts))))
+
 (defn sealed-ground-name
   [type]
   (some-> type ato/normalize-type :ground ata/type-var-name))
-
-(defn contains-sealed-ground?
-  [type binder]
-  (let [type (ato/normalize-type type)]
-    (cond
-      (at/sealed-dyn-type? type)
-      (= binder (sealed-ground-name type))
-
-      (at/fn-method-type? type)
-      (or (contains-sealed-ground? (:output type) binder)
-          (some #(contains-sealed-ground? % binder) (:inputs type)))
-
-      (at/fun-type? type)
-      (some #(contains-sealed-ground? % binder) (:methods type))
-
-      (at/maybe-type? type)
-      (contains-sealed-ground? (:inner type) binder)
-
-      (or (at/union-type? type)
-          (at/intersection-type? type))
-      (some #(contains-sealed-ground? % binder) (:members type))
-
-      (at/map-type? type)
-      (some (fn [[k v]]
-              (or (contains-sealed-ground? k binder)
-                  (contains-sealed-ground? v binder)))
-            (:entries type))
-
-      (or (at/vector-type? type)
-          (at/seq-type? type))
-      (some #(contains-sealed-ground? % binder) (:items type))
-
-      (at/set-type? type)
-      (some #(contains-sealed-ground? % binder) (:members type))
-
-      (at/var-type? type)
-      (contains-sealed-ground? (:inner type) binder)
-
-      (at/value-type? type)
-      (contains-sealed-ground? (:inner type) binder)
-
-      (at/forall-type? type)
-      (and (not= binder (:binder type))
-           (contains-sealed-ground? (:body type) binder))
-
-      :else
-      false)))
 
 (defn cast-result
   [{:keys [ok? source-type target-type rule polarity reason children details]}]
@@ -114,26 +72,11 @@
   [results]
   (every? :ok? results))
 
-(defn check-type-test
-  ([value-type ground-type]
-   (check-type-test value-type ground-type {}))
-  ([value-type ground-type opts]
-   (let [value-type (ato/normalize-type value-type)
-         ground-type (ato/normalize-type ground-type)]
-     (if (at/sealed-dyn-type? value-type)
-       (cast-fail value-type
-                  ground-type
-                  :is-tamper
-                  :global
-                  :is-tamper
-                  []
-                  {:cast-state (cast-state opts)})
-       (cast-ok value-type
-                ground-type
-                :dynamic-test
-                []
-                {:matches? (= value-type ground-type)
-                 :cast-state (cast-state opts)})))))
+(defn aggregate-children
+  [source-type target-type rule polarity reason children]
+  (if (all-ok? children)
+    (cast-ok source-type target-type rule children)
+    (cast-fail source-type target-type rule polarity reason children)))
 
 (defn cast-result-tree?
   [value]
@@ -142,38 +85,61 @@
        (contains? value :rule)
        (contains? value :children)))
 
+(defn semantic-type-children
+  [type]
+  (let [type (ato/normalize-type type)]
+    (cond
+      (at/sealed-dyn-type? type) [(:ground type)]
+      (at/fn-method-type? type) (into [(:output type)] (:inputs type))
+      (at/fun-type? type) (:methods type)
+      (at/maybe-type? type) [(:inner type)]
+      (or (at/union-type? type) (at/intersection-type? type)) (:members type)
+      (at/map-type? type) (mapcat identity (:entries type))
+      (or (at/vector-type? type) (at/seq-type? type)) (:items type)
+      (at/set-type? type) (:members type)
+      (at/var-type? type) [(:inner type)]
+      (at/value-type? type) [(:inner type)]
+      (at/forall-type? type) [(:body type)]
+      :else [])))
+
+(defn contains-sealed-ground?
+  [type binder]
+  (boolean
+   (some #(and (at/sealed-dyn-type? %)
+               (= binder (sealed-ground-name %)))
+         (tree-seq seq semantic-type-children (ato/normalize-type type)))))
+
+(defn rule-seal-delta
+  [result binder]
+  (cond
+    (and (= :seal (:rule result))
+         (= binder (sealed-ground-name (:sealed-type result))))
+    1
+
+    (and (= :sealed-collapse (:rule result))
+         (= binder (sealed-ground-name (:source-type result))))
+    -1
+
+    :else
+    0))
+
 (defn seal-balance
   [cast-result binder]
-  (let [children-balance (reduce + 0 (map #(seal-balance % binder) (:children cast-result)))
-        local-balance (cond
-                        (and (= :seal (:rule cast-result))
-                             (= binder (sealed-ground-name (:sealed-type cast-result))))
-                        1
-
-                        (and (= :sealed-collapse (:rule cast-result))
-                             (= binder (sealed-ground-name (:source-type cast-result))))
-                        -1
-
-                        :else
-                        0)]
-    (+ local-balance children-balance)))
+  (reduce + 0 (map #(rule-seal-delta % binder)
+                   (tree-seq seq :children cast-result))))
 
 (defn leaked-sealed-type
   [cast-result binder]
-  (cond
-    (and (= :seal (:rule cast-result))
-         (= binder (sealed-ground-name (:sealed-type cast-result))))
-    (:sealed-type cast-result)
-
-    :else
-    (some #(leaked-sealed-type % binder) (:children cast-result))))
+  (some #(when (= 1 (rule-seal-delta % binder))
+           (:sealed-type %))
+        (tree-seq seq :children cast-result)))
 
 (defn exit-nu-scope
   ([artifact binder]
    (exit-nu-scope artifact binder {}))
   ([artifact binder opts]
-   (let [binder (or (ata/type-var-name (ato/normalize-type binder))
-                    binder)]
+   (let [binder (or (ata/type-var-name (ato/normalize-type binder)) binder)
+         details (details-with-state opts)]
      (if (cast-result-tree? artifact)
        (if (pos? (seal-balance artifact binder))
          (cast-fail (or (leaked-sealed-type artifact binder)
@@ -183,26 +149,12 @@
                     :global
                     :nu-tamper
                     [artifact]
-                    {:cast-state (cast-state opts)})
-         (cast-ok (:target-type artifact)
-                  (at/->TypeVarT binder)
-                  :nu-pass
-                  [artifact]
-                  {:cast-state (cast-state opts)}))
+                    details)
+         (cast-ok (:target-type artifact) (at/->TypeVarT binder) :nu-pass [artifact] details))
        (let [type (ato/normalize-type artifact)]
          (if (contains-sealed-ground? type binder)
-           (cast-fail type
-                      (at/->TypeVarT binder)
-                      :nu-tamper
-                      :global
-                      :nu-tamper
-                      []
-                      {:cast-state (cast-state opts)})
-           (cast-ok type
-                    (at/->TypeVarT binder)
-                    :nu-pass
-                    []
-                    {:cast-state (cast-state opts)})))))))
+           (cast-fail type (at/->TypeVarT binder) :nu-tamper :global :nu-tamper [] details)
+           (cast-ok type (at/->TypeVarT binder) :nu-pass [] details)))))))
 
 (defn method-accepts-arity?
   [method arity]
@@ -212,8 +164,7 @@
 
 (defn matching-source-method
   [source-fun target-method]
-  (some #(when (method-accepts-arity? % (count (:inputs target-method)))
-           %)
+  (some #(when (method-accepts-arity? % (count (:inputs target-method))) %)
         (:methods source-fun)))
 
 (defn optional-key-inner
@@ -221,3 +172,14 @@
   (if (at/optional-key-type? type)
     (:inner type)
     type))
+
+(defn check-type-test
+  ([value-type ground-type]
+   (check-type-test value-type ground-type {}))
+  ([value-type ground-type opts]
+   (let [value-type (ato/normalize-type value-type)
+         ground-type (ato/normalize-type ground-type)
+         details (details-with-state opts {:matches? (= value-type ground-type)})]
+     (if (at/sealed-dyn-type? value-type)
+       (cast-fail value-type ground-type :is-tamper :global :is-tamper [] details)
+       (cast-ok value-type ground-type :dynamic-test [] details)))))
