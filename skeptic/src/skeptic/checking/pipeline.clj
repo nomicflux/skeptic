@@ -4,6 +4,7 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.checking.ast :as ca]
@@ -14,9 +15,83 @@
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
+(declare analyze-source-exprs ns-exprs)
+
 (defn analyzed-def-entry
   [ns-sym analyzed]
-  (aapi/analyzed-def-entry ns-sym analyzed))
+  (letfn [(literal-keyword [node]
+            (when (ac/literal-map-key? node)
+              (let [value (ac/literal-node-value node)]
+                (when (keyword? value)
+                  value))))
+          (accessor-summary-from-body [param-sym body]
+            (let [body (aapi/unwrap-with-meta body)]
+              (cond
+                (= :keyword-invoke (aapi/node-op body))
+                (let [target (:target body)
+                      kw-node (:keyword body)
+                      kw (literal-keyword kw-node)]
+                  (when (and kw
+                             (= :local (:op target))
+                             (= param-sym (:form target)))
+                    {:kind :unary-map-accessor
+                     :kw kw}))
+
+                (and (= :invoke (aapi/node-op body))
+                     (ac/get-call? (aapi/call-fn-node body)))
+                (let [[target key-node] (aapi/call-args body)
+                      kw (literal-keyword key-node)]
+                  (when (and kw
+                             (= :local (:op target))
+                             (= param-sym (:form target)))
+                    {:kind :unary-map-accessor
+                     :kw kw}))
+
+                (and (= :static-call (aapi/node-op body))
+                     (ac/static-get-call? body))
+                (let [[target key-node] (aapi/call-args body)
+                      kw (literal-keyword key-node)]
+                  (when (and kw
+                             (= :local (:op target))
+                             (= param-sym (:form target)))
+                    {:kind :unary-map-accessor
+                     :kw kw}))
+
+                :else nil)))
+          (def-accessor-summary [node]
+            (when (= :fn (aapi/node-op node))
+              (let [methods (aapi/function-methods node)]
+                (when (= 1 (count methods))
+                  (let [method (first methods)
+                        params (:params method)]
+                    (when (= 1 (count params))
+                      (accessor-summary-from-body (:form (first params))
+                                                 (aapi/method-body method))))))))]
+    (let [[sym entry] (aapi/analyzed-def-entry ns-sym analyzed)
+          value-node (some-> analyzed aapi/unwrap-with-meta aapi/def-value-node)]
+      (when (and sym entry)
+        [sym
+         (cond-> entry
+           true aapi/strip-derived-types
+           true (as-> normalized
+                      (if-let [summary (some-> value-node def-accessor-summary)]
+                        (assoc normalized :accessor-summary summary)
+                        normalized)))]))))
+
+(defn- preanalyzed-ns-dict
+  [dict ns-sym source-file]
+  (if (and source-file ns-sym)
+    (let [exprs (ns-exprs source-file)
+          resolved-defs (:resolved-defs (analyze-source-exprs dict ns-sym source-file exprs))]
+      (reduce (fn [acc [sym resolved-entry]]
+                (if-let [summary (:accessor-summary resolved-entry)]
+                  (update acc sym (fn [entry]
+                                    (assoc (or entry {:type at/Dyn})
+                                           :accessor-summary summary)))
+                  acc))
+              dict
+              resolved-defs))
+    dict))
 
 (defn analyze-source-exprs
   [dict ns-sym source-file exprs]
@@ -278,9 +353,16 @@
 (defn check-s-expr
   [dict s-expr {:keys [keep-empty remove-context ns source-file check-def]}]
   (binding [*ns* (the-ns ns)]
-    (let [source-form (find-source-form s-expr source-file check-def)]
-      (check-ns-form dict ns source-file source-form
-                     {:keep-empty keep-empty :remove-context remove-context}))))
+    (let [source-form (find-source-form s-expr source-file check-def)
+          analysis-dict (preanalyzed-ns-dict dict ns source-file)
+          {:keys [resolved]} (analyze-source-exprs analysis-dict ns source-file [source-form])]
+      (vec (check-resolved-form dict
+                                ns
+                                source-file
+                                source-form
+                                (first resolved)
+                                {:keep-empty keep-empty
+                                 :remove-context remove-context})))))
 
 (defmacro block-in-ns
   [ns ^File file & body]

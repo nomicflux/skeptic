@@ -36,6 +36,36 @@
   (and (= :if (:op init-node))
        (nil-check-local-form-in-test? (:test init-node) binding-sym)))
 
+(defn- alias-leaf-node
+  [node]
+  (case (:op node)
+    :do (alias-leaf-node (:ret node))
+    :let (alias-leaf-node (:body node))
+    node))
+
+(defn- alias-root-sym
+  [node]
+  (some-> node alias-leaf-node ao/local-root-origin :sym))
+
+(defn- nilish-alias-branch?
+  [node]
+  (let [node (alias-leaf-node node)]
+    (or (and (= :const (:op node)) (nil? (:val node)))
+        (at/bottom-type? (:type node)))))
+
+(defn- narrowing-alias-root-sym
+  [init-node base-origin]
+  (when (= :if (:op init-node))
+    (let [test-root-sym (get-in base-origin [:test :root :sym])
+          then-root-sym (alias-root-sym (:then init-node))
+          else-root-sym (alias-root-sym (:else init-node))
+          source-root-sym (cond
+                            (and then-root-sym (nilish-alias-branch? (:else init-node))) then-root-sym
+                            (and else-root-sym (nilish-alias-branch? (:then init-node))) else-root-sym
+                            :else nil)]
+      (when (= test-root-sym source-root-sym)
+        source-root-sym))))
+
 (defn annotate-do
   [ctx node]
   (let [[statements final-ctx]
@@ -94,9 +124,11 @@
         base-origin (:origin base-entry)
         branch-test-sym (get-in base-origin [:test :root :sym])
         binding-sym (:form binding)
+        narrowing-alias-sym (narrowing-alias-root-sym init base-origin)
         self-origin (when (or (nil? branch-test-sym)
                               (= branch-test-sym binding-sym)
-                              (if-init-nil-check-binds-same-name? init binding-sym))
+                              (if-init-nil-check-binds-same-name? init binding-sym)
+                              (some? narrowing-alias-sym))
                       (ao/root-origin binding-sym (:type base-entry)))]
     [annotated
      (assoc env binding-sym

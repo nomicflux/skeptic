@@ -78,3 +78,13 @@
         domain-leaf (first (filter #(= :map-key-domain-not-covered (:reason %)) leaves))]
     (is (some? domain-leaf))
     (is (contains? domain-leaf :source-key-domain))))
+
+(deftest conditional-types-work-under-maybe-cast-test
+  (let [source (T {:x s/Int})
+        target (T (s/maybe (s/conditional :x {:x s/Int})))
+        result (cast/check-cast source target)
+        source-conditional (T (s/maybe (s/conditional :x {:x s/Int})))
+        target-map (T (s/maybe {:x s/Int}))]
+    (is (sut/ok? result))
+    (is (= :maybe-target (:rule result)))
+    (is (sut/ok? (cast/check-cast source-conditional target-map)))))

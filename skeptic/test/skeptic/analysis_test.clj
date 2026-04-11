@@ -187,3 +187,42 @@
       (is (= [(T s/Int)] (aapi/call-actual-argtypes call-node)))
       (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
                                                               'skeptic.test-examples/flat-multi-step-g)))))))
+
+(deftest accessor-helper-resolution-contract-test
+  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+        exprs (source-exprs-in 'skeptic.test-examples test-examples-file)
+        {:keys [resolved-defs]} (checking/analyze-source-exprs dict
+                                                               'skeptic.test-examples
+                                                               test-examples-file
+                                                               exprs)]
+    (testing "accessor summaries are emitted only for trivial unary accessors"
+      (is (= {:kind :unary-map-accessor :kw :k}
+             (:accessor-summary (get resolved-defs 'skeptic.test-examples/vtype))))
+      (is (nil? (:accessor-summary (get resolved-defs 'skeptic.test-examples/non-null-transform))))))
+
+  (testing "prepass exposes helper accessor summaries to later case narrowing"
+    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+          exprs (source-exprs-in 'skeptic.test-examples test-examples-file)
+          prepass (:resolved-defs (checking/analyze-source-exprs dict
+                                                                 'skeptic.test-examples
+                                                                 test-examples-file
+                                                                 exprs))
+          analysis-dict (reduce (fn [acc [sym resolved-entry]]
+                                  (if-let [summary (:accessor-summary resolved-entry)]
+                                    (update acc sym assoc :accessor-summary summary)
+                                    acc))
+                                dict
+                                prepass)
+          form (->> 'skeptic.test-examples/conditional-dispatch-success
+                    (source/get-fn-code {})
+                    read-string)
+          ast (first (:resolved (checking/analyze-source-exprs analysis-dict
+                                                               'skeptic.test-examples
+                                                               test-examples-file
+                                                               [form])))
+          handle-a (aapi/find-node ast #(and (aapi/call-node? %)
+                                             (= '(handle-a v) (aapi/node-form %))))
+          handle-b (aapi/find-node ast #(and (aapi/call-node? %)
+                                             (= '(handle-b v) (aapi/node-form %))))]
+      (is (= (T {:x s/Int}) (first (aapi/call-actual-argtypes handle-a))))
+      (is (= (T {:y s/Str}) (first (aapi/call-actual-argtypes handle-b)))))))

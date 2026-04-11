@@ -1055,3 +1055,36 @@
 (s/defn maybe-target-success :- Target 
   [{:keys [n]} :- Source]
   {:n n})
+
+(s/defschema VariantA {:k (s/eq :a) :x s/Int})
+(s/defschema VariantB {:k (s/eq :b) :y s/Str})
+(s/defschema Variants
+  (s/conditional #(= :a (:k %)) VariantA
+                 #(= :b (:k %)) VariantB))
+
+(s/defn handle-a :- s/Any [v :- {:x s/Int}] v)
+(s/defn handle-b :- s/Any [v :- {:y s/Str}] v)
+
+(s/defn vtype [v] (:k v))
+
+(s/defn conditional-dispatch-success :- s/Any
+  [v :- Variants]
+  (case (vtype v)
+    :a (handle-a v)
+    :b (handle-b v)))
+
+(s/defn cond-branch-pick-success :- (s/maybe (s/conditional :x {:x s/Int}))
+  []
+  {:x 1})
+
+(s/defn if-nullable-guard-success :- s/Str
+  [x :- (s/maybe s/Str)]
+  (if (not (nil? x))
+    x
+    "fallback"))
+
+(s/defn cond->-guard-success :- {(s/optional-key :p) s/Str}
+  [raw :- (s/maybe s/Str)]
+  (let [p (when (some? raw) raw)]
+    (cond-> {}
+      (some? p) (assoc :p p))))

@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.match
-  (:require [skeptic.analysis.ast-children :as sac]
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.types :as at]
@@ -64,6 +65,13 @@
 (defn case-kw-and-target
   [node]
   (or (ac/keyword-invoke-kw-and-target node)
+      (when (and (contains? aapi/invoke-ops (:op node))
+                 (= 1 (count (:args node))))
+        (let [summary (get-in node [:fn :accessor-summary])
+              target (first (:args node))]
+          (when (and (= :unary-map-accessor (:kind summary))
+                     (= :local (:op target)))
+            [(:kw summary) target])))
       (case-get-access-kw-and-target node)))
 
 (defn case-kw-root-info
@@ -97,11 +105,37 @@
           (:branches (first conditionals))))
       :else nil)))
 
+(defn- discriminator-entry?
+  [entry-key kw]
+  (let [entry-key (if (at/optional-key-type? entry-key)
+                    (:inner entry-key)
+                    entry-key)]
+    (and (at/value-type? entry-key)
+         (= kw (:value entry-key)))))
+
+(defn- drop-discriminator-key
+  [type kw]
+  (cond
+    (at/map-type? type)
+    (at/->MapT (into {}
+                     (remove (fn [[entry-key _]]
+                               (discriminator-entry? entry-key kw)))
+                     (:entries type)))
+
+    (at/union-type? type)
+    (ato/union-type (map #(drop-discriminator-key % kw) (:members type)))
+
+    (at/maybe-type? type)
+    (at/->MaybeT (drop-discriminator-key (:inner type) kw))
+
+    :else type))
+
 (defn case-conditional-narrow-for-lits
   [branches kw lits]
   (let [pick (fn [lit]
                (some (fn [[pred branch-type]]
-                       (when (case-predicate-matches-lit? pred kw lit) branch-type))
+                       (when (case-predicate-matches-lit? pred kw lit)
+                         (drop-discriminator-key branch-type kw)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) at/BottomType (ato/union-type picked))))
@@ -110,7 +144,10 @@
   [branches kw all-lits]
   (let [matched? (fn [[pred _]]
                    (some #(case-predicate-matches-lit? pred kw %) all-lits))
-        default-types (into [] (comp (remove matched?) (map second)) branches)]
+        default-types (into [] (comp (remove matched?)
+                                     (map second)
+                                     (map #(drop-discriminator-key % kw)))
+                            branches)]
     (if (empty? default-types) at/BottomType (ato/union-type default-types))))
 
 (defn annotate-case-one-then

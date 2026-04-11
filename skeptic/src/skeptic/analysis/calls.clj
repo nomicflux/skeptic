@@ -191,6 +191,10 @@
   (or (var->sym (aapi/node-var fn-node))
       (aapi/node-form fn-node)))
 
+(defn not-call?
+  [fn-node]
+  (contains? #{'clojure.core/not 'not} (resolved-call-sym fn-node)))
+
 (defn- class-literal-node?
   [node]
   (and (= :const (aapi/node-op node))

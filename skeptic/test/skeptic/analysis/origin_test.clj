@@ -121,3 +121,28 @@
                                       (= 'minus (aapi/node-method %))))]
       (is (some? minus) "expected unary - lowered to Numbers/minus")
       (is (= atst/num-ground (first (aapi/call-actual-argtypes minus)))))))
+
+(deftest negated-assumptions-and-narrowing-alias-roots-test
+  (testing "not around nil? inverts the branch assumption"
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(if (not (nil? x)) x "fallback")
+                                  {:locals {'x (atst/T (s/maybe s/Str))}})
+          if-node (aapi/find-node root #(= :if (aapi/node-op %)))
+          then-x (aapi/find-node (aapi/then-node if-node)
+                                 #(and (= :local (aapi/node-op %))
+                                       (= 'x (aapi/node-form %))))]
+      (is (= (atst/T s/Str) (aapi/node-type if-node)))
+      (is (= (atst/T s/Str) (aapi/node-type then-x)))))
+
+  (testing "narrowing-preserving aliases get their own root for later refinement"
+    (let [root (atst/analyze-form atst/typed-test-examples-dict
+                                  '(let [raw input
+                                         p (when (some? raw) raw)]
+                                     (if (some? p) p nil))
+                                  {:locals {'input (atst/T (s/maybe s/Str))}})
+          then-p (aapi/find-node root
+                                 #(and (= :local (aapi/node-op %))
+                                       (= 'p (aapi/node-form %))
+                                       (= (atst/T s/Str) (aapi/node-type %))))]
+      (is (= (atst/T s/Str) (aapi/node-type then-p)))
+      (is (= 'p (:sym (ao/local-root-origin then-p)))))))

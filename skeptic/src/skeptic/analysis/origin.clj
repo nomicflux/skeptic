@@ -64,6 +64,20 @@
     :conjunction nil
     (update assumption :polarity not)))
 
+(defn- invertible-assumption?
+  [assumption]
+  (contains? #{:type-predicate
+               :contains-key
+               :blank-check
+               :value-equality
+               :conditional-branch}
+             (:kind assumption)))
+
+(defn- invert-assumption
+  [assumption]
+  (when (invertible-assumption? assumption)
+    (opposite-polarity assumption)))
+
 (defn same-assumption?
   [left right]
   (and (= (:kind left) (:kind right))
@@ -291,6 +305,14 @@
          :pred :instance?
          :class cls
          :polarity true}))
+
+    (and (= :invoke (aapi/node-op test-node))
+         (ac/not-call? (aapi/call-fn-node test-node)))
+    (let [args (aapi/call-args test-node)]
+      (when (= 1 (count args))
+        (some-> (first args)
+                test->assumption
+                invert-assumption)))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/type-predicate-call? (aapi/call-fn-node test-node) (aapi/call-args test-node)))

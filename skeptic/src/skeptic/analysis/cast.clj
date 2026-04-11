@@ -41,6 +41,9 @@
       (or (at/intersection-type? target-type) (at/intersection-type? source-type))
       (branch/check-intersection-cast child-run source-type target-type opts)
 
+      (or (at/conditional-type? target-type) (at/conditional-type? source-type))
+      (branch/check-conditional-cast child-run source-type target-type opts)
+
       (or (at/maybe-type? source-type) (at/maybe-type? target-type))
       (branch/check-maybe-cast child-run source-type target-type opts)
 

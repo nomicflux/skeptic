@@ -934,3 +934,11 @@
 (deftest when-not-blank-maybe-str
   (in-test-examples
    (is (= [] (check-fn test-dict 'skeptic.test-examples/when-not-blank-maybe-str-success)))))
+
+(deftest type-narrowing-examples
+  (in-test-examples
+   (are [f] (= [] (check-fn test-dict f))
+     'skeptic.test-examples/conditional-dispatch-success
+     'skeptic.test-examples/cond-branch-pick-success
+     'skeptic.test-examples/if-nullable-guard-success
+     'skeptic.test-examples/cond->-guard-success)))
