@@ -951,3 +951,12 @@
        "caller check should still fire against the declared schema")
    (is (empty? (check-fn test-dict 'skeptic.test-examples/good-caller-of-ignored))
        "correct callers should have no errors")))
+
+(deftest opaque-fixtures
+  (in-test-examples
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/opaque-fn))
+       "opaque fn body must not produce mismatches")
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/caller-of-opaque))
+       "caller of opaque fn must see s/Any and produce no mismatches")
+   (is (= (T s/Any) (:output-type (get test-dict 'skeptic.test-examples/opaque-fn)))
+       "opaque fn dict entry must have s/Any output type")))

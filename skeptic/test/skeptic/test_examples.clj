@@ -1101,3 +1101,12 @@
 (s/defn good-caller-of-ignored :- s/Int
   [x :- s/Int]
   (ignored-body-fn x))
+
+(s/defn opaque-fn :- s/Int
+  {:skeptic/opaque true}
+  [x :- s/Int]
+  "not-an-int")
+
+(s/defn caller-of-opaque :- s/Str
+  [x :- s/Str]
+  (opaque-fn x))

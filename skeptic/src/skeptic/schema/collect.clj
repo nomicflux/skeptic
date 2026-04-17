@@ -76,6 +76,10 @@
   [v]
   (boolean (-> v meta :skeptic/ignore-body)))
 
+(defn opaque?
+  [_v]
+  false)
+
 (defn normalize-vararg-input-schemas
   [schemas]
   (let [schemas (vec schemas)]
