@@ -77,8 +77,8 @@
   (boolean (-> v meta :skeptic/ignore-body)))
 
 (defn opaque?
-  [_v]
-  false)
+  [v]
+  (boolean (-> v meta :skeptic/opaque)))
 
 (defn normalize-vararg-input-schemas
   [schemas]
@@ -87,25 +87,35 @@
       (conj (pop schemas) (schema-entry-schema (peek schemas)))
       schemas)))
 
+(defn- annotated-raw
+  [qualified-sym m v]
+  {:kind :annotated
+   :qualified-sym qualified-sym
+   :raw-schema (:schema m)
+   :ns (ns-name (:ns m))
+   :name (:name m)
+   :raw-arglists (:arglists m)
+   :var v})
+
+(defn- dynamic-raw
+  [qualified-sym v]
+  {:kind :dynamic
+   :qualified-sym qualified-sym
+   :var v})
+
 (defn extract-raw-declaration
   "Phase 1: var metadata only. No canonicalization, schema?, or schema->type."
   [v]
   (when-let [qualified-sym (sb/qualified-var-symbol v)]
     (let [m (meta v)]
       (when-not (:macro m)
-        (cond-> (if (:schema m)
-                  {:kind :annotated
-                   :qualified-sym qualified-sym
-                   :raw-schema (:schema m)
-                   :ns (ns-name (:ns m))
-                   :name (:name m)
-                   :raw-arglists (:arglists m)
-                   :var v}
-                  {:kind :dynamic
-                   :qualified-sym qualified-sym
-                   :var v})
-          (ignore-body? v)
-          (assoc :skeptic/ignore-body? true))))))
+        (let [opaque (opaque? v)
+              base (if (and (:schema m) (not opaque))
+                     (annotated-raw qualified-sym m v)
+                     (dynamic-raw qualified-sym v))]
+          (cond-> base
+            (or (ignore-body? v) opaque)
+            (assoc :skeptic/ignore-body? true)))))))
 
 (defn- assert-admitted-schema-slots!
   "Admission boundary only: explicit :schema, :output, and arglist :schema slots."
