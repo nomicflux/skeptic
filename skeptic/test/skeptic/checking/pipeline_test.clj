@@ -942,3 +942,12 @@
      'skeptic.test-examples/cond-branch-pick-success
      'skeptic.test-examples/if-nullable-guard-success
      'skeptic.test-examples/cond->-guard-success)))
+
+(deftest ignore-body-fixtures
+  (in-test-examples
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/ignored-body-fn))
+       "body of ignore-body fn should not produce mismatches")
+   (is (seq (check-fn test-dict 'skeptic.test-examples/caller-of-ignored))
+       "caller check should still fire against the declared schema")
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/good-caller-of-ignored))
+       "correct callers should have no errors")))

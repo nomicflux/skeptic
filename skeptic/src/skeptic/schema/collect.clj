@@ -72,6 +72,10 @@
       m
       {:schema schema})))
 
+(defn ignore-body?
+  [_v]
+  false)
+
 (defn normalize-vararg-input-schemas
   [schemas]
   (let [schemas (vec schemas)]

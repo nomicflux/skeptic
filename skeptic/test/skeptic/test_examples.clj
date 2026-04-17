@@ -1088,3 +1088,16 @@
   (let [p (when (some? raw) raw)]
     (cond-> {}
       (some? p) (assoc :p p))))
+
+(s/defn ignored-body-fn :- s/Int
+  {:skeptic/ignore-body true}
+  [x :- s/Int]
+  (int-add nil x))
+
+(s/defn caller-of-ignored :- s/Int
+  [x :- s/Str]
+  (ignored-body-fn x))
+
+(s/defn good-caller-of-ignored :- s/Int
+  [x :- s/Int]
+  (ignored-body-fn x))
