@@ -248,30 +248,40 @@
     (ac/qualify-symbol ns-sym (second source-form))
     source-form))
 
+(defn- ignored-body-def?
+  [dict ns-sym source-form]
+  (when (and (seq? source-form)
+             (symbol? (first source-form))
+             (symbol? (second source-form)))
+    (let [qualified-sym (ac/qualify-symbol ns-sym (second source-form))]
+      (boolean (:skeptic/ignore-body? (get dict qualified-sym))))))
+
 (defn check-resolved-form
   [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context]}]
-  (let [enclosing-form (enclosing-form ns-sym source-form)
-        results (->> (aapi/annotated-nodes analyzed)
-                     (mapcat (fn [node]
-                               (abl/with-error-context (cf/node-error-context node enclosing-form)
-                                 (let [call-result (match-s-exprs enclosing-form node keep-empty)]
-                                   (concat (when call-result
-                                             [call-result])
-                                           (or (def-output-results dict
-                                                                   ns-sym
-                                                                   source-file
-                                                                   source-form
-                                                                   enclosing-form
-                                                                   node)
-                                               []))))))
-                     vec)
-        results (cond->> results
-                  (not keep-empty)
-                  (remove (comp empty? :errors))
+  (if (ignored-body-def? dict ns-sym source-form)
+    []
+    (let [enclosing-form (enclosing-form ns-sym source-form)
+          results (->> (aapi/annotated-nodes analyzed)
+                       (mapcat (fn [node]
+                                 (abl/with-error-context (cf/node-error-context node enclosing-form)
+                                   (let [call-result (match-s-exprs enclosing-form node keep-empty)]
+                                     (concat (when call-result
+                                               [call-result])
+                                             (or (def-output-results dict
+                                                                     ns-sym
+                                                                     source-file
+                                                                     source-form
+                                                                     enclosing-form
+                                                                     node)
+                                                 []))))))
+                       vec)
+          results (cond->> results
+                    (not keep-empty)
+                    (remove (comp empty? :errors))
 
-                  remove-context
-                  (map #(dissoc % :context)))]
-    (vec results)))
+                    remove-context
+                    (map #(dissoc % :context)))]
+      (vec results))))
 
 (defn ns-exprs
   [source-file]

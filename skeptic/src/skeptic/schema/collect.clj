@@ -73,8 +73,8 @@
       {:schema schema})))
 
 (defn ignore-body?
-  [_v]
-  false)
+  [v]
+  (boolean (-> v meta :skeptic/ignore-body)))
 
 (defn normalize-vararg-input-schemas
   [schemas]
@@ -89,17 +89,19 @@
   (when-let [qualified-sym (sb/qualified-var-symbol v)]
     (let [m (meta v)]
       (when-not (:macro m)
-        (if (:schema m)
-          {:kind :annotated
-           :qualified-sym qualified-sym
-           :raw-schema (:schema m)
-           :ns (ns-name (:ns m))
-           :name (:name m)
-           :raw-arglists (:arglists m)
-           :var v}
-          {:kind :dynamic
-           :qualified-sym qualified-sym
-           :var v})))))
+        (cond-> (if (:schema m)
+                  {:kind :annotated
+                   :qualified-sym qualified-sym
+                   :raw-schema (:schema m)
+                   :ns (ns-name (:ns m))
+                   :name (:name m)
+                   :raw-arglists (:arglists m)
+                   :var v}
+                  {:kind :dynamic
+                   :qualified-sym qualified-sym
+                   :var v})
+          (ignore-body? v)
+          (assoc :skeptic/ignore-body? true))))))
 
 (defn- assert-admitted-schema-slots!
   "Admission boundary only: explicit :schema, :output, and arglist :schema slots."
@@ -206,12 +208,15 @@
 (defn admit-declaration-from-extract
   "Phase 2: schema admission for explicit annotation slots only."
   [raw]
-  (case (:kind raw)
-    :annotated (build-annotated-schema-desc! {:schema (:raw-schema raw)
-                                             :ns (:ns raw)
-                                             :name (:name raw)
-                                             :arglists (:raw-arglists raw)})
-    :dynamic (admit-dynamic-desc (:var raw))))
+  (let [desc (case (:kind raw)
+               :annotated (build-annotated-schema-desc! {:schema (:raw-schema raw)
+                                                         :ns (:ns raw)
+                                                         :name (:name raw)
+                                                         :arglists (:raw-arglists raw)})
+               :dynamic (admit-dynamic-desc (:var raw)))]
+    (cond-> desc
+      (:skeptic/ignore-body? raw)
+      (assoc :skeptic/ignore-body? true))))
 
 (defn var-schema-desc
   [v]

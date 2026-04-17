@@ -66,11 +66,14 @@
 (defn desc->typed-entry
   [{:keys [name schema arglists] :as desc}]
   (when desc
-    (if (or (sb/fn-schema? schema)
-            (seq arglists))
-      (callable-desc->typed-entry desc)
-      {:name name
-       :type (ab/schema->type schema)})))
+    (let [entry (if (or (sb/fn-schema? schema)
+                        (seq arglists))
+                  (callable-desc->typed-entry desc)
+                  {:name name
+                   :type (ab/schema->type schema)})]
+      (cond-> entry
+        (:skeptic/ignore-body? desc)
+        (assoc :skeptic/ignore-body? true)))))
 
 (defn typed-ns-entries
   [opts ns]
