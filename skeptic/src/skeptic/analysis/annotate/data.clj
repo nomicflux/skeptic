@@ -50,11 +50,18 @@
                  at/Dyn)]
     (assoc node :class class-node :args args :type type)))
 
+(defn- resolve-skeptic-type
+  [_ctx _node]
+  nil)
+
 (defn annotate-with-meta
   [ctx node]
   (let [meta-node ((:recurse ctx) ctx (:meta node))
-        expr-node ((:recurse ctx) ctx (:expr node))]
-    (merge node {:meta meta-node :expr expr-node} (ac/node-info expr-node))))
+        expr-node ((:recurse ctx) ctx (:expr node))
+        base (merge node {:meta meta-node :expr expr-node} (ac/node-info expr-node))
+        override (resolve-skeptic-type ctx node)]
+    (cond-> base
+      override (assoc :type override))))
 
 (defn annotate-throw
   [ctx node]

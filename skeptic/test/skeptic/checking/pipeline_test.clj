@@ -960,3 +960,10 @@
        "caller of opaque fn must see s/Any and produce no mismatches")
    (is (= (T s/Any) (:output-type (get test-dict 'skeptic.test-examples/opaque-fn)))
        "opaque fn dict entry must have s/Any output type")))
+
+(deftest expression-type-override
+  (in-test-examples
+   (is (empty? (check-fn test-dict 'skeptic.test-examples/override-fn))
+       ":skeptic/type override should pin (str-helper) to s/Int so int-add is happy")
+   (is (seq (check-fn test-dict 'skeptic.test-examples/override-wrong-fn))
+       "a wrong :skeptic/type override (pin s/Int result to s/Str) must trigger a downstream mismatch")))

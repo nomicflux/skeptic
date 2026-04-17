@@ -1110,3 +1110,15 @@
 (s/defn caller-of-opaque :- s/Str
   [x :- s/Str]
   (opaque-fn x))
+
+(s/defn str-helper :- s/Str [] "hi")
+
+(s/defn override-fn :- s/Int
+  []
+  (let [y ^{:skeptic/type s/Int} (str-helper)]
+    (int-add y 1)))
+
+(s/defn override-wrong-fn :- s/Int
+  []
+  (let [y ^{:skeptic/type s/Str} (int-add 1)]
+    (int-add y 1)))
