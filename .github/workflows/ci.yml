@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('skeptic/project.clj', 'lein-skeptic/project.clj') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      - name: Install Leiningen and clj-kondo
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          lein: 2.11.2
+          clj-kondo: 2026.04.15
+
+      - name: Install skeptic library
+        run: lein install
+        working-directory: skeptic
+
+      - name: Install lein-skeptic plugin
+        run: lein install
+        working-directory: lein-skeptic
+
+      - name: Run tests
+        run: lein test
+        working-directory: skeptic
+
+      - name: Lint with clj-kondo
+        run: clj-kondo --lint .
+        working-directory: skeptic
+
+      # lein skeptic is not yet clean for this codebase; remove continue-on-error
+      # once .skeptic/config.edn and findings are addressed.
+      - name: Run skeptic
+        continue-on-error: true
+        run: lein skeptic
+        working-directory: skeptic
