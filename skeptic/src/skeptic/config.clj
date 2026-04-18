@@ -1,6 +1,8 @@
 (ns skeptic.config
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [schema.core]
+            [skeptic.analysis.bridge :as ab])
   (:import [java.io File]
            [java.nio.file FileSystems Paths]))
 
@@ -25,3 +27,25 @@
   [root patterns ^File file]
   (boolean (when (seq patterns)
              (some #(glob-matches? % (rel-path root file)) patterns))))
+
+(create-ns 'skeptic.config.eval-ns)
+(binding [*ns* (find-ns 'skeptic.config.eval-ns)]
+  (eval '(clojure.core/require '[schema.core :as s])))
+
+(defn- eval-schema-form [form]
+  (binding [*ns* (find-ns 'skeptic.config.eval-ns)]
+    (eval form)))
+
+(defn- override->entry
+  [[sym {:keys [output schema arglists]}]]
+  (let [entry (cond-> {:name sym}
+                output  (assoc :output-type (ab/schema->type (eval-schema-form output)))
+                schema  (assoc :type (ab/schema->type (eval-schema-form schema)))
+                arglists (assoc :arglists arglists))]
+    [sym entry]))
+
+(defn compile-overrides
+  [raw-overrides]
+  (if (empty? raw-overrides)
+    {}
+    (into {} (map override->entry) raw-overrides)))

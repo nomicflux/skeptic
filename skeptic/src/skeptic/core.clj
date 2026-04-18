@@ -36,7 +36,8 @@
 (defn check-project
   [{:keys [namespace] :as opts} root & paths]
   (let [raw-config (config/load-raw-config root)
-        opts (assoc opts :skeptic/config raw-config)
+        type-overrides (config/compile-overrides (:type-overrides raw-config))
+        opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
         {:keys [files failures]} (discover-project-files root paths)
         files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
         discovered-nss (try (->> files

@@ -80,21 +80,22 @@
 
 (defn typed-ns-results
   [opts ns]
-  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)]
-    (reduce (fn [{:keys [entries errors]} [qualified-sym schema-desc]]
-              (try
-                (if-let [typed-entry (desc->typed-entry schema-desc)]
-                  {:entries (assoc entries qualified-sym typed-entry)
-                   :errors errors}
-                  {:entries entries
-                   :errors errors})
-                (catch Exception e
-                  {:entries entries
-                   :errors (conj errors
-                                 (collect/declaration-error-result ns
-                                                                   qualified-sym
-                                                                   (resolve qualified-sym)
-                                                                   e))})))
-            {:entries {}
-             :errors (vec errors)}
-            entries)))
+  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)
+        result (reduce (fn [{:keys [entries errors]} [qualified-sym schema-desc]]
+                         (try
+                           (if-let [typed-entry (desc->typed-entry schema-desc)]
+                             {:entries (assoc entries qualified-sym typed-entry)
+                              :errors errors}
+                             {:entries entries
+                              :errors errors})
+                           (catch Exception e
+                             {:entries entries
+                              :errors (conj errors
+                                            (collect/declaration-error-result ns
+                                                                              qualified-sym
+                                                                              (resolve qualified-sym)
+                                                                              e))})))
+                       {:entries {}
+                        :errors (vec errors)}
+                       entries)]
+    (update result :entries merge (:skeptic/type-overrides opts))))

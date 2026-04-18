@@ -1,5 +1,7 @@
 (ns skeptic.config-test
   (:require [clojure.test :refer [deftest is]]
+            [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.config :as sut])
   (:import [java.io File]
            [java.nio.file Files]))
@@ -67,3 +69,16 @@
       (is (not (sut/path-excluded? tmp [] f)))
       (is (not (sut/path-excluded? tmp nil f)))
       (finally (delete-dir tmp)))))
+
+(deftest compile-overrides-empty-returns-empty-map
+  (is (= {} (sut/compile-overrides nil)))
+  (is (= {} (sut/compile-overrides {}))))
+
+(deftest compile-overrides-produces-typed-entry-with-output-type
+  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:output '(s/eq nil)}})]
+    (is (= (ab/schema->type (s/eq nil))
+           (get-in result ['clojure.tools.logging/infof :output-type])))))
+
+(deftest compile-overrides-symbol-is-key
+  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:output '(s/eq nil)}})]
+    (is (contains? result 'clojure.tools.logging/infof))))

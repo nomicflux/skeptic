@@ -6,6 +6,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
+            [skeptic.config :as config]
             [skeptic.output.text :as output-text]
             [skeptic.best-effort-examples]
             [skeptic.examples]
@@ -976,3 +977,11 @@
        ":skeptic/type override should pin (str-helper) to s/Int so int-add is happy")
    (is (seq (check-fn test-dict 'skeptic.test-examples/override-wrong-fn))
        "a wrong :skeptic/type override (pin s/Int result to s/Str) must trigger a downstream mismatch")))
+
+(deftest type-overrides-merge-into-typed-ns-results
+  (let [overrides (config/compile-overrides {'some.ns/some-fn {:output 's/Int}})
+        opts {:skeptic/type-overrides overrides}
+        result (typed-decls/typed-ns-results opts 'skeptic.test-examples)]
+    (is (= (ab/schema->type s/Int)
+           (get-in result [:entries 'some.ns/some-fn :output-type]))
+        "typed-ns-results must merge :skeptic/type-overrides into :entries")))
