@@ -55,6 +55,13 @@
                             :ns 'skeptic.test-examples
                             :source-file test-file))))
 
+(defn run-with-timeout
+  [timeout-ms f]
+  (let [fut (future (f))
+        result (deref fut timeout-ms ::timeout)]
+    (future-cancel fut)
+    result))
+
 (defn result-errors
   [results]
   (mapcat (juxt :blame :errors) results))
@@ -649,6 +656,16 @@
                (T s/Int)
                (T s/Str))]
             (:errors result))))))
+
+(deftest deep-unary-check-completes-within-timeout
+  (in-test-examples
+   (let [results (run-with-timeout 3000
+                                   #(check-fn test-dict
+                                              'skeptic.test-examples/deep-unary
+                                              {:remove-context true}))]
+     (is (not= ::timeout results)
+         "Timed out checking skeptic.test-examples/deep-unary")
+     (is (= [] results)))))
 
 (deftest nested-call-mismatch-renders-field-paths
   (in-test-examples

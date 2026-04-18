@@ -8,9 +8,8 @@
             [skeptic.analysis.types :as at]))
 
 (defn resolve-unary-fn-arg-type-hint
-  [ctx fn-ast node]
-  (let [args (mapv #((:recurse ctx) ctx %) (:args node))
-        local-fn (when (= :local (:op fn-ast))
+  [ctx fn-ast args]
+  (let [local-fn (when (= :local (:op fn-ast))
                    (some-> (get (:locals ctx) (:form fn-ast))
                            :fn-binding-node))
         source-fn (cond
@@ -26,18 +25,18 @@
                     :else nil)]
     (when source-fn
       (let [param-form (:form (first (:params (first (:methods source-fn)))))]
-        {:args args
-         :fn-node (fn-annotate/annotate-fn
+        {:fn-node (fn-annotate/annotate-fn
                    ctx
                    source-fn
                    {:param-type-overrides {param-form (or (:type (first args)) at/Dyn)}})}))))
 
 (defn- annotate-fn-and-args
   [ctx node]
-  (if-let [hint (resolve-unary-fn-arg-type-hint ctx (:fn node) node)]
-    [(:fn-node hint) (:args hint)]
-    [((:recurse ctx) ctx (:fn node))
-     (mapv #((:recurse ctx) ctx %) (:args node))]))
+  (let [args (mapv #((:recurse ctx) ctx %) (:args node))]
+    (if-let [hint (resolve-unary-fn-arg-type-hint ctx (:fn node) args)]
+      [(:fn-node hint) args]
+      [((:recurse ctx) ctx (:fn node))
+       args])))
 
 (defn- build-invoke-node
   [node fn-node args output-type fn-type expected-argtypes]

@@ -290,6 +290,30 @@
    x :- s/Int]
   (g (f x)))
 
+(s/defn deep-unary :- s/Int
+  []
+  (let [x 0]
+    (inc
+     (inc
+      (inc
+       (inc
+        (inc
+         (inc
+          (inc
+           (inc
+            (inc
+             (inc
+              (inc
+               (inc
+                (inc
+                 (inc
+                  (inc
+                   (inc
+                    (inc
+                     (inc
+                      (inc
+                       (inc x))))))))))))))))))))))
+
 (s/defn map-literal-input-success :- s/Int
   []
   (int-add (:a {:a 1}) 0))
