@@ -9,6 +9,8 @@
             [skeptic.analysis.annotate.invoke :as invoke]
             [skeptic.analysis.annotate.jvm :as jvm]
             [skeptic.analysis.annotate.match :as match]
+            [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.native-fns :as native-fns]
@@ -61,10 +63,25 @@
     :with-meta (data/annotate-with-meta ctx node)
     (annotate-generic ctx node)))
 
+(defn- eval-skeptic-type
+  [ns-sym type-form]
+  (let [target-ns (or (some-> ns-sym find-ns) *ns*)]
+    (binding [*ns* target-ns]
+      (eval type-form))))
+
+(defn- resolve-skeptic-type
+  [ctx node]
+  (when-let [type-form (:skeptic/type (meta (aapi/node-form node)))]
+    (let [schema (eval-skeptic-type (:ns ctx) type-form)]
+      (when-not (abc/schema? schema)
+        (throw (IllegalArgumentException.
+                (format "Invalid :skeptic/type override: %s" (pr-str type-form)))))
+      (ab/schema->type schema))))
+
 (defn- apply-type-override
   [annotated ctx node]
-  (if-let [override (data/resolve-skeptic-type ctx node)]
-    (assoc annotated :type override)
+  (if-let [override (resolve-skeptic-type ctx node)]
+    (aapi/with-type annotated override)
     annotated))
 
 (defn annotate-node

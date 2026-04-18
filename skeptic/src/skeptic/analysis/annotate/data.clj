@@ -1,7 +1,5 @@
 (ns skeptic.analysis.annotate.data
   (:require [skeptic.analysis.annotate.coll :as coll]
-            [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
@@ -51,21 +49,6 @@
                  (some-> (:val class-node) av/class->type)
                  at/Dyn)]
     (assoc node :class class-node :args args :type type)))
-
-(defn eval-skeptic-type
-  [ns-sym type-form]
-  (let [target-ns (or (some-> ns-sym find-ns) *ns*)]
-    (binding [*ns* target-ns]
-      (eval type-form))))
-
-(defn resolve-skeptic-type
-  [ctx node]
-  (when-let [type-form (:skeptic/type (meta (:form node)))]
-    (let [schema (eval-skeptic-type (:ns ctx) type-form)]
-      (when-not (abc/schema? schema)
-        (throw (IllegalArgumentException.
-                (format "Invalid :skeptic/type override: %s" (pr-str type-form)))))
-      (ab/schema->type schema))))
 
 (defn annotate-with-meta
   [ctx node]

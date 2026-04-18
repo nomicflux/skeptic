@@ -53,6 +53,7 @@ Source namespace families:
 - `skeptic.analysis.annotate` and `skeptic.analysis.annotate.*`:
   Analyzer AST typing/inference.
   `skeptic.analysis.annotate` dispatches on analyzer `:op` values.
+  `skeptic.analysis.annotate.api` is the public API for the annotate subsystem — node accessors (`node-form`, `node-type`, `node-op`, ...) and mutators (`with-type`) used by any code that does not own node shape.
   Sub-namespaces split the work by AST area: `base`, `control`, `data`, `fn`, `invoke`, `invoke-output`, `jvm`, `match`, `numeric`, `coll`, and `map-path`.
 - `skeptic.analysis.calls`, `skeptic.analysis.native-fns`, `skeptic.analysis.value`, `skeptic.analysis.value-check`, `skeptic.analysis.map-ops`, `skeptic.analysis.map-ops.algebra`, `skeptic.analysis.narrowing`, `skeptic.analysis.origin`, `skeptic.analysis.ast-children`, `skeptic.analysis.annotation`:
   Analysis helpers used by annotation and checking.
@@ -101,6 +102,16 @@ Tests:
 
 4. Prefer `schema->type`, not the reverse direction.
    Convert schemas into semantic types at the boundary, do the real analysis in the type domain, and only deal in raw schema forms when interacting with external schema-facing APIs.
+
+## API Boundaries
+
+Some subsystems expose a dedicated API module that external callers must go through instead of reaching into implementation files:
+
+- `skeptic.analysis.annotate.api` is the API for the annotate subsystem. Code that reads or writes fields on annotated nodes must use the accessors and mutators defined there (e.g. `node-form`, `node-type`, `with-type`). Direct `(:form node)`, `(:type node)`, `(assoc node :type ...)` are permitted only inside `annotate/*` files that own node shape (the per-AST-op annotators).
+- `skeptic.analysis.bridge` is the entry point for schema→type conversion (`schema->type`). Schema-domain predicates and canonicalization live in `skeptic.analysis.bridge.canonicalize`; per rule 1 these siblings are required directly, they are not "internals of bridge."
+- `skeptic.analysis.cast` is the cast dispatcher. Cast-result construction and blame/path helpers live in `skeptic.analysis.cast.support`. Again these are documented siblings, not cast internals.
+
+When an existing API module lacks a helper that a new consumer needs, extend the API module rather than reaching past it. The purpose of the boundary is to keep node shape (and analogous cast-result shape) changeable in one place.
 
 ## Recursive Runner Pattern
 

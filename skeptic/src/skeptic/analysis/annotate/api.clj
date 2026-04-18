@@ -43,6 +43,12 @@
   [call-expected-argtypes :expected-argtypes]
   [binding-init :binding-init])
 
+(defn with-type
+  "Public setter for the inferred value-type of an annotated node.
+   Use this (not raw (assoc node :type ...)) from any code that does not own node shape."
+  [node type]
+  (assoc node :type type))
+
 (defn node-location
   [node]
   (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
