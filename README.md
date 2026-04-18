@@ -64,6 +64,30 @@ Options:
   [JSONL output](#jsonl-output) below.
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
 
+## Configuration
+
+Skeptic reads optional project-level configuration from `.skeptic/config.edn` at the project root. The file is EDN and every key is optional.
+
+```clojure
+{:exclude-files ["src/fixtures/*.clj"
+                 "test/**/*_examples.clj"]
+ :type-overrides {clojure.tools.logging/infof {:output (s/eq nil)}}}
+```
+
+### `:exclude-files`
+
+Vector of glob patterns matched against each file's path relative to the project root. Matched files are skipped entirely — their namespaces are never loaded or checked. Patterns use the platform's `java.nio.file.PathMatcher` glob syntax (`*`, `**`, `?`, character classes). Note: excludes apply before `-n`/`--namespace` selection. If you exclude a namespace's file and also pass `-n` for that namespace, the run checks nothing.
+
+### `:type-overrides`
+
+Map from fully-qualified symbol to an override map with any of `:schema`, `:output`, `:arglists`. Schema expressions (the values under those keys) are evaluated with `[schema.core :as s]` in scope, so you can write `(s/eq nil)`, `s/Int`, etc. Overrides replace whatever Skeptic would otherwise infer or collect for that symbol at call sites. Typical use: silence noise from variadic logging or side-effecting functions whose declared schemas are unhelpful.
+
+```clojure
+{:type-overrides {clojure.tools.logging/infof {:output (s/eq nil)}}}
+```
+
+After this, call sites of `infof` are checked as returning `nil`.
+
 ## When to use it
 
 Skeptic is most useful when you already annotate your code with Plumatic
