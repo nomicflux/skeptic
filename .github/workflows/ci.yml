@@ -52,9 +52,6 @@ jobs:
         run: clj-kondo --lint .
         working-directory: skeptic
 
-      # lein skeptic is not yet clean for this codebase; remove continue-on-error
-      # once .skeptic/config.edn and findings are addressed.
       - name: Run skeptic
-        continue-on-error: true
         run: lein with-profile +skeptic-plugin skeptic
         working-directory: skeptic
