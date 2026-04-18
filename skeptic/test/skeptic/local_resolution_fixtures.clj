@@ -1,6 +1,6 @@
 (ns skeptic.local-resolution-fixtures
   "Fixtures for local / shadowing provenance in user-visible check output."
-  (:require [schema.core :as s :include-macros true]
+  (:require [schema.core :as s]
             [skeptic.test-examples :as te]))
 
 (s/defn shadow-provenance :- s/Int

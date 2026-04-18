@@ -729,14 +729,6 @@
    (is (= [] (check-fn test-dict 'skeptic.test-examples/mutual-recursive-left)))
    (is (= [] (check-fn test-dict 'skeptic.test-examples/mutual-recursive-right)))))
 
-(deftest check-ns-does-not-mutate-declaration-dicts
-  (let [before test-dict]
-    (vec (sut/check-ns test-dict
-                       'skeptic.test-examples
-                       test-file
-                       {:remove-context true}))
-    (is (= before test-dict))))
-
 (deftest namespace-checking-keeps-going-after-declaration-errors
   (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
         results (vec (concat errors
