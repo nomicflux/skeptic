@@ -25,6 +25,17 @@
     (is (= {:t "maybe" :inner {:t "ground" :name "Int"}}
            (sut/type->json-data (at/->MaybeT (at/->GroundT :int 'Int))))))
 
+  (testing "Conditional"
+    (let [conditional (at/->ConditionalT [[integer? (at/->GroundT :int 'Int)]
+                                          [string? (at/->MaybeT (at/->GroundT :keyword 'Keyword))]])]
+      (is (= '(conditional Int (maybe Keyword))
+             (sut/render-type-form conditional)))
+      (is (= {:t "conditional"
+              :branches [{:t "ground" :name "Int"}
+                         {:t "maybe"
+                          :inner {:t "ground" :name "Keyword"}}]}
+             (sut/type->json-data conditional)))))
+
   (testing "Union sorts members for stability"
     (let [result (sut/type->json-data
                   (at/->UnionT #{(at/->GroundT :int 'Int)

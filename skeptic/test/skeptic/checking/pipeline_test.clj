@@ -517,7 +517,7 @@
         rebuilt-error (-> rebuilt-user-result inrep/report-summary :errors first strip-ansi)]
     (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return type\." count-error))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" count-error)))
-    (is (str/includes? count-error "Str but expected Int"))
+    (is (str/includes? count-error "(union Int Str) but expected Int"))
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \(get user :nickname\)\}" rebuilt-error))
     (is (str/includes? rebuilt-error "[:name] has Keyword but expected Str"))))
 

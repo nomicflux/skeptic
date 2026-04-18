@@ -320,8 +320,8 @@
 
 (defn cast-report
   [ctx expected actual]
-  (let [expected-type (ato/normalize-type expected)
-        actual-type (ato/normalize-type actual)
+  (let [expected-type (ato/normalize-type-for-declared-type expected)
+        actual-type (ato/normalize-type-for-declared-type actual)
         raw (acast/check-cast actual-type expected-type)]
     (if (:ok? raw)
       (let [summary (cast-result/root-summary raw)]
@@ -343,8 +343,8 @@
 
 (defn output-cast-report
   [ctx expected actual]
-  (let [expected-type (ato/normalize-type expected)
-        actual-type (ato/normalize-type actual)
+  (let [expected-type (ato/normalize-type-for-declared-type expected)
+        actual-type (ato/normalize-type-for-declared-type actual)
         raw (acast/check-cast actual-type expected-type)]
     (if (:ok? raw)
       (let [summary (cast-result/root-summary raw)]

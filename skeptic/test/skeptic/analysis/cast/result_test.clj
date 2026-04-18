@@ -7,6 +7,16 @@
 
 (defn T [schema] (ab/schema->type schema))
 
+(def HasA
+  {(s/required-key :a) s/Int})
+
+(def HasB
+  {(s/required-key :b) s/Str})
+
+(def HasAOrB
+  (s/conditional #(contains? % :a) HasA
+                 #(contains? % :b) HasB))
+
 (deftest ok?-test
   (is (sut/ok? (cast/check-cast (T s/Int) (T s/Int))))
   (is (sut/ok? (cast/check-cast (T s/Int) (T s/Any))))
@@ -56,6 +66,28 @@
         leaves (sut/leaf-diagnostics raw)]
     (is (= 1 (count leaves)))
     (is (= :leaf-mismatch (:reason (first leaves))))))
+
+(deftest leaf-diagnostics-projects-failed-source-conditional-at-aggregate-level
+  (let [raw (cast/check-cast (T HasAOrB) (T HasA))
+        leaves (sut/leaf-diagnostics raw)
+        [leaf] leaves]
+    (is (= 1 (count leaves)))
+    (is (= :source-union (:rule leaf)))
+    (is (= :source-branch-failed (:reason leaf)))
+    (is (= [] (:path leaf)))
+    (is (= (T HasAOrB) (:actual-type leaf)))
+    (is (= (T HasA) (:expected-type leaf)))))
+
+(deftest leaf-diagnostics-projects-failed-source-intersection-at-aggregate-level
+  (let [raw (cast/check-cast (T (s/both s/Int s/Str)) (T s/Keyword))
+        leaves (sut/leaf-diagnostics raw)
+        [leaf] leaves]
+    (is (= 1 (count leaves)))
+    (is (= :source-intersection (:rule leaf)))
+    (is (= :source-component-failed (:reason leaf)))
+    (is (= [] (:path leaf)))
+    (is (= (T (s/both s/Int s/Str)) (:actual-type leaf)))
+    (is (= (T s/Keyword) (:expected-type leaf)))))
 
 (deftest primary-diagnostic-returns-first-leaf-test
   (let [raw (cast/check-cast (T {:user {:name s/Keyword}})

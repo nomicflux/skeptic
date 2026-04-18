@@ -5,6 +5,9 @@
     :maybe-both :maybe-target :generalize :instantiate
     :function :function-method :map :vector :seq :set})
 
+(def ^:private source-aggregate-rules
+  #{:source-union :source-intersection})
+
 (defn ok?
   [cast-result]
   (boolean (:ok? cast-result)))
@@ -42,9 +45,11 @@
 
        (and (seq (:children cast-result))
             (contains? structural-rules (:rule cast-result)))
-       (->> (:children cast-result)
-            (mapcat #(leaf-diagnostics % path))
-            vec)
+       (if (contains? source-aggregate-rules (:rule cast-result))
+         [(project-leaf cast-result path)]
+         (->> (:children cast-result)
+              (mapcat #(leaf-diagnostics % path))
+              vec))
 
        :else
        [(project-leaf cast-result path)]))))

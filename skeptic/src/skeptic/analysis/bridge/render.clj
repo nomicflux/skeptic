@@ -12,9 +12,13 @@
               ['& (drop (:min-arity method) inputs)])
       inputs)))
 
+(defn- conditional-branch-types
+  [type]
+  (mapv (comp render-type-form second) (:branches type)))
+
 (defn render-type-form
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize-type-for-declared-type type)]
     (cond
       (at/dyn-type? type) 'Any
       (at/bottom-type? type) 'Bottom
@@ -36,6 +40,7 @@
         (render-type-form (first (:methods type)))
         (list* '=>* (map render-type-form (:methods type))))
       (at/maybe-type? type) (list 'maybe (render-type-form (:inner type)))
+      (at/conditional-type? type) (list* 'conditional (conditional-branch-types type))
       (at/union-type? type) (list* 'union (map render-type-form (sort-by pr-str (:members type))))
       (at/intersection-type? type) (list* 'intersection (map render-type-form (sort-by pr-str (:members type))))
       (at/map-type? type)
@@ -76,7 +81,7 @@
 (defn type->json-data
   "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
   [type]
-  (let [type (some-> type ato/normalize-type)]
+  (let [type (some-> type ato/normalize-type-for-declared-type)]
     (cond
       (nil? type) nil
       (at/dyn-type? type) {:t "any"}
@@ -96,6 +101,8 @@
       (at/fn-method-type? type) (fn-method->json-data type)
       (at/fun-type? type) {:t "fun" :methods (mapv fn-method->json-data (:methods type))}
       (at/maybe-type? type) {:t "maybe" :inner (type->json-data (:inner type))}
+      (at/conditional-type? type) {:t "conditional"
+                                   :branches (mapv (comp type->json-data second) (:branches type))}
       (at/union-type? type) {:t "union"
                              :members (mapv type->json-data
                                             (sort-by pr-str (:members type)))}

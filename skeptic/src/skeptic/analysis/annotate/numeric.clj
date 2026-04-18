@@ -23,7 +23,7 @@
 
 (defn inc-dec-narrow-int-output?
   [arg-node arg-type]
-  (and (not= :const (:op arg-node)) (integral-ground-type? arg-type)))
+  (integral-ground-type? arg-type))
 
 (defn binary-integral-locals-narrow?
   [arg-nodes arg-types]

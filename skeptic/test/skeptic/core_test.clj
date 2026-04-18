@@ -236,45 +236,30 @@
               fields))))
 
 (deftest output-report-fields-prefer-actionable-leaf-metadata-in-verbose-mode
-  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
-        triple (at/->VectorT [placeholder placeholder placeholder] false)
-        slot (at/->SetT #{triple} false)
-        expected-result (at/->VectorT [slot slot slot] false)
-        actual-result (at/->SetT #{expected-result} false)
+  (let [actual-result (at/->ConditionalT [[integer? (ab/schema->type s/Int)]
+                                          [string? (ab/schema->type s/Str)]])
         summary (inrep/report-summary
                  {:report-kind :output
                   :rule :source-union
-                  :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
-                                                                :cache s/Any})
-                                              (ato/normalize-type {:result actual-result
-                                                                   :cache (ab/schema->type s/Any)})})
-                  :expected-type (ato/normalize-type {:result expected-result
-                                                      :cache (ab/schema->type s/Any)})
+                  :actual-type actual-result
+                  :expected-type (ab/schema->type s/Keyword)
                   :cast-summary {:rule :source-union
-                                :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
-                                                                              :cache s/Any})
-                                                            (ato/normalize-type {:result actual-result
-                                                                                 :cache (ab/schema->type s/Any)})})
-                                :expected-type (ato/normalize-type {:result expected-result
-                                                                  :cache (ab/schema->type s/Any)})}
-                  :cast-diagnostics [{:reason :leaf-mismatch
-                                  :rule :leaf-overlap
+                                :actual-type actual-result
+                                :expected-type (ab/schema->type s/Keyword)}
+                  :cast-diagnostics [{:reason :source-branch-failed
+                                  :rule :source-union
                                   :actual-type actual-result
-                                  :expected-type expected-result
-                                  :path [{:kind :source-union-branch :index 1}
-                                         {:kind :map-key :key :result}]}]})
+                                  :expected-type (ab/schema->type s/Keyword)
+                                  :path []}]})
         fields (text/report-fields summary true)]
-    (is (some #{["Cast rule: \t\t" "leaf-overlap"]} fields))
+    (is (some #{["Cast rule: \t\t" "source-union"]} fields))
     (is (some (fn [[label value]]
                 (and (= "Actual type: \t\t" label)
-                     (str/includes? value "Threal")
-                     (not (str/includes? value "union"))
-                     (not= "Any" value)))
+                     (str/includes? value "(conditional Int Str)")))
               fields))
     (is (some (fn [[label value]]
                 (and (= "Expected type: \t" label)
-                     (str/includes? value "Threal")
-                     (not (str/includes? value "union"))))
+                     (= "Keyword" value)))
               fields))))
 
 (deftest exception-report-fields-skip-blame-and-show-phase

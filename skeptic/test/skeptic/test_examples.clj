@@ -292,7 +292,8 @@
 
 (s/defn deep-unary :- s/Int
   []
-  (let [x 0]
+  (inc
+   (inc
     (inc
      (inc
       (inc
@@ -310,9 +311,7 @@
                   (inc
                    (inc
                     (inc
-                     (inc
-                      (inc
-                       (inc x))))))))))))))))))))))
+                     (inc 0)))))))))))))))))))))
 
 (s/defn map-literal-input-success :- s/Int
   []

@@ -57,6 +57,16 @@
   [schema]
   (ab/schema->type schema))
 
+(def HasA
+  {(s/required-key :a) s/Int})
+
+(def HasB
+  {(s/required-key :b) s/Str})
+
+(def HasAOrB
+  (s/conditional #(contains? % :a) HasA
+                 #(contains? % :b) HasB))
+
 (deftest cast-report-basic-failures-test
   (let [success (sut/cast-report sample-ctx (T s/Int) (T s/Int))
         nullable (sut/cast-report sample-ctx (T s/Int) (T (s/maybe s/Int)))
@@ -115,45 +125,25 @@
     (is (not (str/includes? error "Problem fields:")))
     (assert-no-ui-internals error)))
 
-(deftest output-summary-prefers-leaf-mismatch-over-source-union-headline
-  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
-        triple (at/->VectorT [placeholder placeholder placeholder] false)
-        slot (at/->SetT #{triple} false)
-        expected-result (at/->VectorT [slot slot slot] false)
-        actual-result (at/->SetT #{expected-result} false)
-        summary (sut/report-summary
-                 {:report-kind :output
-                  :blame 'add-with-cache
-                  :focuses ['(let [result (simplify gt_fn [g r b])]
-                               {:result result})]
-                  :cast-summary {:rule :source-union
-                                 :actual-type (at/->UnionT #{(ab/schema->type {:result s/Any
-                                                                               :cache s/Any})
-                                                             (ato/normalize-type {:result actual-result
-                                                                                  :cache (ab/schema->type s/Any)})})
-                                 :expected-type (ato/normalize-type {:result expected-result
-                                                                     :cache (ab/schema->type s/Any)})}
-                  :cast-diagnostics [{:reason :leaf-mismatch
-                                      :rule :leaf-overlap
-                                      :actual-type actual-result
-                                      :expected-type expected-result
-                                      :path [{:kind :source-union-branch :index 1}
-                                             {:kind :map-key :key :result}]}]})
-        [error] (:errors summary)
-        declared-block (second (re-find #"(?s)Declared return type expects:\n\n(.*?)\n\nProblem fields:" error))]
-    (is (= 1 (count (:errors summary))))
-    (is (str/includes? error "declared return type"))
-    (is (str/includes? error "Problem fields:"))
-    (is (str/includes? error "[:result] has:"))
-    (is (not (str/includes? error "[:result] has #{")))
-    (is (str/includes? declared-block "\n"))
-    (is (str/includes? declared-block ":result"))
-    (is (not (str/includes? error "has inferred output type:")))
-    (is (not (str/includes? error "(union")))
-    (assert-no-ui-internals error)))
+(deftest cast-report-prefers-source-aggregate-mismatch-over-branch-detail
+  (let [report (sut/cast-report sample-ctx (T HasA) (T HasAOrB))
+        [error] (:errors report)
+        text (strip-ansi error)]
+    (is (not (:ok? report)))
+    (is (= :source-union (:rule report)))
+    (is (= 1 (count (:cast-diagnostics report))))
+    (is (= :source-union (-> report :cast-diagnostics first :rule)))
+    (is (= [] (-> report :cast-diagnostics first :path)))
+    (is (str/includes? text "has inferred type incompatible with the expected type"))
+    (is (str/includes? text "(conditional"))
+    (is (str/includes? text "{:a Int}"))
+    (is (str/includes? text "{:b Str}"))
+    (is (not (str/includes? text "is missing")))
+    (is (not (str/includes? text "not allowed by the expected type")))
+    (assert-no-ui-internals text)))
 
 (deftest output-summary-declared-type-shows-full-conditional-union
-  (let [bad (sut/output-cast-report sample-ctx (T conditional-int-or-str) (T s/Keyword))
+  (let [bad (sut/output-cast-report sample-ctx (T s/Keyword) (T conditional-int-or-str))
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
@@ -162,13 +152,20 @@
         text (strip-ansi err)]
     (is (str/includes? text "Declared return type expects:"))
     (is (str/includes? text "Problem fields:"))
-    (is (str/includes? text "does not match any of:"))
+    (is (str/includes? text "(conditional Int Str)"))
+    (is (str/includes? text "but expected Keyword"))
+    (is (not (str/includes? text "does not match any of:")))
     (is (str/includes? text "Int"))
     (is (str/includes? text "Str"))
     (assert-no-ui-internals text)))
 
+(deftest cast-report-keeps-narrower-source-to-wider-target-as-success
+  (let [report (sut/cast-report sample-ctx (T HasAOrB) (T HasA))]
+    (is (:ok? report))
+    (is (= [] (:errors report)))))
+
 (deftest output-report-summary-uses-root-expected-type-metadata
-  (let [bad (sut/output-cast-report sample-ctx (T conditional-int-or-str) (T s/Keyword))
+  (let [bad (sut/output-cast-report sample-ctx (T s/Keyword) (T conditional-int-or-str))
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
@@ -219,16 +216,16 @@
                   :cast-summary {:rule :source-union
                                  :actual-type (ato/union-type [(T s/Int) (T s/Str)])
                                  :expected-type (T s/Int)}
-                  :cast-diagnostics [{:reason :leaf-mismatch
-                                      :rule :leaf-overlap
-                                      :actual-type (T s/Str)
+                  :cast-diagnostics [{:reason :source-branch-failed
+                                      :rule :source-union
+                                      :actual-type (ato/union-type [(T s/Int) (T s/Str)])
                                       :expected-type (T s/Int)
                                       :path []}]})
         [error] (:errors summary)
         text (strip-ansi error)]
     (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return type\." text))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" text)))
-    (is (str/includes? text "Str but expected Int"))))
+    (is (str/includes? text "(union Int Str) but expected Int"))))
 
 (deftest output-summary-falls-back-to-top-level-when-no-actionable-leaf-details
   (let [summary (sut/report-summary
