@@ -67,6 +67,51 @@ Schema and want feedback about how inferred types line up with those declared
 Plumatic Schema annotations. It complements runtime Plumatic Schema validation;
 it does not replace it.
 
+## Suppressing checks
+
+Skeptic provides three opt-out mechanisms when its inference is wrong or too dynamic for its analysis. Each mechanism suppresses checks in a different scope without affecting the rest of your code.
+
+### Ignoring a function body
+
+Use `:skeptic/ignore-body` in a function's attribute map to skip type checking inside the function body. The declared schema still applies to all callers:
+
+```clojure
+(s/defn my-fn :- s/Int
+  {:skeptic/ignore-body true}
+  [x :- s/Int]
+  (int-add nil x))
+```
+
+The function body's type mismatch (passing `nil` to `int-add`) is suppressed. Callers are still checked against the declared `:- s/Int` schema.
+
+### Treating a function as a black box
+
+Use `:skeptic/opaque` in a function's attribute map to exclude both the function body and its schema from checking. Callers see the function as accepting and returning `s/Any`:
+
+```clojure
+(s/defn my-fn :- s/Int
+  {:skeptic/opaque true}
+  [x :- s/Int]
+  "not-an-int")
+```
+
+The function body is not checked, and callers can pass any type and expect any type back.
+
+### Overriding an expression's type
+
+Use `^{:skeptic/type T}` metadata on an expression to pin its inferred type to schema `T`:
+
+```clojure
+(let [y ^{:skeptic/type s/Int} (some-call-that-returns-any)]
+  (int-add y 1))
+```
+
+The expression's type is treated as `s/Int` for subsequent checks. Note that Clojure does not allow metadata on bare literal values (numbers, strings, keywords); wrap them in a form if needed:
+
+```clojure
+^{:skeptic/type s/Int} (identity 42)
+```
+
 ## License
 
 The MIT License (MIT)
