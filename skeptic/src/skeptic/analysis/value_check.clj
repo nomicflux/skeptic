@@ -90,6 +90,42 @@
       (= 1 (count kept)) (first kept)
       :else (ato/union-type kept))))
 
+(def integral-ground-classes
+  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
+
+(defn- numeric-ground-class
+  [type]
+  (let [ground (:ground (as-type type))]
+    (when (and (map? ground) (:class ground))
+      (:class ground))))
+
+(defn numeric-ground-type?
+  [type]
+  (let [type (as-type type)
+        ground (:ground type)
+        klass (numeric-ground-class type)]
+    (or (= ground :int)
+        (and klass
+             (class? klass)
+             (or (isa? klass Number)
+                 (= klass Number)
+                 (= klass java.lang.Number))))))
+
+(defn non-int-numeric-ground-type?
+  [type]
+  (let [klass (numeric-ground-class type)]
+    (and (numeric-ground-type? type)
+         (not= :int (:ground (as-type type)))
+         (or (nil? klass)
+             (not (contains? integral-ground-classes klass))))))
+
+(defn numeric-leaf-type?
+  [type]
+  (let [type (as-type type)]
+    (or (at/numeric-dyn-type? type)
+        (numeric-ground-type? type)
+        (and (at/value-type? type) (number? (:value type))))))
+
 (defn ground-accepts-value?
   [type value]
   (let [ground (:ground (as-type type))]
@@ -107,6 +143,19 @@
   (let [source-type (as-type source-type)
         target-type (as-type target-type)]
     (cond
+      (at/numeric-dyn-type? source-type)
+      (cond
+        (at/numeric-dyn-type? target-type) true
+        (at/refinement-type? target-type) (leaf-overlap? source-type (:base target-type))
+        (at/adapter-leaf-type? target-type) true
+        :else (numeric-leaf-type? target-type))
+
+      (at/numeric-dyn-type? target-type)
+      (cond
+        (at/refinement-type? source-type) (leaf-overlap? (:base source-type) target-type)
+        (at/adapter-leaf-type? source-type) true
+        :else (numeric-leaf-type? source-type))
+
       (at/ground-type? source-type)
       (cond
         (at/ground-type? target-type)
@@ -185,6 +234,9 @@
           (at/placeholder-type? type)
           (at/inf-cycle-type? type))
       true
+
+      (at/numeric-dyn-type? type)
+      (number? value)
 
       (at/bottom-type? type)
       true

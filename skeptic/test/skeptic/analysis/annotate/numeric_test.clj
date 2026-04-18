@@ -3,6 +3,8 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.numeric :as sut]
             [skeptic.analysis.annotate.test-api :as aat]
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
             [skeptic.analysis-test :as atst]))
 
 (deftest integral-ground-type-test
@@ -21,4 +23,25 @@
   (let [fn-node (aat/test-fn-node 'inc)
         args [(aat/test-typed-node :const 0 (atst/T (s/eq 0)))]]
     (is (= (atst/T s/Int)
+           (sut/invoke-integral-math-narrow-type fn-node args (mapv :type args))))))
+
+(deftest invoke-dec-on-constant-int-narrows-to-int
+  (let [args [(aat/test-typed-node :const 0 (atst/T (s/eq 0)))]]
+    (is (= (atst/T s/Int)
+           (sut/narrow-static-numbers-output {:method 'dec}
+                                             args
+                                             (mapv :type args)
+                                             {:output-type at/NumericDyn})))))
+
+(deftest inc-on-numeric-dyn-stays-numeric-dyn
+  (let [fn-node (aat/test-fn-node 'inc)
+        args [(aat/test-typed-node :local 'x at/NumericDyn)]]
+    (is (= at/NumericDyn
+           (sut/invoke-integral-math-narrow-type fn-node args (mapv :type args))))))
+
+(deftest inc-on-non-int-numeric-literal-preserves-fine-ground
+  (let [fn-node (aat/test-fn-node 'inc)
+        literal-type (ato/exact-value-type 3.5)
+        args [(aat/test-typed-node :const 3.5 literal-type)]]
+    (is (= (at/->GroundT {:class java.lang.Double} 'Double)
            (sut/invoke-integral-math-narrow-type fn-node args (mapv :type args))))))

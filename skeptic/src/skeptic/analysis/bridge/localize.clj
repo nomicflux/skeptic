@@ -51,6 +51,8 @@
     :skeptic.analysis.types/bottom-type at/BottomType
     :skeptic.analysis.types/ground-type
     (at/->GroundT (:ground value) (:display-form value))
+    :skeptic.analysis.types/numeric-dyn-type
+    at/NumericDyn
     :skeptic.analysis.types/refinement-type
     (at/->RefinementT (localize-value* (:base value) seen-vars)
                       (:display-form value)

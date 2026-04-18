@@ -7,6 +7,7 @@
   [value]
   (cond
     (integer? value) (at/->GroundT :int 'Int)
+    (number? value) (at/->GroundT {:class (class value)} (symbol (.getSimpleName ^Class (class value))))
     (string? value) (at/->GroundT :str 'Str)
     (keyword? value) (at/->GroundT :keyword 'Keyword)
     (symbol? value) (at/->GroundT :symbol 'Symbol)

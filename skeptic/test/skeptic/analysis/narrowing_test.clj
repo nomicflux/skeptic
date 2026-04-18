@@ -49,3 +49,14 @@
         na (an/partition-type-for-values u [:a] false)]
     (is (= (ato/exact-value-type :a) pa))
     (is (= (ato/union-type #{(ato/exact-value-type :b) (atst/T s/Int)}) na))))
+
+(deftest numeric-dyn-predicate-classification-test
+  (is (= :matches (an/classify-leaf-for-predicate? {:pred :number?} at/NumericDyn)))
+  (is (= :unknown (an/classify-leaf-for-predicate? {:pred :integer?} at/NumericDyn)))
+  (is (= :matches
+         (an/classify-leaf-for-predicate? {:pred :instance?
+                                           :class java.lang.Number}
+                                          at/NumericDyn)))
+  (is (= :does-not-match
+         (an/classify-leaf-for-predicate? {:pred :integer?}
+                                          (at/->GroundT {:class java.lang.Double} 'Double)))))

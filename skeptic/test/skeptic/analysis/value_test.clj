@@ -16,7 +16,17 @@
     (is (= (T (s/eq nil)) (av/type-of-value nil)))
     (is (= (T s/Str) (av/type-of-value "x")))
     (is (= (T s/Keyword) (av/type-of-value :x)))
-    (is (= (T s/Bool) (av/type-of-value true)))))
+    (is (= (T s/Bool) (av/type-of-value true))))
+  (testing "fine numeric grounds are preserved"
+    (let [double-type (av/type-of-value 3.5)
+          float-type (av/type-of-value (float 3.5))
+          bigdec-type (av/type-of-value 3.5M)
+          ratio-type (av/type-of-value 7/2)]
+      (is (= {:class java.lang.Double} (:ground double-type)))
+      (is (= {:class java.lang.Float} (:ground float-type)))
+      (is (= {:class java.math.BigDecimal} (:ground bigdec-type)))
+      (is (= {:class clojure.lang.Ratio} (:ground ratio-type)))
+      (is (not= (:ground bigdec-type) (:ground float-type))))))
 
 (deftest type-of-value-collections-test
   (testing "empty list"

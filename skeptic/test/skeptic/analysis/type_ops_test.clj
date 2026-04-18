@@ -50,6 +50,8 @@
 (deftest type-ops-normalization-and-unknown-test
   (is (= (at/->ValueT (at/->GroundT :keyword 'Keyword) :k)
          (ato/exact-value-type :k)))
+  (is (= (at/->ValueT (at/->GroundT {:class java.lang.Double} 'Double) 3.5)
+         (ato/exact-value-type 3.5)))
   (is (= (at/->MaybeT at/Dyn)
          (ato/normalize-type nil)))
   (is (= (at/->GroundT :int 'Int)

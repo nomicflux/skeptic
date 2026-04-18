@@ -260,13 +260,7 @@
                                                         '(int-add 2 nil)
                                                         [(incm/mismatched-schema-msg {:expr '(int-add 2 nil) :arg nil} (T (s/eq nil)) (T s/Int))]
                                                         '(int-add w 1 x y z)
-                                                        [(incm/mismatched-schema-msg {:expr '(int-add w 1 x y z) :arg 'w} (T (s/eq nil)) (T s/Int))
-                                                         (incm/mismatched-ground-type-msg {:expr '(int-add w 1 x y z) :arg 'y}
-                                                                                          (at/->GroundT {:class java.lang.Number} 'Number)
-                                                                                          (T s/Int))
-                                                         (incm/mismatched-ground-type-msg {:expr '(int-add w 1 x y z) :arg 'z}
-                                                                                          (at/->GroundT {:class java.lang.Number} 'Number)
-                                                                                          (T s/Int))]]
+                                                        [(incm/mismatched-schema-msg {:expr '(int-add w 1 x y z) :arg 'w} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-mismatched-types ['(int-add x "hi")
                                                      [(incm/mismatched-ground-type-msg {:expr '(int-add x "hi") :arg "hi"} (T s/Str) (T s/Int))]]
      'skeptic.test-examples/loop-recur-type-mismatch ['(recur "not-int")
@@ -290,7 +284,7 @@
      'skeptic.test-examples/sample-fn-once ['(int-add y nil)
                                             [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil} (T (s/eq nil)) (T s/Int))]]
      'skeptic.test-examples/sample-bad-parametric-fn ['(. clojure.lang.Numbers (add 1 (g f)))
-                                                       [(incm/mismatched-schema-msg {:expr '(. clojure.lang.Numbers (add 1 (g f))) :arg '(g f)} (T (s/eq nil)) (at/->GroundT {:class java.lang.Number} 'Number))]])))
+                                                       [(incm/mismatched-schema-msg {:expr '(. clojure.lang.Numbers (add 1 (g f))) :arg '(g f)} (T (s/eq nil)) at/NumericDyn)]])))
 
 (deftest abcde-maps-output-type-errors
   (in-test-examples
@@ -666,6 +660,12 @@
      (is (not= ::timeout results)
          "Timed out checking skeptic.test-examples/deep-unary")
      (is (= [] results)))))
+
+(deftest numeric-inc-checks
+  (in-test-examples
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/inc-int-success)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/inc-num-success)))
+   (is (= [] (check-fn test-dict 'skeptic.test-examples/inc-double-success)))))
 
 (deftest nested-call-mismatch-renders-field-paths
   (in-test-examples

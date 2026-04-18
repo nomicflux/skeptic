@@ -1031,6 +1031,18 @@
   [x :- s/Num]
   (* x 2))
 
+(s/defn inc-int-success :- s/Int
+  [x :- s/Int]
+  (inc x))
+
+(s/defn inc-num-success :- s/Num
+  [x :- s/Num]
+  (inc x))
+
+(s/defn inc-double-success :- java.lang.Double
+  [x :- java.lang.Double]
+  (inc x))
+
 (s/defn some-to-lambda-success
   [input :- (s/maybe s/Num)]
   (some-> input 

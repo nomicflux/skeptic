@@ -5,6 +5,9 @@
 
 (declare partition-type-for-predicate*)
 
+(def integral-ground-classes
+  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
+
 (defn- numeric-ground?
   [g]
   (or (= :int g)
@@ -26,6 +29,14 @@
   (when (and (map? ground) (:class ground))
     (let [^Class c (:class ground)]
       (and (class? c) (.isAssignableFrom pred-class c)))))
+
+(defn- numeric-dyn-instance-classification
+  [pred-class]
+  (cond
+    (nil? pred-class) :unknown
+    (.isAssignableFrom pred-class Number) :matches
+    (.isAssignableFrom Number pred-class) :unknown
+    :else :does-not-match))
 
 (defn classify-leaf-for-predicate?
   [pred-info t]
@@ -87,6 +98,25 @@
             (if (instance-ground-assignable? g pc) :matches :does-not-match)
             :unknown)
           :unknown))
+
+      (at/numeric-dyn-type? t)
+      (case pred
+        :nil? :does-not-match
+        :some? :matches
+        :number? :matches
+        :integer? :unknown
+        :string? :does-not-match
+        :keyword? :does-not-match
+        :boolean? :does-not-match
+        :symbol? :does-not-match
+        :map? :does-not-match
+        :vector? :does-not-match
+        :set? :does-not-match
+        :seq? :does-not-match
+        :fn? :does-not-match
+        :instance?
+        (numeric-dyn-instance-classification (:class pred-info))
+        :unknown)
 
       (at/map-type? t) (case pred :map? :matches :nil? :does-not-match :some? :matches :does-not-match)
       (at/vector-type? t) (case pred :vector? :matches :nil? :does-not-match :some? :matches :does-not-match)

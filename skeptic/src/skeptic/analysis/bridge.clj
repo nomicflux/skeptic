@@ -192,7 +192,7 @@
 
       (or (= scalar-schema s/Num)
           (and (class? scalar-schema) (= scalar-schema java.lang.Number)))
-      (import-result (at/->GroundT {:class java.lang.Number} 'Number))
+      (import-result at/NumericDyn)
 
       (broad-dynamic-schema? scalar-schema)
       (import-result at/Dyn)

@@ -23,6 +23,7 @@
       (at/dyn-type? type) 'Any
       (at/bottom-type? type) 'Bottom
       (at/ground-type? type) (:display-form type)
+      (at/numeric-dyn-type? type) 'Number
       (at/refinement-type? type) (:display-form type)
       (at/adapter-leaf-type? type) (:display-form type)
       (at/optional-key-type? type) (list 'optional-key (render-type-form (:inner type)))
@@ -87,6 +88,7 @@
       (at/dyn-type? type) {:t "any"}
       (at/bottom-type? type) {:t "bottom"}
       (at/ground-type? type) {:t "ground" :name (name-str (:display-form type))}
+      (at/numeric-dyn-type? type) {:t "numeric-dyn" :name "Number"}
       (at/refinement-type? type) {:t "refinement" :name (name-str (:display-form type))}
       (at/adapter-leaf-type? type) {:t "adapter" :name (name-str (:display-form type))}
       (at/optional-key-type? type) {:t "optional-key" :inner (type->json-data (:inner type))}

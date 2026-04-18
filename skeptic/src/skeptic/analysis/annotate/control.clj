@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.control
   (:require [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.ast-children :as sac]
+            [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.types :as at]
@@ -155,12 +156,12 @@
     (reduce (fn [acc recur-node]
               (let [exprs (:exprs recur-node)]
                 (if (and (= (count acc) (count exprs)) (pos? (count acc)))
-                  (mapv (fn [target expr]
+                        (mapv (fn [target expr]
                           (let [actual (:type expr)]
                             (if (and (at/ground-type? target)
                                      (= :int (:ground target))
-                                     (at/ground-type? actual)
-                                     (= java.lang.Number (get-in actual [:ground :class])))
+                                     (or (at/numeric-dyn-type? actual)
+                                         (numeric/non-int-numeric-type? actual)))
                               (ato/normalize-type actual)
                               target)))
                         acc

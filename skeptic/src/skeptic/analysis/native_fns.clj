@@ -8,7 +8,7 @@
   (:require [skeptic.analysis.types :as at])
   (:import [clojure.lang Numbers]))
 
-(def ^:private number-type (at/->GroundT {:class java.lang.Number} 'Number))
+(def ^:private number-type at/NumericDyn)
 (def ^:private bool-type (at/->GroundT :bool 'Bool))
 (def ^:private str-type (at/->GroundT :str 'Str))
 (def ^:private int-type (at/->GroundT :int 'Int))

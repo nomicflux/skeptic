@@ -319,6 +319,12 @@ The result type is the join of all explicit-arm types and the default-arm type. 
 
 Integral arithmetic is refined beyond generic native signatures.
 
+The numeric helpers now separate three cases:
+
+- provably integral
+- provably non-`Int` numeric with a retained fine ground type
+- numeric, but not proven integral or proven non-`Int`
+
 The integral predicate recognizes:
 
 - the built-in integer ground
@@ -327,13 +333,21 @@ The integral predicate recognizes:
 - refinement types whose base is integral
 - intersections whose members are all integral
 
-Using that predicate:
+Broad numeric schemas such as `s/Num` cross the schema boundary as `NumericDyn`,
+not as a `GroundT` for `java.lang.Number`. `NumericDyn` is a dyn-like type-domain
+value meaning "numeric, but maybe still `Int`".
 
-- ordinary `inc`, unary `-`, binary `-`, `+`, and `*` narrow to exact integer when their non-constant arguments are integral in the required pattern
-- JVM numeric helpers for increment, decrement, add, multiply, and minus apply the same narrowing rules
+Using those classifications:
+
+- ordinary `inc` and `dec` narrow to exact integer when the argument type is provably integral, including exact integer literals
+- ordinary `inc` and `dec` preserve a fine numeric ground type when the argument is provably non-`Int` numeric
+- ordinary `inc` and `dec` stay `NumericDyn` when the argument is only known to be numeric
+- JVM numeric helpers for increment and decrement apply the same three-way refinement
+- `+`, unary `-`, binary `-`, and `*` keep their existing narrowing rules outside this unary `inc`/`dec` change
 - containment checks use the dedicated boolean ground type
 
-When numeric narrowing does not apply, the ordinary call-output logic stays in force.
+When finer numeric ground data exists, the annotation pass retains it instead of
+lumping it into `Number`.
 
 ### Output Contract
 

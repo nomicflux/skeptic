@@ -345,12 +345,21 @@ This namespace owns test-only projections and synthetic fixtures.
 - constants:
   `bool-type` and `integral-arg-classes`.
 - predicates:
-  `integral-ground-type?`, `inc-dec-narrow-int-output?`,
-  and `binary-integral-locals-narrow?`.
-- `invoke-integral-math-narrow-type`: invoke-side integer narrowing for
-  `inc`, `+`, `*`, and `-`.
+  `integral-ground-type?`, `integral-type?`, `numeric-type?`,
+  `non-int-numeric-type?`, and `binary-integral-locals-narrow?`.
+- output helpers:
+  `numeric-ground-output-type` and `inc-dec-output-type`.
+- `invoke-integral-math-narrow-type`: invoke-side numeric narrowing. Unary
+  `inc` and `dec` now distinguish `Int`, fine non-`Int` numeric grounds, and
+  `NumericDyn`.
 - `narrow-static-numbers-output`: static-call analogue for
-  `clojure.lang.Numbers`.
+  `clojure.lang.Numbers`, including the same unary `inc`/`dec` split.
+
+`NumericDyn` is the broad numeric type-domain result for cases like `s/Num`
+where the checker knows only that a value is numeric. When the argument already
+proves a finer non-`Int` numeric ground such as `Double`, `Float`,
+`BigDecimal`, or `Ratio`, the numeric helpers preserve that ground instead of
+collapsing it into a broad `Number`.
 
 ## Public Boundary Summary
 

@@ -28,6 +28,9 @@
 (def ground-type-tag
   :skeptic.analysis.types/ground-type)
 
+(def numeric-dyn-type-tag
+  :skeptic.analysis.types/numeric-dyn-type)
+
 (def refinement-type-tag
   :skeptic.analysis.types/refinement-type)
 
@@ -92,6 +95,7 @@
   #{dyn-type-tag
     bottom-type-tag
     ground-type-tag
+    numeric-dyn-type-tag
     refinement-type-tag
     adapter-leaf-type-tag
     optional-key-type-tag
@@ -126,6 +130,10 @@
   {semantic-type-tag-key ground-type-tag
    :ground ground
    :display-form display-form})
+
+(defn ->NumericDynT
+  []
+  {semantic-type-tag-key numeric-dyn-type-tag})
 
 (defn ->RefinementT
   [base display-form accepts? adapter-data]
@@ -249,6 +257,9 @@
 (def BottomType
   (->BottomT))
 
+(def NumericDyn
+  (->NumericDynT))
+
 (defn semantic-type-tag
   [value]
   (when (map? value)
@@ -269,6 +280,10 @@
 (defn ground-type?
   [t]
   (tagged-map? t semantic-type-tag-key ground-type-tag))
+
+(defn numeric-dyn-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key numeric-dyn-type-tag))
 
 (defn refinement-type?
   [t]
@@ -358,6 +373,9 @@
   [t]
   (cond
     (not (semantic-type-value? t)) t
+
+    (numeric-dyn-type? t)
+    t
 
     (refinement-type? t)
     (-> t (dissoc :accepts?) (update :base strip-runtime-closures))

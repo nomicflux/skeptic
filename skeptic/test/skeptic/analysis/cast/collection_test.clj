@@ -33,13 +33,18 @@
         target-set (at/->SetT #{(T s/Any) (T s/Str)} false)
         bad-set (at/->SetT #{(T s/Int)} false)
         int-g (at/->GroundT :int 'Int)
-        num-g (at/->GroundT {:class java.lang.Number} 'Number)
+        numeric-dyn at/NumericDyn
+        double-g (at/->GroundT {:class java.lang.Double} 'Double)
         maybe-obj (at/->MaybeT (at/->GroundT {:class java.lang.Object} 'Object))]
     (is (= :set (:rule (sut/check-cast source-set target-set))))
     (is (= :set-cardinality-mismatch
            (:reason (sut/check-cast source-set bad-set))))
-    (is (:ok? (sut/check-cast int-g num-g)))
-    (is (not (:ok? (sut/check-cast num-g int-g))))
+    (is (:ok? (sut/check-cast int-g numeric-dyn)))
+    (is (:ok? (sut/check-cast numeric-dyn int-g)))
+    (is (:ok? (sut/check-cast double-g numeric-dyn)))
+    (is (:ok? (sut/check-cast numeric-dyn double-g)))
+    (is (not (:ok? (sut/check-cast double-g int-g))))
+    (is (not (:ok? (sut/check-cast int-g double-g))))
     (is (:ok? (sut/check-cast int-g maybe-obj)))
     (is (not (:ok? (sut/check-cast maybe-obj int-g))))
     (is (avc/value-satisfies-type? [1 2 3] (T [s/Int])))

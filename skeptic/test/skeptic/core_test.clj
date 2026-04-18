@@ -6,7 +6,6 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.checking.pipeline :as checking]
             [skeptic.file :as file]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence.report :as inrep]

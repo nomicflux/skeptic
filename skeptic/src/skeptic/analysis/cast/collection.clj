@@ -137,6 +137,11 @@
         (at/inf-cycle-type? source-type))
     (ascs/cast-ok source-type target-type :residual-dynamic)
 
+    (at/numeric-dyn-type? source-type)
+    (if (avc/leaf-overlap? source-type target-type)
+      (ascs/cast-ok source-type target-type :leaf-overlap)
+      (ascs/cast-fail source-type target-type :leaf-overlap polarity :leaf-mismatch))
+
     (or (at/ground-type? source-type)
         (at/refinement-type? source-type)
         (at/adapter-leaf-type? source-type))

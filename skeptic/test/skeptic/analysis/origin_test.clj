@@ -119,7 +119,7 @@
                                       (= Numbers (aapi/node-class %))
                                       (= 'minus (aapi/node-method %))))]
       (is (some? minus) "expected unary - lowered to Numbers/minus")
-      (is (= atst/num-ground (first (aapi/call-actual-argtypes minus)))))))
+      (is (= atst/numeric-dyn (first (aapi/call-actual-argtypes minus)))))))
 
 (deftest negated-assumptions-and-narrowing-alias-roots-test
   (testing "not around nil? inverts the branch assumption"

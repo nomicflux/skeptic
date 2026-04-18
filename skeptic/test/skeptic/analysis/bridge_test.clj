@@ -116,6 +116,10 @@
   (is (some? (ab/primitive-ground-type Exception)))
   (is (some? (ab/primitive-ground-type s/Int))))
 
+(deftest broad-numeric-schemas-import-to-numeric-dyn-test
+  (is (= at/NumericDyn (T s/Num)))
+  (is (= at/NumericDyn (T java.lang.Number))))
+
 (deftest schema-to-type-rejects-semantic-type-input-test
   (is (thrown-with-msg? IllegalArgumentException
                         #"Expected schema value"

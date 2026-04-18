@@ -111,6 +111,22 @@ There is one cast-aware type-test rule related to `Blame for All`:
 
 This rule is separate from the cast relation, but it is part of the same semantic contract and must be preserved in the rewrite.
 
+### NumericDyn
+
+Broad numeric uncertainty is not modeled as a ground `Number` type. The checker
+has a separate dyn-like type, `NumericDyn`, for "known numeric, but not proven
+`Int` or proven non-`Int` numeric".
+
+This distinction matters for leaf compatibility:
+
+- `Int` may cast to `NumericDyn`.
+- Fine numeric grounds such as `Double`, `Float`, `BigDecimal`, and `Ratio`
+  may cast to `NumericDyn`.
+- `NumericDyn` may cast to numeric leaves under the gradual rules, because it
+  may still be `Int` or a fine non-`Int` numeric ground.
+- Fine numeric grounds remain distinct ground types. The checker must not lump
+  them into a synthetic broad `Number` ground.
+
 ### Unions
 
 Union behavior depends on which side is a union.
