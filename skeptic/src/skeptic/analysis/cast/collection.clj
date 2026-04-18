@@ -132,7 +132,9 @@
       (ascs/cast-ok source-type target-type :target-value)
       (ascs/cast-fail source-type target-type :target-value polarity :target-value-mismatch))
 
-    (or (at/dyn-type? source-type) (at/placeholder-type? source-type))
+    (or (at/dyn-type? source-type)
+        (at/placeholder-type? source-type)
+        (at/inf-cycle-type? source-type))
     (ascs/cast-ok source-type target-type :residual-dynamic)
 
     (or (at/ground-type? source-type)

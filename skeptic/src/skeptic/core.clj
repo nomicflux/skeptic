@@ -75,6 +75,33 @@
         (println (colours/white text true)))
 	      (println (colours/white (str label text) true)))))
 
+(defn- discover-project-files
+  [root paths]
+  (reduce (fn [{:keys [files failures]} path]
+            (let [{new-files :files
+                   new-failures :failures}
+                  (file/discover-clojure-files (file/relative-path (io/file root) path))]
+              {:files (into files new-files)
+               :failures (into failures new-failures)}))
+          {:files []
+           :failures []}
+          paths))
+
+(defn- blocking-discovery-failures
+  [namespace discovered-nss failures]
+  (cond
+    (empty? failures) []
+    namespace (if (contains? discovered-nss (symbol namespace))
+                []
+                failures)
+    :else failures))
+
+(defn- discovery-failure-message
+  [{:keys [path exception]}]
+  (let [message (or (.getMessage ^Exception exception)
+                    (str exception))]
+    (format "%s (%s)" path message)))
+
 (defn report-fields
   ([summary]
    (report-fields summary false))
@@ -120,16 +147,21 @@
 
 (defn check-project
   [{:keys [verbose show-context namespace analyzer] :as opts} root & paths]
-  (let [nss (cond-> (try (->> paths
-                              (map (partial file/relative-path (io/file root)))
-                              (mapcat file/clojure-files-for-path)
-                              (map file/ns-for-clojure-file)
-                              (remove (comp nil? first))
-                              (into {}))
-                         (catch Exception e
-                           (println "Couldn't get namespaces: " e)
-                           (throw e)))
-
+  (let [{:keys [files failures]} (discover-project-files root paths)
+        discovered-nss (try (->> files
+                                 (map file/ns-for-clojure-file)
+                                 (remove (comp nil? first))
+                                 (into {}))
+                            (catch Exception e
+                              (println "Couldn't get namespaces: " e)
+                              (throw e)))
+        blocking-failures (blocking-discovery-failures namespace discovered-nss failures)
+        _ (when (seq blocking-failures)
+            (doseq [failure blocking-failures]
+              (println "Couldn't get namespaces:" (discovery-failure-message failure)))
+            (throw (ex-info "Couldn't get namespaces"
+                            {:failures blocking-failures})))
+        nss (cond-> discovered-nss
               namespace
               (select-keys [(symbol namespace)]))]
     (when verbose (println "Namespaces to check: " (pr-str (keys nss))))

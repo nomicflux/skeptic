@@ -4,6 +4,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.file :as file]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
@@ -316,3 +317,57 @@
             "The later mismatch should still be found after the exception")
         (is (seq (:errors mismatch-result))
             "The later mismatch should have actual errors")))))
+
+(deftest check-project-ignores-unrelated-discovery-failures-for-requested-namespace
+  (let [source-file (java.io.File. "test/example.clj")
+        checked (atom [])]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files [source-file]
+                     :failures [{:path "missing"
+                                 :exception (ex-info "unreadable" {})}]})
+                  file/ns-for-clojure-file
+                  (fn [file]
+                    ['example.ns file])
+                  checking/check-namespace
+                  (fn [_opts ns _source-file]
+                    (swap! checked conj ns)
+                    [])]
+      (is (= 0 (sut/check-project {:namespace "example.ns"} "." ".")))
+      (is (= ['example.ns] @checked)))))
+
+(deftest check-project-blocks-when-discovery-failure-prevents-requested-coverage
+  (let [checked? (atom false)]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files []
+                     :failures [{:path "missing"
+                                 :exception (ex-info "unreadable" {})}]})
+                  checking/check-namespace
+                  (fn [& _]
+                    (reset! checked? true)
+                    [])]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Couldn't get namespaces"
+                            (sut/check-project {:namespace "example.ns"} "." ".")))
+      (is (false? @checked?)))))
+
+(deftest check-project-blocks-on-discovery-failure-for-full-coverage-run
+  (let [source-file (java.io.File. "test/example.clj")
+        checked? (atom false)]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files [source-file]
+                     :failures [{:path "missing"
+                                 :exception (ex-info "unreadable" {})}]})
+                  file/ns-for-clojure-file
+                  (fn [file]
+                    ['example.ns file])
+                  checking/check-namespace
+                  (fn [& _]
+                    (reset! checked? true)
+                    [])]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Couldn't get namespaces"
+                            (sut/check-project {} "." ".")))
+      (is (false? @checked?)))))

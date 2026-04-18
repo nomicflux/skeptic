@@ -26,6 +26,10 @@
       (at/type-var-type? type) (:name type)
       (at/forall-type? type) (list 'forall (:binder type) (render-type-form (:body type)))
       (at/sealed-dyn-type? type) (list 'sealed (render-type-form (:ground type)))
+      (at/inf-cycle-type? type)
+      (if-let [ref (:ref type)]
+        (list 'InfCycle (at/ref-display-form ref))
+        'InfCycle)
       (at/fn-method-type? type) (list* '=> (render-type-form (:output type)) (render-fn-input-form type))
       (at/fun-type? type)
       (if (= 1 (count (:methods type)))

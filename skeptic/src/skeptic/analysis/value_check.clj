@@ -182,7 +182,8 @@
   (let [type (as-type type)]
     (cond
       (or (at/dyn-type? type)
-          (at/placeholder-type? type))
+          (at/placeholder-type? type)
+          (at/inf-cycle-type? type))
       true
 
       (at/bottom-type? type)

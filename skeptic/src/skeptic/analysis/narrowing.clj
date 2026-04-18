@@ -35,6 +35,7 @@
       (at/bottom-type? t) :matches
       (at/dyn-type? t) :unknown
       (at/placeholder-type? t) :unknown
+      (at/inf-cycle-type? t) :unknown
       (at/refinement-type? t) :unknown
       (at/adapter-leaf-type? t) :unknown
       (at/intersection-type? t) :unknown
@@ -137,6 +138,7 @@
     (cond
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
+      (at/inf-cycle-type? type) type
 
       (at/union-type? type)
       (combine-parts (map #(partition-type-for-predicate* % pred-info polarity) (:members type)))
@@ -206,6 +208,7 @@
       (empty? values) type
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
+      (at/inf-cycle-type? type) type
       (ato/unknown-type? type) type
       (at/union-type? type)
       (combine-parts (map #(partition-type-for-values % values polarity) (:members type)))

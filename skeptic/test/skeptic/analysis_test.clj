@@ -10,6 +10,8 @@
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
+(require 'skeptic.test-examples)
+
 (defn set-cache-value
   [& _args]
   nil)

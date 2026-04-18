@@ -17,7 +17,8 @@
           (at/refinement-type? type)
           (at/adapter-leaf-type? type)
           (at/optional-key-type? type)
-          (at/placeholder-type? type))
+          (at/placeholder-type? type)
+          (at/inf-cycle-type? type))
       #{}
 
       (at/fn-method-type? type)
@@ -80,7 +81,8 @@
           (at/ground-type? type)
           (at/refinement-type? type)
           (at/adapter-leaf-type? type)
-          (at/placeholder-type? type))
+          (at/placeholder-type? type)
+          (at/inf-cycle-type? type))
       type
 
       (at/optional-key-type? type)

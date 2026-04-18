@@ -173,7 +173,9 @@
       (or (at/dyn-type? source-key)
           (at/dyn-type? target-key)
           (at/placeholder-type? source-key)
-          (at/placeholder-type? target-key))
+          (at/placeholder-type? target-key)
+          (at/inf-cycle-type? source-key)
+          (at/inf-cycle-type? target-key))
       true
 
       (at/value-type? source-key)

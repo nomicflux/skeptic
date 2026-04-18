@@ -101,6 +101,8 @@
                   (localize-value* (:body value) seen-vars))
     :skeptic.analysis.types/sealed-dyn-type
     (at/->SealedDynT (localize-value* (:ground value) seen-vars))
+    :skeptic.analysis.types/inf-cycle-type
+    (at/->InfCycleT (some-> (:ref value) (localize-value* seen-vars)))
     value))
 
 (defn- localize-raw-collection

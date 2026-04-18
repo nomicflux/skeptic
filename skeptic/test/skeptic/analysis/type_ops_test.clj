@@ -37,12 +37,15 @@
         polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
                                                     (at/->SealedDynT (at/->TypeVarT 'X))
                                                     1
-                                                    false)])]
+                                                    false)])
+        inf-cycle (at/->InfCycleT 'example/self)]
     (is (= fun-type (ato/normalize-type fun-type)))
     (is (= "(=> (intersection Any Int) Int)"
            (abr/render-type fun-type)))
     (is (= "(=> (sealed X) X)"
-           (abr/render-type polymorphic-fun)))))
+           (abr/render-type polymorphic-fun)))
+    (is (= "(InfCycle example/self)"
+           (abr/render-type inf-cycle)))))
 
 (deftest type-ops-normalization-and-unknown-test
   (is (= (at/->ValueT (at/->GroundT :keyword 'Keyword) :k)
@@ -53,6 +56,7 @@
          (ato/de-maybe-type (at/->MaybeT (at/->GroundT :int 'Int)))))
   (is (ato/unknown-type? at/Dyn))
   (is (ato/unknown-type? (at/->PlaceholderT 'example/x)))
+  (is (ato/unknown-type? (at/->InfCycleT 'example/self)))
   (is (not (ato/unknown-type? (ab/schema->type s/Int)))))
 
 (deftest semantic-type-tag-validation-test

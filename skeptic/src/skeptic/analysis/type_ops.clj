@@ -143,6 +143,7 @@
     (cond
       (at/dyn-type? type) true
       (at/placeholder-type? type) true
+      (at/inf-cycle-type? type) true
       (at/maybe-type? type) (unknown-type? (:inner type))
       (at/union-type? type) (some unknown-type? (:members type))
       :else false)))

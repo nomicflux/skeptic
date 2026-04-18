@@ -7,12 +7,21 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(declare UnboundSchemaRef)
+(declare UnboundSchemaRef
+         DirectRecursiveSchemaRef
+         JoinedRecursiveSchemaRef
+         RecursiveSeqRef
+         RecursiveSetRef)
 
 (def BoundSchemaRef s/Int)
 (def RecursiveSchemaRef [#'RecursiveSchemaRef])
+(def DirectRecursiveSchemaRef #'DirectRecursiveSchemaRef)
+(def JoinedRecursiveSchemaRef [s/Int #'JoinedRecursiveSchemaRef s/Str])
+(def RecursiveSeqRef (list s/Int #'RecursiveSeqRef s/Str))
+(def RecursiveSetRef #{s/Int #'RecursiveSetRef s/Str})
 
 (defn T
   [schema]
@@ -68,8 +77,36 @@
          (abc/canonicalize-schema #'RecursiveSchemaRef)))
   (let [recursive-type (ab/schema->type #'RecursiveSchemaRef)]
     (is (at/vector-type? recursive-type))
+    (is (:homogeneous? recursive-type))
+    (is (at/inf-cycle-type? (first (:items recursive-type))))
     (is (= 'skeptic.analysis.bridge-test/RecursiveSchemaRef
            (-> recursive-type :items first :ref)))))
+
+(deftest recursive-collections-reduce-by-construction-test
+  (let [ref 'skeptic.analysis.bridge-test/JoinedRecursiveSchemaRef
+        expected-join (ato/union-type [(T s/Int)
+                                       (at/->InfCycleT ref)
+                                       (T s/Str)])
+        joined-vector (T #'JoinedRecursiveSchemaRef)
+        joined-seq (T #'RecursiveSeqRef)
+        joined-set (T #'RecursiveSetRef)]
+    (is (= (at/->InfCycleT 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
+           (T #'DirectRecursiveSchemaRef)))
+    (is (at/vector-type? joined-vector))
+    (is (:homogeneous? joined-vector))
+    (is (= expected-join (first (:items joined-vector))))
+    (is (at/seq-type? joined-seq))
+    (is (:homogeneous? joined-seq))
+    (is (= (ato/union-type [(T s/Int)
+                            (at/->InfCycleT 'skeptic.analysis.bridge-test/RecursiveSeqRef)
+                            (T s/Str)])
+           (first (:items joined-seq))))
+    (is (at/set-type? joined-set))
+    (is (:homogeneous? joined-set))
+    (is (= #{(ato/union-type [(T s/Int)
+                              (at/->InfCycleT 'skeptic.analysis.bridge-test/RecursiveSetRef)
+                              (T s/Str)])}
+           (:members joined-set)))))
 
 (deftest primitive-ground-type-skips-collection-classes-test
   (is (nil? (ab/primitive-ground-type clojure.lang.PersistentArrayMap)))

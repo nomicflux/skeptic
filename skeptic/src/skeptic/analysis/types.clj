@@ -70,6 +70,9 @@
 (def placeholder-type-tag
   :skeptic.analysis.types/placeholder-type)
 
+(def inf-cycle-type-tag
+  :skeptic.analysis.types/inf-cycle-type)
+
 (def value-type-tag
   :skeptic.analysis.types/value-type)
 
@@ -103,6 +106,7 @@
     seq-type-tag
     var-type-tag
     placeholder-type-tag
+    inf-cycle-type-tag
     value-type-tag
     type-var-type-tag
     forall-type-tag
@@ -204,6 +208,13 @@
   [ref]
   {semantic-type-tag-key placeholder-type-tag
    :ref ref})
+
+(defn ->InfCycleT
+  ([]
+   (->InfCycleT nil))
+  ([ref]
+   (cond-> {semantic-type-tag-key inf-cycle-type-tag}
+     (some? ref) (assoc :ref ref))))
 
 (defn ->ValueT
   [inner value]
@@ -331,6 +342,10 @@
   [t]
   (tagged-map? t semantic-type-tag-key placeholder-type-tag))
 
+(defn inf-cycle-type?
+  [t]
+  (tagged-map? t semantic-type-tag-key inf-cycle-type-tag))
+
 (defn value-type?
   [t]
   (tagged-map? t semantic-type-tag-key value-type-tag))
@@ -349,6 +364,9 @@
 
     (adapter-leaf-type? t)
     (dissoc t :accepts?)
+
+    (inf-cycle-type? t)
+    t
 
     (optional-key-type? t) (update t :inner strip-runtime-closures)
     (maybe-type? t) (update t :inner strip-runtime-closures)
@@ -385,7 +403,7 @@
   [a b]
   (= (strip-runtime-closures a) (strip-runtime-closures b)))
 
-(defn placeholder-display-form
+(defn ref-display-form
   [ref]
   (cond
     (symbol? ref) ref
@@ -395,3 +413,7 @@
     (keyword? ref) (symbol (name ref))
     (string? ref) (symbol ref)
     :else 'Unknown))
+
+(defn placeholder-display-form
+  [ref]
+  (ref-display-form ref))
