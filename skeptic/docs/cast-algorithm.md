@@ -180,6 +180,8 @@ Nullable casting has three cases.
 - Non-nullable source to nullable target: cast the source to the target’s inner type.
 - Nullable source to non-nullable target: fail immediately with a nullable-source reason.
 
+`s/maybe` and the exact singleton `(eq nil)` are both nullable-shaped targets (the latter is a value type for `nil`, not a `MaybeT`). The same rules apply once the target is recognized as nullable: for example, a `Maybe` source to `(eq nil)` checks the maybe’s inner against the singleton nil type (rule `:maybe-to-eq-nil` when that branch applies).
+
 ### Transparent Wrappers
 
 Optional map-key wrappers and var wrappers are transparent to casting.

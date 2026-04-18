@@ -39,6 +39,13 @@
     (is (= :function (:rule range-failure)))
     (is (= :positive (:blame-polarity range-child)))))
 
+(deftest maybe-to-eq-nil-cast-test
+  (let [ok (sut/check-cast (T (s/maybe s/Any)) (T (s/eq nil)))
+        bad (sut/check-cast (T (s/maybe s/Int)) (T (s/eq nil)))]
+    (is (true? (:ok? ok)))
+    (is (= :maybe-to-eq-nil (:rule ok)))
+    (is (false? (:ok? bad)))))
+
 (deftest result-tree-contract-test
   (let [result (sut/check-cast (T {:user {:name s/Keyword}})
                                (T {:user {:name s/Str}}))]

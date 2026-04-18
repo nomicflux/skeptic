@@ -1054,7 +1054,7 @@
    (s/optional-key :on-step)     (s/=> (s/eq nil) s/Int)
    (s/optional-key :on-error)    (s/=> (s/eq nil) s/Str)})
 
-(defn opaque-logging-fn 
+(s/defn opaque-logging-fn :- (s/maybe s/Any)
   [msg]
   ;; Do not create a type for pprint to pass
   (clojure.pprint/pprint msg))

@@ -24,7 +24,8 @@
           (format "normalize-type only accepts canonical semantic types or internal type-like values, got %s"
                   (pr-str value)))))
 
-(defn- nil-value-type?
+(defn nil-value-type?
+  "True when t is a singleton value type for nil, i.e. (s/eq nil) after normalization."
   [t]
   (and (at/value-type? t) (nil? (:value t))))
 

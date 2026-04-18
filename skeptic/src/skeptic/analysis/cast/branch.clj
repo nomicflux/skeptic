@@ -1,5 +1,6 @@
 (ns skeptic.analysis.cast.branch
   (:require [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn- run-indexed-children
@@ -100,22 +101,35 @@
               :opts opts
               :path-segment {:kind :maybe-value}}))
 
+(defn- nullable-target?
+  [t]
+  (or (at/maybe-type? t) (ato/nil-value-type? t)))
+
+(defn- nullable-target-payload
+  "Type carried when a value is present: Maybe's inner, or the whole singleton for (eq nil)."
+  [t]
+  (if (at/maybe-type? t) (:inner t) t))
+
 (defn check-maybe-cast
   [run-child source-type target-type opts]
   (cond
-    (and (at/maybe-type? source-type) (at/maybe-type? target-type))
-    (one-child-result source-type target-type :maybe-both :maybe-inner-failed
-                      (maybe-child run-child (:inner source-type) (:inner target-type) opts)
-                      opts)
+    (and (at/maybe-type? source-type) (nullable-target? target-type))
+    (if (at/maybe-type? target-type)
+      (one-child-result source-type target-type :maybe-both :maybe-inner-failed
+                        (maybe-child run-child (:inner source-type) (:inner target-type) opts)
+                        opts)
+      (one-child-result source-type target-type :maybe-to-eq-nil :maybe-inner-failed
+                        (maybe-child run-child (:inner source-type) target-type opts)
+                        opts))
 
-    (and (at/maybe-type? target-type)
+    (and (nullable-target? target-type)
          (at/value-type? source-type)
          (nil? (:value source-type)))
     (ascs/cast-ok source-type target-type :nil-satisfies-maybe)
 
-    (at/maybe-type? target-type)
+    (nullable-target? target-type)
     (one-child-result source-type target-type :maybe-target :maybe-target-inner-failed
-                      (maybe-child run-child source-type (:inner target-type) opts)
+                      (maybe-child run-child source-type (nullable-target-payload target-type) opts)
                       opts)
 
     :else

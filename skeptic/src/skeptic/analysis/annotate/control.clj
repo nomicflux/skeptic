@@ -82,15 +82,11 @@
         ret ((:recurse final-ctx) final-ctx (:ret node))]
     (assoc node :statements statements :ret ret :type (:type ret))))
 
-(defn- nil-value-type?
-  [type]
-  (and (at/value-type? type) (nil? (:value type))))
-
 (defn binding-recur-target-types
   [bindings]
   (mapv (fn [binding]
           (let [type (or (:type binding) at/Dyn)]
-            (if (nil-value-type? type) (at/->MaybeT at/Dyn) type)))
+            (if (ato/nil-value-type? type) (at/->MaybeT at/Dyn) type)))
         bindings))
 
 (defn binding-base-entry
