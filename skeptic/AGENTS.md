@@ -77,6 +77,11 @@ Source namespace families:
   `path` computes visible blame paths and detail lines.
   `display` renders types/schemas for users.
   `mismatch` contains older mismatch message helpers.
+- `skeptic.output`, `skeptic.output.text`, `skeptic.output.porcelain`:
+  User-facing output layer.
+  `skeptic.output` selects a printer based on opts.
+  `skeptic.output.text` renders the human-readable, ANSI-coloured report that `lein skeptic` has always produced.
+  `skeptic.output.porcelain` renders newline-delimited JSON (one object per finding) for `lein skeptic -p`.
 - `skeptic.file`, `skeptic.source`, `skeptic.colours`, `skeptic.utils`, `skeptic.type-vars`:
   General support namespaces for file reading, source lookup, terminal formatting, schema-desc merging, and simple type-var values.
 - `skeptic.examples`, `skeptic.static-call-examples`:

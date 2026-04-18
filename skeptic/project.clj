@@ -7,6 +7,7 @@
   :dependencies [[prismatic/schema           "1.1.12"]
                  [prismatic/plumbing         "0.6.0"]
                  [org.clojure/clojure        "1.11.1"]
+                 [org.clojure/data.json      "2.5.1"]
                  [org.clojure/tools.analyzer "1.1.1"]
                  [org.clojure/tools.analyzer.jvm "1.2.3"]
                  [commons-io                 "2.11.0"]]

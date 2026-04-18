@@ -216,7 +216,10 @@
                 (let [events    (RecordingFile/readAllEvents jfr-path)
                       by-type   (group-by #(-> % .getEventType .getName) events)
                       prof-data (build-profile-data by-type duration)]
-                  (print-summary prof-data (.getPath jfr-file)))
+                  (if (:porcelain opts)
+                    (binding [*out* *err*]
+                      (print-summary prof-data (.getPath jfr-file)))
+                    (print-summary prof-data (.getPath jfr-file))))
                 (catch Exception e
                   (println "WARNING: Failed to generate profiling summary:")
                   (stacktrace/print-stack-trace e)

@@ -57,6 +57,65 @@
           render-type-form
           pr-str))
 
+(declare type->json-data)
+
+(defn- name-str [x]
+  (cond
+    (nil? x) nil
+    (or (symbol? x) (keyword? x)) (name x)
+    :else (pr-str x)))
+
+(defn- fn-method->json-data
+  [method]
+  {:t "fn-method"
+   :inputs (mapv type->json-data (:inputs method))
+   :output (type->json-data (:output method))
+   :variadic (boolean (:variadic? method))
+   :min_arity (:min-arity method)})
+
+(defn type->json-data
+  "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
+  [type]
+  (let [type (some-> type ato/normalize-type)]
+    (cond
+      (nil? type) nil
+      (at/dyn-type? type) {:t "any"}
+      (at/bottom-type? type) {:t "bottom"}
+      (at/ground-type? type) {:t "ground" :name (name-str (:display-form type))}
+      (at/refinement-type? type) {:t "refinement" :name (name-str (:display-form type))}
+      (at/adapter-leaf-type? type) {:t "adapter" :name (name-str (:display-form type))}
+      (at/optional-key-type? type) {:t "optional-key" :inner (type->json-data (:inner type))}
+      (at/value-type? type) {:t "value" :value (pr-str (:value type))}
+      (at/type-var-type? type) {:t "type-var" :name (name-str (:name type))}
+      (at/forall-type? type) {:t "forall"
+                              :binder (mapv name-str (:binder type))
+                              :body (type->json-data (:body type))}
+      (at/sealed-dyn-type? type) {:t "sealed" :ground (type->json-data (:ground type))}
+      (at/inf-cycle-type? type) (cond-> {:t "inf-cycle"}
+                                  (:ref type) (assoc :ref (pr-str (at/ref-display-form (:ref type)))))
+      (at/fn-method-type? type) (fn-method->json-data type)
+      (at/fun-type? type) {:t "fun" :methods (mapv fn-method->json-data (:methods type))}
+      (at/maybe-type? type) {:t "maybe" :inner (type->json-data (:inner type))}
+      (at/union-type? type) {:t "union"
+                             :members (mapv type->json-data
+                                            (sort-by pr-str (:members type)))}
+      (at/intersection-type? type) {:t "intersection"
+                                    :members (mapv type->json-data
+                                                   (sort-by pr-str (:members type)))}
+      (at/map-type? type) {:t "map"
+                           :entries (mapv (fn [[k v]]
+                                            {:key (type->json-data k)
+                                             :val (type->json-data v)})
+                                          (:entries type))}
+      (at/vector-type? type) {:t "vector" :items (mapv type->json-data (:items type))}
+      (at/set-type? type) {:t "set" :members (mapv type->json-data
+                                                   (sort-by pr-str (:members type)))}
+      (at/seq-type? type) {:t "seq" :items (mapv type->json-data (:items type))}
+      (at/var-type? type) {:t "var" :inner (type->json-data (:inner type))}
+      (at/placeholder-type? type) {:t "placeholder"
+                                   :name (pr-str (at/placeholder-display-form (:ref type)))}
+      :else {:t "unknown" :form (pr-str type)})))
+
 (defn polarity->side
   [polarity]
   (case polarity

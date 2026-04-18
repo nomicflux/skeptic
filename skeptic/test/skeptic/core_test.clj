@@ -1,6 +1,7 @@
 (ns skeptic.core-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+  (:require [clojure.data.json :as json]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.checking.pipeline :as checking]
@@ -8,7 +9,8 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
-            [skeptic.inconsistence.report :as inrep]))
+            [skeptic.inconsistence.report :as inrep]
+            [skeptic.output.text :as text]))
 
 (def ui-internal-markers
   [":skeptic.analysis.types/"
@@ -44,7 +46,7 @@
    :expanded-expression '(takes-str x)})
 
 (deftest report-fields-hide-detail-fields-when-not-verbose
-  (let [fields (sut/report-fields report-summary)]
+  (let [fields (text/report-fields report-summary)]
     (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
     (is (= "context( value )"
            (some->> fields
@@ -60,7 +62,7 @@
     (is (not (some #{["Analyzed expression: \t" "(takes-str x)"]} fields)))))
 
 (deftest report-fields-include-detail-fields-when-verbose
-  (let [fields (sut/report-fields report-summary true)]
+  (let [fields (text/report-fields report-summary true)]
     (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
     (is (= "context( value )"
            (some->> fields
@@ -76,11 +78,11 @@
     (is (some #{["Analyzed expression: \t" "(takes-str x)"]} fields))))
 
 (deftest report-fields-render-user-friendly-blame-for-context-and-global-cases
-  (let [context-fields (sut/report-fields {:blame-side :context
+  (let [context-fields (text/report-fields {:blame-side :context
                                            :blame-polarity :negative})
-        missing-fields (sut/report-fields {:blame-side :none
+        missing-fields (text/report-fields {:blame-side :none
                                            :blame-polarity :none})
-        global-fields (sut/report-fields {:blame-side :global
+        global-fields (text/report-fields {:blame-side :global
                                           :blame-polarity :global})]
     (is (= "context( value )"
            (some->> context-fields
@@ -104,7 +106,7 @@
                                 (str/includes? value "\u001B[37;1mcontext")
                                 (str/includes? value "\u001B[37;1m( ")
                                 (str/includes? value "\u001B[37;1m )")))))))
-    (is (some->> (sut/report-fields report-summary)
+    (is (some->> (text/report-fields report-summary)
                  (some (fn [[label value]]
                          (when (= "Blame: \t\t\t" label)
                            (and (str/includes? value "\u001B[37;1mvalue")
@@ -122,7 +124,7 @@
 
 (deftest report-fields-render-semantic-polymorphic-types-in-verbose-mode
   (let [type-var (at/->TypeVarT 'X)
-        fields (sut/report-fields
+        fields (text/report-fields
                 {:rule :generalize
                  :actual-type (at/->SealedDynT type-var)
                  :expected-type (at/->ForallT 'X type-var)
@@ -195,7 +197,7 @@
                                   :actual-type (ab/schema->type s/Any)
                                   :expected-type placeholder
                                   :path [{:kind :vector-index :index 0}]}]})
-        fields (sut/report-fields summary)
+        fields (text/report-fields summary)
         printed (str/join "\n"
                           (concat (map (fn [[label value]]
                                          (str label value))
@@ -204,7 +206,7 @@
     (is (not-any? (fn [[label _]]
                     (#{"Actual type: \t\t" "Expected type: \t"} label))
                   fields))
-    (let [verbose-fields (sut/report-fields summary true)]
+    (let [verbose-fields (text/report-fields summary true)]
       (is (some #{["Actual type: \t\t" "[Any]"]} verbose-fields))
       (is (some (fn [[label value]]
                   (and (= "Expected type: \t" label)
@@ -213,7 +215,7 @@
     (assert-no-ui-internals printed)))
 
 (deftest report-fields-prefer-top-level-cast-metadata-in-verbose-mode
-  (let [fields (sut/report-fields
+  (let [fields (text/report-fields
                 (inrep/report-summary
                  {:rule :leaf-overlap
                   :actual-type (ab/schema->type s/Keyword)
@@ -261,7 +263,7 @@
                                   :expected-type expected-result
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :result}]}]})
-        fields (sut/report-fields summary true)]
+        fields (text/report-fields summary true)]
     (is (some #{["Cast rule: \t\t" "leaf-overlap"]} fields))
     (is (some (fn [[label value]]
                 (and (= "Actual type: \t\t" label)
@@ -276,7 +278,7 @@
               fields))))
 
 (deftest exception-report-fields-skip-blame-and-show-phase
-  (let [fields (sut/report-fields
+  (let [fields (text/report-fields
                 {:report-kind :exception
                  :phase :declaration
                  :location {:file "test.clj" :line 7}
@@ -371,3 +373,76 @@
                             #"Couldn't get namespaces"
                             (sut/check-project {} "." ".")))
       (is (false? @checked?)))))
+
+(defn- parse-jsonl [s]
+  (->> (str/split-lines s)
+       (remove str/blank?)
+       (mapv #(json/read-str % :key-fn keyword))))
+
+(deftest check-project-porcelain-clean-run-emits-run-summary
+  (let [source-file (java.io.File. "test/example.clj")]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_] {:files [source-file] :failures []})
+                  file/ns-for-clojure-file
+                  (fn [file] ['example.ns file])
+                  checking/check-namespace (fn [& _] [])]
+      (let [out (with-out-str
+                  (is (= 0 (sut/check-project {:porcelain true} "." "."))))
+            lines (parse-jsonl out)]
+        (is (= 1 (count lines)) "exactly one run-summary line on clean run")
+        (let [summary (first lines)]
+          (is (= "run-summary" (:kind summary)))
+          (is (false? (:errored summary)))
+          (is (= 1 (:namespace_count summary))))))))
+
+(deftest check-project-porcelain-emits-finding-per-result
+  (let [source-file (java.io.File. "test/example.clj")
+        fake-result {:report-kind :input
+                     :location {:file "test/example.clj" :line 10 :column 1}
+                     :blame-side :term
+                     :blame-polarity :positive
+                     :blame '(+ 1 :x)
+                     :errors ["Keyword is not compatible with Int"]
+                     :cast-diagnostics []
+                     :actual-type (at/->GroundT :keyword 'Keyword)
+                     :expected-type (at/->GroundT :int 'Int)}]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_] {:files [source-file] :failures []})
+                  file/ns-for-clojure-file
+                  (fn [file] ['example.ns file])
+                  checking/check-namespace (fn [& _] [fake-result])
+                  inrep/report-summary (fn [r] r)]
+      (let [out (with-out-str
+                  (is (= 1 (sut/check-project {:porcelain true} "." "."))))
+            lines (parse-jsonl out)]
+        (is (= 2 (count lines)) "one finding, one run-summary")
+        (testing "finding record"
+          (let [finding (first lines)]
+            (is (= "finding" (:kind finding)))
+            (is (= "example.ns" (:ns finding)))
+            (is (= "input" (:report_kind finding)))
+            (is (= "Int" (get-in finding [:expected_type :name])))
+            (is (= "Keyword" (get-in finding [:actual_type :name])))))
+        (testing "run-summary has errored=true"
+          (let [summary (last lines)]
+            (is (true? (:errored summary)))
+            (is (= 1 (:finding_count summary)))))))))
+
+(deftest check-project-porcelain-emits-ns-discovery-warning
+  (let [source-file (java.io.File. "test/example.clj")]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files [source-file]
+                     :failures [{:path "missing"
+                                 :exception (ex-info "unreadable" {})}]})
+                  file/ns-for-clojure-file
+                  (fn [file] ['example.ns file])
+                  checking/check-namespace (fn [& _] [])]
+      (let [out (with-out-str
+                  (sut/check-project {:porcelain true :namespace "example.ns"}
+                                     "." "."))
+            lines (parse-jsonl out)]
+        (is (= 2 (count lines)))
+        (is (= "ns-discovery-warning" (:kind (first lines))))
+        (is (= "missing" (:path (first lines))))
+        (is (= "run-summary" (:kind (last lines))))))))

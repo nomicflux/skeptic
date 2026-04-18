@@ -6,7 +6,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
-            [skeptic.core :as core]
+            [skeptic.output.text :as output-text]
             [skeptic.best-effort-examples]
             [skeptic.examples]
             [skeptic.inconsistence.mismatch :as incm]
@@ -699,7 +699,7 @@
          printed (str/join "\n"
                            (concat (map (fn [[label value]]
                                           (str label value))
-                                        (core/report-fields summary))
+                                        (output-text/report-fields summary))
                                    (:errors summary)))]
      (is (some? result))
      (is (str/includes? printed "[:user :name]"))
