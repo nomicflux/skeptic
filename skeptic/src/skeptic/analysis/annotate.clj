@@ -61,11 +61,19 @@
     :with-meta (data/annotate-with-meta ctx node)
     (annotate-generic ctx node)))
 
+(defn- apply-type-override
+  [annotated ctx node]
+  (if-let [override (data/resolve-skeptic-type ctx node)]
+    (assoc annotated :type override)
+    annotated))
+
 (defn annotate-node
   [ctx node]
   (let [ctx (assoc ctx :recurse annotate-node)]
     (abl/with-error-context (node-error-context node)
-      (abr/strip-derived-types (annotate-dispatch ctx node)))))
+      (-> (annotate-dispatch ctx node)
+          (apply-type-override ctx node)
+          abr/strip-derived-types))))
 
 (defn- normalize-locals
   [locals]
