@@ -9,7 +9,9 @@
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.output.text :as text]))
+            [skeptic.output.text :as text])
+  (:import [java.io File]
+           [java.nio.file Files]))
 
 (def ui-internal-markers
   [":skeptic.analysis.types/"
@@ -430,3 +432,31 @@
         (is (= "ns-discovery-warning" (:kind (first lines))))
         (is (= "missing" (:path (first lines))))
         (is (= "run-summary" (:kind (last lines))))))))
+
+(deftest check-project-excludes-files-matching-config-patterns
+  (let [tmp (.toFile (Files/createTempDirectory "skeptic-core-test"
+                                                (into-array java.nio.file.attribute.FileAttribute [])))
+        config-dir (File. tmp ".skeptic")
+        kept-file (File. tmp "src/kept.clj")
+        excluded-file (File. tmp "src/excluded.clj")
+        checked (atom [])]
+    (try
+      (.mkdirs config-dir)
+      (.mkdirs (File. tmp "src"))
+      (.createNewFile kept-file)
+      (.createNewFile excluded-file)
+      (spit (File. config-dir "config.edn") "{:exclude-files [\"src/excluded.clj\"]}")
+      (with-redefs [file/discover-clojure-files
+                    (fn [_] {:files [kept-file excluded-file] :failures []})
+                    file/ns-for-clojure-file
+                    (fn [f] [(symbol (str "ns." (.getName f))) f])
+                    checking/check-namespace
+                    (fn [_opts ns _f]
+                      (swap! checked conj ns)
+                      [])]
+        (sut/check-project {} (.getCanonicalPath tmp) "."))
+      (is (= 1 (count @checked)))
+      (is (= 'ns.kept.clj (first @checked)))
+      (finally
+        (doseq [f (reverse (file-seq tmp))]
+          (.delete f))))))

@@ -1,6 +1,7 @@
 (ns skeptic.core
   (:require [clojure.java.io :as io]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.config :as config]
             [skeptic.file :as file]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.output :as output]))
@@ -34,7 +35,10 @@
 
 (defn check-project
   [{:keys [namespace] :as opts} root & paths]
-  (let [{:keys [files failures]} (discover-project-files root paths)
+  (let [raw-config (config/load-raw-config root)
+        opts (assoc opts :skeptic/config raw-config)
+        {:keys [files failures]} (discover-project-files root paths)
+        files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
         discovered-nss (try (->> files
                                  (map file/ns-for-clojure-file)
                                  (remove (comp nil? first))
