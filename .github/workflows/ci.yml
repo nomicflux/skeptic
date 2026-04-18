@@ -56,5 +56,5 @@ jobs:
       # once .skeptic/config.edn and findings are addressed.
       - name: Run skeptic
         continue-on-error: true
-        run: lein skeptic
+        run: lein with-profile +skeptic-plugin skeptic
         working-directory: skeptic

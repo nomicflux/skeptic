@@ -9,7 +9,7 @@ Use it as the high-level algorithm reference for the library's core cast and bla
 
 1. This is `leiningen` project for a Clojure app
 2. Tests are run via `lein test`
-3. The plugin can be run via `lein skeptic`, and is in ../lein-skeptic
+3. The plugin lives in `../lein-skeptic`. After `lein install` in that directory, run `lein with-profile +skeptic-plugin skeptic` from this folder.
 4. Linting is performed via `clj-kondo --lint <dir>`
 
 ## Namespace Map
