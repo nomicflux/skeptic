@@ -3,7 +3,7 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at])
-  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
+  (:import [schema.core One Schema]))
 
 (declare canonicalize-schema)
 
@@ -168,7 +168,7 @@
      :types (into (set plain-types) maybe-bases)}))
 
 (defn schema-join
-  [[t1 & _r :as types]]
+  [types]
   (let [{:keys [nil-bearing? types]}
         (nil-bearing-join (cond->> types (not (set? types)) (into #{})))]
     (cond

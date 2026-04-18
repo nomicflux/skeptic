@@ -8,8 +8,7 @@
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.static-call-examples]
-            [skeptic.test-examples :as test-examples])
+            [skeptic.static-call-examples])
   (:import [java.io File]))
 
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))

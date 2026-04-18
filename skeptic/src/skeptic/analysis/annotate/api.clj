@@ -5,43 +5,35 @@
 (def ^:private legacy-schema-mirror-keys
   #{:schema :output :expected-arglist :actual-arglist})
 
-(defmacro ^:private def-node-getters
-  [& specs]
-  `(do
-     ~@(map (fn [[fname key]]
-              `(defn ~fname [node#] (~key node#)))
-            specs)))
-
-(def-node-getters
-  [node-op :op]
-  [node-form :form]
-  [node-type :type]
-  [node-output-type :output-type]
-  [node-fn-type :fn-type]
-  [node-origin :origin]
-  [node-var :var]
-  [node-name :name]
-  [node-class :class]
-  [node-method :method]
-  [node-value :val]
-  [node-tag :tag]
-  [node-raw-forms :raw-forms]
-  [node-test :test]
-  [node-body :body]
-  [node-init :init]
-  [node-expr :expr]
-  [node-ret :ret]
-  [node-bindings :bindings]
-  [node-target :target]
-  [node-keyword :keyword]
-  [node-arglists :arglists]
-  [node-arglist :arglist]
-  [call-fn-node :fn]
-  [call-args :args]
-  [recur-args :exprs]
-  [call-actual-argtypes :actual-argtypes]
-  [call-expected-argtypes :expected-argtypes]
-  [binding-init :binding-init])
+(defn node-op [node] (:op node))
+(defn node-form [node] (:form node))
+(defn node-type [node] (:type node))
+(defn node-output-type [node] (:output-type node))
+(defn node-fn-type [node] (:fn-type node))
+(defn node-origin [node] (:origin node))
+(defn node-var [node] (:var node))
+(defn node-name [node] (:name node))
+(defn node-class [node] (:class node))
+(defn node-method [node] (:method node))
+(defn node-value [node] (:val node))
+(defn node-tag [node] (:tag node))
+(defn node-raw-forms [node] (:raw-forms node))
+(defn node-test [node] (:test node))
+(defn node-body [node] (:body node))
+(defn node-init [node] (:init node))
+(defn node-expr [node] (:expr node))
+(defn node-ret [node] (:ret node))
+(defn node-bindings [node] (:bindings node))
+(defn node-target [node] (:target node))
+(defn node-keyword [node] (:keyword node))
+(defn node-arglists [node] (:arglists node))
+(defn node-arglist [node] (:arglist node))
+(defn call-fn-node [node] (:fn node))
+(defn call-args [node] (:args node))
+(defn recur-args [node] (:exprs node))
+(defn call-actual-argtypes [node] (:actual-argtypes node))
+(defn call-expected-argtypes [node] (:expected-argtypes node))
+(defn binding-init [node] (:binding-init node))
 
 (defn with-type
   "Public setter for the inferred value-type of an annotated node.

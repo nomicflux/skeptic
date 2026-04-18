@@ -11,8 +11,8 @@ pom.xml.asc
 /.prepl-port
 .hgignore
 .hg/
-.clj-kondo/
 .lsp/
 docs/current-plans
 docs/design
 .cursor/
+.clj-kondo/.cache

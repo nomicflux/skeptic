@@ -16,9 +16,9 @@
   x)
 
 (defmacro spy
-  [msg x]
+  [_msg x]
   #_
-  `(spy* ~msg ~x)
+  `(spy* ~_msg ~x)
   x)
 
 (defn valid-schema?

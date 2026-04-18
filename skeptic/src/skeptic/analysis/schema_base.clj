@@ -1,6 +1,6 @@
 (ns skeptic.analysis.schema-base
   (:require [schema.core :as s])
-  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema One Schema]))
+  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema]))
 
 (defn- tagged-map?
   [value tag-key tag]

@@ -375,7 +375,7 @@
                                  :remove-context remove-context})))))
 
 (defmacro block-in-ns
-  [ns ^File file & body]
+  [_ns ^File file & body]
   `(let [contents# (slurp ~file)
          ns-dec# (read-string contents#)
          current-namespace# (str ~*ns*)]

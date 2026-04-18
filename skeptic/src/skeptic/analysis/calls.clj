@@ -109,7 +109,7 @@
 (defn fun-type->call-opts
   [{:keys [methods]}]
   (let [arglists (into {}
-                       (map (fn [{:keys [inputs output min-arity variadic?]}]
+                       (map (fn [{:keys [inputs min-arity variadic?]}]
                               (if variadic?
                                 [:varargs {:count min-arity :types inputs}]
                                 [min-arity {:types inputs}])))

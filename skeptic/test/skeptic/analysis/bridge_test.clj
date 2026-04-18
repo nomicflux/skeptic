@@ -7,7 +7,6 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema-base :as sb]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (declare UnboundSchemaRef)

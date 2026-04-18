@@ -167,7 +167,7 @@
     desc))
 
 (s/defn collect-schemas :- dschema/SchemaDesc
-  [{:keys [schema ns name arglists] :as this}]
+  [{:keys [schema ns name arglists]}]
   (build-annotated-schema-desc! {:schema schema
                                  :ns ns
                                  :name name
@@ -250,7 +250,7 @@
                           (str e))})
 
 (defn ns-schema-results
-  [opts ns]
+  [_opts ns]
   (binding [*ns* (the-ns ns)]
     (reduce (fn [{:keys [entries errors] :as acc} v]
               (if-let [raw (extract-raw-declaration v)]

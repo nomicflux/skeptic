@@ -7,8 +7,7 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
-            [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-examples :as test-examples])
+            [skeptic.typed-decls :as typed-decls])
   (:import [clojure.lang Numbers]))
 
 (deftest origin-constructors-unit-test

@@ -12,7 +12,6 @@
 (def ^:private bool-type (at/->GroundT :bool 'Bool))
 (def ^:private str-type (at/->GroundT :str 'Str))
 (def ^:private int-type (at/->GroundT :int 'Int))
-(def ^:private object-type (at/->GroundT {:class java.lang.Object} 'Object))
 (def ^:private str-arg-type at/Dyn)
 
 (defn- tp [sym t]

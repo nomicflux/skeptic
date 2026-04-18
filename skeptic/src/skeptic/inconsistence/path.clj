@@ -109,7 +109,6 @@
 (defn unexpected-detail
   [report-kind path actual-key]
   (let [path-text (render-visible-path path)
-        exact-key (disp/exact-key-form actual-key)
         key-text (key-description actual-key)
         suffix (if (= report-kind :output)
                  "not allowed by the declared type"

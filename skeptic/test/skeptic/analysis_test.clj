@@ -7,8 +7,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
             [skeptic.source :as source]
-            [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-examples :as test-examples])
+            [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
 (defn set-cache-value

@@ -1,6 +1,5 @@
 (ns skeptic.typed-decls
-  (:require [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
+  (:require [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.schema.collect :as collect]))
 

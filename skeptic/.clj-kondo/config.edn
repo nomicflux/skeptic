@@ -1,0 +1,1 @@
+{:output {:exclude-files [".*examples.*\\.(clj|cljs|cljc)$"]}}
