@@ -12,6 +12,8 @@ annotations.
 
 **Versioning:** stable releases use git tags `vX.Y.Z` and are described on [GitHub Releases](https://github.com/nomicflux/skeptic/releases). The badges above reflect what Clojars reports as latest for each artifact.
 
+Experimental support for [Malli](https://github.com/metosin/malli) is in development.
+
 ## What Skeptic checks
 
 - Calls whose inferred argument types do not fit the declared input Plumatic
