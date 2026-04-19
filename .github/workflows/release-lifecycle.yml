@@ -1,4 +1,6 @@
 # Coordinated stable release: composes change-project-versions + publish-clojars only.
+# Invariant: ongoing dev uses *-SNAPSHOT; a non-SNAPSHOT version is an exact release coordinate only.
+# Example: tree at 0.7.0-SNAPSHOT → publish 0.7.0 → return dev to 0.8.0-SNAPSHOT (inputs: bare 0.7.0, bare 0.8.0).
 # validate → bump SNAPSHOT→release → publish → bump release→next SNAPSHOT.
 # Single workflow_dispatch; explicit checkout_ref / commit_sha (see docs/releasing.md).
 
@@ -8,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: "Stable version to publish (repo must currently be \"<this>-SNAPSHOT\" everywhere, e.g. 0.7.0)"
+        description: "Stable release to cut — bare only (e.g. 0.7.0). Repo must already be <this>-SNAPSHOT everywhere coordinated files apply."
         required: true
         type: string
-      next_snapshot_version:
-        description: "Next development line (e.g. 0.8.0-SNAPSHOT)"
+      next_dev_version:
+        description: "Next dev line after publish — bare only (e.g. 0.8.0). Workflow sets coordinated version to <this>-SNAPSHOT. Do not type -SNAPSHOT."
         required: true
         type: string
 
@@ -39,22 +41,23 @@ jobs:
         id: set
         env:
           REL: ${{ inputs.release_version }}
-          NEXT: ${{ inputs.next_snapshot_version }}
+          NEXT: ${{ inputs.next_dev_version }}
         run: |
           set -euo pipefail
           if [[ -z "$REL" || -z "$NEXT" || "$REL" == "$NEXT" ]]; then
-            echo "release_version and next_snapshot_version must be non-empty and different."
+            echo "release_version and next_dev_version must be non-empty and different bare versions."
             exit 1
           fi
           if [[ "$REL" == *"-SNAPSHOT"* ]]; then
-            echo "release_version must not include -SNAPSHOT (e.g. use 0.7.0 not 0.7.0-SNAPSHOT)."
+            echo "release_version must be bare stable only (e.g. 0.7.0), not 0.7.0-SNAPSHOT."
             exit 1
           fi
-          if [[ "$NEXT" != *"-SNAPSHOT"* ]]; then
-            echo "next_snapshot_version must include -SNAPSHOT (e.g. 0.8.0-SNAPSHOT)."
+          if [[ "$NEXT" == *"-SNAPSHOT"* ]]; then
+            echo "next_dev_version must be bare only (e.g. 0.8.0). Do not append -SNAPSHOT."
             exit 1
           fi
           FROM_SNAP="${REL}-SNAPSHOT"
+          NEXT_SNAP="${NEXT}-SNAPSHOT"
           for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
             if ! grep -qF "$FROM_SNAP" "$f"; then
               echo "Expected coordinated snapshot version '$FROM_SNAP' in $f"
@@ -64,7 +67,7 @@ jobs:
           {
             echo "from_snapshot=${FROM_SNAP}"
             echo "release_version=${REL}"
-            echo "next_snapshot=${NEXT}"
+            echo "next_snapshot=${NEXT_SNAP}"
           } >> "$GITHUB_OUTPUT"
 
   bump_to_release:
