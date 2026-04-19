@@ -72,3 +72,12 @@
     (is (= :declaration (:phase (first errors))))
     (is (= 'skeptic.best-effort-examples/invalid-schema-decl
            (:blame (first errors))))))
+
+(deftest schema-wins-on-malli-conflict
+  (require 'skeptic.test-examples.conflict)
+  (let [entries (sut/typed-ns-entries {} 'skeptic.test-examples.conflict)
+        dual-fn (get entries 'skeptic.test-examples.conflict/dual-annotated-fn)]
+    (testing "Schema-derived type wins over Malli-derived type on conflict"
+      (is (= (T (s/=> s/Int s/Int)) (:type dual-fn)))
+      (is (not= (T (s/=> s/Str s/Str)) (:type dual-fn))))))
+
