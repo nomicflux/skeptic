@@ -1,8 +1,8 @@
 # Skeptic
 
 [![CI](https://github.com/nomicflux/skeptic/actions/workflows/ci.yml/badge.svg)](https://github.com/nomicflux/skeptic/actions/workflows/ci.yml)
-[![Clojars lein-skeptic](https://img.shields.io/clojars/v/org.clojars.nomicflux/lein-skeptic.svg?label=lein-skeptic)](https://clojars.org/org.clojars.nomicflux/lein-skeptic)
-[![Clojars skeptic](https://img.shields.io/clojars/v/org.clojars.nomicflux/skeptic.svg?label=skeptic)](https://clojars.org/org.clojars.nomicflux/skeptic)
+[![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/lein-skeptic.svg)](https://clojars.org/org.clojars.nomicflux/lein-skeptic)
+[![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/skeptic.svg)](https://clojars.org/org.clojars.nomicflux/skeptic)
 
 Skeptic is a Leiningen plugin for projects that use
 [Plumatic Schema](https://github.com/plumatic/schema). It reads Clojure code,

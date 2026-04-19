@@ -60,7 +60,7 @@ jobs:
           fi
           FROM_SNAP="${REL}-SNAPSHOT"
           NEXT_SNAP="${NEXT}-SNAPSHOT"
-          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj; do
             if ! grep -qF "$FROM_SNAP" "$f"; then
               echo "Expected coordinated snapshot version '$FROM_SNAP' in $f"
               exit 1

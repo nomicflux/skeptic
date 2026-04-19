@@ -67,14 +67,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-m2-
 
-      - name: Install skeptic library
-        run: lein install
-        working-directory: skeptic
-
-      - name: Install lein-skeptic plugin
-        run: lein install
-        working-directory: lein-skeptic
-
       - name: Require Clojars secrets
         run: |
           set -euo pipefail
@@ -103,9 +95,17 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           trust_level: 5
 
+      - name: Install skeptic library
+        run: lein install
+        working-directory: skeptic
+
       - name: Deploy skeptic to Clojars
         run: lein deploy
         working-directory: skeptic
+
+      - name: Install lein-skeptic plugin
+        run: lein install
+        working-directory: lein-skeptic
 
       - name: Deploy lein-skeptic to Clojars
         run: lein deploy

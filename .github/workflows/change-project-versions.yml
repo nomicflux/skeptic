@@ -60,13 +60,13 @@ jobs:
             echo "from_version and to_version must be non-empty and different."
             exit 1
           fi
-          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj; do
             if ! grep -qF "$FROM" "$f"; then
               echo "Expected to find '$FROM' in $f"
               exit 1
             fi
           done
-          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj; do
             sed -i.bak "s|${FROM}|${TO}|g" "$f"
             rm -f "${f}.bak"
           done
@@ -99,7 +99,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add skeptic/project.clj lein-skeptic/project.clj README.md skeptic/pom.xml lein-skeptic/pom.xml
+          git add skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj skeptic/pom.xml lein-skeptic/pom.xml
           git commit -m "Bump coordinated version ${FROM} -> ${TO}"
           tag="v${TO}"
           git tag "${tag}"

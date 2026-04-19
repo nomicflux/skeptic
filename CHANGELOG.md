@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.7.0] - 2026-04-19
+
+### Added
+
 - Clojars coordinates `org.clojars.nomicflux/skeptic` and `org.clojars.nomicflux/lein-skeptic`, `:deploy-repositories` for Leiningen, CI checks that keep the library and plugin versions aligned before publish, and GitHub Actions for **Release lifecycle** (orchestrates phases), **Change project versions** (reusable version bump), and **Publish to Clojars** (reusable deploy to Clojars).
 - GitHub Actions CI running automated checks on pushes and pull requests.
 - `lein skeptic -p` / `--porcelain` for newline-delimited JSON output (one
