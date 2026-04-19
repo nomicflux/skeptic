@@ -2,15 +2,19 @@
 
 Library and plugin versions must stay aligned; CI runs `bash script/verify-monorepo-versions.sh` before builds.
 
+## Why chained jobs need an explicit SHA
+
+Each reusable workflow run is a **separate** runner checkout. Pushing in job A does **not** move `github.sha` in the parent run ([`github.sha`](https://docs.github.com/en/actions/learn-github-actions/contexts#github-context) is the commit that triggered the workflow). After the first bump pushes, **`change-project-versions`** records `git rev-parse HEAD` and exposes it as workflow output **`commit_sha`** ([outputs from reusable workflows](https://docs.github.com/en/actions/using-workflows/reusing-workflows#using-outputs-from-a-reusable-workflow)). **Release lifecycle** passes that value into **`publish-clojars`** (`commit_sha`) and into the second **`change-project-versions`** call (`checkout_ref`), so publish and the next bump see the exact tree that was pushed.
+
 ## Workflows (GitHub Actions)
 
 | Workflow | Role |
 |----------|------|
-| [**Release lifecycle**](https://github.com/nomicflux/skeptic/actions/workflows/release-lifecycle.yml) | **Main entry:** run one phase at a time — prepare stable → publish → begin next snapshot. Each phase calls the workflows below. |
-| [**Change project versions**](https://github.com/nomicflux/skeptic/actions/workflows/change-project-versions.yml) | Reusable + manual: replace `from_version` → `to_version` in both `project.clj` files and the README install line, verify, `lein pom`. Optional PR. |
-| [**Publish to Clojars**](https://github.com/nomicflux/skeptic/actions/workflows/publish-clojars.yml) | Reusable + manual: checks, then optional `lein deploy clojars` (library, then plugin). Same workflow whether you trigger it alone or from **Release lifecycle**. |
+| [**Release lifecycle**](https://github.com/nomicflux/skeptic/actions/workflows/release-lifecycle.yml) | **One dispatch:** validates inputs and that the repo is on `${release_version}-SNAPSHOT`, then composes **only** [**Change project versions**](https://github.com/nomicflux/skeptic/actions/workflows/change-project-versions.yml) and [**Publish to Clojars**](https://github.com/nomicflux/skeptic/actions/workflows/publish-clojars.yml): bump to release (checkout `github.sha`) → publish at returned **`commit_sha`** → bump to **`next_snapshot_version`** (checkout that same **`commit_sha`**). |
+| [**Change project versions**](https://github.com/nomicflux/skeptic/actions/workflows/change-project-versions.yml) | Reusable + manual: replace `from_version` → `to_version` in both `project.clj` files and the README install line, verify, regenerate POMs, **commit**, **`git tag v<to_version>`**, **push branch and tag**. **`workflow_call`** requires **`checkout_ref`**. **`workflow_dispatch`** uses default checkout (inputs: `from_version`, `to_version` only). |
+| [**Publish to Clojars**](https://github.com/nomicflux/skeptic/actions/workflows/publish-clojars.yml) | Verify versions, local `lein install`, then `lein deploy clojars` for **skeptic** then **lein-skeptic**. **`workflow_call`** requires **`commit_sha`** (checkout that SHA). **`workflow_dispatch`** uses default checkout for a standalone publish of the ref you run the workflow from. |
 
-**Snapshot-only deploy** (e.g. ship `0.7.0-SNAPSHOT` without opening the next dev line): run **Publish to Clojars** only, with the repo already on the snapshot coordinates you want.
+**Snapshot-only deploy** (e.g. ship `0.7.0-SNAPSHOT` without advancing the release lifecycle): run **Publish to Clojars** via **workflow_dispatch** with the repo already on the snapshot coordinates you want.
 
 ### Repository secrets (Actions deploy)
 
@@ -26,12 +30,10 @@ The publish workflow refreshes `~/.lein/credentials.clj` before each deploy. If 
 
 ## Stable line example (`0.7.0`)
 
-1. **Release lifecycle** → `prepare_stable_release` — e.g. `from_version` `0.7.0-SNAPSHOT`, `to_version` `0.7.0`. Merge the PR when CI is green, update [`CHANGELOG.md`](../CHANGELOG.md) for `0.7.0`, tag **`v0.7.0`**.
-2. **Release lifecycle** → `publish_to_clojars` — `dry_run` **no**, `confirm` **`PUBLISH`** (needs the three Action secrets in the table above). Deploys **skeptic** then **lein-skeptic**. Or use **Publish to Clojars** alone with the same inputs.
-3. **Release lifecycle** → `begin_next_development` — e.g. `from_version` `0.7.0`, `to_version` `0.8.0-SNAPSHOT`. Merge the PR when ready.
-
-4. Publish a [GitHub Release](https://github.com/nomicflux/skeptic/releases) for `v0.7.0`; paste the changelog section for that version.
+1. Ensure the repo is on **`0.7.0-SNAPSHOT`** everywhere the coordinated files require (see verify script). **Release lifecycle** validates that before any bump.
+2. **Release lifecycle** — **Run workflow** once: **`release_version`** `0.7.0`, **`next_snapshot_version`** `0.8.0-SNAPSHOT`. Requires the three Action secrets in the table above. The first bump pushes the release commit and tag **`v0.7.0`**; publish runs against that commit; the second bump moves the tree to **`0.8.0-SNAPSHOT`** and pushes. **Branch protection:** the default `GITHUB_TOKEN` must be allowed to push to the branch you run against (often `main`), or the push steps will fail.
+3. Optionally create a [GitHub Release](https://github.com/nomicflux/skeptic/releases) pointing at tag **`v0.7.0`** (already pushed by the first bump).
 
 ## Manual edits (without Actions)
 
-Bump versions in [`skeptic/project.clj`](https://github.com/nomicflux/skeptic/blob/main/skeptic/project.clj) and [`lein-skeptic/project.clj`](https://github.com/nomicflux/skeptic/blob/main/lein-skeptic/project.clj), the install snippet in [`README.md`](../README.md), then `lein pom` in `skeptic/` and `lein-skeptic/`. Deploy with `lein deploy clojars` (library first, then plugin) or **Publish to Clojars**.
+Bump versions in [`skeptic/project.clj`](https://github.com/nomicflux/skeptic/blob/main/skeptic/project.clj) and [`lein-skeptic/project.clj`](https://github.com/nomicflux/skeptic/blob/main/lein-skeptic/project.clj), the install snippet in [`README.md`](../README.md), then `lein pom` in `skeptic/` and `lein-skeptic/`. Deploy with `lein deploy clojars` (library first, then plugin) or **Publish to Clojars** (dispatch).

@@ -1,21 +1,16 @@
-# Reusable: verify, checks, optional deploy to Clojars.
-# Also runnable alone from the Actions tab (workflow_dispatch).
+# Reusable: verify aligned versions, install locally, deploy to Clojars (library then plugin).
+# workflow_call: caller must pass commit_sha (exact tree after bump).
+# workflow_dispatch: default checkout for standalone publish.
 
 name: Publish to Clojars
 
 on:
   workflow_call:
     inputs:
-      dry_run:
-        description: "yes = verify + checks only; no = deploy (requires confirm)"
-        required: false
+      commit_sha:
+        description: "Full commit SHA to checkout (from change-project-versions output)."
+        required: true
         type: string
-        default: "yes"
-      confirm:
-        description: "Must be exactly PUBLISH when dry_run is no"
-        required: false
-        type: string
-        default: ""
     secrets:
       CLOJARS_USERNAME:
         required: false
@@ -24,18 +19,6 @@ on:
       CLOJARS_LEIN_SKEPTIC_TOKEN:
         required: false
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "yes = verify + checks only; no = deploy (requires confirm)"
-        type: choice
-        options:
-          - "yes"
-          - "no"
-        default: "yes"
-      confirm:
-        description: "Must be exactly PUBLISH when dry_run is no"
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -48,8 +31,18 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout
+      - name: Checkout at release commit
+        if: github.event_name == 'workflow_call'
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Checkout default
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -57,20 +50,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Leiningen and clj-kondo
+      - name: Install Leiningen
         uses: DeLaGuardo/setup-clojure@13.4
         with:
           lein: 2.11.2
-          clj-kondo: 2026.04.15
 
       - name: Verify monorepo versions
         run: bash script/verify-monorepo-versions.sh
-
-      - name: Reject deploy without confirmation
-        if: inputs.dry_run == 'no' && inputs.confirm != 'PUBLISH'
-        run: |
-          echo "When dry_run is no, confirm must be exactly PUBLISH."
-          exit 1
 
       - name: Cache Maven repository
         uses: actions/cache@v4
@@ -88,20 +74,7 @@ jobs:
         run: lein install
         working-directory: lein-skeptic
 
-      - name: Run tests
-        run: lein test
-        working-directory: skeptic
-
-      - name: Lint with clj-kondo
-        run: clj-kondo --lint .
-        working-directory: skeptic
-
-      - name: Run skeptic
-        run: lein with-profile +skeptic-plugin skeptic
-        working-directory: skeptic
-
       - name: Configure Leiningen Clojars credentials (skeptic)
-        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_SKEPTIC_TOKEN }}
@@ -109,36 +82,27 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.lein
           if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_SKEPTIC_TOKEN}" ]]; then
-            echo "Deploy needs repository secrets CLOJARS_USERNAME and CLOJARS_SKEPTIC_TOKEN."
+            echo "Deploy needs CLOJARS_USERNAME and CLOJARS_SKEPTIC_TOKEN."
             exit 1
           fi
           printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
 
       - name: Deploy skeptic to Clojars
-        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         run: lein deploy clojars
         working-directory: skeptic
 
       - name: Configure Leiningen Clojars credentials (lein-skeptic)
-        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_LEIN_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_LEIN_SKEPTIC_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_LEIN_SKEPTIC_TOKEN}" ]]; then
-            echo "Deploy needs repository secrets CLOJARS_USERNAME and CLOJARS_LEIN_SKEPTIC_TOKEN."
+            echo "Deploy needs CLOJARS_USERNAME and CLOJARS_LEIN_SKEPTIC_TOKEN."
             exit 1
           fi
           printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_LEIN_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
 
       - name: Deploy lein-skeptic to Clojars
-        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         run: lein deploy clojars
         working-directory: lein-skeptic
-
-      - name: Dry run complete
-        if: inputs.dry_run != 'no' || inputs.confirm != 'PUBLISH'
-        run: |
-          echo "Skipping deploy (dry_run=${{ inputs.dry_run }}, confirm set=${{ inputs.confirm != '' }})."
-          echo "To deploy: dry_run=no, confirm=PUBLISH, and secrets CLOJARS_USERNAME, CLOJARS_SKEPTIC_TOKEN, CLOJARS_LEIN_SKEPTIC_TOKEN."

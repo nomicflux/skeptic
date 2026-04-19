@@ -1,104 +1,94 @@
-# Canonical release flow: choose one phase. Each phase delegates to the
-# reusable "Change project versions" or "Publish to Clojars" workflows.
-#
-# Intended sequence for 0.7.0 line:
-#   1) prepare_stable_release — e.g. from 0.7.0-SNAPSHOT to 0.7.0 (then merge PR, tag v0.7.0, changelog)
-#   2) publish_to_clojars     — deploy current tree (non-SNAPSHOT 0.7.0)
-#   3) begin_next_development — e.g. from 0.7.0 to 0.8.0-SNAPSHOT
-#
-# Publishing a SNAPSHOT without changing the next dev line: use "Publish to Clojars" alone.
+# Coordinated stable release: composes change-project-versions + publish-clojars only.
+# validate → bump SNAPSHOT→release → publish → bump release→next SNAPSHOT.
+# Single workflow_dispatch; explicit checkout_ref / commit_sha (see docs/releasing.md).
 
 name: Release lifecycle
 
 on:
   workflow_dispatch:
     inputs:
-      operation:
-        description: "Which phase to run (one at a time, in order for a stable cut)"
-        type: choice
+      release_version:
+        description: "Stable version to publish (repo must currently be \"<this>-SNAPSHOT\" everywhere, e.g. 0.7.0)"
         required: true
-        options:
-          - prepare_stable_release
-          - publish_to_clojars
-          - begin_next_development
-      from_version:
-        description: "Required for prepare_stable_release & begin_next_development (e.g. 0.7.0-SNAPSHOT or 0.7.0)"
-        required: false
         type: string
-      to_version:
-        description: "Required for prepare_stable_release & begin_next_development (e.g. 0.7.0 or 0.8.0-SNAPSHOT)"
-        required: false
+      next_snapshot_version:
+        description: "Next development line (e.g. 0.8.0-SNAPSHOT)"
+        required: true
         type: string
-      create_pr:
-        description: "For version-change phases: open a PR (yes) or validate only on runner (no)"
-        type: choice
-        options:
-          - "yes"
-          - "no"
-        default: "yes"
-      dry_run:
-        description: "For publish_to_clojars only: yes = checks only; no = deploy"
-        type: choice
-        options:
-          - "yes"
-          - "no"
-        default: "yes"
-      confirm:
-        description: "For publish_to_clojars only: type PUBLISH when dry_run is no"
-        type: string
-        default: ""
+
+permissions:
+  contents: read
 
 jobs:
-  gate:
+  validate:
     runs-on: ubuntu-latest
+    outputs:
+      from_snapshot: ${{ steps.set.outputs.from_snapshot }}
+      release_version: ${{ steps.set.outputs.release_version }}
+      next_snapshot: ${{ steps.set.outputs.next_snapshot }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: Validate inputs for selected operation
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate and set outputs
+        id: set
         env:
-          OP: ${{ inputs.operation }}
-          FROM: ${{ inputs.from_version }}
-          TO: ${{ inputs.to_version }}
+          REL: ${{ inputs.release_version }}
+          NEXT: ${{ inputs.next_snapshot_version }}
         run: |
           set -euo pipefail
-          case "$OP" in
-            prepare_stable_release|begin_next_development)
-              if [[ -z "$FROM" || -z "$TO" ]]; then
-                echo "from_version and to_version are required for $OP"
-                exit 1
-              fi
-              ;;
-            publish_to_clojars)
-              ;;
-            *)
-              echo "Unknown operation: $OP"
+          if [[ -z "$REL" || -z "$NEXT" || "$REL" == "$NEXT" ]]; then
+            echo "release_version and next_snapshot_version must be non-empty and different."
+            exit 1
+          fi
+          if [[ "$REL" == *"-SNAPSHOT"* ]]; then
+            echo "release_version must not include -SNAPSHOT (e.g. use 0.7.0 not 0.7.0-SNAPSHOT)."
+            exit 1
+          fi
+          if [[ "$NEXT" != *"-SNAPSHOT"* ]]; then
+            echo "next_snapshot_version must include -SNAPSHOT (e.g. 0.8.0-SNAPSHOT)."
+            exit 1
+          fi
+          FROM_SNAP="${REL}-SNAPSHOT"
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+            if ! grep -qF "$FROM_SNAP" "$f"; then
+              echo "Expected coordinated snapshot version '$FROM_SNAP' in $f"
               exit 1
-              ;;
-          esac
+            fi
+          done
+          {
+            echo "from_snapshot=${FROM_SNAP}"
+            echo "release_version=${REL}"
+            echo "next_snapshot=${NEXT}"
+          } >> "$GITHUB_OUTPUT"
 
-  prepare_stable_release:
-    needs: gate
-    if: inputs.operation == 'prepare_stable_release'
+  bump_to_release:
+    needs: validate
     uses: ./.github/workflows/change-project-versions.yml
     with:
-      from_version: ${{ inputs.from_version }}
-      to_version: ${{ inputs.to_version }}
-      create_pr: ${{ inputs.create_pr }}
-    secrets: inherit
+      from_version: ${{ needs.validate.outputs.from_snapshot }}
+      to_version: ${{ needs.validate.outputs.release_version }}
+      checkout_ref: ${{ github.sha }}
 
-  publish_to_clojars:
-    needs: gate
-    if: inputs.operation == 'publish_to_clojars'
+  publish:
+    needs: bump_to_release
     uses: ./.github/workflows/publish-clojars.yml
     with:
-      dry_run: ${{ inputs.dry_run }}
-      confirm: ${{ inputs.confirm }}
+      commit_sha: ${{ needs.bump_to_release.outputs.commit_sha }}
     secrets: inherit
 
-  begin_next_development:
-    needs: gate
-    if: inputs.operation == 'begin_next_development'
+  bump_to_next_snapshot:
+    needs:
+      - validate
+      - publish
+      - bump_to_release
     uses: ./.github/workflows/change-project-versions.yml
     with:
-      from_version: ${{ inputs.from_version }}
-      to_version: ${{ inputs.to_version }}
-      create_pr: ${{ inputs.create_pr }}
-    secrets: inherit
+      from_version: ${{ needs.validate.outputs.release_version }}
+      to_version: ${{ needs.validate.outputs.next_snapshot }}
+      checkout_ref: ${{ needs.bump_to_release.outputs.commit_sha }}
