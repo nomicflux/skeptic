@@ -2,6 +2,7 @@
   (:require [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.malli-spec.bridge :as amb]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]
             [skeptic.malli-spec.collect :as mcollect]
             [skeptic.schema.collect :as collect]))
 
@@ -64,10 +65,27 @@
                                   [k (arglist->typed-entry v)]))
                            arglists))))
 
+(defn- malli-fun-type->arglists
+  [t]
+  (into {}
+        (map (fn [method]
+               (let [inputs (:inputs method)
+                     arity (count inputs)
+                     types (mapv (fn [i inp] {:name (symbol (str "arg" i)) :optional? false :type inp})
+                                 (range)
+                                 inputs)]
+                 [arity {:arglist [] :types types :count arity}])))
+        (:methods t)))
+
 (defn- malli-desc->typed-entry
   [{:keys [name malli-spec]}]
-  {:name name
-   :type (amb/malli-spec->type malli-spec)})
+  (let [t (amb/malli-spec->type malli-spec)]
+    (if (at/fun-type? t)
+      {:name name
+       :type t
+       :output-type (:output (first (:methods t)))
+       :arglists (malli-fun-type->arglists t)}
+      {:name name :type t})))
 
 (defn desc->typed-entry
   [{:keys [name schema malli-spec arglists] :as desc}]
@@ -114,7 +132,7 @@
   [opts ns]
   (let [{schema-entries :entries schema-errors :errors} (collect/ns-schema-results opts ns)
         {malli-entries :entries malli-errors :errors} (mcollect/ns-malli-spec-results opts ns)
-        descs (merge malli-entries schema-entries)
+        descs (merge schema-entries malli-entries)
         initial-errors (concat schema-errors malli-errors)
         result (convert-descs ns descs initial-errors)]
     (update result :entries merge (:skeptic/type-overrides opts))))

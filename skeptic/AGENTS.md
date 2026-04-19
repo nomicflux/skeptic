@@ -48,10 +48,10 @@ Source namespace families:
   `skeptic.schema.collect` reads var metadata and admits raw Plumatic schema declarations.
   `skeptic.typed-decls` converts admitted schema and malli-spec descriptions into typed entries via `schema->type` / `malli-spec->type`.
 - `skeptic.malli-spec`, `skeptic.malli-spec.collect`, `skeptic.analysis.malli-spec.bridge`:
-  MalliSpec-domain admission and boundary (currently stubbed — see `docs/malli-reference.md`).
+  MalliSpec-domain admission and boundary.
   `skeptic.malli-spec` defines the admitted `MalliSpecDesc` shape and uses `:malli-spec` everywhere; it never carries `:schema`, which is reserved for Plumatic.
   `skeptic.malli-spec.collect` walks `(ns-interns ns)`, reads `:malli/schema` var metadata (skipping macros and vars without it), and returns `{:entries {qualified-sym {:name ... :malli-spec ...}} :errors [...]}`.
-  `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type` (stub: returns `Dyn` for now).
+  `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type`. `malli-spec->type` converts the `[:=> [:cat & inputs] output]` callable shape into a `FunT` (with the five-leaf primitive table at the leaves) and returns `Dyn` for any other Malli form.
 - `skeptic.analysis.bridge` and `skeptic.analysis.bridge.*`:
   Schema-domain to type-domain boundary.
   `skeptic.analysis.bridge` imports schemas into semantic types.
