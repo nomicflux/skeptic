@@ -26,6 +26,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+      CLOJARS_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_SKEPTIC_TOKEN }}
+      CLOJARS_LEIN_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_LEIN_SKEPTIC_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -74,35 +78,19 @@ jobs:
         run: lein install
         working-directory: lein-skeptic
 
-      - name: Configure Leiningen Clojars credentials (skeptic)
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_SKEPTIC_TOKEN }}
+      - name: Require Clojars secrets
         run: |
           set -euo pipefail
-          mkdir -p ~/.lein
-          if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_SKEPTIC_TOKEN}" ]]; then
-            echo "Deploy needs CLOJARS_USERNAME and CLOJARS_SKEPTIC_TOKEN."
+          if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_SKEPTIC_TOKEN}" || -z "${CLOJARS_LEIN_SKEPTIC_TOKEN}" ]]; then
+            echo "Set repository Actions secrets: CLOJARS_USERNAME, CLOJARS_SKEPTIC_TOKEN, CLOJARS_LEIN_SKEPTIC_TOKEN."
+            echo "Reusable calls need secrets: inherit on the caller job (see release-lifecycle)."
             exit 1
           fi
-          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
 
       - name: Deploy skeptic to Clojars
-        run: lein deploy clojars
+        run: lein deploy
         working-directory: skeptic
 
-      - name: Configure Leiningen Clojars credentials (lein-skeptic)
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_LEIN_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_LEIN_SKEPTIC_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_LEIN_SKEPTIC_TOKEN}" ]]; then
-            echo "Deploy needs CLOJARS_USERNAME and CLOJARS_LEIN_SKEPTIC_TOKEN."
-            exit 1
-          fi
-          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_LEIN_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
-
       - name: Deploy lein-skeptic to Clojars
-        run: lein deploy clojars
+        run: lein deploy
         working-directory: lein-skeptic
