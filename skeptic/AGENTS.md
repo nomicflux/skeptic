@@ -50,7 +50,7 @@ Source namespace families:
 - `skeptic.malli-spec`, `skeptic.malli-spec.collect`, `skeptic.analysis.malli-spec.bridge`:
   MalliSpec-domain admission and boundary (currently stubbed — see `docs/malli-reference.md`).
   `skeptic.malli-spec` defines the admitted `MalliSpecDesc` shape and uses `:malli-spec` everywhere; it never carries `:schema`, which is reserved for Plumatic.
-  `skeptic.malli-spec.collect` is a stub returning empty results; entry-point shape only.
+  `skeptic.malli-spec.collect` walks `(ns-interns ns)`, reads `:malli/schema` var metadata (skipping macros and vars without it), and returns `{:entries {qualified-sym {:name ... :malli-spec ...}} :errors [...]}`.
   `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type` (stub: returns `Dyn` for now).
 - `skeptic.analysis.bridge` and `skeptic.analysis.bridge.*`:
   Schema-domain to type-domain boundary.
@@ -172,7 +172,12 @@ It is the input format at the boundary.
 
 The MalliSpec domain is the external [Malli](https://github.com/metosin/malli) schema representation — Malli vector/map/AST forms such as `:int`, `[:=> [:cat :int] :int]`, `[:map [:x :int]]`, `[:function ...]`. See `docs/malli-reference.md` for the forms Skeptic targets and what is currently stubbed.
 
-Entry points are wired in but stubbed at this stage: `ns-malli-spec-results` returns no entries, `admit-malli-spec` canonicalizes via `m/form`, and `malli-spec->type` returns `Dyn`. Real discovery (`:malli/schema` metadata, `malli.core/function-schemas` registry covering `m/=>` and `malli.experimental/defn`), leaf conversion, callable-shape parsing, and Schema/MalliSpec conflict resolution are deferred. `.skeptic/config.edn` `:type-overrides` and `:skeptic/type` metadata remain Schema-only.
+The slice as it now stands:
+
+- **Discovery:** `:malli/schema` var metadata only. Deferred: `malli.core/function-schemas` registry, `m/=>`, `malli.experimental/defn`.
+- **Conversion (`malli-spec->type`):** admits via `m/form ∘ m/schema`; converts the callable shape `[:=> [:cat & inputs] output]` into a `FunT` with one `FnMethodT`. Leaves are restricted to a five-entry primitive table: `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:boolean → Bool`, `:any → Dyn`. Every other Malli form (`:map`, `:vector`, `:maybe`, `:or`, nested `:=>`, registry refs, etc.) returns `Dyn`.
+- **Conflict policy:** when a single var has both Schema and MalliSpec admission, Schema wins (silently). Implemented via merge order in `typed-ns-results`: `(merge malli-entries schema-entries)`.
+- **Deferred:** registry-based discovery; non-primitive Malli leaves; nested `:=>`; conflict reporting; multi-arity malli-spec admission; JSONL Malli kinds; `.skeptic/config.edn` Malli surface; `:skeptic/type` Malli interpretation.
 
 ### Type Domain
 
