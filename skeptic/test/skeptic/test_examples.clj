@@ -922,6 +922,23 @@
   (when-not x (throw (ex-info "no x" {})))
   (take-val x))
 
+(s/defschema S  {:k1 s/Str :k2 s/Str})
+
+(s/defn produce :- (s/maybe S)
+  [] nil)
+
+(s/defn consume :- s/Any
+  [k1 :- s/Str
+   k2 :- s/Str]
+  [k1 k2])
+
+(s/defn caller :- s/Any
+  [gate :- s/Any]
+  (let [pair (when gate (produce))
+        {:keys [k1 k2]} pair]
+    (when pair
+      (consume k1 k2))))
+
 (s/defn takes-non-nil-str :- s/Str
   [s :- s/Str]
   s)

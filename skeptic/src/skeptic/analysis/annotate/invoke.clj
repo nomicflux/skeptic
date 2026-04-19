@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.invoke
   (:require [skeptic.analysis.annotate.fn :as fn-annotate]
+            [skeptic.analysis.annotate.map-projection :as map-projection]
             [skeptic.analysis.annotate.invoke-output :as invoke-output]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
@@ -62,11 +63,13 @@
   [ctx node]
   (let [target ((:recurse ctx) ctx (:target node))
         keyword-node ((:recurse ctx) ctx (:keyword node))
-        query (amo/exact-key-query nil (:val keyword-node) (:form keyword-node))
+        query (ac/get-key-query keyword-node)
         type (amo/map-get-type (:type target) query)]
-    (assoc node
-           :target target
-           :keyword keyword-node
-           :type type
-           :actual-argtypes [(:type target)]
-           :expected-argtypes [at/Dyn])))
+    (cond-> (assoc node
+                   :target target
+                   :keyword keyword-node
+                   :type type
+                   :actual-argtypes [(:type target)]
+                   :expected-argtypes [at/Dyn])
+      true
+      (assoc :origin (map-projection/map-key-lookup-origin target query)))))

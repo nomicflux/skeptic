@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.jvm
   (:require [skeptic.analysis.annotate.coll :as coll]
+            [skeptic.analysis.annotate.map-projection :as map-projection]
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
@@ -47,9 +48,15 @@
         expected-argtypes (or (:expected-argtypes native-info)
                               (vec (repeat (count args) at/Dyn)))
         type (or (shared-static-output-type node args default-output-type)
-                 (static-native-output-type node args actual-argtypes native-info))]
-    (assoc node
-           :args args
-           :actual-argtypes actual-argtypes
-           :expected-argtypes expected-argtypes
-           :type type)))
+                 (static-native-output-type node args actual-argtypes native-info))
+        origin (when (and (ac/static-get-call? node)
+                          (= 2 (count args)))
+                 (map-projection/map-key-lookup-origin (first args)
+                                                       (ac/get-key-query (second args))))]
+    (cond-> (assoc node
+                   :args args
+                   :actual-argtypes actual-argtypes
+                   :expected-argtypes expected-argtypes
+                   :type type)
+      origin
+      (assoc :origin origin))))

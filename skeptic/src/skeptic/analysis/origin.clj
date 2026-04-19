@@ -1,6 +1,7 @@
 (ns skeptic.analysis.origin
   (:require [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
@@ -253,6 +254,8 @@
   (case (:kind origin)
     :root (refine-root-type origin assumptions)
     :opaque (:type origin)
+    :map-key-lookup (amo/map-get-type (refine-root-type (:root origin) assumptions)
+                                      (:key-query origin))
     :branch (case (assumption-truth (:test origin) assumptions)
               :true (origin-type (:then-origin origin) assumptions)
               :false (origin-type (:else-origin origin) assumptions)
@@ -274,8 +277,14 @@
 (defn local-root-origin
   [node]
   (let [origin (node-origin node)]
-    (when (= :root (:kind origin))
-      origin)))
+    (cond
+      (= :root (:kind origin))
+      origin
+
+      (aapi/local-node? node)
+      (root-origin (aapi/node-form node) (or (aapi/node-type node) at/Dyn))
+
+      :else nil)))
 
 (defn contains-key-test-assumption
   [target-node key]

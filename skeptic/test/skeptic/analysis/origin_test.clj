@@ -145,3 +145,25 @@
                                        (= (atst/T s/Str) (aapi/node-type %))))]
       (is (= (atst/T s/Str) (aapi/node-type then-p)))
       (is (= 'p (:sym (ao/local-root-origin then-p)))))))
+
+(deftest guarded-keys-maybe-s-caller-origin-test
+  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+        {:keys [resolved]} (checking/analyze-source-exprs dict
+                                                          'skeptic.test-examples
+                                                          atst/test-examples-file
+                                                          (atst/source-exprs-in 'skeptic.test-examples atst/test-examples-file))
+        ast (atst/ast-by-name resolved 'caller)
+        guarded-if (aapi/find-node ast #(and (= :if (aapi/node-op %))
+                                             (= 'pair (aapi/node-form (aapi/node-test %)))))
+        pair-assumption (aapi/branch-test-assumption guarded-if)
+        lookup-nodes (filter #(and (= :static-call (aapi/node-op %))
+                                   (= clojure.lang.RT (aapi/node-class %))
+                                   (= 'get (aapi/node-method %)))
+                             (aapi/annotated-nodes ast))]
+    (is (= 'pair (get-in pair-assumption [:root :sym])))
+    (is (= :truthy-local (:kind pair-assumption)))
+    (is (= 2 (count lookup-nodes)))
+    (doseq [lookup lookup-nodes]
+      (is (= :map-key-lookup (:kind (aapi/node-origin lookup))))
+      (is (= (atst/T s/Str)
+             (ao/origin-type (aapi/node-origin lookup) [pair-assumption]))))))

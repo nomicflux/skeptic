@@ -119,13 +119,15 @@
         init (:init annotated)
         base-entry (binding-base-entry annotated)
         base-origin (:origin base-entry)
+        preserve-structured-origin? (= :map-key-lookup (:kind base-origin))
         branch-test-sym (get-in base-origin [:test :root :sym])
         binding-sym (:form binding)
         narrowing-alias-sym (narrowing-alias-root-sym init base-origin)
-        self-origin (when (or (nil? branch-test-sym)
-                              (= branch-test-sym binding-sym)
-                              (if-init-nil-check-binds-same-name? init binding-sym)
-                              (some? narrowing-alias-sym))
+        self-origin (when (and (not preserve-structured-origin?)
+                               (or (nil? branch-test-sym)
+                                   (= branch-test-sym binding-sym)
+                                   (if-init-nil-check-binds-same-name? init binding-sym)
+                                   (some? narrowing-alias-sym)))
                       (ao/root-origin binding-sym (:type base-entry)))]
     [annotated
      (assoc env binding-sym

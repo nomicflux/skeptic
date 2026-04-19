@@ -183,6 +183,7 @@
      'skeptic.test-examples/when-and-some?-and-nil-success
      'skeptic.test-examples/when-and-some?-multi-nil-success
      'skeptic.test-examples/when-not-throw-nil-local-success
+     'skeptic.test-examples/caller
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc
      'skeptic.test-examples/some-to-lambda-success
@@ -227,6 +228,12 @@
 (deftest for-even-str-odd-int-declared-cond-pre-seq-succeeds
   (in-test-examples
    (let [res (check-fn test-dict 'skeptic.test-examples/for-even-str-odd-int-declared-cond-pre-seq)]
+     (is (empty? (result-errors res))
+         (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
+
+(deftest guarded-keys-maybe-s-caller-pipeline
+  (in-test-examples
+   (let [res (check-fn test-dict 'skeptic.test-examples/caller)]
      (is (empty? (result-errors res))
          (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
 
