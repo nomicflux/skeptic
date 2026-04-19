@@ -13,9 +13,9 @@
          (sut/arg-list '[x & rest]))))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-target-ns
-  (require 'skeptic.test-examples)
-  (is (contains? (sut/ns-schemas {} 'skeptic.test-examples)
-                 'skeptic.test-examples/sample-namespaced-keyword-fn)))
+  (require 'skeptic.test-examples.resolution)
+  (is (contains? (sut/ns-schemas {} 'skeptic.test-examples.resolution)
+                 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
   (require 'skeptic.inconsistence.report)

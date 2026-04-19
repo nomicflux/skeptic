@@ -62,7 +62,7 @@
     (let [dynamic-call (atst/analyze-form '(+ 1 2))
           unknown-invoke (atst/analyze-form '(f 1 2)
                                             (atst/locals 'f))
-          known-call (atst/analyze-form '(skeptic.test-examples/int-add 1 2))]
+          known-call (atst/analyze-form '(skeptic.test-examples.basics/int-add 1 2))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes dynamic-call)))
       (is (= atst/numeric-dyn (aapi/node-type dynamic-call)))
       (assert-typed-call-metadata-only dynamic-call)
@@ -99,7 +99,7 @@
       (assert-typed-call-metadata-only root)))
   (testing "original known application typed setup"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
-                                  '(skeptic.test-examples/int-add 1 2))]
+                                  '(skeptic.test-examples.basics/int-add 1 2))]
       (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes root)))
       (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes root)))
       (is (= (atst/T s/Int) (aapi/node-type root)))
@@ -212,14 +212,14 @@
   (testing "local fn invocation through int-add"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(let [f (fn [x] nil)]
-                                     (skeptic.test-examples/int-add 1 (f x))))]
+                                     (skeptic.test-examples.basics/int-add 1 (f x))))]
       (is (= (atst/T s/Int) (aapi/node-type root)))
       (is (= (atst/T (s/eq nil))
              (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
       (assert-typed-call-metadata-only (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
   (testing "local fn invocation keeps callable metadata with outer local"
     (let [root (atst/analyze-form '(let [f (fn [x] nil)]
-                                     (skeptic.test-examples/int-add 1 (f x)))
+                                     (skeptic.test-examples.basics/int-add 1 (f x)))
                                    (atst/locals 'x))]
       (is (= (atst/T s/Int) (aapi/node-type root)))
       (is (= (atst/T (s/eq nil))

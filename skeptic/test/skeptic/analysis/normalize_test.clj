@@ -3,17 +3,17 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.normalize :as an]
-            [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-examples]))
+            [skeptic.test-examples.resolution]
+            [skeptic.typed-decls :as typed-decls]))
 
 (defn T
   [schema]
   (ab/schema->type schema))
 
 (deftest declaration-index-contract-test
-  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
-        forward-entry (an/normalize-entry (get dict 'skeptic.test-examples/forward-declared-target))
-        recursive-entry (an/normalize-entry (get dict 'skeptic.test-examples/self-recursive-identity))]
+  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples.resolution)
+        forward-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/forward-declared-target))
+        recursive-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/self-recursive-identity))]
     (is (= [(T s/Any)]
            (-> forward-entry :arglists (get 1) :types (->> (mapv :type)))))
     (is (= (T s/Any) (:output-type forward-entry)))

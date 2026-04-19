@@ -1,5 +1,5 @@
 {:exclude-files ["src/skeptic/examples.clj"
                  "src/skeptic/static_call_examples.clj"
-                 "test/skeptic/test_examples.clj"
+                 "test/skeptic/test_examples/*.clj"
                  "test/skeptic/best_effort_examples.clj"
                  "test/skeptic/check_project_best_effort_examples.clj"]}

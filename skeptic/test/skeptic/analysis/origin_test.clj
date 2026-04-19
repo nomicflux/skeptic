@@ -7,6 +7,7 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.test-examples.catalog :as catalog]
             [skeptic.typed-decls :as typed-decls])
   (:import [clojure.lang Numbers]))
 
@@ -27,7 +28,7 @@
   (testing "let-driven flow through or expands to refinable branch"
     (let [or-let (atst/analyze-form '(let [y nil
                                            x (or y 1)]
-                                       (skeptic.test-examples/int-add x 2)))]
+                                       (skeptic.test-examples.basics/int-add x 2)))]
       (is (= (atst/T s/Int) (aapi/node-type or-let)))
       (is (aapi/find-node or-let #(and (= :if (aapi/node-op %))
                                        (= (atst/T s/Int) (aapi/node-type %)))))))
@@ -48,7 +49,7 @@
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(let [y nil
                                          x (or y 1)]
-                                     (skeptic.test-examples/int-add x 2)))]
+                                     (skeptic.test-examples.basics/int-add x 2)))]
       (is (= (atst/T s/Int) (aapi/node-type root)))
       (is (aapi/find-node root #(and (= :if (aapi/node-op %))
                                      (= (atst/T s/Int) (aapi/node-type %)))))))
@@ -72,22 +73,28 @@
 
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
-    (let [test-dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+    (let [test-dict (catalog/typed-test-example-entries)
           example-dict (typed-decls/typed-ns-entries {} 'skeptic.examples)
-          test-res (checking/analyze-source-exprs test-dict
-                                                  'skeptic.test-examples
-                                                  atst/test-examples-file
-                                                  (atst/source-exprs-in 'skeptic.test-examples atst/test-examples-file))
+          control-flow-res (checking/analyze-source-exprs test-dict
+                                                          'skeptic.test-examples.control-flow
+                                                          (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)
+                                                          (atst/source-exprs-in 'skeptic.test-examples.control-flow
+                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)))
+          resolution-res (checking/analyze-source-exprs test-dict
+                                                        'skeptic.test-examples.resolution
+                                                        (atst/fixture-file-for-ns 'skeptic.test-examples.resolution)
+                                                        (atst/source-exprs-in 'skeptic.test-examples.resolution
+                                                                              (atst/fixture-file-for-ns 'skeptic.test-examples.resolution)))
           example-res (checking/analyze-source-exprs example-dict
                                                      'skeptic.examples
                                                      atst/examples-file
                                                      (atst/source-exprs-in 'skeptic.examples atst/examples-file))]
       (is (= (atst/T (sb/join s/Int s/Str))
-             (aapi/resolved-def-output-type (:resolved-defs test-res)
-                                            'skeptic.test-examples/sample-if-mixed-fn)))
+             (aapi/resolved-def-output-type (:resolved-defs control-flow-res)
+                                            'skeptic.test-examples.control-flow/sample-if-mixed-fn)))
       (is (= (atst/T s/Int)
-             (aapi/resolved-def-output-type (:resolved-defs test-res)
-                                            'skeptic.test-examples/flat-multi-step-g)))
+             (aapi/resolved-def-output-type (:resolved-defs resolution-res)
+                                            'skeptic.test-examples.resolution/flat-multi-step-g)))
       (is (= (atst/T (s/maybe s/Int))
              (aapi/resolved-def-output-type (:resolved-defs example-res)
                                             'skeptic.examples/flat-maybe-multi-step-f)))
@@ -111,7 +118,7 @@
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(fn [input]
                                      (let [x input
-                                           x (if (nil? x) nil (skeptic.test-examples/non-null-transform x))]
+                                           x (if (nil? x) nil (skeptic.test-examples.nullability/non-null-transform x))]
                                        (if (nil? x) nil (#(- %) x))))
                                   {:locals {'input (atst/T (s/maybe s/Num))}})
           minus (aapi/find-node root
@@ -147,11 +154,12 @@
       (is (= 'p (:sym (ao/local-root-origin then-p)))))))
 
 (deftest guarded-keys-maybe-s-caller-origin-test
-  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+  (let [dict (catalog/typed-test-example-entries)
         {:keys [resolved]} (checking/analyze-source-exprs dict
-                                                          'skeptic.test-examples
-                                                          atst/test-examples-file
-                                                          (atst/source-exprs-in 'skeptic.test-examples atst/test-examples-file))
+                                                          'skeptic.test-examples.nullability
+                                                          (atst/fixture-file-for-ns 'skeptic.test-examples.nullability)
+                                                          (atst/source-exprs-in 'skeptic.test-examples.nullability
+                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.nullability)))
         ast (atst/ast-by-name resolved 'guarded-keys-caller)
         guarded-if (aapi/find-node ast #(and (= :if (aapi/node-op %))
                                              (= 'pair (aapi/node-form (aapi/node-test %)))))

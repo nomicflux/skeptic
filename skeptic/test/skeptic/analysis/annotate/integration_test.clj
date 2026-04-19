@@ -9,7 +9,7 @@
 (deftest annotate-form-loop-integration-test
   (testing "annotation stays first-order and keeps typed call metadata"
     (let [ast (aat/annotate-form-loop atst/analysis-dict
-                                      '(skeptic.test-examples/int-add 1 2)
+                                      '(skeptic.test-examples.basics/int-add 1 2)
                                       {:ns 'skeptic.analysis-test})]
       (is (= :invoke (aapi/node-op ast)))
       (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes ast)))

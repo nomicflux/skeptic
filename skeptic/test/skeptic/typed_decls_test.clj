@@ -43,10 +43,10 @@
     (is (not (contains? typed-entry :arglists)))))
 
 (deftest typed-ns-entries-build-callable-dynamic-and-varargs-entries
-  (require 'skeptic.test-examples)
-  (let [entries (sut/typed-ns-entries {} 'skeptic.test-examples)
-        int-add (get entries 'skeptic.test-examples/int-add)
-        sample-fn (get entries 'skeptic.test-examples/sample-fn)]
+  (require 'skeptic.test-examples.basics)
+  (let [entries (sut/typed-ns-entries {} 'skeptic.test-examples.basics)
+        int-add (get entries 'skeptic.test-examples.basics/int-add)
+        sample-fn (get entries 'skeptic.test-examples.basics/sample-unannotated-fn)]
     (testing "callable entries are semantic only"
       (is (= (T s/Int) (:output-type int-add)))
       (is (not (contains? int-add :schema)))

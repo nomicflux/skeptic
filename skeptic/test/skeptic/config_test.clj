@@ -43,7 +43,7 @@
         dir (File. tmp "test/skeptic")]
     (try
       (.mkdirs dir)
-      (let [f1 (File. dir "test_examples.clj")
+      (let [f1 (File. dir "alpha_examples.clj")
             f2 (File. dir "best_effort_examples.clj")]
         (.createNewFile f1)
         (.createNewFile f2)

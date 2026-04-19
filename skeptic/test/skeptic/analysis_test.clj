@@ -7,10 +7,8 @@
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
             [skeptic.source :as source]
-            [skeptic.typed-decls :as typed-decls])
+            [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
-
-(require 'skeptic.test-examples)
 
 (defn set-cache-value
   [& _args]
@@ -74,7 +72,7 @@
                      arities)}))
 
 (def analysis-dict
-  (merge (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+  (merge (catalog/typed-test-example-entries)
          {'skeptic.analysis-test/f
           (fn-entry 'skeptic.analysis-test/f s/Any [['value s/Any]])
           'skeptic.analysis-test/int-add
@@ -89,7 +87,7 @@
                                                         ['opts s/Any]])}))
 
 (def typed-test-examples-dict
-  (typed-decls/typed-ns-entries {} 'skeptic.test-examples))
+  (catalog/typed-test-example-entries))
 
 (def sample-dict
   {'f
@@ -104,8 +102,20 @@
                   :types [{:type (T s/Str) :optional? false :name 'y}
                           {:type (T s/Int) :optional? false :name 'z}]}}}})
 
-(def test-examples-file (File. "test/skeptic/test_examples.clj"))
 (def examples-file (File. "src/skeptic/examples.clj"))
+
+(defn fixture-file
+  ^File [sym]
+  (:file (catalog/owner-of sym)))
+
+(defn fixture-file-for-ns
+  ^File [ns-sym]
+  (or (some (fn [[_ env]]
+              (when (= ns-sym (:ns env))
+                (:file env)))
+            catalog/fixture-envs)
+      (throw (ex-info "Unknown fixture namespace"
+                      {:namespace ns-sym}))))
 
 (defn locals
   [& syms]
@@ -166,47 +176,58 @@
 
 (deftest restored-resolution-contract-test
   (testing "unannotated helper lookup from collected entries alone stays plain Any"
-    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
-          form (->> 'skeptic.test-examples/unannotated-local-helper-g
+    (let [dict (catalog/typed-test-example-entries)
+          form (->> 'skeptic.test-examples.resolution/unannotated-local-helper-g
                     (source/get-fn-code {})
                     read-string)
-          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples})
+          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
       (is (= (T s/Any) (aapi/node-type call-node)))
       (is (not (at/union-type? (aapi/node-type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
-    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
+    (let [dict (catalog/typed-test-example-entries)
+          fixture-ns 'skeptic.test-examples.resolution
+          fixture-file (fixture-file-for-ns fixture-ns)
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
-                                                                         'skeptic.test-examples
-                                                                         test-examples-file
-                                                                         (source-exprs-in 'skeptic.test-examples test-examples-file))
+                                                                         fixture-ns
+                                                                         fixture-file
+                                                                         (source-exprs-in fixture-ns fixture-file))
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples/flat-multi-step-f)))
-      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples/flat-multi-step-g)))
+      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f)))
+      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g)))
       (is (= [(T s/Int)] (aapi/call-actual-argtypes call-node)))
       (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
-                                                              'skeptic.test-examples/flat-multi-step-g)))))))
+                                                              'skeptic.test-examples.resolution/flat-multi-step-g)))))))
 
 (deftest accessor-helper-resolution-contract-test
-  (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
-        exprs (source-exprs-in 'skeptic.test-examples test-examples-file)
-        {:keys [resolved-defs]} (checking/analyze-source-exprs dict
-                                                               'skeptic.test-examples
-                                                               test-examples-file
-                                                               exprs)]
+  (let [dict (catalog/typed-test-example-entries)
+        contracts-ns 'skeptic.test-examples.contracts
+        contracts-file (fixture-file-for-ns contracts-ns)
+        nullability-ns 'skeptic.test-examples.nullability
+        nullability-file (fixture-file-for-ns nullability-ns)
+        contracts-resolved-defs (:resolved-defs (checking/analyze-source-exprs dict
+                                                                               contracts-ns
+                                                                               contracts-file
+                                                                               (source-exprs-in contracts-ns contracts-file)))
+        nullability-resolved-defs (:resolved-defs (checking/analyze-source-exprs dict
+                                                                                 nullability-ns
+                                                                                 nullability-file
+                                                                                 (source-exprs-in nullability-ns nullability-file)))]
     (testing "accessor summaries are emitted only for trivial unary accessors"
       (is (= {:kind :unary-map-accessor :kw :k}
-             (:accessor-summary (get resolved-defs 'skeptic.test-examples/vtype))))
-      (is (nil? (:accessor-summary (get resolved-defs 'skeptic.test-examples/non-null-transform))))))
+             (:accessor-summary (get contracts-resolved-defs 'skeptic.test-examples.contracts/vtype))))
+      (is (nil? (:accessor-summary (get nullability-resolved-defs 'skeptic.test-examples.nullability/non-null-transform))))))
 
   (testing "prepass exposes helper accessor summaries to later case narrowing"
-    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples)
-          exprs (source-exprs-in 'skeptic.test-examples test-examples-file)
+    (let [dict (catalog/typed-test-example-entries)
+          fixture-ns 'skeptic.test-examples.contracts
+          fixture-file (fixture-file-for-ns fixture-ns)
+          exprs (source-exprs-in fixture-ns fixture-file)
           prepass (:resolved-defs (checking/analyze-source-exprs dict
-                                                                 'skeptic.test-examples
-                                                                 test-examples-file
+                                                                 fixture-ns
+                                                                 fixture-file
                                                                  exprs))
           analysis-dict (reduce (fn [acc [sym resolved-entry]]
                                   (if-let [summary (:accessor-summary resolved-entry)]
@@ -214,12 +235,12 @@
                                     acc))
                                 dict
                                 prepass)
-          form (->> 'skeptic.test-examples/conditional-dispatch-success
+          form (->> 'skeptic.test-examples.contracts/conditional-dispatch-success
                     (source/get-fn-code {})
                     read-string)
           ast (first (:resolved (checking/analyze-source-exprs analysis-dict
-                                                               'skeptic.test-examples
-                                                               test-examples-file
+                                                               fixture-ns
+                                                               fixture-file
                                                                [form])))
           handle-a (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-a v) (aapi/node-form %))))
