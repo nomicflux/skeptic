@@ -18,6 +18,10 @@ on:
         required: false
       CLOJARS_LEIN_SKEPTIC_TOKEN:
         required: false
+      GPG_PRIVATE_KEY:
+        required: false
+      GPG_PASSPHRASE:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -79,6 +83,25 @@ jobs:
             echo "Reusable calls need secrets: inherit on the caller job (see release-lifecycle)."
             exit 1
           fi
+
+      - name: Require GPG secrets
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GPG_PRIVATE_KEY}" || -z "${GPG_PASSPHRASE}" ]]; then
+            echo "Set repository Actions secrets: GPG_PRIVATE_KEY (ASCII-armored private key), GPG_PASSPHRASE."
+            echo "lein deploy signs releases by default; signing fails without a key in the agent."
+            exit 1
+          fi
+
+      - name: Import GPG signing key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          trust_level: 5
 
       - name: Deploy skeptic to Clojars
         run: lein deploy
