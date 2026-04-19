@@ -18,8 +18,10 @@ on:
         required: true
         type: string
 
+# Caller must allow contents:write for reusable change-project-versions (git push).
+# Nested workflows cannot elevate GITHUB_TOKEN above the caller (GitHub docs: reusable-workflows-reference).
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
