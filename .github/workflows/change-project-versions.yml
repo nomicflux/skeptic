@@ -1,0 +1,112 @@
+# Reusable: coordinated version string edits + verify + lein pom.
+# Also runnable alone from the Actions tab (workflow_dispatch).
+
+name: Change project versions
+
+on:
+  workflow_call:
+    inputs:
+      from_version:
+        required: true
+        type: string
+      to_version:
+        required: true
+        type: string
+      create_pr:
+        description: "yes = commit, push branch, open PR; no = validate only on runner"
+        required: false
+        type: string
+        default: "no"
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: "Exact version string currently in repo (e.g. 0.7.0-SNAPSHOT)"
+        required: true
+        type: string
+      to_version:
+        description: "New version string (e.g. 0.7.0 or 0.8.0-SNAPSHOT)"
+        required: true
+        type: string
+      create_pr:
+        description: "yes = commit, push branch, open PR; no = validate only on runner"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "yes"
+
+jobs:
+  change:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace version strings
+        env:
+          FROM: ${{ inputs.from_version }}
+          TO: ${{ inputs.to_version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$FROM" || -z "$TO" || "$FROM" == "$TO" ]]; then
+            echo "from_version and to_version must be non-empty and different."
+            exit 1
+          fi
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+            if ! grep -qF "$FROM" "$f"; then
+              echo "Expected to find '$FROM' in $f"
+              exit 1
+            fi
+          done
+          for f in skeptic/project.clj lein-skeptic/project.clj README.md; do
+            sed -i.bak "s|${FROM}|${TO}|g" "$f"
+            rm -f "${f}.bak"
+          done
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Leiningen
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          lein: 2.11.2
+
+      - name: Verify monorepo versions
+        run: bash script/verify-monorepo-versions.sh
+
+      - name: Install and regenerate POMs
+        run: |
+          set -euo pipefail
+          cd skeptic && lein install && lein pom
+          cd ../lein-skeptic && lein pom
+
+      - name: Create pull request
+        if: inputs.create_pr == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FROM: ${{ inputs.from_version }}
+          TO: ${{ inputs.to_version }}
+        run: |
+          set -euo pipefail
+          branch="bump-version-$(echo "$TO" | tr -c 'A-Za-z0-9._-' '-')"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add skeptic/project.clj lein-skeptic/project.clj README.md skeptic/pom.xml lein-skeptic/pom.xml
+          git commit -m "Bump coordinated version ${FROM} -> ${TO}"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Bump coordinated version ${FROM} -> ${TO}" \
+            --body "Automated version bump. Update \`CHANGELOG.md\` if needed, then merge."

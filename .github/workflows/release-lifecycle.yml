@@ -1,0 +1,104 @@
+# Canonical release flow: choose one phase. Each phase delegates to the
+# reusable "Change project versions" or "Publish to Clojars" workflows.
+#
+# Intended sequence for 0.7.0 line:
+#   1) prepare_stable_release — e.g. from 0.7.0-SNAPSHOT to 0.7.0 (then merge PR, tag v0.7.0, changelog)
+#   2) publish_to_clojars     — deploy current tree (non-SNAPSHOT 0.7.0)
+#   3) begin_next_development — e.g. from 0.7.0 to 0.8.0-SNAPSHOT
+#
+# Publishing a SNAPSHOT without changing the next dev line: use "Publish to Clojars" alone.
+
+name: Release lifecycle
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Which phase to run (one at a time, in order for a stable cut)"
+        type: choice
+        required: true
+        options:
+          - prepare_stable_release
+          - publish_to_clojars
+          - begin_next_development
+      from_version:
+        description: "Required for prepare_stable_release & begin_next_development (e.g. 0.7.0-SNAPSHOT or 0.7.0)"
+        required: false
+        type: string
+      to_version:
+        description: "Required for prepare_stable_release & begin_next_development (e.g. 0.7.0 or 0.8.0-SNAPSHOT)"
+        required: false
+        type: string
+      create_pr:
+        description: "For version-change phases: open a PR (yes) or validate only on runner (no)"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "yes"
+      dry_run:
+        description: "For publish_to_clojars only: yes = checks only; no = deploy"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "yes"
+      confirm:
+        description: "For publish_to_clojars only: type PUBLISH when dry_run is no"
+        type: string
+        default: ""
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs for selected operation
+        env:
+          OP: ${{ inputs.operation }}
+          FROM: ${{ inputs.from_version }}
+          TO: ${{ inputs.to_version }}
+        run: |
+          set -euo pipefail
+          case "$OP" in
+            prepare_stable_release|begin_next_development)
+              if [[ -z "$FROM" || -z "$TO" ]]; then
+                echo "from_version and to_version are required for $OP"
+                exit 1
+              fi
+              ;;
+            publish_to_clojars)
+              ;;
+            *)
+              echo "Unknown operation: $OP"
+              exit 1
+              ;;
+          esac
+
+  prepare_stable_release:
+    needs: gate
+    if: inputs.operation == 'prepare_stable_release'
+    uses: ./.github/workflows/change-project-versions.yml
+    with:
+      from_version: ${{ inputs.from_version }}
+      to_version: ${{ inputs.to_version }}
+      create_pr: ${{ inputs.create_pr }}
+    secrets: inherit
+
+  publish_to_clojars:
+    needs: gate
+    if: inputs.operation == 'publish_to_clojars'
+    uses: ./.github/workflows/publish-clojars.yml
+    with:
+      dry_run: ${{ inputs.dry_run }}
+      confirm: ${{ inputs.confirm }}
+    secrets: inherit
+
+  begin_next_development:
+    needs: gate
+    if: inputs.operation == 'begin_next_development'
+    uses: ./.github/workflows/change-project-versions.yml
+    with:
+      from_version: ${{ inputs.from_version }}
+      to_version: ${{ inputs.to_version }}
+      create_pr: ${{ inputs.create_pr }}
+    secrets: inherit

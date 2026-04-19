@@ -9,7 +9,7 @@ Use it as the high-level algorithm reference for the library's core cast and bla
 
 1. This is `leiningen` project for a Clojure app
 2. Tests are run via `lein test`
-3. The plugin lives in `../lein-skeptic`. After `lein install` in that directory, run `lein with-profile +skeptic-plugin skeptic` from this folder.
+3. The plugin lives in `../lein-skeptic` and is published as **`org.clojars.nomicflux/lein-skeptic`** on Clojars. For local development without Clojars, run `lein install` in `../lein-skeptic`, then `lein with-profile +skeptic-plugin skeptic` from this folder (the `:skeptic-plugin` profile pins **`org.clojars.nomicflux/lein-skeptic`** to match that install).
 4. Linting is performed via `clj-kondo --lint <dir>`
 
 ## Namespace Map
@@ -200,3 +200,9 @@ In short:
 - Keep cast and analysis helpers small, focused, and type-domain-first.
 - Preserve ordered dispatch when branch priority is semantically meaningful.
 - Treat schema-level helpers as boundary adapters, not as the core analysis model.
+
+## Releasing and CI
+
+Version bumps, `script/verify-monorepo-versions.sh`, GitHub Actions workflows,
+and Clojars deployment are documented in [../docs/releasing.md](../docs/releasing.md)
+at the repository root (not in the public `README.md`).

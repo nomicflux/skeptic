@@ -1,0 +1,124 @@
+# Reusable: verify, checks, optional deploy to Clojars.
+# Also runnable alone from the Actions tab (workflow_dispatch).
+
+name: Publish to Clojars
+
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: "yes = verify + checks only; no = deploy (requires confirm)"
+        required: false
+        type: string
+        default: "yes"
+      confirm:
+        description: "Must be exactly PUBLISH when dry_run is no"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CLOJARS_USERNAME:
+        required: false
+      CLOJARS_PASSWORD:
+        required: false
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "yes = verify + checks only; no = deploy (requires confirm)"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "yes"
+      confirm:
+        description: "Must be exactly PUBLISH when dry_run is no"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Leiningen and clj-kondo
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          lein: 2.11.2
+          clj-kondo: 2026.04.15
+
+      - name: Verify monorepo versions
+        run: bash script/verify-monorepo-versions.sh
+
+      - name: Reject deploy without confirmation
+        if: inputs.dry_run == 'no' && inputs.confirm != 'PUBLISH'
+        run: |
+          echo "When dry_run is no, confirm must be exactly PUBLISH."
+          exit 1
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-publish-${{ hashFiles('skeptic/project.clj', 'lein-skeptic/project.clj') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      - name: Install skeptic library
+        run: lein install
+        working-directory: skeptic
+
+      - name: Install lein-skeptic plugin
+        run: lein install
+        working-directory: lein-skeptic
+
+      - name: Run tests
+        run: lein test
+        working-directory: skeptic
+
+      - name: Lint with clj-kondo
+        run: clj-kondo --lint .
+        working-directory: skeptic
+
+      - name: Run skeptic
+        run: lein with-profile +skeptic-plugin skeptic
+        working-directory: skeptic
+
+      - name: Configure Leiningen Clojars credentials
+        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: |
+          mkdir -p ~/.lein
+          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_PASSWORD}\"}}" > ~/.lein/credentials.clj
+
+      - name: Deploy skeptic to Clojars
+        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
+        run: lein deploy clojars
+        working-directory: skeptic
+
+      - name: Deploy lein-skeptic to Clojars
+        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
+        run: lein deploy clojars
+        working-directory: lein-skeptic
+
+      - name: Dry run complete
+        if: inputs.dry_run != 'no' || inputs.confirm != 'PUBLISH'
+        run: |
+          echo "Skipping deploy (dry_run=${{ inputs.dry_run }}, confirm set=${{ inputs.confirm != '' }})."
+          echo "To deploy: set dry_run to no, confirm to PUBLISH, and configure CLOJARS_USERNAME / CLOJARS_PASSWORD secrets."

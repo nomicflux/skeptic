@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify monorepo versions
+        run: bash script/verify-monorepo-versions.sh
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:

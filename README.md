@@ -1,10 +1,16 @@
 # Skeptic
 
+[![CI](https://github.com/nomicflux/skeptic/actions/workflows/ci.yml/badge.svg)](https://github.com/nomicflux/skeptic/actions/workflows/ci.yml)
+[![Clojars lein-skeptic](https://img.shields.io/clojars/v/org.clojars.nomicflux/lein-skeptic.svg?label=lein-skeptic)](https://clojars.org/org.clojars.nomicflux/lein-skeptic)
+[![Clojars skeptic](https://img.shields.io/clojars/v/org.clojars.nomicflux/skeptic.svg?label=skeptic)](https://clojars.org/org.clojars.nomicflux/skeptic)
+
 Skeptic is a Leiningen plugin for projects that use
 [Plumatic Schema](https://github.com/plumatic/schema). It reads Clojure code,
 converts declared Plumatic Schema annotations into semantic types, and reports
 places where inferred types disagree with those declared Plumatic Schema
 annotations.
+
+**Versioning:** stable releases use git tags `vX.Y.Z` and are described on [GitHub Releases](https://github.com/nomicflux/skeptic/releases). The badges above reflect what Clojars reports as latest for each artifact.
 
 ## What Skeptic checks
 
@@ -28,12 +34,24 @@ annotations.
 6. Prints a report for each mismatch and exits with status `1` when
    inconsistencies are found, or `0` when none are found.
 
+## Cast checking and attribution
+
+Skeptic compares inferred and declared types using a directional cast treatment
+of gradual types (including blame side, blame polarity, and cast rules). That
+design is informed by the **polymorphic blame calculus** and runtime cast
+algorithm in the following paper:
+
+Amal Ahmed, Robert Bruce Findler, Jeremy G. Siek, and Philip Wadler.
+**Blame for All.** In *Proceedings of the 38th ACM SIGPLAN-SIGACT Symposium on
+Principles of Programming Languages (POPL)*, Austin, TX, USA, January 2011.
+ACM. [https://doi.org/10.1145/1926385.1926409](https://doi.org/10.1145/1926385.1926409)
+
 ## Installation
 
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[lein-skeptic "0.7.0-SNAPSHOT"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.0-SNAPSHOT"]]
 ```
 
 If you need to override the default dependency profile, add a `:skeptic`
@@ -143,7 +161,8 @@ text mode).
 `actual_type` and `expected_type` are structured, tagged representations of
 the Skeptic type domain (see below). `*_str` mirrors the same type as a
 human-readable string — redundant with the structured form, included for
-grep/LLM use. Any empty/nil field is omitted from the line.
+simple tooling and spot checks without walking nested JSON. Any empty/nil field
+is omitted from the line.
 
 ### `kind: "exception"` — Skeptic hit an exception while checking a form
 
@@ -183,7 +202,8 @@ resolved, and the run is still able to proceed.
 }
 ```
 
-### Structured type shape
+<details>
+<summary>Structured type tags in JSONL (<code>t</code> field)</summary>
 
 Each tagged object has a `"t"` discriminator naming the Skeptic type
 constructor. The set of tags:
@@ -212,6 +232,8 @@ constructor. The set of tags:
 | `placeholder`   | `name`                                                             |
 | `fn-method`     | `inputs` (array of types), `output` (type), `variadic` (bool), `min_arity` (int) |
 | `fun`           | `methods` (array of `fn-method` objects)                           |
+
+</details>
 
 ### Combining with `--profile`
 
@@ -262,6 +284,27 @@ The expression's type is treated as `s/Int` for subsequent checks. Note that Clo
 ```clojure
 ^{:skeptic/type s/Int} (identity 42)
 ```
+
+## Building from source
+
+The repo is a small monorepo: the checker library is under [`skeptic/`](skeptic/),
+the Leiningen plugin under [`lein-skeptic/`](lein-skeptic/).
+
+```sh
+cd skeptic && lein test
+```
+
+To use a locally built plugin in another project: from `lein-skeptic/`, run
+`lein install`, then add the same coordinates as in this README’s
+[Installation](#installation) section to that project’s `:plugins` (see
+`lein-skeptic/project.clj` for the current version string). If you changed the
+library, run `lein install` in `skeptic/` first so the plugin resolves your
+build.
+
+## Maintainer: releases and Clojars
+
+Version alignment, GitHub Actions workflows, and manual release steps are
+documented in [`docs/releasing.md`](docs/releasing.md).
 
 ## License
 
