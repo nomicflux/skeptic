@@ -12,10 +12,11 @@
   (is (= {:count 2, :args '[x], :with-varargs true, :varargs '[rest]}
          (sut/arg-list '[x & rest]))))
 
-(deftest ns-schemas-reads-auto-resolved-keywords-in-target-ns
+(deftest ns-schemas-only-contains-annotated-vars
   (require 'skeptic.test-examples.resolution)
-  (is (contains? (sut/ns-schemas {} 'skeptic.test-examples.resolution)
-                 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))
+  (let [schemas (sut/ns-schemas {} 'skeptic.test-examples.resolution)]
+    (is (contains? schemas 'skeptic.test-examples.resolution/flat-multi-step-f))
+    (is (not (contains? schemas 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
   (require 'skeptic.inconsistence.report)

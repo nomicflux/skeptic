@@ -254,7 +254,9 @@
              (symbol? (first source-form))
              (symbol? (second source-form)))
     (let [qualified-sym (ac/qualify-symbol ns-sym (second source-form))]
-      (boolean (:skeptic/ignore-body? (get dict qualified-sym))))))
+      (boolean (or (:skeptic/ignore-body? (get dict qualified-sym))
+                   (some-> qualified-sym resolve meta :skeptic/ignore-body)
+                   (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (defn check-resolved-form
   [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]

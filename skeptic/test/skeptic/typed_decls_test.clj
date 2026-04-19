@@ -42,12 +42,13 @@
     (is (not (contains? typed-entry :output-type)))
     (is (not (contains? typed-entry :arglists)))))
 
-(deftest typed-ns-entries-build-callable-dynamic-and-varargs-entries
+(deftest typed-ns-entries-annotated-present-unannotated-absent
   (require 'skeptic.test-examples.basics)
   (let [entries (sut/typed-ns-entries {} 'skeptic.test-examples.basics)
-        int-add (get entries 'skeptic.test-examples.basics/int-add)
-        sample-fn (get entries 'skeptic.test-examples.basics/sample-unannotated-fn)]
-    (testing "callable entries are semantic only"
+        int-add (get entries 'skeptic.test-examples.basics/int-add)]
+    (testing "unannotated vars are absent from typed-ns-entries"
+      (is (not (contains? entries 'skeptic.test-examples.basics/sample-unannotated-fn))))
+    (testing "annotated callable entries are semantic only"
       (is (= (T s/Int) (:output-type int-add)))
       (is (not (contains? int-add :schema)))
       (is (not (contains? int-add :output))))
@@ -59,12 +60,7 @@
       (is (= [{:name 'x :optional? false :type (T s/Int)}
               {:name 'y :optional? false :type (T s/Int)}
               {:name 'zs :optional? false :type (T s/Int)}]
-             (get-in int-add [:arglists :varargs :types]))))
-    (testing "dynamic fallback entries become fully typed Any entries"
-      (is (= (T s/Any) (:type sample-fn)))
-      (is (= (T s/Any) (:output-type sample-fn)))
-      (is (= [{:name 'x :optional? false :type (T s/Any)}]
-             (get-in sample-fn [:arglists 1 :types]))))))
+             (get-in int-add [:arglists :varargs :types]))))))
 
 (deftest typed-ns-results-omit-bad-declarations-and-keep-errors
   (require 'skeptic.best-effort-examples)

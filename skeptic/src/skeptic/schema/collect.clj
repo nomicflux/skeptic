@@ -98,25 +98,15 @@
    :raw-arglists (:arglists m)
    :var v})
 
-(defn- dynamic-raw
-  [qualified-sym v]
-  {:kind :dynamic
-   :qualified-sym qualified-sym
-   :var v})
-
 (defn extract-raw-declaration
-  "Phase 1: var metadata only. No canonicalization, schema?, or schema->type."
+  "Returns annotated raw declaration when var has :schema metadata, nil otherwise."
   [v]
   (when-let [qualified-sym (sb/qualified-var-symbol v)]
     (let [m (meta v)]
-      (when-not (:macro m)
-        (let [opaque (opaque? v)
-              base (if (and (:schema m) (not opaque))
-                     (annotated-raw qualified-sym m v)
-                     (dynamic-raw qualified-sym v))]
-          (cond-> base
-            (or (ignore-body? v) opaque)
-            (assoc :skeptic/ignore-body? true)))))))
+      (when (and (not (:macro m)) (:schema m) (not (opaque? v)))
+        (cond-> (annotated-raw qualified-sym m v)
+          (ignore-body? v)
+          (assoc :skeptic/ignore-body? true))))))
 
 (defn- invalid-schema-annotation
   [ns name slot value e]
@@ -196,54 +186,13 @@
       resolve
       symbol))
 
-(defn dynamic-arg-entry
-  [arg]
-  {:schema s/Any
-   :optional? false
-   :name arg})
-
-(defn dynamic-arglists
-  [arglists]
-  (->> arglists
-       arg-map
-       (map (fn [[k {:keys [args count] :as arglist}]]
-              [k (cond-> {:arglist (or args arglist)}
-                    (= k :varargs)
-                    (assoc :count count
-                           :arglist args
-                           :schema (vec (concat (map dynamic-arg-entry (butlast args))
-                                                [{:schema s/Any}])))
-
-                    (not= k :varargs)
-                    (assoc :schema (mapv dynamic-arg-entry arglist)))]))
-       (into {})))
-
-(defn admit-dynamic-desc
-  [v]
-  (let [m (meta v)
-        qualified-sym (sb/qualified-var-symbol v)
-        arglists (when (and (:arglists m)
-                            (not (:macro m)))
-                   (dynamic-arglists (:arglists m)))
-        desc (->> {:name (str qualified-sym)
-                   :schema s/Any
-                   :output s/Any
-                   :arglists (or arglists {})}
-                  abc/canonicalize-entry)]
-    (assert-admitted-schema-slots! (some-> qualified-sym namespace symbol)
-                                   qualified-sym
-                                   desc)
-    desc))
-
 (defn admit-declaration-from-extract
   "Phase 2: schema admission for explicit annotation slots only."
   [raw]
-  (let [desc (case (:kind raw)
-               :annotated (build-annotated-schema-desc! {:schema (:raw-schema raw)
-                                                         :ns (:ns raw)
-                                                         :name (:name raw)
-                                                         :arglists (:raw-arglists raw)})
-               :dynamic (admit-dynamic-desc (:var raw)))]
+  (let [desc (build-annotated-schema-desc! {:schema (:raw-schema raw)
+                                            :ns (:ns raw)
+                                            :name (:name raw)
+                                            :arglists (:raw-arglists raw)})]
     (cond-> desc
       (:skeptic/ignore-body? raw)
       (assoc :skeptic/ignore-body? true))))
