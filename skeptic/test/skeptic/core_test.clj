@@ -268,12 +268,18 @@
                 {:report-kind :exception
                  :phase :declaration
                  :location {:file "test.clj" :line 7}
+                 :exception-class 'clojure.lang.ExceptionInfo
+                 :declaration-slot :output
+                 :rejected-schema #"^[a-z]+$"
                  :blame 'example/bad
                  :source-expression "(bad)"
                  :errors ["oops"]}
                 true)]
     (is (some #{["Location: \t\t" "test.clj:7"]} fields))
     (is (some #{["Phase: \t\t\t" "declaration"]} fields))
+    (is (some #{["Exception class: \t" "clojure.lang.ExceptionInfo"]} fields))
+    (is (some #{["Schema slot: \t\t" ":output"]} fields))
+    (is (some #{["Rejected schema: \t" "#\"^[a-z]+$\""]} fields))
     (is (some #{["Expression: \t\t" "(bad)"]} fields))
     (is (not-any? #(= "Blame: \t\t\t" (first %)) fields))))
 

@@ -932,12 +932,16 @@
    k2 :- s/Str]
   [k1 k2])
 
-(s/defn caller :- s/Any
+(s/defn guarded-keys-caller :- s/Any
   [gate :- s/Any]
   (let [pair (when gate (produce))
         {:keys [k1 k2]} pair]
     (when pair
       (consume k1 k2))))
+
+(s/defn caller :- #"^[a-z]+$"
+  []
+  "x")
 
 (s/defn takes-non-nil-str :- s/Str
   [s :- s/Str]

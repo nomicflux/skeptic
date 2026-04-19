@@ -35,6 +35,8 @@
   (throw (IllegalArgumentException.
           (format "Expected schema value: %s" (pr-str value)))))
 
+(declare admit-schema)
+
 (defn- import-result
   ([type]
    (import-result type #{}))
@@ -280,6 +282,177 @@
       :else
       (adapter-leaf-import-type schema))))
 
+(defn- admit-schema*
+  [run {:keys [schema active-refs]}]
+  (let [schema (one-step-schema-node schema)
+        scalar-schema (sb/canonical-scalar-schema schema)]
+    (cond
+      (instance? clojure.lang.Var schema)
+      (let [var-ref (or (sb/qualified-var-symbol schema) schema)]
+        (when (and (not (contains? active-refs var-ref))
+                   (bound? schema))
+          (run {:schema @schema
+                :active-refs (conj active-refs var-ref)}))
+        schema)
+
+      (nil? schema)
+      schema
+
+      (= schema sb/Bottom)
+      schema
+
+      (sb/placeholder-schema? schema)
+      schema
+
+      (or (= scalar-schema s/Num)
+          (and (class? scalar-schema) (= scalar-schema java.lang.Number)))
+      schema
+
+      (broad-dynamic-schema? scalar-schema)
+      schema
+
+      (instance? One schema)
+      (do
+        (run {:schema (:schema (into {} schema))
+              :active-refs active-refs})
+        schema)
+
+      (sb/schema-literal? schema)
+      schema
+
+      (s/optional-key? schema)
+      (do
+        (run {:schema (:k schema)
+              :active-refs active-refs})
+        schema)
+
+      (sb/eq? schema)
+      schema
+
+      (sb/constrained? schema)
+      (do
+        (run {:schema (sb/de-constrained schema)
+              :active-refs active-refs})
+        schema)
+
+      (primitive-ground-type scalar-schema)
+      schema
+
+      (sb/fn-schema? schema)
+      (let [{:keys [input-schemas output-schema]} (into {} schema)]
+        (run {:schema output-schema
+              :active-refs active-refs})
+        (doseq [inputs input-schemas
+                input inputs]
+          (run {:schema (fn-input-schema input)
+                :active-refs active-refs}))
+        schema)
+
+      (sb/maybe? schema)
+      (do
+        (run {:schema (:schema schema)
+              :active-refs active-refs})
+        schema)
+
+      (sb/enum-schema? schema)
+      schema
+
+      (sb/join? schema)
+      (do
+        (doseq [member (:schemas schema)]
+          (run {:schema member
+                :active-refs active-refs}))
+        schema)
+
+      (sb/either? schema)
+      (do
+        (doseq [member (:schemas schema)]
+          (run {:schema member
+                :active-refs active-refs}))
+        schema)
+
+      (sb/conditional-schema? schema)
+      (do
+        (doseq [[_pred branch] (:preds-and-schemas schema)]
+          (run {:schema branch
+                :active-refs active-refs}))
+        schema)
+
+      (sb/cond-pre? schema)
+      (do
+        (doseq [member (:schemas schema)]
+          (run {:schema member
+                :active-refs active-refs}))
+        schema)
+
+      (sb/both? schema)
+      (do
+        (doseq [member (:schemas schema)]
+          (run {:schema member
+                :active-refs active-refs}))
+        schema)
+
+      (sb/valued-schema? schema)
+      (do
+        (run {:schema (:schema schema)
+              :active-refs active-refs})
+        schema)
+
+      (sb/variable? schema)
+      (do
+        (run {:schema (:schema schema)
+              :active-refs active-refs})
+        schema)
+
+      (sb/plain-map-schema? schema)
+      (do
+        (doseq [[k v] schema]
+          (run {:schema k
+                :active-refs active-refs})
+          (run {:schema v
+                :active-refs active-refs}))
+        schema)
+
+      (vector? schema)
+      (do
+        (doseq [item schema]
+          (run {:schema item
+                :active-refs active-refs}))
+        schema)
+
+      (set? schema)
+      (do
+        (doseq [item schema]
+          (run {:schema item
+                :active-refs active-refs}))
+        schema)
+
+      (seq? schema)
+      (do
+        (doseq [item schema]
+          (run {:schema item
+                :active-refs active-refs}))
+        schema)
+
+      :else
+      schema)))
+
+(defn admit-schema
+  "Validate and admit a value into Skeptic's schema domain. Returns the
+  schema-domain value in the shape expected by `schema->type`."
+  [schema]
+  (letfn [(run [ctx]
+            (admit-schema* run ctx))]
+    (run {:schema schema
+          :active-refs #{}})))
+
+(defn schema-domain?
+  [schema]
+  (try
+    (some? (admit-schema schema))
+    (catch IllegalArgumentException _e
+      false)))
+
 (defn import-schema-type
   "Input must be in the schema domain."
   [schema]
@@ -292,4 +465,4 @@
 (defn schema->type
   "Input must be schema-domain (e.g. from admitted declarations)."
   [schema]
-  (import-schema-type schema))
+  (import-schema-type (admit-schema schema)))

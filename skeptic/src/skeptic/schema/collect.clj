@@ -1,5 +1,6 @@
 (ns skeptic.schema.collect
   (:require [clojure.string :as str]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.schema :as dschema]
@@ -117,18 +118,33 @@
             (or (ignore-body? v) opaque)
             (assoc :skeptic/ignore-body? true)))))))
 
+(defn- invalid-schema-annotation
+  [ns name slot value e]
+  (ex-info (format "Invalid schema annotation for %s/%s in %s: %s"
+                   ns
+                   name
+                   (pr-str slot)
+                   (pr-str value))
+           {:declaration-slot slot
+            :rejected-schema value}
+           e))
+
+(defn- schema-slots
+  [desc]
+  (concat [[:schema (:schema desc)]
+           [:output (:output desc)]]
+          (for [[slot entry] (:arglists desc)]
+            [[:arglist slot] (:schema entry)])))
+
 (defn- assert-admitted-schema-slots!
   "Admission boundary only: explicit :schema, :output, and arglist :schema slots."
   [ns name desc]
-  (doseq [value (concat [(:schema desc) (:output desc)]
-                        (keep :schema (vals (:arglists desc))))]
+  (doseq [[slot value] (schema-slots desc)]
     (when (some? value)
-      (when-not (abc/schema? value)
-        (throw (IllegalArgumentException.
-                (format "Invalid schema annotation for %s/%s: %s"
-                        ns
-                        name
-                        (pr-str value))))))))
+      (try
+        (ab/admit-schema value)
+        (catch IllegalArgumentException e
+          (throw (invalid-schema-annotation ns name slot value e)))))))
 
 (defn- build-annotated-schema-desc!
   [{:keys [schema ns name arglists]}]
@@ -239,15 +255,18 @@
 
 (defn declaration-error-result
   [ns-sym qualified-sym v e]
-  {:report-kind :exception
-   :phase :declaration
-   :blame qualified-sym
-   :enclosing-form qualified-sym
-   :namespace ns-sym
-   :location (select-keys (meta v) [:file :line :column :end-line :end-column])
-   :exception-class (symbol (.getName (class e)))
-   :exception-message (or (.getMessage e)
-                          (str e))})
+  (merge {:report-kind :exception
+          :phase :declaration
+          :blame qualified-sym
+          :enclosing-form qualified-sym
+          :namespace ns-sym
+          :location (select-keys (meta v) [:file :line :column :end-line :end-column])
+          :exception-class (symbol (.getName (class e)))
+          :exception-message (or (.getMessage e)
+                                 (str e))
+          :exception-data (ex-data e)}
+         (select-keys (or (ex-data e) {})
+                      [:declaration-slot :rejected-schema])))
 
 (defn ns-schema-results
   [_opts ns]

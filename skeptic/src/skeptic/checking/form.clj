@@ -1,6 +1,6 @@
 (ns skeptic.checking.form
   (:require [skeptic.analysis.annotate.api :as aapi]
-            [skeptic.analysis.bridge.canonicalize :as abc])
+            [skeptic.analysis.bridge :as ab])
   (:import [java.io File]))
 
 (def spy-on false)
@@ -23,7 +23,7 @@
 
 (defn valid-schema?
   [schema]
-  (boolean (abc/schema? schema)))
+  (ab/schema-domain? schema))
 
 (defmacro assert-schema
   [schema]

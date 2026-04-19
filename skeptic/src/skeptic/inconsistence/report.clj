@@ -34,19 +34,35 @@
        (str/join "\n\t- "
                  (map #(colours/yellow (str/replace % "\n" "\n\t  ")) detail-lines))))
 
+(defn- exception-detail-lines
+  [{:keys [exception-class declaration-slot rejected-schema]}]
+  (remove nil?
+          [(when exception-class
+             (str "Exception class: " exception-class))
+           (when declaration-slot
+             (str "Declaration slot: " (pr-str declaration-slot)))
+           (when (some? rejected-schema)
+             (str "Rejected schema: " (disp/ppr-str rejected-schema)))]))
+
 (defn exception-error-summary
-  [{:keys [phase blame exception-message]}]
+  [{:keys [phase blame exception-message] :as report}]
   (let [subject (case phase
                   :declaration (format "declared schema for %s" (pr-str blame))
                   :read (format "namespace input %s" (pr-str blame))
                   (format "expression %s" (colours/magenta (disp/ppr-str blame) true)))
+        detail-lines (exception-detail-lines report)
+        detail-block (when (seq detail-lines)
+                       (str "\n\n"
+                            (str/join "\n"
+                                      (map colours/yellow detail-lines))))
         skip-text (case phase
                     :declaration "Skeptic skipped this declaration and continued with the rest of the namespace."
                     :read "Skeptic localized this namespace read failure instead of aborting the namespace at the top level."
                     "Skeptic skipped this expression and continued with the rest of the namespace.")]
-    (format "Skeptic hit an exception while checking %s.\n\n%s\n\n%s"
+    (format "Skeptic hit an exception while checking %s.\n\n%s%s\n\n%s"
             subject
             (colours/yellow exception-message)
+            (or detail-block "")
             skip-text)))
 
 (defn report-ctx
@@ -226,11 +242,14 @@
 (defn report-summary
   [{:keys [location blame-side blame-polarity source-expression blame
            focus-sources focuses enclosing-form expanded-expression
-           phase]
+           phase exception-class declaration-slot rejected-schema]
     :as report}]
   (merge {:location location
           :report-kind (:report-kind report)
           :phase phase
+          :exception-class exception-class
+          :declaration-slot declaration-slot
+          :rejected-schema rejected-schema
           :blame-side blame-side
           :blame-polarity blame-polarity
           :source-expression source-expression

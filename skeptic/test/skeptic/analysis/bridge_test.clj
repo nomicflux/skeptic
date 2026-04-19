@@ -120,6 +120,16 @@
   (is (= at/NumericDyn (T s/Num)))
   (is (= at/NumericDyn (T java.lang.Number))))
 
+(deftest admit-schema-defines-the-shared-schema-boundary-test
+  (let [regex (ab/admit-schema #"^[a-z]+$")]
+    (is (instance? java.util.regex.Pattern regex))
+    (is (= "^[a-z]+$" (.pattern regex))))
+  (is (= {:a s/Int}
+         (ab/admit-schema {:a s/Int})))
+  (is (thrown-with-msg? IllegalArgumentException
+                        #"Expected schema value"
+                        (ab/admit-schema (at/->GroundT :int 'Int)))))
+
 (deftest schema-to-type-rejects-semantic-type-input-test
   (is (thrown-with-msg? IllegalArgumentException
                         #"Expected schema value"

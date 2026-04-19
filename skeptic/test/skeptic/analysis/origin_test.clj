@@ -152,7 +152,7 @@
                                                           'skeptic.test-examples
                                                           atst/test-examples-file
                                                           (atst/source-exprs-in 'skeptic.test-examples atst/test-examples-file))
-        ast (atst/ast-by-name resolved 'caller)
+        ast (atst/ast-by-name resolved 'guarded-keys-caller)
         guarded-if (aapi/find-node ast #(and (= :if (aapi/node-op %))
                                              (= 'pair (aapi/node-form (aapi/node-test %)))))
         pair-assumption (aapi/branch-test-assumption guarded-if)

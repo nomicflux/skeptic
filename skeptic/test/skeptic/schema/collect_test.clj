@@ -1,6 +1,7 @@
 (ns skeptic.schema.collect-test
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.types :as at]
             [skeptic.schema.collect :as sut]))
 
 (deftest arg-list-only-varargs
@@ -45,31 +46,31 @@
            (get-in schemas ['skeptic.schema.collect/fully-qualify-str :arglists 1 :schema 0 :schema])))))
 
 (deftest collect-schemas-rejects-invalid-schema-annotations-early
-  (is (thrown-with-msg? IllegalArgumentException
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"Invalid schema annotation"
-                        (sut/collect-schemas {:schema [(Object.)]
+                        (sut/collect-schemas {:schema [(at/->GroundT :int 'Int)]
                                               :ns 'skeptic.schema.collect
                                               :name 'invalid
                                               :arglists '([])}))))
 
-(deftest collect-schemas-rejects-invalid-nested-arg-schemas-early
-  (let [invalid-regex-schema (s/make-fn-schema s/Int
-                                               [[(s/one #"^[\u0020-\u007e]*$" 'x)]])
-        invalid-uuid-schema (s/make-fn-schema s/Int
-                                              [[(s/one (java.util.UUID/fromString
-                                                        "123e4567-e89b-12d3-a456-426614174000")
-                                                       'x)]])]
+(deftest collect-schemas-admits-regex-and-rejects-semantic-type-nested-args
+  (let [regex-schema (s/make-fn-schema s/Int
+                                       [[(s/one #"^[\u0020-\u007e]*$" 'x)]])
+        invalid-semantic-type-schema (s/make-fn-schema s/Int
+                                                       [[(s/one (at/->GroundT :int 'Int)
+                                                                'x)]])]
+    (let [regex (get-in (sut/collect-schemas {:schema regex-schema
+                                              :ns 'skeptic.schema.collect
+                                              :name 'regex-ok
+                                              :arglists '([x])})
+                        [:arglists 1 :schema 0 :schema])]
+      (is (instance? java.util.regex.Pattern regex))
+      (is (= "^[\\u0020-\\u007e]*$" (.pattern regex))))
     (is (thrown-with-msg? IllegalArgumentException
-                          #"Invalid schema annotation"
-                          (sut/collect-schemas {:schema invalid-regex-schema
+                          #"Expected schema value"
+                          (sut/collect-schemas {:schema invalid-semantic-type-schema
                                                 :ns 'skeptic.schema.collect
-                                                :name 'invalid-regex
-                                                :arglists '([x])})))
-    (is (thrown-with-msg? IllegalArgumentException
-                          #"Invalid schema annotation"
-                          (sut/collect-schemas {:schema invalid-uuid-schema
-                                                :ns 'skeptic.schema.collect
-                                                :name 'invalid-uuid
+                                                :name 'invalid-semantic-type
                                                 :arglists '([x])})))))
 
 (deftest ns-schema-results-localizes-invalid-declarations

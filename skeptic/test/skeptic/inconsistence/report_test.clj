@@ -199,13 +199,19 @@
 (deftest exception-summary-is-clear-and-user-facing
   (let [summary (sut/report-summary
                  {:report-kind :exception
-                  :phase :expression
-                  :blame '(bad-form)
+                  :phase :declaration
+                  :blame 'example/bad
+                  :exception-class 'clojure.lang.ExceptionInfo
+                  :declaration-slot :output
+                  :rejected-schema #"^[a-z]+$"
                   :exception-message "boom during analysis"})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
     (is (str/includes? error "Skeptic hit an exception while checking"))
     (is (str/includes? error "boom during analysis"))
+    (is (str/includes? error "Exception class: clojure.lang.ExceptionInfo"))
+    (is (str/includes? error "Declaration slot: :output"))
+    (is (str/includes? error "Rejected schema: #\"^[a-z]+$\""))
     (is (str/includes? error "continued with the rest of the namespace"))))
 
 (deftest output-summary-omits-redundant-in-when-focus-equals-expression

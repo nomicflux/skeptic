@@ -10,7 +10,6 @@
             [skeptic.analysis.annotate.jvm :as jvm]
             [skeptic.analysis.annotate.match :as match]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.native-fns :as native-fns]
@@ -73,7 +72,7 @@
   [ctx node]
   (when-let [type-form (:skeptic/type (meta (aapi/node-form node)))]
     (let [schema (eval-skeptic-type (:ns ctx) type-form)]
-      (when-not (abc/schema? schema)
+      (when-not (ab/schema-domain? schema)
         (throw (IllegalArgumentException.
                 (format "Invalid :skeptic/type override: %s" (pr-str type-form)))))
       (ab/schema->type schema))))

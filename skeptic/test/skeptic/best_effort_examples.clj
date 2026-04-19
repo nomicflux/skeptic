@@ -1,7 +1,8 @@
 (ns skeptic.best-effort-examples
-  (:require [schema.core :as s]))
+  (:require [schema.core :as s]
+            [skeptic.analysis.types :as at]))
 
-(defn ^{:schema [(Object.)]}
+(defn ^{:schema [(at/->GroundT :int 'Int)]}
   invalid-schema-decl
   [x]
   x)

@@ -183,6 +183,7 @@
      'skeptic.test-examples/when-and-some?-and-nil-success
      'skeptic.test-examples/when-and-some?-multi-nil-success
      'skeptic.test-examples/when-not-throw-nil-local-success
+     'skeptic.test-examples/guarded-keys-caller
      'skeptic.test-examples/caller
      'skeptic.test-examples/abcde-maps
      'skeptic.test-examples/a-dissoc
@@ -233,9 +234,32 @@
 
 (deftest guarded-keys-maybe-s-caller-pipeline
   (in-test-examples
-   (let [res (check-fn test-dict 'skeptic.test-examples/caller)]
+   (let [res (check-fn test-dict 'skeptic.test-examples/guarded-keys-caller)]
      (is (empty? (result-errors res))
          (str "expected no checker errors; got: " (pr-str (result-errors res)))))))
+
+(deftest regex-output-caller-shares-schema-admission-boundary
+  (in-test-examples
+   (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples)
+         declaration-error (some #(when (= 'skeptic.test-examples/caller
+                                           (:blame %))
+                                    %)
+                                 errors)
+         namespace-results (sut/check-namespace {:remove-context true}
+                                                'skeptic.test-examples
+                                                test-file)
+         namespace-declaration-error (some #(when (and (= :declaration (:phase %))
+                                                       (= 'skeptic.test-examples/caller
+                                                          (:blame %)))
+                                              %)
+                                           namespace-results)]
+     (is (contains? entries 'skeptic.test-examples/caller))
+     (is (nil? declaration-error)
+         (str "expected caller to admit cleanly; got " (pr-str declaration-error)))
+     (is (nil? namespace-declaration-error)
+         (str "expected no declaration exception for caller; got "
+              (pr-str namespace-declaration-error)))
+     (is (= [] (check-fn test-dict 'skeptic.test-examples/caller))))))
 
 (deftest new-failing-function
   (in-test-examples

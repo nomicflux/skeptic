@@ -78,7 +78,8 @@
   ([{:keys [report-kind phase location blame-side blame-polarity rule rule-text
            actual-type actual-type-text expected-type expected-type-text
            source-expression blame focus-sources focuses enclosing-form
-           expanded-expression]}
+           expanded-expression exception-class declaration-slot
+           rejected-schema]}
    verbose]
   (if (= :exception report-kind)
     (remove nil?
@@ -86,6 +87,12 @@
                ["Location: \t\t" location-text])
              (when verbose
                ["Phase: \t\t\t" (name phase)])
+             (when (and verbose exception-class)
+               ["Exception class: \t" (str exception-class)])
+             (when (and verbose declaration-slot)
+               ["Schema slot: \t\t" (pr-str declaration-slot)])
+             (when (and verbose (some? rejected-schema))
+               ["Rejected schema: \t" (pr-str rejected-schema)])
              (when verbose
                ["Expression: \t\t" (or source-expression (pr-str blame))])
              (when (and verbose enclosing-form)
