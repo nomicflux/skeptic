@@ -5,6 +5,16 @@
 Before changing the cast engine or related type-analysis code, read `docs/blame-for-all.md`.
 Use it as the high-level algorithm reference for the library's core cast and blame behavior.
 
+## Deliverable matching (agents)
+
+When implementing or answering from this doc, **match the requested artifact and audience**. Do not substitute a different deliverable and treat it as equivalent.
+
+Examples:
+- **Audience:** Material for maintainers (credentials layout, release mechanics, internal rationale) belongs in **`AGENTS.md`**, `docs/`, workflow comments, or other non–end-user surfaces—not in the root **`README.md`**, which is for people consuming Skeptic as a tool.
+- **Fidelity:** If the request is a concrete workflow, file change, or behavior spec, implement **that** (or say what blocks you and ask one focused question)—do not replace it with a shortened story plus “human discipline” or process prose.
+- **Navigation / “where in UI”:** If the request is how to reach a page in GitHub or another product, the answer is an **ordered list of exact UI labels** for every hop (e.g. Settings → Security → …). Omitting a parent step produces a **wrong** path, not a summary.
+- **If the real answer is “I cannot without X”** (missing access, ambiguous scope), say so or ask—**do not** ship a different-shaped answer and imply it satisfies the ask.
+
 ## Project Setup
 
 1. This is `leiningen` project for a Clojure app
@@ -205,4 +215,4 @@ In short:
 
 Version bumps, `script/verify-monorepo-versions.sh`, GitHub Actions workflows,
 and Clojars deployment are documented in [../docs/releasing.md](../docs/releasing.md)
-at the repository root (not in the public `README.md`).
+at the repository root.

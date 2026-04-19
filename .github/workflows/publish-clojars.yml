@@ -19,7 +19,9 @@ on:
     secrets:
       CLOJARS_USERNAME:
         required: false
-      CLOJARS_PASSWORD:
+      CLOJARS_SKEPTIC_TOKEN:
+        required: false
+      CLOJARS_LEIN_SKEPTIC_TOKEN:
         required: false
   workflow_dispatch:
     inputs:
@@ -98,19 +100,37 @@ jobs:
         run: lein with-profile +skeptic-plugin skeptic
         working-directory: skeptic
 
-      - name: Configure Leiningen Clojars credentials
+      - name: Configure Leiningen Clojars credentials (skeptic)
         if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+          CLOJARS_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_SKEPTIC_TOKEN }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.lein
-          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_PASSWORD}\"}}" > ~/.lein/credentials.clj
+          if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_SKEPTIC_TOKEN}" ]]; then
+            echo "Deploy needs repository secrets CLOJARS_USERNAME and CLOJARS_SKEPTIC_TOKEN."
+            exit 1
+          fi
+          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
 
       - name: Deploy skeptic to Clojars
         if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
         run: lein deploy clojars
         working-directory: skeptic
+
+      - name: Configure Leiningen Clojars credentials (lein-skeptic)
+        if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_LEIN_SKEPTIC_TOKEN: ${{ secrets.CLOJARS_LEIN_SKEPTIC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOJARS_USERNAME}" || -z "${CLOJARS_LEIN_SKEPTIC_TOKEN}" ]]; then
+            echo "Deploy needs repository secrets CLOJARS_USERNAME and CLOJARS_LEIN_SKEPTIC_TOKEN."
+            exit 1
+          fi
+          printf '%s\n' "{#\"https://repo.clojars.org\" {:username \"${CLOJARS_USERNAME}\" :password \"${CLOJARS_LEIN_SKEPTIC_TOKEN}\"}}" > ~/.lein/credentials.clj
 
       - name: Deploy lein-skeptic to Clojars
         if: inputs.dry_run == 'no' && inputs.confirm == 'PUBLISH'
@@ -121,4 +141,4 @@ jobs:
         if: inputs.dry_run != 'no' || inputs.confirm != 'PUBLISH'
         run: |
           echo "Skipping deploy (dry_run=${{ inputs.dry_run }}, confirm set=${{ inputs.confirm != '' }})."
-          echo "To deploy: set dry_run to no, confirm to PUBLISH, and configure CLOJARS_USERNAME / CLOJARS_PASSWORD secrets."
+          echo "To deploy: dry_run=no, confirm=PUBLISH, and secrets CLOJARS_USERNAME, CLOJARS_SKEPTIC_TOKEN, CLOJARS_LEIN_SKEPTIC_TOKEN."

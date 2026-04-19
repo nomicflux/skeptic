@@ -12,10 +12,22 @@ Library and plugin versions must stay aligned; CI runs `bash script/verify-monor
 
 **Snapshot-only deploy** (e.g. ship `0.7.0-SNAPSHOT` without opening the next dev line): run **Publish to Clojars** only, with the repo already on the snapshot coordinates you want.
 
+### Repository secrets (Actions deploy)
+
+Under **Settings → Security → Secrets and variables → Actions**:
+
+| Secret | Used for |
+|--------|----------|
+| **`CLOJARS_USERNAME`** | Clojars username (both deploy steps). |
+| **`CLOJARS_SKEPTIC_TOKEN`** | Deploy token for **`org.clojars.nomicflux/skeptic`** (`lein deploy` in `skeptic/`). |
+| **`CLOJARS_LEIN_SKEPTIC_TOKEN`** | Deploy token for **`org.clojars.nomicflux/lein-skeptic`** (`lein deploy` in `lein-skeptic/`). |
+
+The publish workflow refreshes `~/.lein/credentials.clj` before each deploy. If one Clojars token is valid for both artifacts, set the same value on both token secrets.
+
 ## Stable line example (`0.7.0`)
 
 1. **Release lifecycle** → `prepare_stable_release` — e.g. `from_version` `0.7.0-SNAPSHOT`, `to_version` `0.7.0`. Merge the PR when CI is green, update [`CHANGELOG.md`](../CHANGELOG.md) for `0.7.0`, tag **`v0.7.0`**.
-2. **Release lifecycle** → `publish_to_clojars` — `dry_run` **no**, `confirm` **`PUBLISH`** (needs `CLOJARS_USERNAME` / `CLOJARS_PASSWORD` secrets). Deploys **skeptic** then **lein-skeptic**. Or use **Publish to Clojars** alone with the same inputs.
+2. **Release lifecycle** → `publish_to_clojars` — `dry_run` **no**, `confirm` **`PUBLISH`** (needs the three Action secrets in the table above). Deploys **skeptic** then **lein-skeptic**. Or use **Publish to Clojars** alone with the same inputs.
 3. **Release lifecycle** → `begin_next_development` — e.g. `from_version` `0.7.0`, `to_version` `0.8.0-SNAPSHOT`. Merge the PR when ready.
 
 4. Publish a [GitHub Release](https://github.com/nomicflux/skeptic/releases) for `v0.7.0`; paste the changelog section for that version.

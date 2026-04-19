@@ -6,35 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Clojars coordinates `org.clojars.nomicflux/skeptic` and `org.clojars.nomicflux/lein-skeptic`, `:deploy-repositories` for Leiningen, CI version alignment (`script/verify-monorepo-versions.sh`), and GitHub Actions: **Release lifecycle** (orchestrates phases), **Change project versions** (reusable version bump), and **Publish to Clojars** (reusable deploy; see [`docs/releasing.md`](docs/releasing.md)).
-- GitHub Actions CI (`.github/workflows/ci.yml`) running automated checks on
-  pushes and pull requests.
+- Clojars coordinates `org.clojars.nomicflux/skeptic` and `org.clojars.nomicflux/lein-skeptic`, `:deploy-repositories` for Leiningen, CI checks that keep the library and plugin versions aligned before publish, and GitHub Actions for **Release lifecycle** (orchestrates phases), **Change project versions** (reusable version bump), and **Publish to Clojars** (reusable deploy to Clojars).
+- GitHub Actions CI running automated checks on pushes and pull requests.
 - `lein skeptic -p` / `--porcelain` for newline-delimited JSON output (one
-  object per line) via `skeptic.output.porcelain`, documented in the README.
+  JSON object per line), documented in the README.
 - `lein skeptic --profile` for optional CPU, memory, and wall-clock profiling;
   when combined with `--porcelain`, the profile summary is written to stderr so
   stdout stays JSONL-only.
 - Optional project `.skeptic/config.edn` with `:exclude-files` (root-relative
   globs that skip loading and checking matched paths) and `:type-overrides`
   (Plumatic Schema forms evaluated with `schema.core` in scope and merged into
-  collected declarations, including `:output`-only overrides), wired through
-  `skeptic.config`.
+  collected declarations, including `:output`-only overrides).
 - Fine-grained check controls: `:skeptic/ignore-body` and `:skeptic/opaque` on
   `s/defn` attribute maps, and `^{:skeptic/type T}` on expressions (see README
-  *Suppressing checks*); the expression type pin is applied through
-  `skeptic.analysis.annotate.api`.
-- `AGENTS.md` for contributors: namespace map, type-domain versus schema-domain
-  rules, no re-exports, and API boundaries for `skeptic.analysis.annotate.api`,
-  `skeptic.analysis.bridge`, and `skeptic.analysis.cast`.
+  *Suppressing checks*).
 - An expanded user-facing `README.md` that explains what Skeptic checks, how
-  the plugin works, how to install it, how to interpret its reports, and where
-  to find the algorithm reference (including later sections on configuration,
-  JSONL output, suppressions, and building from source); maintainer release
-  steps live in `docs/releasing.md`.
+  the plugin works, how to install it, how to interpret its reports, where to
+  find the algorithm reference, and how to use configuration, JSONL output,
+  suppressions, and a short “building from source” section.
 - A new `--analyzer` CLI flag to print analyzer output while inspecting a
   namespace.
-- A new `skeptic/docs/blame-for-all.md` reference document describing the
-  directional blame-style cast algorithm used by the checker.
 - Richer mismatch reports with source expressions, file and line information,
   enclosing forms, and affected inputs.
 - Output validation for function bodies, so Skeptic now checks declared
@@ -56,10 +47,10 @@ All notable changes to this project will be documented in this file.
   Plumatic Schema aliases, map keys, and maybe types compare more consistently.
 - Expanded namespace declaration collection to inspect schematized interned vars
   instead of only public vars.
-- Further split analysis and checking across focused namespaces
-  (`skeptic.analysis.annotate.*` with `skeptic.analysis.annotate.api`,
-  bridge/cast/inconsistence modules, `skeptic.checking.pipeline`), with continued
-  cast and blame-path refinements aligned to `docs/blame-for-all.md`.
+- Further refactored analysis and the per-namespace checking pipeline, with
+  continued improvements to the directional cast and blame reporting model
+  (theory from Ahmed, Findler, Siek, and Wadler, *Blame for All*, POPL 2011; see
+  [README](README.md#cast-checking-and-attribution)).
 - Leiningen plugin uses an explicit Skeptic dependency profile so classpath wiring for the library stays clear.
 
 ### Fixed
