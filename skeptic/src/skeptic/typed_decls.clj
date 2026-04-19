@@ -1,6 +1,8 @@
 (ns skeptic.typed-decls
   (:require [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.malli-spec.bridge :as amb]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.malli-spec.collect :as mcollect]
             [skeptic.schema.collect :as collect]))
 
 (declare typed-ns-results)
@@ -62,17 +64,47 @@
                                   [k (arglist->typed-entry v)]))
                            arglists))))
 
+(defn- malli-desc->typed-entry
+  [{:keys [name malli-spec]}]
+  {:name name
+   :type (amb/malli-spec->type malli-spec)})
+
 (defn desc->typed-entry
-  [{:keys [name schema arglists] :as desc}]
+  [{:keys [name schema malli-spec arglists] :as desc}]
   (when desc
-    (let [entry (if (or (sb/fn-schema? schema)
-                        (seq arglists))
+    (let [entry (cond
+                  (some? malli-spec)
+                  (malli-desc->typed-entry desc)
+
+                  (or (sb/fn-schema? schema)
+                      (seq arglists))
                   (callable-desc->typed-entry desc)
+
+                  :else
                   {:name name
                    :type (ab/schema->type schema)})]
       (cond-> entry
         (:skeptic/ignore-body? desc)
         (assoc :skeptic/ignore-body? true)))))
+
+(defn- convert-descs
+  [ns descs initial-errors]
+  (reduce (fn [{:keys [entries errors]} [qualified-sym desc]]
+            (try
+              (if-let [typed-entry (desc->typed-entry desc)]
+                {:entries (assoc entries qualified-sym typed-entry)
+                 :errors errors}
+                {:entries entries
+                 :errors errors})
+              (catch Exception e
+                {:entries entries
+                 :errors (conj errors
+                               (collect/declaration-error-result ns
+                                                                 qualified-sym
+                                                                 (resolve qualified-sym)
+                                                                 e))})))
+          {:entries {} :errors (vec initial-errors)}
+          descs))
 
 (defn typed-ns-entries
   [opts ns]
@@ -80,22 +112,9 @@
 
 (defn typed-ns-results
   [opts ns]
-  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)
-        result (reduce (fn [{:keys [entries errors]} [qualified-sym schema-desc]]
-                         (try
-                           (if-let [typed-entry (desc->typed-entry schema-desc)]
-                             {:entries (assoc entries qualified-sym typed-entry)
-                              :errors errors}
-                             {:entries entries
-                              :errors errors})
-                           (catch Exception e
-                             {:entries entries
-                              :errors (conj errors
-                                            (collect/declaration-error-result ns
-                                                                              qualified-sym
-                                                                              (resolve qualified-sym)
-                                                                              e))})))
-                       {:entries {}
-                        :errors (vec errors)}
-                       entries)]
+  (let [{schema-entries :entries schema-errors :errors} (collect/ns-schema-results opts ns)
+        {malli-entries :entries malli-errors :errors} (mcollect/ns-malli-spec-results opts ns)
+        descs (merge schema-entries malli-entries)
+        initial-errors (concat schema-errors malli-errors)
+        result (convert-descs ns descs initial-errors)]
     (update result :entries merge (:skeptic/type-overrides opts))))

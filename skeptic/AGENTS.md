@@ -46,7 +46,12 @@ Source namespace families:
   Declaration admission pipeline.
   `skeptic.schema` defines the admitted schema description shape.
   `skeptic.schema.collect` reads var metadata and admits raw Plumatic schema declarations.
-  `skeptic.typed-decls` converts admitted schema descriptions into typed entries via `schema->type`.
+  `skeptic.typed-decls` converts admitted schema and malli-spec descriptions into typed entries via `schema->type` / `malli-spec->type`.
+- `skeptic.malli-spec`, `skeptic.malli-spec.collect`, `skeptic.analysis.malli-spec.bridge`:
+  MalliSpec-domain admission and boundary (currently stubbed — see `docs/malli-reference.md`).
+  `skeptic.malli-spec` defines the admitted `MalliSpecDesc` shape and uses `:malli-spec` everywhere; it never carries `:schema`, which is reserved for Plumatic.
+  `skeptic.malli-spec.collect` is a stub returning empty results; entry-point shape only.
+  `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type` (stub: returns `Dyn` for now).
 - `skeptic.analysis.bridge` and `skeptic.analysis.bridge.*`:
   Schema-domain to type-domain boundary.
   `skeptic.analysis.bridge` imports schemas into semantic types.
@@ -141,9 +146,13 @@ Use this pattern to avoid large mutually recursive clusters.
 
 The goal is to keep recursion explicit, local, and easy to reason about.
 
-## Type Domain vs Schema Domain
+## Domains
 
-The library has two different representations that must not be confused.
+The library has three domains that must not be confused: Schema, MalliSpec, and Type.
+
+Conversion is one-way into Type: `Schema → Type` (via `skeptic.analysis.bridge/schema->type`) and `MalliSpec → Type` (via `skeptic.analysis.malli-spec.bridge/malli-spec->type`). There is no `Type → Schema`, `Type → MalliSpec`, `Schema → MalliSpec`, or `MalliSpec → Schema`.
+
+`:schema` as a keyword in this codebase means Plumatic Schema, always. Malli data at the admission boundary is carried as `:malli-spec` (and read from `:malli/schema` var metadata or from `malli.core/function-schemas`) so the Plumatic collector never sees it.
 
 ### Schema Domain
 
@@ -158,6 +167,12 @@ Examples include:
 
 This domain exists because users write schemas and external APIs provide schemas.
 It is the input format at the boundary.
+
+### MalliSpec Domain
+
+The MalliSpec domain is the external [Malli](https://github.com/metosin/malli) schema representation — Malli vector/map/AST forms such as `:int`, `[:=> [:cat :int] :int]`, `[:map [:x :int]]`, `[:function ...]`. See `docs/malli-reference.md` for the forms Skeptic targets and what is currently stubbed.
+
+Entry points are wired in but stubbed at this stage: `ns-malli-spec-results` returns no entries, `admit-malli-spec` canonicalizes via `m/form`, and `malli-spec->type` returns `Dyn`. Real discovery (`:malli/schema` metadata, `malli.core/function-schemas` registry covering `m/=>` and `malli.experimental/defn`), leaf conversion, callable-shape parsing, and Schema/MalliSpec conflict resolution are deferred. `.skeptic/config.edn` `:type-overrides` and `:skeptic/type` metadata remain Schema-only.
 
 ### Type Domain
 
@@ -187,8 +202,7 @@ and branching with the corresponding `at/*-type?` predicates.
 
 ## Boundary Rule
 
-Convert from schema domain into type domain at the boundary with `schema->type`.
-In this codebase that means `skeptic.analysis.bridge/schema->type`.
+Convert from an external domain into the type domain at the boundary: `schema->type` for Plumatic (`skeptic.analysis.bridge/schema->type`), `malli-spec->type` for Malli (`skeptic.analysis.malli-spec.bridge/malli-spec->type`).
 
 Preferred flow:
 

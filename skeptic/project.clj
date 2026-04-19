@@ -13,6 +13,7 @@
   :plugins [[jonase/eastwood "1.3.0"]]
   :dependencies [[prismatic/schema           "1.1.12"]
                  [prismatic/plumbing         "0.6.0"]
+                 [metosin/malli              "0.20.1"]
                  [org.clojure/clojure        "1.11.1"]
                  [org.clojure/data.json      "2.5.1"]
                  [org.clojure/tools.analyzer "1.1.1"]
