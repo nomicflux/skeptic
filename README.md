@@ -51,7 +51,7 @@ ACM. [https://doi.org/10.1145/1926385.1926409](https://doi.org/10.1145/1926385.1
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.0"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.1-SNAPSHOT"]]
 ```
 
 If you need to override the default dependency profile, add a `:skeptic`

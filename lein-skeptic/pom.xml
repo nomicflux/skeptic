@@ -4,7 +4,7 @@
   <groupId>org.clojars.nomicflux</groupId>
   <artifactId>lein-skeptic</artifactId>
   <packaging>jar</packaging>
-  <version>0.7.0</version>
+  <version>0.7.1-SNAPSHOT</version>
   <name>lein-skeptic</name>
   <description>Static type checking for Clojure projects that use Plumatic Schema</description>
   <url>https://github.com/nomicflux/skeptic</url>
@@ -61,7 +61,7 @@
     <dependency>
       <groupId>org.clojars.nomicflux</groupId>
       <artifactId>skeptic</artifactId>
-      <version>0.7.0</version>
+      <version>0.7.1-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
