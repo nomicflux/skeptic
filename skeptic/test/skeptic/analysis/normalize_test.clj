@@ -12,14 +12,16 @@
 
 (deftest declaration-index-contract-test
   (let [dict (typed-decls/typed-ns-entries {} 'skeptic.test-examples.resolution)
-        forward-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/forward-declared-target))
-        recursive-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/self-recursive-identity))]
-    (is (= [(T s/Any)]
-           (-> forward-entry :arglists (get 1) :types (->> (mapv :type)))))
-    (is (= (T s/Any) (:output-type forward-entry)))
-    (is (= [(T s/Any)]
-           (-> recursive-entry :arglists (get 1) :types (->> (mapv :type)))))
-    (is (= (T s/Any) (:output-type recursive-entry)))))
+        takes-str-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/flat-multi-step-takes-str))
+        takes-int-entry (an/normalize-entry (get dict 'skeptic.test-examples.resolution/flat-multi-step-takes-int))]
+    (is (not (contains? dict 'skeptic.test-examples.resolution/forward-declared-target)))
+    (is (not (contains? dict 'skeptic.test-examples.resolution/self-recursive-identity)))
+    (is (= [(T s/Str)]
+           (-> takes-str-entry :arglists (get 1) :types (->> (mapv :type)))))
+    (is (= (T s/Str) (:output-type takes-str-entry)))
+    (is (= [(T s/Int)]
+           (-> takes-int-entry :arglists (get 1) :types (->> (mapv :type)))))
+    (is (= (T s/Int) (:output-type takes-int-entry)))))
 
 (deftest normalize-entry-rejects-raw-schema-only-entries
   (is (thrown-with-msg? IllegalArgumentException

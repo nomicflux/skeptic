@@ -132,7 +132,7 @@
   [opts ns]
   (let [{schema-entries :entries schema-errors :errors} (collect/ns-schema-results opts ns)
         {malli-entries :entries malli-errors :errors} (mcollect/ns-malli-spec-results opts ns)
-        descs (merge schema-entries malli-entries)
+        descs (merge malli-entries schema-entries)
         initial-errors (concat schema-errors malli-errors)
         result (convert-descs ns descs initial-errors)]
     (update result :entries merge (:skeptic/type-overrides opts))))
