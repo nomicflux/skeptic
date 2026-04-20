@@ -32,4 +32,4 @@
 (deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes
   (is (= at/Dyn (sut/malli-spec->type [:map [:x :int]])))
   (is (= at/Dyn (sut/malli-spec->type [:vector :int])))
-  (is (= at/Dyn (sut/malli-spec->type :int))))
+  (is (= (at/->GroundT :int 'Int) (sut/malli-spec->type :int))))

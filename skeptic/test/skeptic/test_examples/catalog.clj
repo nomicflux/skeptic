@@ -4,12 +4,13 @@
             [skeptic.test-examples.control-flow]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
+            [skeptic.test-examples.malli-contracts]
             [skeptic.test-examples.nullability]
             [skeptic.test-examples.resolution]
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
-(def fixture-order
+(def schema-fixture-order
   [:basics
    :control-flow
    :collections
@@ -17,6 +18,9 @@
    :contracts
    :nullability
    :fixture-flags])
+
+(def malli-fixture-order
+  [:malli-contracts])
 
 (def fixture-envs
   {:basics {:ns 'skeptic.test-examples.basics
@@ -32,7 +36,9 @@
    :nullability {:ns 'skeptic.test-examples.nullability
                  :file (File. "test/skeptic/test_examples/nullability.clj")}
    :fixture-flags {:ns 'skeptic.test-examples.fixture-flags
-                   :file (File. "test/skeptic/test_examples/fixture_flags.clj")}})
+                   :file (File. "test/skeptic/test_examples/fixture_flags.clj")}
+   :malli-contracts {:ns 'skeptic.test-examples.malli-contracts
+                     :file (File. "test/skeptic/test_examples/malli_contracts.clj")}})
 
 (def documented-canary-symbols
   ['skeptic.test-examples.basics/sample-unannotated-fn
@@ -102,7 +108,7 @@
                         acc
                         (keys (ns-publics ns-sym)))))
             {}
-            fixture-order)))
+            (concat schema-fixture-order malli-fixture-order))))
 
 (defn owner-of
   [sym]
@@ -116,7 +122,7 @@
                     {entries :entries} (typed-decls/typed-ns-results {} ns-sym)]
                 (merge acc entries)))
             {}
-            fixture-order)))
+            schema-fixture-order)))
 
 (defn typed-test-example-entries
   []
