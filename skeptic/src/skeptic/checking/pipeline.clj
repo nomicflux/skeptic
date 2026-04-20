@@ -256,29 +256,8 @@
     (let [qualified-sym (ac/qualify-symbol ns-sym (second source-form))]
       (boolean (:skeptic/ignore-body? (get dict qualified-sym))))))
 
-(defn- node->debug-map
-  [node]
-  (assoc (aapi/node-info node)
-         :op (aapi/node-op node)
-         :form (aapi/node-form node)
-         :location (aapi/node-location node)
-         :tag (aapi/node-tag node)
-         :var (aapi/node-var node)
-         :name (aapi/node-name node)))
-
-(defn- debug-form-record
-  [ns-sym source-file source-form enclosing-form analyzed raw-results ignored?]
-  {:report-kind :debug-form
-   :ns ns-sym
-   :source-file source-file
-   :source-form source-form
-   :enclosing-form enclosing-form
-   :ignored-body? (boolean ignored?)
-   :nodes (mapv node->debug-map (aapi/annotated-nodes analyzed))
-   :raw-results (vec raw-results)})
-
 (defn check-resolved-form
-  [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug]}]
+  [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? dict ns-sym source-form)
         results (if ignored?
@@ -298,8 +277,16 @@
                                                  []))))))
                        vec))
         debug-records (when debug
-                        [(debug-form-record ns-sym source-file source-form
-                                            enclosing-form analyzed results ignored?)])
+                        [{:report-kind    :debug-form
+                          :ns             ns-sym
+                          :source-file    source-file
+                          :source-form    source-form
+                          :enclosing-form enclosing-form
+                          :ignored-body?  (boolean ignored?)
+                          :dict           dict
+                          :analyzed       analyzed
+                          :opts           opts
+                          :raw-results    results}])
         filtered (cond->> results
                    (not keep-empty)
                    (remove (comp empty? :errors))

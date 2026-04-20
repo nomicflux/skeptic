@@ -30,7 +30,7 @@
 (defn- with-debug
   [record opts result]
   (cond-> record
-    (:debug opts) (assoc :debug {:raw_result (ser/json-safe result)})))
+    (:debug opts) (assoc :debug {:raw-result (ser/json-safe result)})))
 
 (defn- exception-record
   [ns result {:keys [phase location blame errors]} opts]
@@ -74,17 +74,6 @@
        :messages (mapv strip-ansi errors)}
       opts result)))
 
-(defn- debug-form-record
-  [ns {:keys [source-file source-form enclosing-form nodes raw-results ignored-body?]}]
-  {:kind "debug-form"
-   :ns (str ns)
-   :file (when source-file (str source-file))
-   :source_form (->str source-form)
-   :enclosing_form (->str enclosing-form)
-   :ignored_body (boolean ignored-body?)
-   :nodes (mapv ser/json-safe nodes)
-   :results (mapv ser/json-safe raw-results)})
-
 (defn- run-summary-record
   [errored? {:keys [finding-count exception-count namespace-count
                     namespaces-with-findings]}]
@@ -103,13 +92,12 @@
                                    :message message}))
    :ns-start (fn [_ns _source-file _opts])
    :finding (fn [ns result summary opts]
-              (write-line-raw!
-               (drop-empties
-                (if (= :exception (:report-kind summary))
-                  (exception-record ns result summary opts)
-                  (finding-record ns result summary opts)))))
-   :form-debug (fn [ns result _opts]
-                 (write-line-raw! (debug-form-record ns result)))
+              (let [record (if (= :exception (:report-kind summary))
+                             (exception-record ns result summary opts)
+                             (finding-record ns result summary opts))]
+                (write-line-raw! (if (:debug opts) record (drop-empties record)))))
+   :form-debug (fn [_ns record _opts]
+                 (write-line-raw! (ser/json-safe record)))
    :ns-end (fn [_ns _count _opts])
    :run-end (fn [errored? totals]
               (write-line! (run-summary-record errored? totals)))})

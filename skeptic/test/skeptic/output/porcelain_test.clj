@@ -112,45 +112,17 @@
   (is (empty? (str/trim (with-out-str ((:ns-start sut/printer) 'foo nil {})))))
   (is (empty? (str/trim (with-out-str ((:ns-end sut/printer) 'foo 0 {}))))))
 
-(deftest debug-form-record-shape
-  (let [[line & more] (capture-lines
-                       #((:form-debug sut/printer)
-                         'foo.bar
-                         {:report-kind :debug-form
-                          :ns 'foo.bar
-                          :source-file "src/foo.clj"
-                          :source-form '(defn f [x] x)
-                          :enclosing-form 'foo.bar/f
-                          :ignored-body? false
-                          :nodes [{:op :def :form 'f :name 'f}]
-                          :raw-results []}
-                         {}))
-        parsed (parse-line line)]
-    (is (empty? more))
-    (is (= "debug-form" (:kind parsed)))
-    (is (= "foo.bar" (:ns parsed)))
-    (is (= "src/foo.clj" (:file parsed)))
-    (is (= "foo.bar/f" (:enclosing_form parsed)))
-    (is (false? (:ignored_body parsed)))
-    (is (vector? (:nodes parsed)))
-    (is (= 1 (count (:nodes parsed))))
-    (is (= [] (:results parsed)))))
-
-(deftest debug-form-record-surfaces-ignored-body
-  (let [[line] (capture-lines
-                #((:form-debug sut/printer)
-                  'foo.bar
-                  {:report-kind :debug-form
-                   :ns 'foo.bar
-                   :source-file "src/foo.clj"
-                   :source-form '(s/defn f :- s/Int [x] x)
-                   :enclosing-form 'foo.bar/f
-                   :ignored-body? true
-                   :nodes []
-                   :raw-results []}
-                  {}))
-        parsed (parse-line line)]
-    (is (true? (:ignored_body parsed)))))
+(deftest debug-form-record-is-verbatim-edn-dump
+  (testing "one line, containing the EDN of the record as emitted at the wire-tap"
+    (let [record {:report-kind :debug-form
+                  :ns 'foo.bar
+                  :source-form '(defn f [x] x)}
+          [line & more] (capture-lines
+                         #((:form-debug sut/printer) 'foo.bar record {}))
+          parsed (parse-line line)]
+      (is (empty? more))
+      (is (string? parsed))
+      (is (= record (read-string parsed))))))
 
 (deftest finding-with-debug-opt-carries-raw-result
   (let [result {:report-kind :input
@@ -161,8 +133,8 @@
                                          {:debug true}))
         parsed (parse-line line)]
     (is (= "finding" (:kind parsed)))
-    (is (some? (get-in parsed [:debug :raw_result])))
-    (is (= "input" (get-in parsed [:debug :raw_result :report-kind])))))
+    (is (string? (get-in parsed [:debug :raw-result])))
+    (is (= :input (:report-kind (read-string (get-in parsed [:debug :raw-result])))))))
 
 (deftest finding-without-debug-opt-omits-debug-key
   (let [[line] (capture-lines
