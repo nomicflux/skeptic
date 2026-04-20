@@ -14,3 +14,9 @@
 
 (defn ^{:malli/schema [:=> [:cat :int] [:or :int :string]]} or-output-bad
   [_x] :not-a-string-or-int)
+
+(defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-success
+  [x] (or x "fallback"))
+
+(defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-bad
+  [_x] :bad-keyword)
