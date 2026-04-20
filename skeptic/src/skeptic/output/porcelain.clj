@@ -1,7 +1,8 @@
 (ns skeptic.output.porcelain
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
-            [skeptic.analysis.bridge.render :as abr]))
+            [skeptic.analysis.bridge.render :as abr]
+            [skeptic.output.serialize :as ser]))
 
 (def ^:private ansi-pattern #"\u001b\[[0-9;]*m")
 
@@ -22,43 +23,66 @@
   [m]
   (println (json/write-str (drop-empties m))))
 
+(defn- write-line-raw!
+  [m]
+  (println (json/write-str m)))
+
+(defn- with-debug
+  [record opts result]
+  (cond-> record
+    (:debug opts) (assoc :debug {:raw_result (ser/json-safe result)})))
+
 (defn- exception-record
-  [ns result {:keys [phase location blame errors]}]
-  {:kind "exception"
-   :ns (str ns)
-   :phase (some-> phase name)
-   :file (:file location)
-   :line (:line location)
-   :column (:column location)
-   :blame (->str blame)
-   :exception_class (some-> (:exception-class result) str)
-   :exception_message (:exception-message result)
-   :messages (mapv strip-ansi errors)})
+  [ns result {:keys [phase location blame errors]} opts]
+  (with-debug
+    {:kind "exception"
+     :ns (str ns)
+     :phase (some-> phase name)
+     :file (:file location)
+     :line (:line location)
+     :column (:column location)
+     :blame (->str blame)
+     :exception_class (some-> (:exception-class result) str)
+     :exception_message (:exception-message result)
+     :messages (mapv strip-ansi errors)}
+    opts result))
 
 (defn- finding-record
-  [ns _result summary]
+  [ns result summary opts]
   (let [{:keys [report-kind location blame-side blame-polarity rule
                 actual-type expected-type
                 source-expression blame focuses focus-sources enclosing-form
                 expanded-expression errors]} summary]
-    {:kind "finding"
-     :ns (str ns)
-     :report_kind (some-> report-kind name)
-     :file (:file location)
-     :line (:line location)
-     :column (:column location)
-     :blame (or source-expression (->str blame))
-     :blame_side (some-> blame-side name)
-     :blame_polarity (some-> blame-polarity name)
-     :rule (some-> rule name)
-     :actual_type (abr/type->json-data actual-type)
-     :expected_type (abr/type->json-data expected-type)
-     :actual_type_str (abr/render-type actual-type)
-     :expected_type_str (abr/render-type expected-type)
-     :focuses (vec (or focus-sources (map ->str focuses)))
-     :enclosing_form (some-> enclosing-form ->str)
-     :expanded_expression (some-> expanded-expression ->str)
-     :messages (mapv strip-ansi errors)}))
+    (with-debug
+      {:kind "finding"
+       :ns (str ns)
+       :report_kind (some-> report-kind name)
+       :file (:file location)
+       :line (:line location)
+       :column (:column location)
+       :blame (or source-expression (->str blame))
+       :blame_side (some-> blame-side name)
+       :blame_polarity (some-> blame-polarity name)
+       :rule (some-> rule name)
+       :actual_type (abr/type->json-data actual-type)
+       :expected_type (abr/type->json-data expected-type)
+       :actual_type_str (abr/render-type actual-type)
+       :expected_type_str (abr/render-type expected-type)
+       :focuses (vec (or focus-sources (map ->str focuses)))
+       :enclosing_form (some-> enclosing-form ->str)
+       :expanded_expression (some-> expanded-expression ->str)
+       :messages (mapv strip-ansi errors)}
+      opts result)))
+
+(defn- debug-form-record
+  [ns {:keys [source-file source-form enclosing-form nodes raw-results]}]
+  {:kind "debug-form"
+   :ns (str ns)
+   :file (when source-file (str source-file))
+   :source_form (->str source-form)
+   :enclosing_form (->str enclosing-form)
+   :nodes (mapv ser/json-safe nodes)
+   :results (mapv ser/json-safe raw-results)})
 
 (defn- run-summary-record
   [errored? {:keys [finding-count exception-count namespace-count
@@ -77,11 +101,14 @@
                                    :path path
                                    :message message}))
    :ns-start (fn [_ns _source-file _opts])
-   :finding (fn [ns result summary _opts]
-              (write-line!
-               (if (= :exception (:report-kind summary))
-                 (exception-record ns result summary)
-                 (finding-record ns result summary))))
+   :finding (fn [ns result summary opts]
+              (write-line-raw!
+               (drop-empties
+                (if (= :exception (:report-kind summary))
+                  (exception-record ns result summary opts)
+                  (finding-record ns result summary opts)))))
+   :form-debug (fn [ns result _opts]
+                 (write-line-raw! (debug-form-record ns result)))
    :ns-end (fn [_ns _count _opts])
    :run-end (fn [errored? totals]
               (write-line! (run-summary-record errored? totals)))})

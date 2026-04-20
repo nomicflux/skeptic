@@ -15,6 +15,7 @@
    ["-c" "--show-context" "Show context and resolution path on items"]
    ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
+   [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
    ["-h" "--help"]])
 

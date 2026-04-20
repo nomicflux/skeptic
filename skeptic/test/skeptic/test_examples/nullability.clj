@@ -86,6 +86,12 @@
   (when-not (str/blank? x)
     (takes-non-nil-str x)))
 
+(s/defn presents-str :- s/Str
+   [s :- (s/maybe s/Str)]
+   (when (str/blank? s)
+     (throw (ex-info "Blank/nil" {})))
+   s)
+
 (s/defn takes-maybe-constrained :- (s/maybe basics/PosInt)
   [x :- (s/maybe basics/PosInt)]
   x)

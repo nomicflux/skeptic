@@ -48,3 +48,21 @@
 
 (deftest when-not-blank-maybe-str
   (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-not-blank-maybe-str-success))))
+
+(deftest presents-str
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/presents-str))))
+
+(deftest when-not-throw-nil-local
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-not-throw-nil-local-success))))
+
+(deftest when-truthy-nil-local
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-truthy-nil-local-success))))
+
+(deftest when-and-some?-nil
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-nil-success))))
+
+(deftest when-and-some?-and-nil
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-and-nil-success))))
+
+(deftest when-and-some?-multi-nil
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-multi-nil-success))))

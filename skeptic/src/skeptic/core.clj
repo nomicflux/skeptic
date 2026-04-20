@@ -60,7 +60,7 @@
         nss (cond-> discovered-nss
               namespace
               (select-keys [(symbol namespace)]))
-        {:keys [run-start discovery-warn ns-start finding ns-end run-end]}
+        {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
         (output/printer opts)
         totals (atom {:finding-count 0
                       :exception-count 0
@@ -74,14 +74,16 @@
         (ns-start ns source-file opts)
         (let [ns-findings (atom 0)]
           (doseq [result (checking/check-namespace opts ns source-file)]
-            (let [summary (inrep/report-summary result)
-                  exception? (= :exception (:report-kind summary))]
-              (finding ns result summary opts)
-              (reset! errored true)
-              (swap! ns-findings inc)
-              (swap! totals update
-                     (if exception? :exception-count :finding-count)
-                     inc)))
+            (if (= :debug-form (:report-kind result))
+              (form-debug ns result opts)
+              (let [summary (inrep/report-summary result)
+                    exception? (= :exception (:report-kind summary))]
+                (finding ns result summary opts)
+                (reset! errored true)
+                (swap! ns-findings inc)
+                (swap! totals update
+                       (if exception? :exception-count :finding-count)
+                       inc))))
           (when (pos? @ns-findings)
             (swap! totals update :namespaces-with-findings inc))
           (ns-end ns @ns-findings opts)))

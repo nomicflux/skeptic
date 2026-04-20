@@ -135,7 +135,7 @@
                   " <- " (colours/green (pr-str type))))))
 
 (defn- print-finding!
-  [ns result summary {:keys [verbose show-context] :as _opts}]
+  [ns result summary {:keys [verbose show-context debug] :as _opts}]
   (let [{:keys [path context]} result]
     (println "---------")
     (println (colours/white (str "Namespace: \t\t" ns) true))
@@ -147,7 +147,20 @@
       (print-context context))
     (doseq [error (:errors summary)]
       (println "---")
-      (println error "\n"))))
+      (println error "\n"))
+    (when debug
+      (println "--- DEBUG (finding) ---")
+      (pprint/pprint result))))
+
+(defn- print-form-debug!
+  [ns {:keys [source-file source-form enclosing-form nodes raw-results]} _opts]
+  (println "--- DEBUG (form) ---")
+  (pprint/pprint {:ns ns
+                  :source-file source-file
+                  :source-form source-form
+                  :enclosing-form enclosing-form
+                  :nodes nodes
+                  :raw-results raw-results}))
 
 (defn- print-analyzer-dump!
   [ns {:keys [verbose analyzer]}]
@@ -163,6 +176,7 @@
    :ns-start (fn [ns _source-file {:keys [verbose]}]
                (when verbose (println "*** Checking" ns "***")))
    :finding print-finding!
+   :form-debug print-form-debug!
    :ns-end (fn [ns _count opts]
              (print-analyzer-dump! ns opts))
    :run-end (fn [errored? _totals]

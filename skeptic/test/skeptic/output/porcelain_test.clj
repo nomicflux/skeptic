@@ -111,3 +111,43 @@
   (is (empty? (str/trim (with-out-str ((:run-start sut/printer) {} {})))))
   (is (empty? (str/trim (with-out-str ((:ns-start sut/printer) 'foo nil {})))))
   (is (empty? (str/trim (with-out-str ((:ns-end sut/printer) 'foo 0 {}))))))
+
+(deftest debug-form-record-shape
+  (let [[line & more] (capture-lines
+                       #((:form-debug sut/printer)
+                         'foo.bar
+                         {:report-kind :debug-form
+                          :ns 'foo.bar
+                          :source-file "src/foo.clj"
+                          :source-form '(defn f [x] x)
+                          :enclosing-form 'foo.bar/f
+                          :nodes [{:op :def :form 'f :name 'f}]
+                          :raw-results []}
+                         {}))
+        parsed (parse-line line)]
+    (is (empty? more))
+    (is (= "debug-form" (:kind parsed)))
+    (is (= "foo.bar" (:ns parsed)))
+    (is (= "src/foo.clj" (:file parsed)))
+    (is (= "foo.bar/f" (:enclosing_form parsed)))
+    (is (vector? (:nodes parsed)))
+    (is (= 1 (count (:nodes parsed))))
+    (is (= [] (:results parsed)))))
+
+(deftest finding-with-debug-opt-carries-raw-result
+  (let [result {:report-kind :input
+                :cast-summary {:foo 'bar}
+                :context {:local-vars {}}}
+        [line] (capture-lines
+                #((:finding sut/printer) 'foo.bar result example-input-summary
+                                         {:debug true}))
+        parsed (parse-line line)]
+    (is (= "finding" (:kind parsed)))
+    (is (some? (get-in parsed [:debug :raw_result])))
+    (is (= "input" (get-in parsed [:debug :raw_result :report-kind])))))
+
+(deftest finding-without-debug-opt-omits-debug-key
+  (let [[line] (capture-lines
+                #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
+        parsed (parse-line line)]
+    (is (nil? (:debug parsed)))))
