@@ -1,91 +1,33 @@
-# Malli Domain-Purity — Implementation Status
+# Malli slice — strict Schema/Malli domain separation cleanup
 
-## Phase
+## Prior architectural error
 
-Phase 1 complete. Phase 2 complete.
+Two earlier shipped phases (commits `b988171`, `18f3ef5`) kept and codified a `(merge malli-entries schema-entries)` step in `skeptic.typed-decls/typed-ns-results`, plus a `schema-wins-on-malli-conflict` regression test that locked in silent override as desired behavior. Those artifacts violated the architectural rule that Schema and Malli never come into contact: they are two separate input domains, each independently converted to Type, and only Type interacts.
 
-## Files Modified
+## Cleanup performed in this step
 
-### Source
-- `src/skeptic/schema/collect.clj` — removed `dynamic-raw`, `dynamic-arg-entry`, `dynamic-arglists`, `admit-dynamic-desc`, `:dynamic` branch in `admit-declaration-from-extract`; rewrote `extract-raw-declaration` to return nil for unannotated and opaque vars
-- `src/skeptic/typed_decls.clj` — restored merge order to `(merge malli-entries schema-entries)` so Schema wins over Malli on conflict
-- `src/skeptic/checking/pipeline.clj` — extended `ignored-body-def?` to check var metadata `:skeptic/ignore-body` and `:skeptic/opaque` directly, so body-skip works for unannotated and opaque vars absent from dict
+- `src/skeptic/typed_decls.clj` — removed Malli requires (`amb`, `mcollect`); deleted `malli-fun-type->arglists` and `malli-desc->typed-entry`; deleted the `(some? malli-spec)` branch from `desc->typed-entry`; rewrote `typed-ns-results` to call `collect/ns-schema-results` only. The file no longer references Malli in any form.
+- `test/skeptic/typed_decls_test.clj` — deleted the `schema-wins-on-malli-conflict` deftest.
+- `test/skeptic/test_examples/conflict.clj` — file removed.
+- `test/skeptic/checking/pipeline/malli_test.clj` — file removed.
+- `AGENTS.md` — replaced the "Conflict policy: Schema wins (silently)" bullet with a "Strict separation" bullet stating that `typed-ns-results` returns Schema-derived entries only and that pipeline-level wiring of Malli is intentionally absent.
 
-### Tests updated (dynamic-branch contract replaced with domain-pure contract)
-- `test/skeptic/typed_decls_test.clj` — rewrote `typed-ns-entries-build-callable-dynamic-and-varargs-entries` → `typed-ns-entries-annotated-present-unannotated-absent`
-- `test/skeptic/analysis/normalize_test.clj` — rewrote `declaration-index-contract-test` to use annotated vars and assert unannotated vars absent
-- `test/skeptic/schema/collect_test.clj` — rewrote `ns-schemas-reads-auto-resolved-keywords-in-target-ns` → `ns-schemas-only-contains-annotated-vars`
-- `test/skeptic/checking/pipeline/fixture_flags_test.clj` — updated `opaque-fixtures` to assert `opaque-fn` absent from dict rather than present with Dyn output-type
+## What survives untouched
 
-### Status doc (new)
-- `docs/current-plans/malli-domain-purity_IMPLEMENTATION_STATUS.md`
+- `src/skeptic/malli_spec/collect.clj` — domain-pure Malli collector. Standalone.
+- `src/skeptic/analysis/malli_spec/bridge.clj` — domain-pure Malli→Type bridge. Standalone.
+- `test/skeptic/malli_spec/collect_test.clj` and `test/skeptic/analysis/malli_spec/bridge_test.clj` — domain-internal tests for the surviving modules.
+- `test/skeptic/test_examples/malli.clj` — fixture still consumed by the surviving Malli tests.
 
-## Test Counts
+## Pipeline-level Malli wiring is intentionally absent
 
-291 tests, 1587 assertions, 0 failures, 0 errors.
+This cleanup leaves the analyzer with no source for Malli-derived types at use sites. That is by design and is the subject of a future, separately-authored plan: the analyzer must consume Schema-derived, Malli-derived, and native / dyn / numericdyn-derived types as three independent type sources. Reconciliation across those sources, when they disagree on the same symbol, is itself a further concern — out of scope for this step and the next.
 
-## Phase 1 Honesty Proof
+## Source-level proof
 
-Temporarily reverted `typed_decls.clj` to `(merge schema-entries malli-entries)` and ran `lein test`.
-Result: **0 failures, 0 errors** — no existing test covers the Schema-wins-over-Malli conflict case.
-The conflict test is a Phase 2 deliverable. The merge order is correct per the AGENTS.md spec
-("Schema wins via merge order": last writer wins in `merge`, so schema-entries must be the last argument).
-Re-applied `(merge malli-entries schema-entries)` after recording this result.
+`grep -ni 'malli' src/skeptic/typed_decls.clj` returns no matches. `typed-ns-results` calls `collect/ns-schema-results` only.
 
-## Phase 1 Architecture Proof
+## Test counts
 
-When an unannotated callable in a checked namespace is referenced at a call site, the following happens:
-
-1. `typed-ns-entries` calls `collect/ns-schema-results`, which calls `extract-raw-declaration` for every
-   var in the namespace. For the unannotated var, `(:schema m)` is nil, so `extract-raw-declaration`
-   returns nil. The `if-let` in `ns-schema-results` skips it. The var has no entry in `schema-entries`.
-   `mcollect/ns-malli-spec-results` likewise skips it (no `:malli/schema` metadata). So `typed-ns-entries`
-   returns a map with no entry for that var.
-
-2. At the call site, `skeptic.checking.pipeline` passes `dict` (built from `typed-ns-entries`) into
-   `annotate-var-like` in `src/skeptic/analysis/annotate/base.clj:39-43`. `annotate-var-like` calls
-   `ac/lookup-entry dict ns node`. Since the var has no entry in `dict`, `lookup-entry` returns nil.
-
-3. The `or` at `base.clj:42-43` falls through to `{:type at/Dyn}`. The node is annotated with `Dyn`.
-   All call-site type checks against that node use `Dyn`, which casts successfully against anything.
-   No false positives are reported for calls to unannotated functions.
-
----
-
-## Phase 2: Regression Test for Schema-Wins-Over-Malli Conflict
-
-### Files Modified
-
-#### New
-- `test/skeptic/test_examples/conflict.clj` — fixture with `dual-annotated-fn` carrying both `^{:schema (s/=> s/Int s/Int)}` and `^{:malli/schema [:=> [:cat :string] :string]}`
-
-#### Updated
-- `test/skeptic/typed_decls_test.clj` — added `schema-wins-on-malli-conflict` deftest
-
-#### Status doc
-- `docs/current-plans/malli-domain-purity_IMPLEMENTATION_STATUS.md` — Phase 2 entry
-
-### Test Counts
-
-292 tests, 1589 assertions, 0 failures, 0 errors.
-
-### Phase 2 Honesty Proof
-
-Temporarily reverted merge order in `typed_decls.clj` from `(merge malli-entries schema-entries)` to `(merge schema-entries malli-entries)`. Ran `lein test :only skeptic.typed-decls-test/schema-wins-on-malli-conflict`.
-
-**Result: 2 failures** — the test correctly failed because with the reverted merge order, Malli's `Str → Str` type overrides Schema's `Int → Int` type. The assertion expected `(T (s/=> s/Int s/Int))` but received the Malli-derived `Str → Str` type instead.
-
-Error messages:
-```
-FAIL in (schema-wins-on-malli-conflict) (typed_decls_test.clj:81)
-expected: (= (T (s/=> s/Int s/Int)) (:type dual-fn))
-  actual: (not (= ... Str/Str type ... Int/Int type ...))
-
-FAIL in (schema-wins-on-malli-conflict) (typed_decls_test.clj:82)
-expected: (not= (T (s/=> s/Str s/Str)) (:type dual-fn))
-  actual: (not (not= ... Str/Str type ...))
-```
-
-Re-applied correct merge order `(merge malli-entries schema-entries)`. Test now passes: **0 failures, 0 errors**.
-
-This proves the merge order implementation is correct and the test properly validates the conflict-resolution behavior.
+`lein test`: 290 tests, 1585 assertions, 0 failures, 0 errors.
+`clj-kondo --lint src test`: 0 errors, 0 warnings.

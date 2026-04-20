@@ -38,6 +38,14 @@
 
 (defn annotate-var-like
   [{:keys [dict ns]} node]
-  (merge node
-         (or (ac/lookup-entry dict ns node)
-             {:type at/Dyn})))
+  (let [entry (ac/lookup-entry dict ns node)
+        typings (:typings entry)]
+    (cond
+      (nil? entry)
+      (merge node {:type at/Dyn})
+
+      (= 1 (count typings))
+      (merge node (dissoc entry :typings) {:type (first typings)})
+
+      :else
+      (merge node (dissoc entry :typings) {:typings typings :type at/Dyn}))))

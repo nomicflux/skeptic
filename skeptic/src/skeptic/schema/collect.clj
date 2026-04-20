@@ -203,19 +203,21 @@
     (admit-declaration-from-extract raw)))
 
 (defn declaration-error-result
-  [ns-sym qualified-sym v e]
-  (merge {:report-kind :exception
-          :phase :declaration
-          :blame qualified-sym
-          :enclosing-form qualified-sym
-          :namespace ns-sym
-          :location (select-keys (meta v) [:file :line :column :end-line :end-column])
-          :exception-class (symbol (.getName (class e)))
-          :exception-message (or (.getMessage e)
-                                 (str e))
-          :exception-data (ex-data e)}
-         (select-keys (or (ex-data e) {})
-                      [:declaration-slot :rejected-schema])))
+  ([ns-sym qualified-sym v e]
+   (declaration-error-result :declaration ns-sym qualified-sym v e))
+  ([phase ns-sym qualified-sym v e]
+   (merge {:report-kind :exception
+           :phase phase
+           :blame qualified-sym
+           :enclosing-form qualified-sym
+           :namespace ns-sym
+           :location (select-keys (meta v) [:file :line :column :end-line :end-column])
+           :exception-class (symbol (.getName (class e)))
+           :exception-message (or (.getMessage e)
+                                  (str e))
+           :exception-data (ex-data e)}
+          (select-keys (or (ex-data e) {})
+                       [:declaration-slot :rejected-schema]))))
 
 (defn ns-schema-results
   [_opts ns]
@@ -232,7 +234,8 @@
                 acc))
             {:entries {}
              :errors []}
-            (-> ns symbol ns-interns vals))))
+            (concat (vals (ns-interns ns))
+                    (vals (ns-refers ns))))))
 
 (defn ns-schemas
   [opts ns]

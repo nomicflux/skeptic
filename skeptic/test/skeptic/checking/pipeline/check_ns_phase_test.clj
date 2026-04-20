@@ -12,8 +12,7 @@
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
   (is (= []
-         (vec (sut/check-ns (typed-decls/typed-ns-entries {} 'skeptic.core-fns)
-                            'skeptic.core-fns
+         (vec (sut/check-ns 'skeptic.core-fns
                             (java.io.File. "src/skeptic/core_fns.clj")
                             {})))))
 
@@ -21,8 +20,7 @@
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
-        results (vec (sut/check-ns ps/test-dict
-                                   'skeptic.test-examples.basics
+        results (vec (sut/check-ns 'skeptic.test-examples.basics
                                    temp-file
                                    {:remove-context true}))]
     (is (= 1 (count results)))
@@ -34,8 +32,7 @@
   (let [form (->> 'skeptic.schema.collect/fully-qualify-str
                   (source/get-fn-code {})
                   read-string)
-        results (vec (sut/check-s-expr ps/schema-collect-dict
-                                       form
+        results (vec (sut/check-s-expr form
                                        {:ns 'skeptic.schema.collect
                                         :source-file ps/schema-collect-file
                                         :remove-context true}))]
@@ -45,16 +42,14 @@
   (let [form (->> 'skeptic.schema.collect/collect-schemas
                   (source/get-fn-code {})
                   read-string)
-        results (vec (sut/check-s-expr ps/schema-collect-dict
-                                       form
+        results (vec (sut/check-s-expr form
                                        {:ns 'skeptic.schema.collect
                                         :source-file ps/schema-collect-file
                                         :remove-context true}))]
     (is (= [] results))))
 
 (deftest static-call-examples-check-ns
-  (let [results (vec (sut/check-ns ps/static-call-examples-dict
-                                   'skeptic.static-call-examples
+  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
                                    ps/static-call-examples-file
                                    {:remove-context true}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
@@ -101,8 +96,7 @@
                    results))))
 
 (deftest examples-maybe-multi-step-check-ns
-  (let [results (vec (sut/check-ns ps/examples-dict
-                                   'skeptic.examples
+  (let [results (vec (sut/check-ns 'skeptic.examples
                                    ps/examples-file
                                    {:remove-context true}))]
     (is (some #(when (= 'skeptic.examples/flat-maybe-base-type-failure
@@ -131,10 +125,9 @@
                   results)))))
 
 (deftest namespace-checking-keeps-going-after-declaration-errors
-  (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
+  (let [{:keys [errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
         results (vec (concat errors
-                             (sut/check-ns entries
-                                           'skeptic.best-effort-examples
+                             (sut/check-ns 'skeptic.best-effort-examples
                                            ps/best-effort-file
                                            {:remove-context true})))
         declaration-error (some #(when (= :declaration (:phase %)) %) results)
@@ -167,3 +160,58 @@
     (is (= :load (:phase (first results))))
     (is (= 'skeptic.nonexistent.namespace.that.does.not.exist
            (:namespace (first results))))))
+
+(deftest check-ns-localizes-expression-exceptions-and-continues
+  (let [real-analyze sut/analyze-source-exprs
+        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
+        exprs (vec (sut/ns-exprs file))
+        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
+    (is (some? exploding-form))
+    (with-redefs [sut/analyze-source-exprs (fn [dict ns-sym source-file exprs]
+                                             (if (= exploding-form (first exprs))
+                                               (throw (ex-info "boom during analysis" {}))
+                                               (real-analyze dict ns-sym source-file exprs)))]
+      (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
+                                         {:remove-context true})
+            exception-result (some #(when (= :expression (:phase %)) %) results)
+            later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
+                                          (:enclosing-form %))
+                                   %)
+                                results)]
+        (is (some? exception-result))
+        (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
+               (:enclosing-form exception-result)))
+        (is (= "boom during analysis" (:exception-message exception-result)))
+        (is (some? later-mismatch))))))
+
+(deftest check-ns-localizes-lazy-expression-exceptions-and-continues
+  (let [real-check-resolved-form sut/check-resolved-form
+        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
+        exprs (vec (sut/ns-exprs file))
+        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
+    (is (some? exploding-form))
+    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-file source-form analyzed opts]
+                                            (if (= exploding-form source-form)
+                                              (map (fn [_]
+                                                     (throw (ex-info "boom during realization" {})))
+                                                   [::explode])
+                                              (real-check-resolved-form dict ns-sym source-file source-form analyzed opts)))]
+      (let [dict (:dict (sut/namespace-dict {} 'skeptic.test-examples.basics))
+            form-results (sut/check-ns-form dict
+                                            'skeptic.test-examples.basics
+                                            file
+                                            exploding-form
+                                            {:remove-context true})
+            exception-result (first form-results)
+            results (ps/check-fixture-ns 'skeptic.test-examples.basics
+                                         {:remove-context true})
+            later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
+                                          (:enclosing-form %))
+                                   %)
+                                results)]
+        (is (= 1 (count form-results)))
+        (is (= :expression (:phase exception-result)))
+        (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
+               (:enclosing-form exception-result)))
+        (is (= "boom during realization" (:exception-message exception-result)))
+        (is (some? later-mismatch))))))

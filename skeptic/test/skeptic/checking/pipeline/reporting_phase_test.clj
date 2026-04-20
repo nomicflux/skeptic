@@ -6,8 +6,7 @@
             [skeptic.inconsistence.report :as inrep]))
 
 (deftest output-mismatch-renders-canonical-map-types
-  (let [results (vec (sut/check-ns ps/static-call-examples-dict
-                                   'skeptic.static-call-examples
+  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
                                    ps/static-call-examples-file
                                    {:remove-context true}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
@@ -21,8 +20,7 @@
     (is (not (.contains error "\":name : Keyword\"")))))
 
 (deftest output-summary-highlights-path-or-drops-redundant-self-context
-  (let [results (vec (sut/check-ns ps/static-call-examples-dict
-                                   'skeptic.static-call-examples
+  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
                                    ps/static-call-examples-file
                                    {:remove-context true}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
@@ -42,8 +40,7 @@
     (is (str/includes? rebuilt-error "[:name] has Keyword but expected Str"))))
 
 (deftest nested-output-mismatch-renders-field-paths
-  (let [results (vec (sut/check-ns ps/static-call-examples-dict
-                                   'skeptic.static-call-examples
+  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
                                    ps/static-call-examples-file
                                    {:remove-context true}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
@@ -59,8 +56,7 @@
            (-> result :cast-diagnostics first :path)))))
 
 (deftest check-results-carry-cast-metadata
-  (let [results (vec (sut/check-ns ps/static-call-examples-dict
-                                   'skeptic.static-call-examples
+  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
                                    ps/static-call-examples-file
                                    {:remove-context true}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure

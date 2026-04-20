@@ -2,6 +2,7 @@
   (:require [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -12,10 +13,9 @@
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.typed-decls :as typed-decls])
+            [skeptic.typed-decls :as typed-decls]
+            [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
-
-(declare analyze-source-exprs ns-exprs)
 
 (defn analyzed-def-entry
   [ns-sym analyzed]
@@ -78,31 +78,15 @@
                         (assoc normalized :accessor-summary summary)
                         normalized)))]))))
 
-(defn- preanalyzed-ns-dict
-  [dict ns-sym source-file]
-  (if (and source-file ns-sym)
-    (let [exprs (ns-exprs source-file)
-          resolved-defs (:resolved-defs (analyze-source-exprs dict ns-sym source-file exprs))]
-      (reduce (fn [acc [sym resolved-entry]]
-                (if-let [summary (:accessor-summary resolved-entry)]
-                  (update acc sym (fn [entry]
-                                    (assoc (or entry {:type at/Dyn})
-                                           :accessor-summary summary)))
-                  acc))
-              dict
-              resolved-defs))
-    dict))
-
 (defn analyze-source-exprs
   [dict ns-sym source-file exprs]
-  (let [analysis-dict dict
-        analyzed (mapv (fn [expr]
-                         (aa/annotate-form-loop analysis-dict
+  (let [analyzed (mapv (fn [expr]
+                         (aa/annotate-form-loop dict
                                                 (cf/normalize-check-form expr)
                                                 {:ns ns-sym
                                                  :source-file (cf/source-file-path source-file)}))
                        exprs)]
-    {:analysis-dict analysis-dict
+    {:analysis-dict dict
      :analyzed analyzed
      :resolved analyzed
      :resolved-defs (into {}
@@ -374,10 +358,37 @@
                             {:def-name def-name}))))
       (cf/normalize-check-form s-expr))))
 
+(defn namespace-dict
+  [opts ns-sym]
+  (require ns-sym)
+  (let [{schema-dict :entries schema-errors :errors}
+        (typed-decls/typed-ns-results opts ns-sym)
+        {malli-dict :entries malli-errors :errors}
+        (typed-decls.malli/typed-ns-malli-results opts ns-sym)]
+    {:dict (typed-decls/merge-typed-dicts
+             [schema-dict malli-dict native-fns/native-fn-dict])
+     :errors (vec (concat schema-errors malli-errors))}))
+
+(defn- preanalyzed-ns-dict
+  [dict ns-sym source-file]
+  (if (and source-file ns-sym)
+    (let [exprs (ns-exprs source-file)
+          resolved-defs (:resolved-defs (analyze-source-exprs dict ns-sym source-file exprs))]
+      (reduce (fn [acc [sym resolved-entry]]
+                (if-let [summary (:accessor-summary resolved-entry)]
+                  (update acc sym (fn [entry]
+                                    (assoc (or entry {:typings [at/Dyn]})
+                                           :accessor-summary summary)))
+                  acc))
+              dict
+              resolved-defs))
+    dict))
+
 (defn check-s-expr
-  [dict s-expr {:keys [keep-empty remove-context ns source-file check-def]}]
+  [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [source-form (find-source-form s-expr source-file check-def)
+    (let [{:keys [dict]} (namespace-dict opts ns)
+          source-form (find-source-form s-expr source-file check-def)
           analysis-dict (preanalyzed-ns-dict dict ns source-file)
           {:keys [resolved]} (analyze-source-exprs analysis-dict ns source-file [source-form])]
       (vec (check-resolved-form dict
@@ -401,16 +412,17 @@
 ;; TODO: if unparseable, throws error
 ;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
 (defn check-ns
-  [dict ns source-file opts]
-  (binding [*ns* (the-ns ns)]
-    (with-open [reader (file/pushback-reader source-file)]
-      (loop [results []]
-        (let [{:keys [kind form exception]} (next-checkable-form reader)]
-          (case kind
-            :eof results
-            :form (recur (into results
-                               (check-ns-form dict ns source-file form opts)))
-            :read-error (conj results (read-exception-result source-file exception))))))))
+  [ns source-file opts]
+  (let [{:keys [dict]} (namespace-dict opts ns)]
+    (binding [*ns* (the-ns ns)]
+      (with-open [reader (file/pushback-reader source-file)]
+        (loop [results []]
+          (let [{:keys [kind form exception]} (next-checkable-form reader)]
+            (case kind
+              :eof results
+              :form (recur (into results
+                                 (check-ns-form dict ns source-file form opts)))
+              :read-error (conj results (read-exception-result source-file exception)))))))))
 
 (defn load-exception-result
   [ns-sym e]
@@ -429,9 +441,8 @@
   (typed declarations and form checking). Returns a vector of localized result maps."
   [opts ns-sym source-file]
   (try
-    (require ns-sym)
-    (let [{:keys [entries errors]} (typed-decls/typed-ns-results opts ns-sym)
-          check-results (check-ns entries ns-sym source-file opts)]
+    (let [{:keys [errors]} (namespace-dict opts ns-sym)
+          check-results (check-ns ns-sym source-file opts)]
       (vec (concat errors check-results)))
     (catch Exception e
       [(load-exception-result ns-sym e)])))

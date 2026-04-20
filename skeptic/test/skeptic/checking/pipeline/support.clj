@@ -8,12 +8,8 @@
             [skeptic.schema.collect]
             [skeptic.source :as source]
             [skeptic.static-call-examples]
-            [skeptic.test-examples.catalog :as catalog]
-            [skeptic.typed-decls :as typed-decls])
+            [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
-
-(def test-dict
-  (catalog/typed-test-example-entries))
 
 (def examples-file
   (File. "src/skeptic/examples.clj"))
@@ -26,15 +22,6 @@
 
 (def best-effort-file
   (File. "test/skeptic/best_effort_examples.clj"))
-
-(def examples-dict
-  (typed-decls/typed-ns-entries {} 'skeptic.examples))
-
-(def schema-collect-dict
-  (typed-decls/typed-ns-entries {} 'skeptic.schema.collect))
-
-(def static-call-examples-dict
-  (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples))
 
 (defn fixture-env-by-ns
   [ns-sym]
@@ -87,8 +74,7 @@
   ([sym]
    (check-fixture sym {}))
   ([sym opts]
-   (sut/check-s-expr test-dict
-                     (normalize-fn-code opts sym)
+   (sut/check-s-expr (normalize-fn-code opts sym)
                      (assoc opts
                             :ns (fixture-ns sym)
                             :source-file (fixture-file sym)))))
@@ -101,8 +87,7 @@
 
 (defn check-fixture-ns
   [ns-sym opts]
-  (vec (sut/check-ns test-dict
-                     ns-sym
+  (vec (sut/check-ns ns-sym
                      (fixture-file-for-ns ns-sym)
                      opts)))
 

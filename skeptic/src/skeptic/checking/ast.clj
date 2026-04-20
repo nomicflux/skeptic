@@ -49,10 +49,14 @@
   [node]
   (aapi/call-node? node))
 
-(defn dict-entry
+(defn- lookup-in-dict
   [dict ns-sym sym]
   (or (get dict sym)
       (get dict (ac/qualify-symbol ns-sym sym))))
+
+(defn dict-entry
+  [dict ns-sym sym]
+  (lookup-in-dict dict ns-sym sym))
 
 (defn unwrap-with-meta
   [node]

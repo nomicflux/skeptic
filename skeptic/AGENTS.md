@@ -46,7 +46,8 @@ Source namespace families:
   Declaration admission pipeline.
   `skeptic.schema` defines the admitted schema description shape.
   `skeptic.schema.collect` reads var metadata and admits raw Plumatic schema declarations.
-  `skeptic.typed-decls` converts admitted schema and malli-spec descriptions into typed entries via `schema->type` / `malli-spec->type`.
+  `skeptic.typed-decls` converts admitted schema descriptions into typed entries via `schema->type`.
+  `skeptic.typed-decls.malli` is the sibling converter for admitted malli-spec descriptions via `malli-spec->type`.
 - `skeptic.malli-spec`, `skeptic.malli-spec.collect`, `skeptic.analysis.malli-spec.bridge`:
   MalliSpec-domain admission and boundary.
   `skeptic.malli-spec` defines the admitted `MalliSpecDesc` shape and uses `:malli-spec` everywhere; it never carries `:schema`, which is reserved for Plumatic.
@@ -176,8 +177,8 @@ The slice as it now stands:
 
 - **Discovery:** `:malli/schema` var metadata only. Deferred: `malli.core/function-schemas` registry, `m/=>`, `malli.experimental/defn`.
 - **Conversion (`malli-spec->type`):** admits via `m/form ∘ m/schema`; converts the callable shape `[:=> [:cat & inputs] output]` into a `FunT` with one `FnMethodT`. Leaves are restricted to a five-entry primitive table: `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:boolean → Bool`, `:any → Dyn`. Every other Malli form (`:map`, `:vector`, `:maybe`, `:or`, nested `:=>`, registry refs, etc.) returns `Dyn`.
-- **Conflict policy:** when a single var has both Schema and MalliSpec admission, Schema wins (silently). Implemented via merge order in `typed-ns-results`: `(merge malli-entries schema-entries)`.
-- **Deferred:** registry-based discovery; non-primitive Malli leaves; nested `:=>`; conflict reporting; multi-arity malli-spec admission; JSONL Malli kinds; `.skeptic/config.edn` Malli surface; `:skeptic/type` Malli interpretation.
+- **Strict separation at admission, merge at the pipeline boundary:** `typed-ns-results` still returns Schema-derived entries only; the Malli collector (`skeptic.malli-spec.collect`) and Malli→Type bridge (`skeptic.analysis.malli-spec.bridge`) remain domain-pure standalone modules. Pipeline wiring happens in `skeptic.checking.pipeline/namespace-dict`, which combines per-namespace schema, malli, and native-fn entries through `merge-typed-dicts [schema-dict malli-dict native-fn-dict]`; once inside the merged dict, Malli-admitted entries reach the analyzer in the same shape as schema entries.
+- **Deferred:** registry-based discovery; non-primitive Malli leaves; nested `:=>`; multi-arity malli-spec admission; JSONL Malli kinds; `.skeptic/config.edn` Malli surface; `:skeptic/type` Malli interpretation; analyzer-side wiring of Malli-derived types as a separate type source.
 
 ### Type Domain
 

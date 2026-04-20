@@ -20,8 +20,8 @@
                                               :optional? false
                                               :name 'f}]}}})]
     (is (= "skeptic.schema.collect/raw-symbol-fn" (:name typed-entry)))
-    (is (= (T (s/make-fn-schema s/Symbol [[(s/one s/Str 'f)]]))
-           (:type typed-entry)))
+    (is (= [(T (s/make-fn-schema s/Symbol [[(s/one s/Str 'f)]]))]
+           (:typings typed-entry)))
     (is (= (T s/Symbol) (:output-type typed-entry)))
     (is (= {1 {:arglist '[f]
                :count 1
@@ -37,7 +37,7 @@
                      {:name "skeptic.schema.collect/raw-keyword"
                       :schema s/Keyword})]
     (is (= {:name "skeptic.schema.collect/raw-keyword"
-            :type (T s/Keyword)}
+            :typings [(T s/Keyword)]}
            typed-entry))
     (is (not (contains? typed-entry :output-type)))
     (is (not (contains? typed-entry :arglists)))))
@@ -62,6 +62,25 @@
               {:name 'zs :optional? false :type (T s/Int)}]
              (get-in int-add [:arglists :varargs :types]))))))
 
+(deftest merge-typed-dicts-passes-through-singletons-dedups-and-concatenates
+  (let [int-t (T s/Int) str-t (T s/Str) kw-t (T s/Keyword)
+        d1 {'a {:name 'a :typings [int-t] :arglists {1 :a-arglists}}
+            'shared {:name 'shared :typings [int-t] :output-type int-t}
+            'split {:name 'split :typings [int-t]}}
+        d2 {'b {:name 'b :typings [str-t]}
+            'shared {:name 'shared :typings [int-t] :output-type str-t}
+            'split {:name 'split :typings [kw-t]}}
+        merged (sut/merge-typed-dicts [d1 d2])]
+    (testing "symbol in only one input passes through"
+      (is (= (get d1 'a) (get merged 'a)))
+      (is (= (get d2 'b) (get merged 'b))))
+    (testing "equal typings across inputs dedup to one typing"
+      (is (= [int-t] (:typings (get merged 'shared)))))
+    (testing "distinct typings concatenate"
+      (is (= [int-t kw-t] (:typings (get merged 'split)))))
+    (testing "non-typing fields come from the first input that had the symbol"
+      (is (= int-t (:output-type (get merged 'shared)))))))
+
 (deftest typed-ns-results-omit-bad-declarations-and-keep-errors
   (require 'skeptic.best-effort-examples)
   (let [{:keys [entries errors]} (sut/typed-ns-results {} 'skeptic.best-effort-examples)]
@@ -72,12 +91,4 @@
     (is (= :declaration (:phase (first errors))))
     (is (= 'skeptic.best-effort-examples/invalid-schema-decl
            (:blame (first errors))))))
-
-(deftest schema-wins-on-malli-conflict
-  (require 'skeptic.test-examples.conflict)
-  (let [entries (sut/typed-ns-entries {} 'skeptic.test-examples.conflict)
-        dual-fn (get entries 'skeptic.test-examples.conflict/dual-annotated-fn)]
-    (testing "Schema-derived type wins over Malli-derived type on conflict"
-      (is (= (T (s/=> s/Int s/Int)) (:type dual-fn)))
-      (is (not= (T (s/=> s/Str s/Str)) (:type dual-fn))))))
 
