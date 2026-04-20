@@ -96,7 +96,7 @@ jobs:
           trust_level: 5
 
       - name: Install skeptic library
-        run: lein install
+        run: lein do clean, install
         working-directory: skeptic
 
       - name: Deploy skeptic to Clojars
@@ -104,7 +104,7 @@ jobs:
         working-directory: skeptic
 
       - name: Install lein-skeptic plugin
-        run: lein install
+        run: lein do clean, install
         working-directory: lein-skeptic
 
       - name: Deploy lein-skeptic to Clojars
