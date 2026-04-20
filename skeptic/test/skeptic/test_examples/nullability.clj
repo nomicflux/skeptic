@@ -86,6 +86,26 @@
   (when-not (str/blank? x)
     (takes-non-nil-str x)))
 
+(s/defn or-fallback-destructured-success :- {:a s/Str}
+  [{:keys [x]} :- {:x (s/maybe s/Str)}]
+  {:a (or x "fallback")})
+
+(s/defn or-fallback-nil-middle-success :- {:a s/Str}
+  [{:keys [x]} :- {:x (s/maybe s/Str)}]
+  {:a (or x nil "fallback")})
+
+(s/defn or-fallback-nil-last-success :- {:a s/Str}
+  [{:keys [x]} :- {:x (s/maybe s/Str)}]
+  {:a (or x "fallback" nil)})
+
+(s/defn or-only-nil-alternative-failure :- {:a s/Str}
+  [{:keys [x]} :- {:x (s/maybe s/Str)}]
+  {:a (or x nil)})
+
+(s/defn or-nil-then-nullable-failure :- {:a s/Str}
+  [{:keys [x]} :- {:x (s/maybe s/Str)}]
+  {:a (or x nil x)})
+
 (s/defn presents-str :- s/Str
    [s :- (s/maybe s/Str)]
    (when (str/blank? s)

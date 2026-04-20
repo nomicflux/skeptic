@@ -189,6 +189,22 @@
   (and (at/value-type? t)
        (false? (:value t))))
 
+(defn- can-be-falsy-type?
+  [t]
+  (let [t (ato/normalize-type t)]
+    (cond
+      (at/dyn-type? t) true
+      (at/maybe-type? t) true
+      (at/bottom-type? t) false
+      (at/union-type? t) (boolean (some can-be-falsy-type? (:members t)))
+      (at/value-type? t) (let [v (:value t)] (or (nil? v) (false? v)))
+      (at/ground-type? t) (= :bool (:ground t))
+      :else false)))
+
+(defn statically-truthy-type?
+  [t]
+  (and t (not (can-be-falsy-type? t))))
+
 (defn apply-truthy-local
   [type polarity]
   (if-not polarity

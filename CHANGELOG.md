@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `(or x fallback)` no longer reports a spurious nullability error when `fallback` is truthy.
 - Flow-sensitive narrowing now flows through named destructured map keys: a
   `(str/blank? a)` or `(some? a)` guard on a `{:keys [a]}` destructure refines
   the local `a` itself, not only the parent map, so downstream reads of `a`

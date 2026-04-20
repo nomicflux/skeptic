@@ -421,9 +421,8 @@
   (let [chain (and-chain-assumptions test-node)]
     (if (seq chain)
       chain
-      (or (when-some [a (local-binding-init-assumption test-node locals)] [a])
-          (when-some [a (test->assumption test-node)] [a])
-          []))))
+      (vec (concat (when-some [a (test->assumption test-node)] [a])
+                   (when-some [a (local-binding-init-assumption test-node locals)] [a]))))))
 
 (defn refine-locals-for-assumption
   [locals assumptions]

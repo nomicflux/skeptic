@@ -2,6 +2,7 @@
   (:require [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
+            [skeptic.analysis.narrowing :as narrowing]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.types :as at]
@@ -227,6 +228,11 @@
     (let [value (ac/literal-node-value test-node)]
       (and (some? value) (not (false? value))))))
 
+(defn- statically-truthy?
+  [test-node]
+  (or (truthy-literal? test-node)
+      (narrowing/statically-truthy-type? (:type test-node))))
+
 (defn- nil-const-node?
   [node]
   (and (= :const (:op node)) (nil? (:val node))))
@@ -258,7 +264,7 @@
                                          :locals (:else-locals envs)
                                          :assumptions (:else-assumptions envs))
                    (:else node))
-        narrow? (and (truthy-literal? test-node) (nil-const-node? else-node))
+        narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
         joined-type (if narrow?
                       (:type then-node)
                       (av/type-join* [(:type then-node) (:type else-node)]))
