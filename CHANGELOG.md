@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - `-o`/`--output OUTPUT_FILE` on `lein skeptic` so skeptic's findings, summary, or JSONL stream can be written to a file while lein/JVM chatter stays on stdout (#2).
+- Malli `:maybe` and `:or` combinators in `:malli/schema` annotations now
+  produce real semantic types (`MaybeT` and unions via `ato/union-type`) in
+  the type domain instead of `Dyn`, enabling cast checking against
+  fixtures like `[:=> [:cat [:maybe :int]] [:or :int :string]]`.
 
 ### Changed
 

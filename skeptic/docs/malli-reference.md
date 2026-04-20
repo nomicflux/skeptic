@@ -140,16 +140,21 @@ Current boundary (pinned to Malli 0.20.1):
   - Calls `malli.core/schema` and returns `malli.core/form` on success.
   - Raises `IllegalArgumentException` on failure, carried up as a declaration-phase error.
 - Conversion (`skeptic.analysis.malli-spec.bridge/malli-spec->type`):
-  - **Stub.** Returns `skeptic.analysis.types/Dyn` for every admitted value.
+  - Recursive runner over the admitted form.
+    - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
+    - `[:maybe X]` → `MaybeT` over the converted inner.
+    - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
+    - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
+    - Anything else → `Dyn`.
 
 ## Stubbed now vs. later
 
 Stubbed now:
 
-- Leaf conversion. `:int`, `:string`, `:keyword`, `[:map ...]`, refs, unions, maybes, etc. all convert to `Dyn`.
-- Callable shape. `:=>`, `:->`, and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or`. `[:map ...]`, refs, `:enum`, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` all convert to `Dyn`.
+- Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
-- Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:cat` / `:catn` layouts are admitted but not parsed.
+- Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
 - `malli.util` schemas are admitted if `malli.core/schema` accepts them; they convert to `Dyn`.
 
 Deferred:
