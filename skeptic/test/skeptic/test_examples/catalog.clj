@@ -1,12 +1,12 @@
 (ns skeptic.test-examples.catalog
-  (:require [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-examples.basics]
+  (:require [skeptic.test-examples.basics]
             [skeptic.test-examples.collections]
             [skeptic.test-examples.control-flow]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
             [skeptic.test-examples.nullability]
-            [skeptic.test-examples.resolution])
+            [skeptic.test-examples.resolution]
+            [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
 (def fixture-order
@@ -104,18 +104,19 @@
             {}
             fixture-order)))
 
-(def ^:private typed-entry-map
-  (delay
-    (reduce (fn [acc category]
-              (let [{ns-sym :ns} (get fixture-envs category)]
-                (merge acc (typed-decls/typed-ns-entries {} ns-sym))))
-            {}
-            fixture-order)))
-
 (defn owner-of
   [sym]
   (when-let [category (get @symbol-owner-map sym)]
     (assoc (get fixture-envs category) :category category)))
+
+(def ^:private typed-entry-map
+  (delay
+    (reduce (fn [acc category]
+              (let [{ns-sym :ns} (get fixture-envs category)
+                    {entries :entries} (typed-decls/typed-ns-results {} ns-sym)]
+                (merge acc entries)))
+            {}
+            fixture-order)))
 
 (defn typed-test-example-entries
   []

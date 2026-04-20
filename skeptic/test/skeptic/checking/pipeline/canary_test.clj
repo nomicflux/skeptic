@@ -12,5 +12,4 @@
       (catch Exception e
         (throw (ex-info "Exception checking documented fixture"
                         {:function sym
-                         :test-dict ps/test-dict
-                         :error e})))))) 
+                         :error e}))))))

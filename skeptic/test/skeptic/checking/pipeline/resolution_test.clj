@@ -44,8 +44,7 @@
                                     (:enclosing-form %))
                              %)
                           flat-results)
-        nested-results (vec (sut/check-ns ps/static-call-examples-dict
-                                          'skeptic.static-call-examples
+        nested-results (vec (sut/check-ns 'skeptic.static-call-examples
                                           ps/static-call-examples-file
                                           {:remove-context true}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure

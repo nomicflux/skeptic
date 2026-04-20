@@ -305,6 +305,18 @@
   [t]
   (tagged-map? t semantic-type-tag-key fun-type-tag))
 
+(defn fun-methods
+  [fun-t]
+  (:methods fun-t))
+
+(defn fn-method-inputs
+  [method]
+  (:inputs method))
+
+(defn fn-method-output
+  [method]
+  (:output method))
+
 (defn maybe-type?
   [t]
   (tagged-map? t semantic-type-tag-key maybe-type-tag))

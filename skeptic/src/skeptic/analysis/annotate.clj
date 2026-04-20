@@ -12,7 +12,6 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.normalize :as an]
             [skeptic.analysis.types :as at]))
 
@@ -101,7 +100,7 @@
   ([dict ast]
    (annotate-ast dict ast {}))
   ([dict ast {:keys [locals name ns assumptions]}]
-   (annotate-node {:dict dict
+   (annotate-node {:dict (or dict {})
                    :locals (normalize-locals locals)
                    :assumptions (vec assumptions)
                    :recur-targets {}
@@ -140,6 +139,6 @@
   ([dict form]
    (annotate-form-loop dict form {}))
   ([dict form opts]
-   (annotate-ast (merge native-fns/native-fn-dict dict)
+   (annotate-ast dict
                  (analyze-form form opts)
                  opts)))

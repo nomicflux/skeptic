@@ -1,12 +1,7 @@
 (ns skeptic.typed-decls
   (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.malli-spec.bridge :as amb]
             [skeptic.analysis.schema-base :as sb]
-            [skeptic.analysis.types :as at]
-            [skeptic.malli-spec.collect :as mcollect]
             [skeptic.schema.collect :as collect]))
-
-(declare typed-ns-results)
 
 (defn raw-arg-name
   [idx arg]
@@ -55,7 +50,7 @@
 (defn callable-desc->typed-entry
   [{:keys [name schema output arglists]}]
   (cond-> {:name name
-           :type (ab/schema->type schema)}
+           :typings [(ab/schema->type schema)]}
     (some? output)
     (assoc :output-type (ab/schema->type output))
 
@@ -65,42 +60,17 @@
                                   [k (arglist->typed-entry v)]))
                            arglists))))
 
-(defn- malli-fun-type->arglists
-  [t]
-  (into {}
-        (map (fn [method]
-               (let [inputs (:inputs method)
-                     arity (count inputs)
-                     types (mapv (fn [i inp] {:name (symbol (str "arg" i)) :optional? false :type inp})
-                                 (range)
-                                 inputs)]
-                 [arity {:arglist [] :types types :count arity}])))
-        (:methods t)))
-
-(defn- malli-desc->typed-entry
-  [{:keys [name malli-spec]}]
-  (let [t (amb/malli-spec->type malli-spec)]
-    (if (at/fun-type? t)
-      {:name name
-       :type t
-       :output-type (:output (first (:methods t)))
-       :arglists (malli-fun-type->arglists t)}
-      {:name name :type t})))
-
 (defn desc->typed-entry
-  [{:keys [name schema malli-spec arglists] :as desc}]
+  [{:keys [name schema arglists] :as desc}]
   (when desc
     (let [entry (cond
-                  (some? malli-spec)
-                  (malli-desc->typed-entry desc)
-
                   (or (sb/fn-schema? schema)
                       (seq arglists))
                   (callable-desc->typed-entry desc)
 
                   :else
                   {:name name
-                   :type (ab/schema->type schema)})]
+                   :typings [(ab/schema->type schema)]})]
       (cond-> entry
         (:skeptic/ignore-body? desc)
         (assoc :skeptic/ignore-body? true)))))
@@ -124,15 +94,31 @@
           {:entries {} :errors (vec initial-errors)}
           descs))
 
+(defn typed-ns-results
+  [opts ns]
+  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)
+        result (convert-descs ns entries errors)]
+    (update result :entries merge (:skeptic/type-overrides opts))))
+
 (defn typed-ns-entries
   [opts ns]
   (:entries (typed-ns-results opts ns)))
 
-(defn typed-ns-results
-  [opts ns]
-  (let [{schema-entries :entries schema-errors :errors} (collect/ns-schema-results opts ns)
-        {malli-entries :entries malli-errors :errors} (mcollect/ns-malli-spec-results opts ns)
-        descs (merge malli-entries schema-entries)
-        initial-errors (concat schema-errors malli-errors)
-        result (convert-descs ns descs initial-errors)]
-    (update result :entries merge (:skeptic/type-overrides opts))))
+(defn- merge-entries
+  [entries]
+  (let [merged-typings (into [] (distinct) (mapcat :typings entries))]
+    (assoc (first entries) :typings merged-typings)))
+
+(defn merge-typed-dicts
+  "Merge a positional seq of typed-dicts. For each symbol, the resulting entry's
+  :typings is the concatenation of per-input :typings (deduped by =). Non-typing
+  fields come from the first input that had the symbol. No source labels in/out."
+  [typed-dicts]
+  (let [all-syms (into #{} (mapcat keys) typed-dicts)]
+    (into {}
+          (map (fn [sym]
+                 (let [hits (keep #(get % sym) typed-dicts)]
+                   [sym (if (= 1 (count hits))
+                          (first hits)
+                          (merge-entries hits))])))
+          all-syms)))

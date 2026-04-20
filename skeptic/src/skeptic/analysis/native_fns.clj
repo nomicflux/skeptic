@@ -56,6 +56,37 @@
    :count 3
    :types [(tp 'x number-type) (tp 'y number-type) (tp 'more number-type)]})
 
+(def ^:private num-zero-method (at/->FnMethodT [] number-type 0 false))
+(def ^:private num-unary-method (at/->FnMethodT [number-type] number-type 1 false))
+(def ^:private num-binary-method (at/->FnMethodT [number-type number-type] number-type 2 false))
+(def ^:private num-ternary-varargs-method
+  (at/->FnMethodT [number-type number-type number-type] number-type 3 true))
+
+(def ^:private num-plus-star-typings
+  [(at/->FunT [num-zero-method num-unary-method num-binary-method num-ternary-varargs-method])])
+
+(def ^:private inc-typings
+  [(at/->FunT [num-unary-method])])
+
+(def ^:private str-zero-method (at/->FnMethodT [] str-type 0 false))
+(def ^:private str-unary-method (at/->FnMethodT [str-arg-type] str-type 1 false))
+(def ^:private str-varargs-method
+  (at/->FnMethodT [str-arg-type str-arg-type] str-type 2 true))
+
+(def ^:private str-typings
+  [(at/->FunT [str-zero-method str-unary-method str-varargs-method])])
+
+(def ^:private format-unary-method (at/->FnMethodT [str-type] str-type 1 false))
+(def ^:private format-varargs-method
+  (at/->FnMethodT [str-type str-arg-type] str-type 2 true))
+
+(def ^:private format-typings
+  [(at/->FunT [format-unary-method format-varargs-method])])
+
+(def ^:private int-pred-method (at/->FnMethodT [int-type] bool-type 1 false))
+(def ^:private int-pred-typings
+  [(at/->FunT [int-pred-method])])
+
 (def native-fn-dict
   {'clojure.core/+ {:name 'clojure.core/+
                     :output-type number-type
@@ -64,7 +95,8 @@
                                   :count 0}
                                1 num-unary
                                2 num-binary
-                               :varargs num-ternary-varargs}}
+                               :varargs num-ternary-varargs}
+                    :typings num-plus-star-typings}
    'clojure.core/* {:name 'clojure.core/*
                     :output-type number-type
                     :arglists {0 {:arglist '[]
@@ -72,10 +104,12 @@
                                   :count 0}
                                1 num-unary
                                2 num-binary
-                               :varargs num-ternary-varargs}}
+                               :varargs num-ternary-varargs}
+                    :typings num-plus-star-typings}
    'clojure.core/inc {:name 'clojure.core/inc
-                       :output-type number-type
-                       :arglists {1 num-unary}}
+                      :output-type number-type
+                      :arglists {1 num-unary}
+                      :typings inc-typings}
    'clojure.core/str {:name 'clojure.core/str
                       :output-type str-type
                       :arglists {0 {:arglist '[]
@@ -87,23 +121,27 @@
                                  :varargs {:arglist '[x y]
                                            :count 2
                                            :types [(tp 'x str-arg-type)
-                                                   (tp 'y str-arg-type)]}}}
+                                                   (tp 'y str-arg-type)]}}
+                      :typings str-typings}
    'clojure.core/format {:name 'clojure.core/format
                          :output-type str-type
                          :arglists {1 {:arglist '[fmt]
-                                        :types [(tp 'fmt str-type)]
-                                        :count 1}
+                                       :types [(tp 'fmt str-type)]
+                                       :count 1}
                                     :varargs {:arglist '[fmt x]
                                               :count 2
                                               :types [(tp 'fmt str-type)
-                                                      (tp 'x str-arg-type)]}}}
+                                                      (tp 'x str-arg-type)]}}
+                         :typings format-typings}
    'clojure.core/even? {:name 'clojure.core/even?
                         :output-type bool-type
                         :arglists {1 {:arglist '[x]
                                       :types [(tp 'x int-type)]
-                                      :count 1}}}
+                                      :count 1}}
+                        :typings int-pred-typings}
    'clojure.core/odd? {:name 'clojure.core/odd?
                        :output-type bool-type
                        :arglists {1 {:arglist '[x]
                                      :types [(tp 'x int-type)]
-                                     :count 1}}}})
+                                     :count 1}}
+                       :typings int-pred-typings}})
