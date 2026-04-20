@@ -121,6 +121,7 @@
                           :source-file "src/foo.clj"
                           :source-form '(defn f [x] x)
                           :enclosing-form 'foo.bar/f
+                          :ignored-body? false
                           :nodes [{:op :def :form 'f :name 'f}]
                           :raw-results []}
                          {}))
@@ -130,9 +131,26 @@
     (is (= "foo.bar" (:ns parsed)))
     (is (= "src/foo.clj" (:file parsed)))
     (is (= "foo.bar/f" (:enclosing_form parsed)))
+    (is (false? (:ignored_body parsed)))
     (is (vector? (:nodes parsed)))
     (is (= 1 (count (:nodes parsed))))
     (is (= [] (:results parsed)))))
+
+(deftest debug-form-record-surfaces-ignored-body
+  (let [[line] (capture-lines
+                #((:form-debug sut/printer)
+                  'foo.bar
+                  {:report-kind :debug-form
+                   :ns 'foo.bar
+                   :source-file "src/foo.clj"
+                   :source-form '(s/defn f :- s/Int [x] x)
+                   :enclosing-form 'foo.bar/f
+                   :ignored-body? true
+                   :nodes []
+                   :raw-results []}
+                  {}))
+        parsed (parse-line line)]
+    (is (true? (:ignored_body parsed)))))
 
 (deftest finding-with-debug-opt-carries-raw-result
   (let [result {:report-kind :input

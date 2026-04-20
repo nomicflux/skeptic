@@ -153,12 +153,13 @@
       (pprint/pprint result))))
 
 (defn- print-form-debug!
-  [ns {:keys [source-file source-form enclosing-form nodes raw-results]} _opts]
+  [ns {:keys [source-file source-form enclosing-form nodes raw-results ignored-body?]} _opts]
   (println "--- DEBUG (form) ---")
   (pprint/pprint {:ns ns
                   :source-file source-file
                   :source-form source-form
                   :enclosing-form enclosing-form
+                  :ignored-body? (boolean ignored-body?)
                   :nodes nodes
                   :raw-results raw-results}))
 

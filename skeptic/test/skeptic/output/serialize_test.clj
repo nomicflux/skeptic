@@ -1,7 +1,6 @@
 (ns skeptic.output.serialize-test
   (:require [clojure.data.json :as json]
             [clojure.test :refer [are deftest is testing]]
-            [skeptic.analysis.types :as at]
             [skeptic.output.serialize :as sut]))
 
 (defrecord ExampleRec [x y])
@@ -34,10 +33,9 @@
 
 (deftest json-safe-record
   (let [out (sut/json-safe (->ExampleRec 1 2))]
-    (is (= "record" (:t out)))
     (is (= 1 (:x out)))
     (is (= 2 (:y out)))
-    (is (= "skeptic.output.serialize_test.ExampleRec" (:class out)))))
+    (is (= "skeptic.output.serialize_test.ExampleRec" (:_class out)))))
 
 (deftest json-safe-collections
   (is (= [1 2 "a"] (sut/json-safe [1 2 'a])))
@@ -52,12 +50,6 @@
   (testing "nil keys in maps are removed, not serialized"
     (is (= {:a 1} (sut/json-safe {:a 1 nil 2})))))
 
-(deftest json-safe-skeptic-type-routes-through-bridge
-  (let [ground (at/->GroundT :int 'Int)
-        out (sut/json-safe ground)]
-    (is (map? out))
-    (is (some? (:t out)))))
-
 (deftest json-safe-output-is-json-writable
   (testing "nothing throws when writing to JSON"
     (let [v {:vals [(->ExampleRec 1 2)
@@ -65,6 +57,16 @@
                     String
                     inc
                     {nil :dropped :kept 1}
-                    (at/->GroundT :int 'Int)]}
+                    {:skeptic.analysis.types/semantic-type :ground
+                     :skeptic.analysis.types/kind :int
+                     :skeptic.analysis.types/name 'Int}]}
           safe (sut/json-safe v)]
       (is (string? (json/write-str safe))))))
+
+(deftest json-safe-sorted-map-survives
+  (testing "sorted-maps with non-keyword keys don't trip the serializer"
+    (let [m (sorted-map 1 :a 2 :b)
+          out (sut/json-safe m)]
+      (is (= :a (get out 1)))
+      (is (= :b (get out 2)))
+      (is (string? (json/write-str out))))))

@@ -75,12 +75,13 @@
       opts result)))
 
 (defn- debug-form-record
-  [ns {:keys [source-file source-form enclosing-form nodes raw-results]}]
+  [ns {:keys [source-file source-form enclosing-form nodes raw-results ignored-body?]}]
   {:kind "debug-form"
    :ns (str ns)
    :file (when source-file (str source-file))
    :source_form (->str source-form)
    :enclosing_form (->str enclosing-form)
+   :ignored_body (boolean ignored-body?)
    :nodes (mapv ser/json-safe nodes)
    :results (mapv ser/json-safe raw-results)})
 

@@ -1,14 +1,9 @@
 (ns skeptic.output.serialize
   "Coerce arbitrary Clojure values to JSON-safe data for the --debug output
-  paths. Skeptic types are routed through the bridge's type->json-data;
-  Vars / Classes / Namespaces / fns are tagged and stringified. Never throws."
-  (:require [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.types :as at]))
-
-(defn- skeptic-type?
-  [v]
-  (and (map? v)
-       (at/known-semantic-type-tag? (at/semantic-type-tag v))))
+  paths. This is a faithful dump: it renders every value uniformly as plain
+  data. It does not know about skeptic's type system — skeptic types are
+  tagged maps and serialize as tagged maps, same as any other map. Never
+  throws.")
 
 (declare json-safe)
 
@@ -26,10 +21,6 @@
   [v]
   (cond
     (nil? v) nil
-    (skeptic-type? v) (let [rendered (abr/type->json-data v)]
-                        (if (map? rendered)
-                          (map-entries->safe rendered)
-                          rendered))
     (keyword? v) v
     (symbol? v) (str v)
     (string? v) v
@@ -40,8 +31,7 @@
     (instance? clojure.lang.Namespace v)
     {:t "ns" :name (str (ns-name v))}
     (record? v) (assoc (map-entries->safe (into {} v))
-                       :t "record"
-                       :class (.getName (class v)))
+                       :_class (.getName (class v)))
     (map? v) (map-entries->safe v)
     (vector? v) (mapv json-safe v)
     (set? v) (into #{} (map json-safe) v)
