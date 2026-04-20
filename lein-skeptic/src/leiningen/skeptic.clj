@@ -20,7 +20,22 @@
    ["-o" "--output OUTPUT_FILE" "Write skeptic output to this file instead of stdout"]
    ["-h" "--help"]])
 
-(defn skeptic
+(defn ^{:doc "Run skeptic on this project's source- and test-paths.
+
+Usage: lein skeptic [OPTIONS]
+
+Options:
+  -v, --verbose             Turn on verbose logging
+  -a, --analyzer            Use clojure.tools.analyzer to analyse code
+  -k, --keep-empty          Print out checking results with empty error set
+  -c, --show-context        Show context and resolution path on items
+  -n, --namespace NS        Only check the given namespace
+  -p, --porcelain           Emit machine-readable JSONL (one JSON object per line)
+      --debug               Emit raw internal state for cross-environment diffing
+      --profile             Profile the run (CPU, memory, wall-clock time)
+  -o, --output FILE         Write skeptic output to this file instead of stdout
+  -h, --help                Show this option summary"}
+  skeptic
   [project & args]
   (let [profile (or (:skeptic (:profiles project)) skeptic-profile)
         paths (concat (:source-paths project) (:test-paths project))
