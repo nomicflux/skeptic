@@ -1,6 +1,8 @@
 (ns skeptic.checking.pipeline.control-flow-test
   (:require [clojure.test :refer [are deftest is]]
-            [skeptic.checking.pipeline.support :as ps]))
+            [schema.core :as s]
+            [skeptic.checking.pipeline.support :as ps]
+            [skeptic.inconsistence.mismatch :as incm]))
 
 (deftest loop-return-matches-declared-vector-and-map-schemas
   (are [sym] (empty? (ps/result-errors (ps/check-fixture sym)))
@@ -46,23 +48,73 @@
 (deftest cond-three-branch-join-output
   (is (= [] (ps/check-fixture 'skeptic.test-examples.control-flow/cond-three-branch-join))))
 
-(deftest when-not-blank-maybe-str
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-not-blank-maybe-str-success))))
+(deftest failing-functions
+  (are [sym errors] (= (set (partition 2 errors))
+                       (ps/result-pairs (ps/check-fixture sym)))
+    'skeptic.test-examples.control-flow/sample-nil-local-arg-fn
+    ['(int-add x y)
+     [(incm/mismatched-schema-msg {:expr '(int-add x y) :arg 'y}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
 
-(deftest presents-str
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/presents-str))))
+    'skeptic.test-examples.control-flow/sample-bad-local-provenance-fn
+    ['(int-add 1 nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add 1 nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
 
-(deftest when-not-throw-nil-local
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-not-throw-nil-local-success))))
+    'skeptic.test-examples.control-flow/sample-multi-line-body
+    ['(int-add nil x)
+     [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
 
-(deftest when-truthy-nil-local
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-truthy-nil-local-success))))
+    'skeptic.test-examples.control-flow/sample-multi-line-let-body
+    ['(int-add 1 (f x))
+     [(incm/mismatched-schema-msg {:expr '(int-add 1 (f x)) :arg '(f x)}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]
+     '(int-add 2 3 4 nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add 2 3 4 nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]
+     '(int-add nil x)
+     [(incm/mismatched-schema-msg {:expr '(int-add nil x) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]
+     '(int-add 2 nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add 2 nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]
+     '(int-add w 1 x y z)
+     [(incm/mismatched-schema-msg {:expr '(int-add w 1 x y z) :arg 'w}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
 
-(deftest when-and-some?-nil
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-nil-success))))
+    'skeptic.test-examples.control-flow/loop-recur-type-mismatch
+    ['(recur "not-int")
+     [(incm/mismatched-ground-type-msg {:expr '(recur "not-int") :arg "not-int"}
+                                       (ps/T s/Str)
+                                       (ps/T s/Int))]]
 
-(deftest when-and-some?-and-nil
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-and-nil-success))))
+    'skeptic.test-examples.control-flow/sample-let-mismatched-types
+    ['(int-add x s)
+     [(incm/mismatched-ground-type-msg {:expr '(int-add x s) :arg 's}
+                                       (ps/T s/Str)
+                                       (ps/T s/Int))]]))
 
-(deftest when-and-some?-multi-nil
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-and-some?-multi-nil-success))))
+(deftest call-mismatch-reports-affected-input-and-location
+  (let [results (ps/check-fixture-ns 'skeptic.test-examples.control-flow
+                                     {:remove-context true})
+        result (some #(when (= '(int-add x y) (:blame %))
+                        %)
+                     results)]
+    (is (= ['y] (:focuses result)))
+    (is (= ["y"] (:focus-sources result)))
+    (is (= "(int-add x y)" (:source-expression result)))
+    (is (= {:file (ps/fixture-path-for-ns 'skeptic.test-examples.control-flow)
+            :line 13
+            :column 5}
+           (select-keys (:location result) [:file :line :column])))
+    (is (= 'skeptic.test-examples.control-flow/sample-nil-local-arg-fn
+           (:enclosing-form result)))))

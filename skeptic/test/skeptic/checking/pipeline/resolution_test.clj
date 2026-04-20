@@ -1,9 +1,11 @@
 (ns skeptic.checking.pipeline.resolution-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
-            [skeptic.inconsistence.mismatch :as incm]))
+            [skeptic.inconsistence.mismatch :as incm]
+            [skeptic.inconsistence.report :as inrep]))
 
 (deftest resolution-path-resolutions
   (let [results (ps/check-fixture 'skeptic.test-examples.control-flow/sample-bad-local-provenance-fn
@@ -93,3 +95,51 @@
   (is (= [] (ps/check-fixture 'skeptic.test-examples.resolution/self-recursive-identity)))
   (is (= [] (ps/check-fixture 'skeptic.test-examples.resolution/mutual-recursive-left)))
   (is (= [] (ps/check-fixture 'skeptic.test-examples.resolution/mutual-recursive-right))))
+
+(deftest failing-functions
+  (are [sym errors] (= (set (partition 2 errors))
+                       (ps/result-pairs (ps/check-fixture sym)))
+    'skeptic.test-examples.resolution/sample-let-fn-bad1-fn
+    ['(int-add y nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
+
+    'skeptic.test-examples.resolution/sample-let-fn-bad2-fn
+    ['(int-add y x)
+     [(incm/mismatched-schema-msg {:expr '(int-add y x) :arg 'y}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]))
+
+(deftest check-ns-reads-auto-resolved-keywords-in-target-ns
+  (require 'skeptic.test-examples.resolution)
+  (let [results (ps/check-fixture-ns 'skeptic.test-examples.resolution
+                                     {:keep-empty true
+                                      :remove-context true})]
+    (is (seq results))
+    (is (some #(= "(int-add x (::s/key2 y))" (:source-expression %)) results))
+    (is (= {:blame '(int-add x (:schema.core/key2 y))
+            :source-expression "(int-add x (::s/key2 y))"
+            :expanded-expression '(int-add x (:schema.core/key2 y))
+            :enclosing-form 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn
+            :focuses []}
+           (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
+                    (dissoc (select-keys % [:blame :source-expression :expanded-expression :location :enclosing-form :focuses])
+                            :location))
+                 results)))
+    (is (= {:file (ps/fixture-path-for-ns 'skeptic.test-examples.resolution)
+            :line 9
+            :column 5}
+           (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
+                    (select-keys (:location %) [:file :line :column]))
+                 results)))))
+
+(deftest call-mismatch-summary-uses-single-focused-input
+  (let [result (first (ps/check-fixture 'skeptic.test-examples.resolution/sample-let-fn-bad1-fn))
+        summary (inrep/report-summary result)
+        [error] (:errors summary)]
+    (is (= '(int-add y nil) (:blame result)))
+    (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+" (ps/strip-ansi error)))
+    (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)\s+" (ps/strip-ansi error))))
+    (is (or (str/includes? (ps/strip-ansi error) "expected type")
+            (str/includes? (ps/strip-ansi error) "is nullable, but expected is not")))))

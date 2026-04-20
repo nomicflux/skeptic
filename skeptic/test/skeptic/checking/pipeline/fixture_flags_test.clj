@@ -1,8 +1,9 @@
 (ns skeptic.checking.pipeline.fixture-flags-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.config :as config]
+            [skeptic.inconsistence.mismatch :as incm]
             [skeptic.typed-decls :as typed-decls]))
 
 (deftest ignore-body-fixtures
@@ -35,3 +36,30 @@
     (is (= (ps/T s/Int)
            (get-in result [:entries 'some.ns/some-fn :output-type]))
         "typed-ns-results must merge :skeptic/type-overrides into :entries")))
+
+(deftest failing-functions
+  (are [sym errors] (= (set (partition 2 errors))
+                       (ps/result-pairs (ps/check-fixture sym)))
+    'skeptic.test-examples.fixture-flags/sample-metadata-fn
+    ['(int-add x nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
+
+    'skeptic.test-examples.fixture-flags/sample-doc-fn
+    ['(int-add x nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
+
+    'skeptic.test-examples.fixture-flags/sample-doc-and-metadata-fn
+    ['(int-add x nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add x nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]
+
+    'skeptic.test-examples.fixture-flags/sample-fn-once
+    ['(int-add y nil)
+     [(incm/mismatched-schema-msg {:expr '(int-add y nil) :arg nil}
+                                  (ps/T (s/eq nil))
+                                  (ps/T s/Int))]]))

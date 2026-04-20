@@ -35,7 +35,6 @@
   (let [f (fn [y] (int-add y nil))]
     (f x)))
 
-;; TODO: Currently broken, fix
 (defn sample-let-fn-bad2-fn
   [x]
   (let [f (fn [y] (int-add y x))]

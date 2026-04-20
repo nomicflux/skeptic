@@ -1,36 +1,9 @@
-(ns skeptic.checking.pipeline.reporting-test
+(ns skeptic.checking.pipeline.reporting-phase-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
-            [skeptic.inconsistence.report :as inrep]
-            [skeptic.output.text :as output-text]))
-
-(deftest call-mismatch-reports-affected-input-and-location
-  (let [results (ps/check-fixture-ns 'skeptic.test-examples.control-flow
-                                     {:remove-context true})
-        result (some #(when (= '(int-add x y) (:blame %))
-                        %)
-                     results)]
-    (is (= ['y] (:focuses result)))
-    (is (= ["y"] (:focus-sources result)))
-    (is (= "(int-add x y)" (:source-expression result)))
-    (is (= {:file (ps/fixture-path-for-ns 'skeptic.test-examples.control-flow)
-            :line 13
-            :column 5}
-           (select-keys (:location result) [:file :line :column])))
-    (is (= 'skeptic.test-examples.control-flow/sample-nil-local-arg-fn
-           (:enclosing-form result)))))
-
-(deftest call-mismatch-summary-uses-single-focused-input
-  (let [result (first (ps/check-fixture 'skeptic.test-examples.resolution/sample-let-fn-bad1-fn))
-        summary (inrep/report-summary result)
-        [error] (:errors summary)]
-    (is (= '(int-add y nil) (:blame result)))
-    (is (re-find #"(?s)^nil\s+\tin\s+\(int-add y nil\)\s+" (ps/strip-ansi error)))
-    (is (not (re-find #"(?s)^\(int-add y nil\)\s+\tin\s+\(int-add y nil\)\s+" (ps/strip-ansi error))))
-    (is (or (str/includes? (ps/strip-ansi error) "expected type")
-            (str/includes? (ps/strip-ansi error) "is nullable, but expected is not")))))
+            [skeptic.inconsistence.report :as inrep]))
 
 (deftest output-mismatch-renders-canonical-map-types
   (let [results (vec (sut/check-ns ps/static-call-examples-dict
@@ -115,16 +88,3 @@
            (select-keys (:location nested-result) [:file :line :column])))
     (is (= ["(get (nested-multi-step-g) :value)"]
            (:focus-sources nested-result)))))
-
-(deftest printer-path-renders-only-user-facing-data
-  (let [result (first (ps/check-fixture 'skeptic.test-examples.collections/nested-map-input-failure
-                                        {:remove-context true}))
-        summary (inrep/report-summary result)
-        printed (str/join "\n"
-                          (concat (map (fn [[label value]]
-                                         (str label value))
-                                       (output-text/report-fields summary))
-                                  (:errors summary)))]
-    (is (some? result))
-    (is (str/includes? printed "[:user :name]"))
-    (ps/assert-no-ui-internals printed)))

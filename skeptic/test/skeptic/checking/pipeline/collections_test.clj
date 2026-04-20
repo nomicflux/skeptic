@@ -1,9 +1,11 @@
-(ns skeptic.checking.pipeline.collection-test
+(ns skeptic.checking.pipeline.collections-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.checking.pipeline.support :as ps]
-            [skeptic.inconsistence.mismatch :as incm]))
+            [skeptic.inconsistence.mismatch :as incm]
+            [skeptic.inconsistence.report :as inrep]
+            [skeptic.output.text :as output-text]))
 
 (deftest abcde-maps-output-type-errors
   (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/abcde-maps)))
@@ -49,3 +51,16 @@
     (is (some? quad-result))
     (is (= '(takes-int-quad [x y z]) (:blame quad-result)))
     (is (= :vector-arity-mismatch (-> quad-result :cast-diagnostics first :reason)))))
+
+(deftest printer-path-renders-only-user-facing-data
+  (let [result (first (ps/check-fixture 'skeptic.test-examples.collections/nested-map-input-failure
+                                        {:remove-context true}))
+        summary (inrep/report-summary result)
+        printed (str/join "\n"
+                          (concat (map (fn [[label value]]
+                                         (str label value))
+                                       (output-text/report-fields summary))
+                                  (:errors summary)))]
+    (is (some? result))
+    (is (str/includes? printed "[:user :name]"))
+    (ps/assert-no-ui-internals printed)))

@@ -1,4 +1,4 @@
-(ns skeptic.checking.pipeline.namespace-test
+(ns skeptic.checking.pipeline.check-ns-phase-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
@@ -8,36 +8,6 @@
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.source :as source]
             [skeptic.typed-decls :as typed-decls]))
-
-(deftest regex-return-declaration-and-checking
-  (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics)
-        declaration-error (some #(when (= 'skeptic.test-examples.basics/regex-return-caller
-                                          (:blame %))
-                                   %)
-                                errors)
-        namespace-results (ps/check-fixture-namespace 'skeptic.test-examples.basics
-                                                      {:remove-context true})
-        namespace-declaration-error (some #(when (and (= :declaration (:phase %))
-                                                      (= 'skeptic.test-examples.basics/regex-return-caller
-                                                         (:blame %)))
-                                             %)
-                                          namespace-results)]
-    (is (contains? entries 'skeptic.test-examples.basics/regex-return-caller))
-    (is (nil? declaration-error)
-        (str "expected regex-return-caller to admit cleanly; got " (pr-str declaration-error)))
-    (is (nil? namespace-declaration-error)
-        (str "expected no declaration exception for regex-return-caller; got "
-             (pr-str namespace-declaration-error)))
-    (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/regex-return-caller)))))
-
-(deftest check-ns-uses-raw-forms
-  (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
-                                     {:remove-context true})]
-    (is (seq results))
-    (is (some #(= '(int-add x "hi") (:blame %)) results))
-    (is (not-any? #(and (seq? (:blame %))
-                        (= "schema.core" (namespace (first (:blame %)))))
-                  results))))
 
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
@@ -59,29 +29,6 @@
     (is (= :exception (:report-kind (first results))))
     (is (= :read (:phase (first results))))
     (is (= (.getPath temp-file) (get-in (first results) [:location :file])))))
-
-(deftest check-ns-reads-auto-resolved-keywords-in-target-ns
-  (require 'skeptic.test-examples.resolution)
-  (let [results (ps/check-fixture-ns 'skeptic.test-examples.resolution
-                                     {:keep-empty true
-                                      :remove-context true})]
-    (is (seq results))
-    (is (some #(= "(int-add x (::s/key2 y))" (:source-expression %)) results))
-    (is (= {:blame '(int-add x (:schema.core/key2 y))
-            :source-expression "(int-add x (::s/key2 y))"
-            :expanded-expression '(int-add x (:schema.core/key2 y))
-            :enclosing-form 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn
-            :focuses []}
-           (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
-                    (dissoc (select-keys % [:blame :source-expression :expanded-expression :location :enclosing-form :focuses])
-                            :location))
-                 results)))
-    (is (= {:file (ps/fixture-path-for-ns 'skeptic.test-examples.resolution)
-            :line 9
-            :column 5}
-           (some #(when (= "(int-add x (::s/key2 y))" (:source-expression %))
-                    (select-keys (:location %) [:file :line :column]))
-                 results)))))
 
 (deftest symbol-output-annotation-regression
   (let [form (->> 'skeptic.schema.collect/fully-qualify-str
@@ -220,57 +167,3 @@
     (is (= :load (:phase (first results))))
     (is (= 'skeptic.nonexistent.namespace.that.does.not.exist
            (:namespace (first results))))))
-
-(deftest check-ns-localizes-expression-exceptions-and-continues
-  (let [real-analyze sut/analyze-source-exprs
-        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
-        exprs (vec (sut/ns-exprs file))
-        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
-    (is (some? exploding-form))
-    (with-redefs [sut/analyze-source-exprs (fn [dict ns-sym source-file exprs]
-                                             (if (= exploding-form (first exprs))
-                                               (throw (ex-info "boom during analysis" {}))
-                                               (real-analyze dict ns-sym source-file exprs)))]
-      (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
-                                         {:remove-context true})
-            exception-result (some #(when (= :expression (:phase %)) %) results)
-            later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
-                                          (:enclosing-form %))
-                                   %)
-                                results)]
-        (is (some? exception-result))
-        (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
-               (:enclosing-form exception-result)))
-        (is (= "boom during analysis" (:exception-message exception-result)))
-        (is (some? later-mismatch))))))
-
-(deftest check-ns-localizes-lazy-expression-exceptions-and-continues
-  (let [real-check-resolved-form sut/check-resolved-form
-        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
-        exprs (vec (sut/ns-exprs file))
-        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
-    (is (some? exploding-form))
-    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-file source-form analyzed opts]
-                                            (if (= exploding-form source-form)
-                                              (map (fn [_]
-                                                     (throw (ex-info "boom during realization" {})))
-                                                   [::explode])
-                                              (real-check-resolved-form dict ns-sym source-file source-form analyzed opts)))]
-      (let [form-results (sut/check-ns-form ps/test-dict
-                                            'skeptic.test-examples.basics
-                                            file
-                                            exploding-form
-                                            {:remove-context true})
-            exception-result (first form-results)
-            results (ps/check-fixture-ns 'skeptic.test-examples.basics
-                                         {:remove-context true})
-            later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
-                                          (:enclosing-form %))
-                                   %)
-                                results)]
-        (is (= 1 (count form-results)))
-        (is (= :expression (:phase exception-result)))
-        (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
-               (:enclosing-form exception-result)))
-        (is (= "boom during realization" (:exception-message exception-result)))
-        (is (some? later-mismatch))))))

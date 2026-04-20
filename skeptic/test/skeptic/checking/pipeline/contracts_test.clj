@@ -1,11 +1,6 @@
-(ns skeptic.checking.pipeline.contract-test
+(ns skeptic.checking.pipeline.contracts-test
   (:require [clojure.test :refer [are deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
-
-(deftest guarded-keys-nullability-contract
-  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/guarded-keys-caller)]
-    (is (empty? (ps/result-errors results))
-        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
 
 (deftest checking-conditional-input-contracts
   (are [sym] (= [] (ps/check-fixture sym))
