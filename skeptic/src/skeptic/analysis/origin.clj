@@ -254,8 +254,12 @@
   (case (:kind origin)
     :root (refine-root-type origin assumptions)
     :opaque (:type origin)
-    :map-key-lookup (amo/map-get-type (refine-root-type (:root origin) assumptions)
-                                      (:key-query origin))
+    :map-key-lookup
+    (let [looked-up (amo/map-get-type (refine-root-type (:root origin) assumptions)
+                                      (:key-query origin))]
+      (if-some [binding-sym (:binding-sym origin)]
+        (refine-root-type (root-origin binding-sym looked-up) assumptions)
+        looked-up))
     :branch (case (assumption-truth (:test origin) assumptions)
               :true (origin-type (:then-origin origin) assumptions)
               :false (origin-type (:else-origin origin) assumptions)

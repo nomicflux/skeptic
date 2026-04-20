@@ -92,6 +92,8 @@ For each binding:
 
 Ordinary local bindings also preserve a fresh root origin for the bound name when that is safe. In particular, this root is kept when the binding does not conflict with an earlier branch-test symbol, or when the initializer is an `if` whose test is a nil-check on the same binding name. That rule keeps refinement attached to shadowed locals in common nil-check patterns.
 
+When the binding's initializer resolves to a map-key projection (for example `{:keys [a]}` destructuring), the preserved projection origin additionally records the binding name so that name-keyed refinements — predicate, nil, blank, or value-equality assumptions about the local itself — apply to the projected slot in addition to any refinements of the outer map.
+
 The body is then annotated in the extended environment, and the whole binding form takes the body type.
 
 ### Conditionals

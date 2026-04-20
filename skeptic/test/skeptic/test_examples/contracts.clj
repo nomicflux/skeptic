@@ -1,5 +1,6 @@
 (ns skeptic.test-examples.contracts
-  (:require [schema.core :as s]
+  (:require [clojure.string :as str]
+            [schema.core :as s]
             [skeptic.test-examples.basics :as basics]))
 
 (s/defschema ConditionalIntOrStr
@@ -440,3 +441,19 @@
   (let [p (when (some? raw) raw)]
     (cond-> {}
       (some? p) (assoc :p p))))
+
+(s/defschema OutOptionalAB
+  {(s/optional-key :a) s/Str
+   (s/optional-key :b) s/Str})
+
+(s/defn if-blank-guard-optional-keys-branches-success :- OutOptionalAB
+  [{:keys [a]} :- {:a (s/maybe s/Str) s/Keyword s/Any}]
+  (if (str/blank? a)
+    {:b "x"}
+    {:a a :b "y"}))
+
+(s/defn if-some-guard-destructured-success :- s/Str
+  [{:keys [a]} :- {:a (s/maybe s/Str) s/Keyword s/Any}]
+  (if (some? a)
+    a
+    "fallback"))

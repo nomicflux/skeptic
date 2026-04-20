@@ -12,6 +12,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Flow-sensitive narrowing now flows through named destructured map keys: a
+  `(str/blank? a)` or `(some? a)` guard on a `{:keys [a]}` destructure refines
+  the local `a` itself, not only the parent map, so downstream reads of `a`
+  see the narrowed type.
+
 ## [0.7.0] - 2026-04-19
 
 ### Added

@@ -128,12 +128,15 @@
                                    (= branch-test-sym binding-sym)
                                    (if-init-nil-check-binds-same-name? init binding-sym)
                                    (some? narrowing-alias-sym)))
-                      (ao/root-origin binding-sym (:type base-entry)))]
+                      (ao/root-origin binding-sym (:type base-entry)))
+        binding-origin (cond-> (or self-origin base-origin)
+                         (and preserve-structured-origin? (symbol? binding-sym))
+                         (assoc :binding-sym binding-sym))]
     [annotated
      (assoc env binding-sym
             (binding-env-entry annotated
                                {:base-entry base-entry
-                                :fallback-origin (or self-origin base-origin)
+                                :fallback-origin binding-origin
                                 :track-fn-binding? true}))]))
 
 (defn annotate-let

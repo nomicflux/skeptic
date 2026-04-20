@@ -102,3 +102,8 @@
     'skeptic.test-examples.contracts/cond-branch-pick-success
     'skeptic.test-examples.contracts/if-nullable-guard-success
     'skeptic.test-examples.contracts/cond->-guard-success))
+
+(deftest destructured-local-narrowing-branches
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/if-blank-guard-optional-keys-branches-success
+    'skeptic.test-examples.contracts/if-some-guard-destructured-success))
