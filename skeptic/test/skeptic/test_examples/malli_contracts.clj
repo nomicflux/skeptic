@@ -8,3 +8,9 @@
 
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] :int]} maybe-output-bad
   [_x] "not-an-int")
+
+(defn ^{:malli/schema [:=> [:cat :int] [:or :int :string]]} or-output-success
+  [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :int] [:or :int :string]]} or-output-bad
+  [_x] :not-a-string-or-int)

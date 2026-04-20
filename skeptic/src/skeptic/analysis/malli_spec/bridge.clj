@@ -1,5 +1,6 @@
 (ns skeptic.analysis.malli-spec.bridge
   (:require [malli.core :as m]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn- invalid-malli-spec-input
@@ -47,6 +48,10 @@
   [form]
   (and (vector? form) (= :maybe (first form))))
 
+(defn- or-shape?
+  [form]
+  (and (vector? form) (= :or (first form))))
+
 (defn- form->type
   [form]
   (cond
@@ -58,6 +63,7 @@
                                   (count inputs)
                                   false)]))
     (maybe-shape? form) (at/->MaybeT (form->type (second form)))
+    (or-shape? form) (ato/union-type (mapv form->type (rest form)))
     :else (malli-leaf->type form)))
 
 (defn malli-spec->type
