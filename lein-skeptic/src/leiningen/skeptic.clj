@@ -17,6 +17,7 @@
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
+   ["-o" "--output OUTPUT_FILE" "Write skeptic output to this file instead of stdout"]
    ["-h" "--help"]])
 
 (defn skeptic
@@ -28,7 +29,13 @@
       (println summary)
       (leiningen.core.eval/eval-in-project
        (leiningen.core.project/merge-profiles project [profile])
-       `(let [exit-code# (skeptic.profiling/run ~opts ~(str (:root project) "/target")
-                   (fn [] (skeptic.core/check-project ~opts ~(:root project) ~@paths)))]
+       `(let [output-path# ~(:output opts)
+              writer# (when output-path# (clojure.java.io/writer output-path#))
+              exit-code# (try
+                           (binding [*out* (or writer# *out*)]
+                             (skeptic.profiling/run ~opts ~(str (:root project) "/target")
+                               (fn [] (skeptic.core/check-project ~opts ~(:root project) ~@paths))))
+                           (finally
+                             (when writer# (.flush writer#) (.close writer#))))]
           (System/exit exit-code#))
-       '(do (require 'skeptic.core) (require 'skeptic.profiling))))))
+       '(do (require 'skeptic.core) (require 'skeptic.profiling) (require 'clojure.java.io))))))
