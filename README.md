@@ -81,6 +81,7 @@ Options:
   instead of the default human-readable output. See
   [JSONL output](#jsonl-output) below.
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
+- `-o`, `--output OUTPUT_FILE`: write skeptic's output to this file instead of stdout, so lein/JVM messages stay on stdout. Works with text and `-p` JSONL output.
 
 ## Configuration
 
@@ -238,7 +239,9 @@ constructor. The set of tags:
 ### Combining with `--profile`
 
 When both `--porcelain` and `--profile` are set, the profile summary is
-written to **stderr** so stdout stays pure JSONL.
+written to **stderr** so stdout stays pure JSONL. When `-o` is also set,
+JSONL still goes to the output file and the profile summary still goes to
+stderr.
 
 ## Suppressing checks
 

@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `-o`/`--output OUTPUT_FILE` on `lein skeptic` so skeptic's findings, summary, or JSONL stream can be written to a file while lein/JVM chatter stays on stdout (#2).
+
 ### Changed
 
 ### Fixed
