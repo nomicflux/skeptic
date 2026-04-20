@@ -95,13 +95,38 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           trust_level: 5
 
-      - name: Install skeptic library
-        run: lein do clean, install
+      - name: Build and deploy skeptic to Clojars
+        run: lein do clean, deploy
         working-directory: skeptic
 
-      - name: Deploy skeptic to Clojars
-        run: lein deploy
+      - name: Capture published skeptic jar sha1
+        id: skeptic_sha
+        run: |
+          set -euo pipefail
+          jar=$(ls target/skeptic-*.jar | grep -v -- '-sources\.jar$' | head -1)
+          sha=$(shasum -a 1 "$jar" | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Published $jar sha1=$sha"
         working-directory: skeptic
+
+      - name: Purge local skeptic from ~/.m2 to force Clojars resolution
+        run: rm -rf ~/.m2/repository/org/clojars/nomicflux/skeptic
+
+      - name: Resolve skeptic for lein-skeptic from Clojars
+        run: lein -U deps
+        working-directory: lein-skeptic
+
+      - name: Verify resolved skeptic matches just-published artifact
+        run: |
+          set -euo pipefail
+          resolved=$(ls ~/.m2/repository/org/clojars/nomicflux/skeptic/*/skeptic-*.jar | grep -v -- '-sources\.jar$' | head -1)
+          sha=$(shasum -a 1 "$resolved" | awk '{print $1}')
+          expected="${{ steps.skeptic_sha.outputs.sha }}"
+          if [[ "$sha" != "$expected" ]]; then
+            echo "Resolved $resolved sha1=$sha does not match just-published sha1=$expected"
+            exit 1
+          fi
+          echo "Verified $resolved matches just-published skeptic (sha1=$sha)"
 
       - name: Install lein-skeptic plugin
         run: lein do clean, install
