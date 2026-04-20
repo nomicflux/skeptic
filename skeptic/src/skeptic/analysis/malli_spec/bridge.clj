@@ -43,15 +43,24 @@
        (vector? (second form))
        (= :cat (first (second form)))))
 
+(defn- maybe-shape?
+  [form]
+  (and (vector? form) (= :maybe (first form))))
+
+(defn- form->type
+  [form]
+  (cond
+    (function-shape? form)
+    (let [inputs (rest (second form))
+          output (nth form 2)]
+      (at/->FunT [(at/->FnMethodT (mapv form->type inputs)
+                                  (form->type output)
+                                  (count inputs)
+                                  false)]))
+    (maybe-shape? form) (at/->MaybeT (form->type (second form)))
+    :else (malli-leaf->type form)))
+
 (defn malli-spec->type
   "Convert a Malli spec to a semantic type."
   [value]
-  (let [form (admit-malli-spec value)]
-    (if (function-shape? form)
-      (let [inputs (rest (second form))
-            output (nth form 2)]
-        (at/->FunT [(at/->FnMethodT (mapv malli-leaf->type inputs)
-                                    (malli-leaf->type output)
-                                    (count inputs)
-                                    false)]))
-      at/Dyn)))
+  (form->type (admit-malli-spec value)))
