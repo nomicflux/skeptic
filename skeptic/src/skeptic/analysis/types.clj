@@ -157,12 +157,13 @@
    :inner inner})
 
 (defn ->FnMethodT
-  [inputs output min-arity variadic?]
+  [inputs output min-arity variadic? names]
   {semantic-type-tag-key fn-method-type-tag
    :inputs inputs
    :output output
    :min-arity min-arity
-   :variadic? variadic?})
+   :variadic? variadic?
+   :names names})
 
 (defn ->FunT
   [methods]
@@ -316,6 +317,17 @@
 (defn fn-method-output
   [method]
   (:output method))
+
+(defn fn-method-input-names
+  [method]
+  (:names method))
+
+(defn select-method
+  [methods arity]
+  (or (some #(when (= (:min-arity %) arity) %) methods)
+      (some #(when (:variadic? %) %) methods)
+      (when-let [eligible (seq (filter #(<= (:min-arity %) arity) methods))]
+        (apply max-key :min-arity eligible))))
 
 (defn maybe-type?
   [t]

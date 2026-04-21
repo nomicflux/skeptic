@@ -126,3 +126,10 @@
   (fn [x y z]
     (process-map {:route "start"
                   :record y})))
+
+(s/defn multi-arity-wrong-output :- s/Int
+  ([x :- s/Int]
+   x)
+  ([x :- s/Int
+    y :- s/Str]
+   y))

@@ -1,7 +1,6 @@
 (ns skeptic.analysis.calls
   (:require [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.map-ops :as amo]
-            [skeptic.analysis.normalize :as an]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.types :as at])
   (:import [clojure.lang Util]))
@@ -48,63 +47,13 @@
     ns-sym (symbol (str ns-sym "/" sym))
     :else sym))
 
-(defn lookup-entry
+(defn lookup-type
   [dict ns-sym node]
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
                             (var->sym (aapi/node-var node))])]
-    (some (comp an/normalize-entry dict) candidates)))
-
-(defn- arglist-entry-type
-  [{:keys [type] :as entry}]
-  (or type entry at/Dyn))
-
-(defn- convert-arglists
-  [args {:keys [arglists output-type]}]
-  (let [arity (clojure.core/count args)
-        direct-res (get arglists arity)
-        {:keys [count] :as varargs-res} (get arglists :varargs)
-        min-count count
-        output-type (or output-type at/Dyn)]
-    (if (or (and min-count varargs-res)
-            direct-res)
-      (let [res (if (and min-count (>= arity min-count)) varargs-res direct-res)
-            raw-types (:types res)
-            argtypes (if (seq raw-types)
-                       (let [entries (mapv #(if (map? %) % {:type %}) raw-types)
-                             c (clojure.core/count entries)]
-                         (cond
-                           (zero? c)
-                           (vec (repeat arity at/Dyn))
-                           (>= c arity)
-                           (mapv arglist-entry-type (subvec entries 0 arity))
-                           :else
-                           (let [pad-n (- arity c)
-                                 last-e (peek entries)]
-                             (mapv arglist-entry-type
-                                   (vec (concat entries
-                                                (clojure.core/repeat pad-n last-e)))))))
-                       (vec (repeat arity at/Dyn)))
-            fn-type (at/->FunT [(at/->FnMethodT argtypes
-                                               output-type
-                                               (clojure.core/count argtypes)
-                                               false)])]
-        {:type fn-type
-         :fn-type fn-type
-         :output-type output-type
-         :argtypes argtypes
-         :arglist argtypes})
-      (let [argtypes (vec (repeat arity at/Dyn))
-            fn-type (at/->FunT [(at/->FnMethodT argtypes
-                                               output-type
-                                               arity
-                                               false)])]
-        {:type fn-type
-         :fn-type fn-type
-         :output-type output-type
-         :argtypes argtypes
-         :arglist argtypes}))))
+    (some dict candidates)))
 
 (defn fun-type->call-opts
   [{:keys [methods]}]
@@ -125,20 +74,16 @@
         fn-type (at/->FunT [(at/->FnMethodT expected-argtypes
                                            output-type
                                            arity
-                                           false)])]
+                                           false
+                                           (mapv #(symbol (str "arg" %)) (range arity)))])]
     {:expected-argtypes expected-argtypes
      :output-type output-type
      :fn-type fn-type}))
 
-(defn typed-arglist-entry?
-  [{:keys [types]}]
-  (boolean (seq types)))
 
 (defn typed-callable?
   [fn-node]
-  (and (aapi/node-arglists fn-node)
-       (some typed-arglist-entry?
-             (vals (aapi/node-arglists fn-node)))))
+  (boolean (aapi/node-fun-type fn-node)))
 
 (defn seq-call?
   [fn-node]
@@ -378,13 +323,22 @@
   [fn-node]
   (contains? #{'clojure.core/inc 'inc} (resolved-call-sym fn-node)))
 
+(defn- fun-type-call-info
+  [ft arity]
+  (let [method (at/select-method (at/fun-methods ft) arity)
+        inputs (at/fn-method-inputs method)
+        output (or (:output method) at/Dyn)
+        c (count inputs)
+        argtypes (cond
+                   (zero? c) (vec (repeat arity at/Dyn))
+                   (>= c arity) (subvec (vec inputs) 0 arity)
+                   :else (vec (concat inputs (repeat (- arity c) (peek inputs)))))]
+    {:expected-argtypes argtypes
+     :output-type output
+     :fn-type ft}))
+
 (defn call-info
   [fn-node args]
-  (if (typed-callable? fn-node)
-    (let [converted (convert-arglists args
-                                      {:arglists (aapi/node-arglists fn-node)
-                                       :output-type (or (aapi/node-output-type fn-node) at/Dyn)})]
-      {:expected-argtypes (:argtypes converted)
-       :output-type (or (:output-type converted) at/Dyn)
-       :fn-type (:type converted)})
+  (if-let [ft (aapi/node-fun-type fn-node)]
+    (fun-type-call-info ft (count args))
     (default-call-info (count args) (aapi/node-output-type fn-node))))
