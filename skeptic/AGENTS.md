@@ -60,12 +60,11 @@ Source namespace families:
   `skeptic.analysis.bridge.localize` resolves schema values into the current project context and carries localized error context.
   `skeptic.analysis.bridge.render` renders semantic types for reports and strips derived display-only fields.
   `skeptic.analysis.bridge.algebra` contains schema-boundary set/join helpers.
-- `skeptic.analysis.types`, `skeptic.analysis.type-ops`, `skeptic.analysis.type-algebra`, `skeptic.analysis.normalize`:
+- `skeptic.analysis.types`, `skeptic.analysis.type-ops`, `skeptic.analysis.type-algebra`:
   Core type-domain representation and normalization.
   `skeptic.analysis.types` is the canonical semantic type data model.
   `skeptic.analysis.type-ops` builds, normalizes, unions, intersects, and de-`maybe`s types.
   `skeptic.analysis.type-algebra` holds extra type-combination helpers.
-  `skeptic.analysis.normalize` normalizes typed declaration entries before analysis.
 - `skeptic.analysis.annotate` and `skeptic.analysis.annotate.*`:
   Analyzer AST typing/inference.
   `skeptic.analysis.annotate` dispatches on analyzer `:op` values.
