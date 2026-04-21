@@ -12,6 +12,7 @@
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
+            [skeptic.provenance :as prov]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
@@ -130,7 +131,7 @@
                                   (inrep/output-cast-report
                                    {:expr (aapi/node-name node)
                                     :arg (or source-body (aapi/node-form body))}
-                                   (:source (get provenance enclosing-form))
+                                   (prov/source (get provenance enclosing-form))
                                    expected-output
                                    actual-output))]
                      (when-not (:ok? report)
@@ -208,7 +209,7 @@
      :cast-diagnostics (vec (mapcat :cast-diagnostics error-groups))
      :context {:local-vars (ca/local-vars-context node)
                :refs (ca/call-refs node)}
-     :source (:source (get provenance enclosing-form))
+     :source (prov/source (get provenance enclosing-form))
      :errors (vec (mapcat :errors error-groups))}))
 
 (defn match-s-exprs

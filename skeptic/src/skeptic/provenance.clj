@@ -2,16 +2,24 @@
 
 (defrecord Provenance [source qualified-sym declared-in var-meta])
 
+(defn make-provenance
+  [source qualified-sym declared-in var-meta]
+  (->Provenance source qualified-sym declared-in var-meta))
+
 (defn provenance?
   [x]
   (instance? Provenance x))
+
+(defn source
+  [p]
+  (:source p))
 
 (def ^:private source-rank-map
   {:type-override 0 :malli-spec 1 :schema 2 :native 3})
 
 (defn- source-rank
   [p]
-  (get source-rank-map (:source p) 999))
+  (get source-rank-map (source p) 999))
 
 (defn merge-provenances
   [p1 p2]

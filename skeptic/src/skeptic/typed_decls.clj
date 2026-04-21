@@ -10,7 +10,7 @@
 
 (defn- desc->provenance
   [_desc ns qualified-sym]
-  (prov/->Provenance :schema qualified-sym ns nil))
+  (prov/make-provenance :schema qualified-sym ns nil))
 
 (defn- convert-desc
   [ns qualified-sym desc]
@@ -71,6 +71,6 @@
               (-> acc
                   (assoc-in [:dict sym] v)
                   (assoc-in [:provenance sym]
-                            (prov/->Provenance :type-override sym nil nil))))
+                            (prov/make-provenance :type-override sym nil nil))))
             result
             overrides)))
