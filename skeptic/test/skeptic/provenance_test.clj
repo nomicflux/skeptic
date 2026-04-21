@@ -42,3 +42,36 @@
         result (reduce sut/merge-provenances [ps pn pm])]
     (is (sut/provenance? result))
     (is (= :malli-spec (sut/source result)))))
+
+(deftest unknown-constant
+  (is (sut/provenance? sut/unknown))
+  (is (= :unknown (sut/source sut/unknown))))
+
+(deftest source-nil-safe
+  (is (= :unknown (sut/source nil)))
+  (is (= :unknown (sut/source {}))))
+
+(deftest attach-of-roundtrip
+  (let [t {:skeptic.analysis.types/semantic-type :skeptic.analysis.types/ground-type}
+        p (sut/make-provenance :schema 'a/b 'a nil)
+        attached (sut/attach t p)]
+    (is (= t attached))
+    (is (= p (sut/of attached)))))
+
+(deftest of-on-plain-map-returns-nil
+  (is (nil? (sut/of {})))
+  (is (nil? (sut/of {:a 1}))))
+
+(deftest merge-schema-and-inferred-keeps-schema
+  (let [ps (sut/make-provenance :schema 'a/b 'a nil)
+        pi (sut/make-provenance :inferred 'a/b 'a nil)]
+    (is (= :schema (sut/source (sut/merge-provenances ps pi))))
+    (is (= :schema (sut/source (sut/merge-provenances pi ps))))))
+
+(deftest merge-two-unknowns-stays-unknown
+  (is (= :unknown (sut/source (sut/merge-provenances sut/unknown sut/unknown)))))
+
+(deftest merge-real-beats-unknown
+  (let [ps (sut/make-provenance :schema 'a/b 'a nil)]
+    (is (= :schema (sut/source (sut/merge-provenances sut/unknown ps))))
+    (is (= :schema (sut/source (sut/merge-provenances ps sut/unknown))))))
