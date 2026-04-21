@@ -8,33 +8,6 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]))
 
-(defn typed-entry
-  [entry]
-  (cond
-    (nil? entry) nil
-
-    (at/semantic-type-value? entry)
-    {:type (ato/normalize-type-for-declared-type entry)}
-
-    (and (map? entry)
-         (or (contains? entry :type)
-             (contains? entry :output-type)
-             (contains? entry :arglists)))
-    (cond-> (merge (dissoc entry :type :output-type :arglists)
-                   {:type (ato/normalize-type-for-declared-type (or (:type entry) at/Dyn))})
-      (contains? entry :output-type)
-      (assoc :output-type (ato/normalize-type-for-declared-type (:output-type entry)))
-
-      (contains? entry :arglists)
-      (assoc :arglists (:arglists entry)))
-
-    (map? entry)
-    (throw (IllegalArgumentException.
-            (format "Expected typed entry, got %s" (pr-str entry))))
-
-    :else
-    (throw (IllegalArgumentException.
-            (format "Expected type entry, got %s" (pr-str entry))))))
 
 (defn root-origin
   [sym type]
@@ -47,11 +20,9 @@
   {:kind :opaque
    :type (ato/normalize-type type)})
 
-(defn entry-origin
-  [sym entry]
-  (or (:origin entry)
-      (when-let [type (:type entry)]
-        (root-origin sym type))))
+(defn type-origin
+  [sym t]
+  (root-origin sym t))
 
 (defn node-origin
   [node]
@@ -267,16 +238,25 @@
                               (origin-type (:else-origin origin) assumptions)]))
     (:type origin)))
 
-(defn effective-entry
+(defn- local-type-and-origin
+  [sym entry]
+  (cond
+    (at/semantic-type-value? entry)
+    [(ato/normalize-type-for-declared-type entry) (root-origin sym (ato/normalize-type-for-declared-type entry))]
+
+    (map? entry)
+    (let [t (ato/normalize-type-for-declared-type (or (:type entry) at/Dyn))
+          origin (or (:origin entry) (root-origin sym t))]
+      [t origin])
+
+    :else
+    [at/Dyn (root-origin sym at/Dyn)]))
+
+(defn effective-type
   [sym entry assumptions]
-  (let [entry (typed-entry entry)
-        origin (entry-origin sym entry)
-        type (or (some-> origin (origin-type assumptions))
-                 (:type entry)
-                 at/Dyn)]
-    (cond-> (or entry {:type at/Dyn})
-      true (assoc :type (ato/normalize-type-for-declared-type type))
-      origin (assoc :origin origin))))
+  (let [[t origin] (local-type-and-origin sym entry)
+        refined (or (some-> origin (origin-type assumptions)) t)]
+    (ato/normalize-type-for-declared-type refined)))
 
 (defn local-root-origin
   [node]
@@ -424,11 +404,18 @@
       (vec (concat (when-some [a (test->assumption test-node)] [a])
                    (when-some [a (local-binding-init-assumption test-node locals)] [a]))))))
 
+(defn- refine-local-entry
+  [sym entry assumptions]
+  (let [refined-type (effective-type sym entry assumptions)]
+    (if (at/semantic-type-value? entry)
+      refined-type
+      (assoc entry :type refined-type))))
+
 (defn refine-locals-for-assumption
   [locals assumptions]
   (into {}
         (map (fn [[sym entry]]
-               [sym (effective-entry sym entry assumptions)]))
+               [sym (refine-local-entry sym entry assumptions)]))
         locals))
 
 (defn branch-local-envs

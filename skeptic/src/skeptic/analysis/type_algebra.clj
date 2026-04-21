@@ -94,7 +94,8 @@
       (at/->FnMethodT (mapv #(type-substitute % binder replacement) (:inputs type))
                       (type-substitute (:output type) binder replacement)
                       (:min-arity type)
-                      (:variadic? type))
+                      (:variadic? type)
+                      (:names type))
 
       (at/fun-type? type)
       (at/->FunT (mapv #(type-substitute % binder replacement) (:methods type)))

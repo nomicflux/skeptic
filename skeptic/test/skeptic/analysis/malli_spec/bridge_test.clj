@@ -15,18 +15,21 @@
   (is (= (at/->FunT [(at/->FnMethodT [(at/->GroundT :int 'Int)]
                                      (at/->GroundT :int 'Int)
                                      1
-                                     false)])
+                                     false
+                                     '[arg0])])
          (sut/malli-spec->type [:=> [:cat :int] :int])))
   (is (= (at/->FunT [(at/->FnMethodT [(at/->GroundT :str 'Str)
                                      (at/->GroundT :keyword 'Keyword)]
                                      (at/->GroundT :bool 'Bool)
                                      2
-                                     false)])
+                                     false
+                                     '[arg0 arg1])])
          (sut/malli-spec->type [:=> [:cat :string :keyword] :boolean])))
   (is (= (at/->FunT [(at/->FnMethodT [at/Dyn]
                                      at/Dyn
                                      1
-                                     false)])
+                                     false
+                                     '[arg0])])
          (sut/malli-spec->type [:=> [:cat :any] :any]))))
 
 (deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes

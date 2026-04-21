@@ -19,10 +19,8 @@
       (is (= :root (:kind o)))
       (is (= 'x (:sym o)))
       (is (= (atst/T s/Str) (:type o)))))
-  (testing "effective-entry returns typed data only"
-    (let [entry (ao/effective-entry 'x (atst/T s/Int) [])]
-      (is (= (atst/T s/Int) (:type entry)))
-      (is (not (contains? entry :schema))))))
+  (testing "effective-type returns refined type"
+    (is (= (atst/T s/Int) (ao/effective-type 'x (atst/T s/Int) [])))))
 
 (deftest typed-binding-and-refinement-test
   (testing "let-driven flow through or expands to refinable branch"
@@ -74,7 +72,7 @@
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (catalog/typed-test-example-entries)
-          example-dict (typed-decls/typed-ns-entries {} 'skeptic.examples)
+          example-dict (:dict (typed-decls/typed-ns-results {} 'skeptic.examples))
           control-flow-res (checking/analyze-source-exprs test-dict
                                                           'skeptic.test-examples.control-flow
                                                           (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)

@@ -190,17 +190,19 @@
         exprs (vec (sut/ns-exprs file))
         exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
     (is (some? exploding-form))
-    (with-redefs [sut/check-resolved-form (fn [dict ns-sym source-file source-form analyzed opts]
+    (with-redefs [sut/check-resolved-form (fn [dict ignore-body ns-sym source-file source-form analyzed provenance opts]
                                             (if (= exploding-form source-form)
                                               (map (fn [_]
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
-                                              (real-check-resolved-form dict ns-sym source-file source-form analyzed opts)))]
-      (let [dict (:dict (sut/namespace-dict {} 'skeptic.test-examples.basics))
+                                              (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed provenance opts)))]
+      (let [{:keys [dict ignore-body provenance]} (sut/namespace-dict {} 'skeptic.test-examples.basics)
             form-results (sut/check-ns-form dict
+                                            ignore-body
                                             'skeptic.test-examples.basics
                                             file
                                             exploding-form
+                                            provenance
                                             {:remove-context true})
             exception-result (first form-results)
             results (ps/check-fixture-ns 'skeptic.test-examples.basics

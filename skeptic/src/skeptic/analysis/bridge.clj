@@ -131,11 +131,13 @@
         method-results (mapv (fn [inputs]
                                (let [input-results (mapv #(run (assoc ctx :schema (fn-input-schema %)))
                                                          inputs)
-                                     child-results (conj input-results output-result)]
+                                     child-results (conj input-results output-result)
+                                     names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
                                  {:type (at/->FnMethodT (mapv :type input-results)
                                                         (:type output-result)
                                                         (count inputs)
-                                                        false)
+                                                        false
+                                                        names)
                                   :closed-refs (merge-closed-refs child-results)}))
                              input-schemas)]
     (import-result

@@ -6,38 +6,29 @@
 
 (def ^:private Int (at/->GroundT :int 'Int))
 
-(deftest desc->typed-entry-callable
-  (let [entry (tdm/desc->typed-entry
-               {:name 'foo/bar
-                :malli-spec [:=> [:cat :int :int] :int]})]
-    (is (= 'foo/bar (:name entry)))
-    (is (= 1 (count (:typings entry))))
-    (is (at/fun-type? (first (:typings entry))))
-    (is (= Int (:output-type entry)))
-    (let [arglists (:arglists entry)
-          arity-2 (get arglists 2)]
-      (is (= #{2} (set (keys arglists))))
-      (is (= 2 (:count arity-2)))
-      (is (= [Int Int] (mapv :type (:types arity-2))))
-      (is (= 2 (count (:arglist arity-2)))))))
+(deftest desc->type-callable-returns-fun-type
+  (let [t (tdm/desc->type
+            {:name 'foo/bar
+             :malli-spec [:=> [:cat :int :int] :int]})]
+    (is (at/fun-type? t))
+    (is (= 1 (count (at/fun-methods t))))
+    (is (= [Int Int] (at/fn-method-inputs (first (at/fun-methods t)))))
+    (is (= Int (at/fn-method-output (first (at/fun-methods t)))))
+    (is (= 2 (count (at/fn-method-input-names (first (at/fun-methods t))))))))
 
-(deftest desc->typed-entry-non-callable
-  (let [entry (tdm/desc->typed-entry
-               {:name 'foo/baz
-                :malli-spec :int})]
-    (is (= 'foo/baz (:name entry)))
-    (is (= 1 (count (:typings entry))))
-    (is (not (contains? entry :output-type)))
-    (is (not (contains? entry :arglists)))))
+(deftest desc->type-non-callable-returns-ground-type
+  (let [t (tdm/desc->type {:name 'foo/baz :malli-spec :int})]
+    (is (= Int t))
+    (is (not (at/fun-type? t)))))
 
 (deftest typed-ns-malli-results-entries
-  (let [{:keys [entries errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli)]
+  (let [{:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli)]
     (is (empty? errors))
-    (is (contains? entries 'skeptic.test-examples.malli/demo-fn))
-    (let [entry (get entries 'skeptic.test-examples.malli/demo-fn)]
-      (is (at/fun-type? (first (:typings entry))))
-      (is (= Int (:output-type entry)))
-      (is (= [Int] (mapv :type (:types (get (:arglists entry) 1))))))))
+    (is (contains? dict 'skeptic.test-examples.malli/demo-fn))
+    (let [t (get dict 'skeptic.test-examples.malli/demo-fn)]
+      (is (at/fun-type? t))
+      (is (= Int (at/fn-method-output (first (at/fun-methods t)))))
+      (is (= [Int] (at/fn-method-inputs (first (at/fun-methods t))))))))
 
 (deftest malli-declaration-error-shape
   (testing "shared declaration-error-result phased for malli"

@@ -47,7 +47,8 @@
                                     (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
                                                                                (at/->SealedDynT type-var)
                                                                                1
-                                                                               false)]))})]
+                                                                               false
+                                                                               '[x])]))})]
     (is (= '{Keyword (forall X (=> (sealed X) X))}
            (abr/render-type-form polymorphic-map)))
     (is (= "hello"
@@ -146,7 +147,8 @@
         forall (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
                                                            type-var
                                                            1
-                                                           false)]))
+                                                           false
+                                                           '[x])]))
         sealed (at/->SealedDynT type-var)
         localized (abl/localize-value {:poly forall
                                        :sealed sealed})

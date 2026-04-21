@@ -1,20 +1,35 @@
 (ns skeptic.analysis.annotate.fn
   (:require [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.normalize :as an]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]))
 
+(defn- dict-fun-type
+  [dict ns-sym name]
+  (some-> (or (get dict name) (get dict (ac/qualify-symbol ns-sym name)))
+          (#(when (at/fun-type? %) %))))
+
+(defn- method-at-arity
+  [ft arity]
+  (or (some #(when (= (:min-arity %) arity) %) (at/fun-methods ft))
+      (some #(when (:variadic? %) %) (at/fun-methods ft))))
+
 (defn arg-type-specs
   [dict ns-sym name params]
-  (let [entry (some-> name ((fn [sym]
-                              (or (get dict sym)
-                                  (get dict (ac/qualify-symbol ns-sym sym))))))
-        arg-specs (get-in (an/normalize-entry entry) [:arglists (count params) :types])]
-    (or arg-specs
-        (mapv (fn [param]
-                {:type at/Dyn :optional? false :name (:form param)})
-              params))))
+  (let [arity (count params)
+        method (some-> (dict-fun-type dict ns-sym name) (method-at-arity arity))
+        inputs (some-> method at/fn-method-inputs)
+        names (some-> method at/fn-method-input-names)]
+    (if (seq inputs)
+      (mapv (fn [i param]
+              {:type (get inputs i at/Dyn)
+               :optional? false
+               :name (or (get names i) (:form param))})
+            (range arity)
+            params)
+      (mapv (fn [param]
+              {:type at/Dyn :optional? false :name (:form param)})
+            params))))
 
 (defn fn-method-param-specs-with-overrides
   [dict ns-sym name params param-type-overrides]
@@ -37,8 +52,7 @@
 (defn- param-locals
   [locals annotated-params]
   (into locals
-        (map (fn [param]
-               [(:form param) (assoc (ac/node-info param) :binding-init nil)]))
+        (map (fn [param] [(:form param) (or (:type param) at/Dyn)]))
         annotated-params))
 
 (defn annotate-fn-method
@@ -77,7 +91,8 @@
   (at/->FnMethodT (mapv :type (:param-specs method))
                   (:output-type method)
                   (count (:param-specs method))
-                  false))
+                  (boolean (:variadic? method))
+                  (mapv :name (:param-specs method))))
 
 (defn annotate-fn
   [ctx node & [opts]]

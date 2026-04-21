@@ -64,7 +64,8 @@
     (let [m (at/->FnMethodT [(at/->GroundT :int 'Int)]
                             (at/->GroundT :keyword 'Keyword)
                             1
-                            false)]
+                            false
+                            '[x])]
       (is (= {:t "fn-method"
               :inputs [{:t "ground" :name "Int"}]
               :output {:t "ground" :name "Keyword"}

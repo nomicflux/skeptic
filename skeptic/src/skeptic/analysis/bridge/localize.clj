@@ -69,7 +69,8 @@
     (at/->FnMethodT (localize-value* (:inputs value) seen-vars)
                     (localize-value* (:output value) seen-vars)
                     (:min-arity value)
-                    (:variadic? value))
+                    (:variadic? value)
+                    (:names value))
     :skeptic.analysis.types/fun-type
     (at/->FunT (localize-value* (:methods value) seen-vars))
     :skeptic.analysis.types/maybe-type

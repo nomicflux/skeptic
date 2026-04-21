@@ -51,7 +51,8 @@
                                    (at/->FunT [(at/->FnMethodT [x]
                                                                (T s/Any)
                                                                1
-                                                               false)]))
+                                                               false
+                                                               '[x])]))
         leaky-result (sut/check-cast (T (s/=> s/Any s/Any)) leaky-target)]
     (testing "inspecting a sealed value is global tamper"
       (is (= :is-tamper (:rule inspect-result)))

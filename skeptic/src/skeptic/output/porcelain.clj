@@ -50,7 +50,7 @@
 (defn- finding-record
   [ns result summary opts]
   (let [{:keys [report-kind location blame-side blame-polarity rule
-                actual-type expected-type
+                actual-type expected-type source
                 source-expression blame focuses focus-sources enclosing-form
                 expanded-expression errors]} summary]
     (with-debug
@@ -68,6 +68,7 @@
        :expected_type (abr/type->json-data expected-type)
        :actual_type_str (abr/render-type actual-type)
        :expected_type_str (abr/render-type expected-type)
+       :source (some-> source name)
        :focuses (vec (or focus-sources (map ->str focuses)))
        :enclosing_form (some-> enclosing-form ->str)
        :expanded_expression (some-> expanded-expression ->str)
