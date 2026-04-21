@@ -99,7 +99,8 @@
   (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/inc-double-success))))
 
 (deftest regex-return-declaration-and-checking
-  (let [{:keys [entries errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics)
+  (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics)
+        entries dict
         declaration-error (some #(when (= 'skeptic.test-examples.basics/regex-return-caller
                                           (:blame %))
                                    %)
@@ -118,6 +119,16 @@
         (str "expected no declaration exception for regex-return-caller; got "
              (pr-str namespace-declaration-error)))
     (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/regex-return-caller)))))
+
+(deftest multi-arity-per-arity-output-checking
+  (is (= ['y
+          [(incm/mismatched-output-schema-msg
+            {:expr 'multi-arity-wrong-output
+             :arg 'y}
+            (ps/T s/Str)
+            (ps/T s/Int))]]
+         (ps/result-errors
+          (ps/check-fixture 'skeptic.test-examples.basics/multi-arity-wrong-output)))))
 
 (deftest check-ns-uses-raw-forms
   (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics

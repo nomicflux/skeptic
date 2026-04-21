@@ -3,7 +3,6 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.native-fns :as native-fns]
-            [skeptic.analysis.normalize :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
@@ -103,15 +102,16 @@
 
 (defn def-output-results
   [dict ns-sym source-file source-form enclosing-form node]
-  (let [entry (some-> (ca/dict-entry dict ns-sym (aapi/node-name node))
-                      an/normalize-entry)
-        expected-output (some-> (:output-type entry) ato/normalize-type)
+  (let [declared-t (ac/lookup-type dict ns-sym node)
         init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
         methods (aapi/function-methods init-node)]
-    (when (and expected-output (seq methods))
+    (when (and declared-t (seq methods))
       (->> (map vector methods (cf/defn-decls source-form))
            (keep (fn [[method decl]]
-                   (let [source-body (cf/method-source-body decl)
+                   (let [expected-output (some-> (at/select-method (at/fun-methods declared-t) (count (:params method)))
+                                                 :output
+                                                 ato/normalize-type)
+                         source-body (cf/method-source-body decl)
                          actual-output (method-output-type method)
                          body (aapi/method-body method)
                          source-body-location
@@ -120,11 +120,12 @@
                           (when source-body
                             (select-keys (meta source-body)
                                          [:file :line :column :end-line :end-column])))
-                         report (inrep/output-cast-report
-                                 {:expr (aapi/node-name node)
-                                  :arg (or source-body (aapi/node-form body))}
-                                 expected-output
-                                 actual-output)]
+                         report (when expected-output
+                                  (inrep/output-cast-report
+                                   {:expr (aapi/node-name node)
+                                    :arg (or source-body (aapi/node-form body))}
+                                   expected-output
+                                   actual-output))]
                      (when-not (:ok? report)
                        (let [source-expression (cf/form-source source-body)
                              display {:expr (or source-body (aapi/node-form body))
@@ -233,19 +234,19 @@
     source-form))
 
 (defn- ignored-body-def?
-  [dict ns-sym source-form]
+  [ignore-body ns-sym source-form]
   (when (and (seq? source-form)
              (symbol? (first source-form))
              (symbol? (second source-form)))
     (let [qualified-sym (ac/qualify-symbol ns-sym (second source-form))]
-      (boolean (or (:skeptic/ignore-body? (get dict qualified-sym))
+      (boolean (or (contains? ignore-body qualified-sym)
                    (some-> qualified-sym resolve meta :skeptic/ignore-body)
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (defn check-resolved-form
-  [dict ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
+  [dict ignore-body ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
-        ignored? (ignored-body-def? dict ns-sym source-form)
+        ignored? (ignored-body-def? ignore-body ns-sym source-form)
         results (if ignored?
                   []
                   (->> (aapi/annotated-nodes analyzed)
@@ -333,10 +334,11 @@
                           (str e))})
 
 (defn check-ns-form
-  [dict ns source-file source-form opts]
+  [dict ignore-body ns source-file source-form opts]
   (try
     (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
       (vec (check-resolved-form dict
+                                ignore-body
                                 ns
                                 source-file
                                 source-form
@@ -358,16 +360,19 @@
                             {:def-name def-name}))))
       (cf/normalize-check-form s-expr))))
 
+(defn- native-result []
+  {:dict native-fns/native-fn-dict
+   :provenance native-fns/native-fn-provenance
+   :ignore-body #{}
+   :errors []})
+
 (defn namespace-dict
   [opts ns-sym]
   (require ns-sym)
-  (let [{schema-dict :entries schema-errors :errors}
-        (typed-decls/typed-ns-results opts ns-sym)
-        {malli-dict :entries malli-errors :errors}
-        (typed-decls.malli/typed-ns-malli-results opts ns-sym)]
-    {:dict (typed-decls/merge-typed-dicts
-             [schema-dict malli-dict native-fns/native-fn-dict])
-     :errors (vec (concat schema-errors malli-errors))}))
+  (let [schema-result (typed-decls/typed-ns-results opts ns-sym)
+        malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym)
+        merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
+    merged))
 
 (defn- preanalyzed-ns-dict
   [dict ns-sym source-file]
@@ -376,9 +381,8 @@
           resolved-defs (:resolved-defs (analyze-source-exprs dict ns-sym source-file exprs))]
       (reduce (fn [acc [sym resolved-entry]]
                 (if-let [summary (:accessor-summary resolved-entry)]
-                  (update acc sym (fn [entry]
-                                    (assoc (or entry {:typings [at/Dyn]})
-                                           :accessor-summary summary)))
+                  (let [t (or (:type resolved-entry) at/Dyn)]
+                    (assoc acc sym {:type t :accessor-summary summary}))
                   acc))
               dict
               resolved-defs))
@@ -387,11 +391,12 @@
 (defn check-s-expr
   [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict]} (namespace-dict opts ns)
+    (let [{:keys [dict ignore-body]} (namespace-dict opts ns)
           source-form (find-source-form s-expr source-file check-def)
           analysis-dict (preanalyzed-ns-dict dict ns source-file)
           {:keys [resolved]} (analyze-source-exprs analysis-dict ns source-file [source-form])]
       (vec (check-resolved-form dict
+                                ignore-body
                                 ns
                                 source-file
                                 source-form
@@ -409,11 +414,9 @@
        (clojure.core/in-ns (symbol current-namespace#))
        res#)))
 
-;; TODO: if unparseable, throws error
-;; Should either pass that on, or (ideally) localize it to a single s-expr and flag that
 (defn check-ns
   [ns source-file opts]
-  (let [{:keys [dict]} (namespace-dict opts ns)]
+  (let [{:keys [dict ignore-body]} (namespace-dict opts ns)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
         (loop [results []]
@@ -421,7 +424,7 @@
             (case kind
               :eof results
               :form (recur (into results
-                                 (check-ns-form dict ns source-file form opts)))
+                                 (check-ns-form dict ignore-body ns source-file form opts)))
               :read-error (conj results (read-exception-result source-file exception)))))))))
 
 (defn load-exception-result

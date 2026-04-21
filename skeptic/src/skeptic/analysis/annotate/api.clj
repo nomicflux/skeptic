@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.api
   (:require [skeptic.analysis.ast-children :as sac]
-            [skeptic.analysis.bridge.render :as abr]))
+            [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.types :as at]))
 
 (def ^:private legacy-schema-mirror-keys
   #{:schema :output :expected-arglist :actual-arglist})
@@ -192,6 +193,22 @@
 (defn strip-derived-types
   [value]
   (abr/strip-derived-types value))
+
+(defn node-arg-names-at-arity
+  [node arity]
+  (when (at/fun-type? (:type node))
+    (some-> (at/select-method (at/fun-methods (:type node)) arity)
+            at/fn-method-input-names)))
+
+(defn node-fun-type
+  [node]
+  (when (at/fun-type? (:type node))
+    (:type node)))
+
+(defn node-method-output
+  [node arity]
+  (when-let [ft (node-fun-type node)]
+    (some-> (at/select-method (at/fun-methods ft) arity) :output)))
 
 (defn def-node?
   [node]
