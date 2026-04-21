@@ -12,7 +12,6 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.normalize :as an]
             [skeptic.analysis.types :as at]))
 
 (defn node-location
@@ -90,22 +89,17 @@
           (apply-type-override ctx node)
           abr/strip-derived-types))))
 
-(defn- normalize-locals
-  [locals]
-  (into {}
-        (map (fn [[sym entry]] [sym (an/normalize-entry entry)]))
-        locals))
-
 (defn annotate-ast
   ([dict ast]
    (annotate-ast dict ast {}))
-  ([dict ast {:keys [locals name ns assumptions]}]
+  ([dict ast {:keys [locals name ns assumptions accessor-summaries]}]
    (annotate-node {:dict (or dict {})
-                   :locals (normalize-locals locals)
+                   :locals (or locals {})
                    :assumptions (vec assumptions)
                    :recur-targets {}
                    :name name
-                   :ns ns}
+                   :ns ns
+                   :accessor-summaries (or accessor-summaries {})}
                   ast)))
 
 (defn- target-ns

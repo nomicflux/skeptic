@@ -67,30 +67,36 @@
                       (accessor-summary-from-body (:form (first params))
                                                  (aapi/method-body method))))))))]
     (let [[sym entry] (aapi/analyzed-def-entry ns-sym analyzed)
-          value-node (some-> analyzed aapi/unwrap-with-meta aapi/def-value-node)]
+          value-node (some-> analyzed aapi/unwrap-with-meta aapi/def-value-node)
+          summary (some-> value-node def-accessor-summary)]
       (when (and sym entry)
-        [sym
-         (cond-> entry
-           true aapi/strip-derived-types
-           true (as-> normalized
-                      (if-let [summary (some-> value-node def-accessor-summary)]
-                        (assoc normalized :accessor-summary summary)
-                        normalized)))]))))
+        {:sym sym
+         :entry (aapi/strip-derived-types entry)
+         :summary summary}))))
 
-(defn analyze-source-exprs
-  [dict ns-sym source-file exprs]
+(defn- run-analyze-source-exprs
+  [dict ns-sym source-file exprs accessor-summaries]
   (let [analyzed (mapv (fn [expr]
                          (aa/annotate-form-loop dict
                                                 (cf/normalize-check-form expr)
                                                 {:ns ns-sym
-                                                 :source-file (cf/source-file-path source-file)}))
-                       exprs)]
+                                                 :source-file (cf/source-file-path source-file)
+                                                 :accessor-summaries accessor-summaries}))
+                       exprs)
+        entries (keep #(analyzed-def-entry ns-sym %) analyzed)]
     {:analysis-dict dict
      :analyzed analyzed
      :resolved analyzed
-     :resolved-defs (into {}
-                          (keep #(analyzed-def-entry ns-sym %))
-                          analyzed)}))
+     :resolved-defs (into {} (map (juxt :sym :entry)) entries)
+     :accessor-summaries (into {} (keep (fn [{:keys [sym summary]}]
+                                          (when summary [sym summary])))
+                               entries)}))
+
+(defn analyze-source-exprs
+  ([dict ns-sym source-file exprs]
+   (run-analyze-source-exprs dict ns-sym source-file exprs {}))
+  ([dict ns-sym source-file exprs {:keys [accessor-summaries]}]
+   (run-analyze-source-exprs dict ns-sym source-file exprs (or accessor-summaries {}))))
 
 (defn method-output-type
   [method]
@@ -378,23 +384,19 @@
   [dict ns-sym source-file]
   (if (and source-file ns-sym)
     (let [exprs (ns-exprs source-file)
-          resolved-defs (:resolved-defs (analyze-source-exprs dict ns-sym source-file exprs))]
-      (reduce (fn [acc [sym resolved-entry]]
-                (if-let [summary (:accessor-summary resolved-entry)]
-                  (let [t (or (:type resolved-entry) at/Dyn)]
-                    (assoc acc sym {:type t :accessor-summary summary}))
-                  acc))
-              dict
-              resolved-defs))
-    dict))
+          {:keys [resolved-defs accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
+      {:dict (merge dict (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym)) at/Dyn)])) accessor-summaries))
+       :accessor-summaries accessor-summaries})
+    {:dict dict
+     :accessor-summaries {}}))
 
 (defn check-s-expr
   [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
     (let [{:keys [dict ignore-body]} (namespace-dict opts ns)
           source-form (find-source-form s-expr source-file check-def)
-          analysis-dict (preanalyzed-ns-dict dict ns source-file)
-          {:keys [resolved]} (analyze-source-exprs analysis-dict ns source-file [source-form])]
+          {:keys [dict accessor-summaries]} (preanalyzed-ns-dict dict ns source-file)
+          {:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form] {:accessor-summaries accessor-summaries})]
       (vec (check-resolved-form dict
                                 ignore-body
                                 ns
@@ -402,7 +404,8 @@
                                 source-form
                                 (first resolved)
                                 {:keep-empty keep-empty
-                                 :remove-context remove-context})))))
+                                 :remove-context remove-context
+                                 :accessor-summaries accessor-summaries})))))
 
 (defmacro block-in-ns
   [_ns ^File file & body]

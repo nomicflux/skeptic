@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.base
   (:require [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]))
 
@@ -29,23 +30,29 @@
       (merge node {:init annotated-init} (ac/node-info annotated-init)))
     node))
 
+(defn- local-origin-for-entry
+  [sym entry t]
+  (if (at/semantic-type-value? entry)
+    (ao/root-origin sym (ato/normalize-type-for-declared-type t))
+    (:origin entry)))
+
 (defn annotate-local
   [{:keys [locals assumptions]} node]
-  (merge node
-         (if-let [entry (get locals (:form node))]
-           (ao/effective-entry (:form node) entry assumptions)
-           {:type at/Dyn})))
+  (let [sym (:form node)
+        entry (get locals sym)]
+    (if (nil? entry)
+      (assoc node :type at/Dyn)
+      (let [t (ao/effective-type sym entry assumptions)
+            origin (local-origin-for-entry sym entry t)]
+        (cond-> (merge node
+                       (when (map? entry) (select-keys entry [:binding-init :fn-binding-node]))
+                       {:type t})
+          origin (assoc :origin origin))))))
 
 (defn annotate-var-like
-  [{:keys [dict ns]} node]
-  (let [entry (ac/lookup-entry dict ns node)
-        typings (:typings entry)]
-    (cond
-      (nil? entry)
-      (merge node {:type at/Dyn})
-
-      (= 1 (count typings))
-      (merge node (dissoc entry :typings) {:type (first typings)})
-
-      :else
-      (merge node (dissoc entry :typings) {:typings typings :type at/Dyn}))))
+  [{:keys [dict ns accessor-summaries]} node]
+  (let [entry (ac/lookup-type dict ns node)
+        qualified (ac/qualify-symbol ns (:form node))
+        summary (get accessor-summaries qualified)]
+    (cond-> (assoc node :type (or entry at/Dyn))
+      summary (assoc :accessor-summary summary))))
