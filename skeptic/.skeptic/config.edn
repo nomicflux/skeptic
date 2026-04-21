@@ -2,4 +2,7 @@
                  "src/skeptic/static_call_examples.clj"
                  "test/skeptic/test_examples/*.clj"
                  "test/skeptic/best_effort_examples.clj"
-                 "test/skeptic/check_project_best_effort_examples.clj"]}
+                 "test/skeptic/check_project_best_effort_examples.clj"
+                 "test/skeptic/local_resolution_shadow.clj"
+                 "test/skeptic/local_resolution_import.clj"
+                 "test/skeptic/local_resolution_fixtures.clj"]}

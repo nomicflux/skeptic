@@ -2,7 +2,6 @@
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.types :as at]
-            [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.test-examples.basics :as basics]
