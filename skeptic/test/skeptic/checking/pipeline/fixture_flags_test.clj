@@ -31,12 +31,12 @@
       "a wrong :skeptic/type override (pin s/Int result to s/Str) must trigger a downstream mismatch"))
 
 (deftest type-overrides-merge-into-typed-ns-results
-  (let [overrides (config/compile-overrides {'some.ns/some-fn {:output 's/Int}})
+  (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
         result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags)]
     (is (= (ps/T s/Int)
-           (get-in result [:entries 'some.ns/some-fn :output-type]))
-        "typed-ns-results must merge :skeptic/type-overrides into :entries")))
+           (get-in result [:dict 'some.ns/some-fn]))
+        "typed-ns-results must merge :skeptic/type-overrides into :dict")))
 
 (deftest failing-functions
   (are [sym errors] (= (set (partition 2 errors))

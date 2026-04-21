@@ -27,6 +27,7 @@
    :rule :ground-mismatch
    :actual-type (at/->GroundT :keyword 'Keyword)
    :expected-type (at/->GroundT :int 'Int)
+   :source :malli-spec
    :errors ["\u001b[33mKeyword is not compatible with Int\u001b[0m"]})
 
 (def ^:private example-exception-summary
@@ -59,6 +60,7 @@
     (is (= "Keyword" (:actual_type_str parsed)))
     (is (= ["x"] (:focuses parsed)))
     (is (= ["Keyword is not compatible with Int"] (:messages parsed)))
+    (is (= "malli-spec" (:source parsed)))
     (testing "ANSI stripped"
       (is (not (re-find #"\u001b" line))))))
 

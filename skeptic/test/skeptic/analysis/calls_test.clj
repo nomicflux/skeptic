@@ -14,11 +14,11 @@
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (def static-call-dict
-  (merge (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples)
-         {'user {:type (atst/T skeptic.static-call-examples/UserDesc)}
-          'counts {:type (atst/T skeptic.static-call-examples/MaybeCount)}
-          'left {:type (atst/T skeptic.static-call-examples/LeftFields)}
-          'right {:type (atst/T skeptic.static-call-examples/RightFields)}}))
+  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples))
+         {'user (atst/T skeptic.static-call-examples/UserDesc)
+          'counts (atst/T skeptic.static-call-examples/MaybeCount)
+          'left (atst/T skeptic.static-call-examples/LeftFields)
+          'right (atst/T skeptic.static-call-examples/RightFields)}))
 
 (defn assert-typed-call-metadata-only
   [node]
@@ -106,48 +106,30 @@
       (assert-typed-call-metadata-only root))))
 
 (deftest canonicalized-callable-entry-test
-  (let [raw-symbol-entry (typed-decls/desc->typed-entry
-                          {:name "f"
-                           :schema (s/make-fn-schema clojure.lang.Symbol
-                                                     [[(s/one java.lang.String 'arg)]])
-                           :output clojure.lang.Symbol
-                           :arglists {1 {:arglist ['arg]
-                                         :count 1
-                                         :schema [{:schema java.lang.String
-                                                   :optional? false
-                                                   :name 'arg}]}}})
-        raw-keyword-entry (typed-decls/desc->typed-entry
-                           {:name "f"
-                            :schema (s/make-fn-schema clojure.lang.Keyword
-                                                      [[(s/one s/Any 'arg)]])
-                            :output clojure.lang.Keyword
-                            :arglists {1 {:arglist ['arg]
-                                          :count 1
-                                          :schema [{:schema s/Any
-                                                    :optional? false
-                                                    :name 'arg}]}}})
-        raw-int-entry (typed-decls/desc->typed-entry
-                       {:name "f"
-                        :schema (s/make-fn-schema java.lang.Integer
-                                                  [[(s/one s/Any 'arg)]])
-                        :output java.lang.Integer
-                        :arglists {1 {:arglist ['arg]
-                                      :count 1
-                                      :schema [{:schema s/Any
-                                                :optional? false
-                                                :name 'arg}]}}})
+  (let [symbol-type (typed-decls/desc->type
+                     {:name "f"
+                      :schema (s/make-fn-schema clojure.lang.Symbol
+                                                [[(s/one java.lang.String 'arg)]])})
+        keyword-type (typed-decls/desc->type
+                      {:name "f"
+                       :schema (s/make-fn-schema clojure.lang.Keyword
+                                                 [[(s/one s/Any 'arg)]])})
+        int-type (typed-decls/desc->type
+                  {:name "f"
+                   :schema (s/make-fn-schema java.lang.Integer
+                                             [[(s/one s/Any 'arg)]])})
         symbol-call (atst/analyze-form {}
                                       '(f "x")
                                       {:ns 'skeptic.analysis-test
-                                       :locals {'f raw-symbol-entry}})
+                                       :locals {'f symbol-type}})
         keyword-call (atst/analyze-form {}
                                        '(f :x)
                                        {:ns 'skeptic.analysis-test
-                                        :locals {'f raw-keyword-entry}})
+                                        :locals {'f keyword-type}})
         int-call (atst/analyze-form {}
                                    '(f :x)
                                    {:ns 'skeptic.analysis-test
-                                    :locals {'f raw-int-entry}})
+                                    :locals {'f int-type}})
         quoted-symbol (atst/analyze-form '(quote foo))]
     (is (= (atst/T s/Symbol) (aapi/node-type symbol-call)))
     (is (= [(atst/T s/Str)] (aapi/call-expected-argtypes symbol-call)))
@@ -198,7 +180,7 @@
 
 (deftest resolved-static-get-feeds-parent-call-test
   (testing "resolved static get feeds final reduced field types into parent calls"
-    (let [dict (typed-decls/typed-ns-entries {} 'skeptic.static-call-examples)
+    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples))
           {:keys [resolved]} (checking/analyze-source-exprs dict
                                                             'skeptic.static-call-examples
                                                             static-call-examples-file

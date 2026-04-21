@@ -20,3 +20,8 @@
 
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-bad
   [_x] :bad-keyword)
+
+(def ^{:malli/schema [:map [:x :int]]} map-schema-dyn-var {:x 1})
+
+(defn ^{:malli/schema [:=> [:cat :int] :int]} map-dyn-caller
+  [n] (get map-schema-dyn-var :x n))

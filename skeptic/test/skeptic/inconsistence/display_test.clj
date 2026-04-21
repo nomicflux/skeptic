@@ -52,12 +52,14 @@
   (let [m (at/->FnMethodT [(ab/schema->type s/Int) (ab/schema->type s/Str)]
                           (ab/schema->type s/Bool)
                           2
-                          false)]
+                          false
+                          '[x y])]
     (is (= ['Int 'Str] (vec (sut/user-fn-input-form m)))))
   (let [v (at/->FnMethodT [(ab/schema->type s/Int) (ab/schema->type s/Str)]
                           (ab/schema->type s/Bool)
                           1
-                          true)
+                          true
+                          '[x y])
         r (vec (sut/user-fn-input-form v))]
     (is (= 'Int (first r)))
     (is (= '& (second r)))

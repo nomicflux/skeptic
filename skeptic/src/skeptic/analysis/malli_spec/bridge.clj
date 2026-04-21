@@ -57,11 +57,13 @@
   (cond
     (function-shape? form)
     (let [inputs (rest (second form))
-          output (nth form 2)]
+          output (nth form 2)
+          names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
       (at/->FunT [(at/->FnMethodT (mapv form->type inputs)
                                   (form->type output)
                                   (count inputs)
-                                  false)]))
+                                  false
+                                  names)]))
     (maybe-shape? form) (at/->MaybeT (form->type (second form)))
     (or-shape? form) (ato/union-type (mapv form->type (rest form)))
     :else (malli-leaf->type form)))

@@ -19,7 +19,8 @@
              (amoa/update-type m :a (at/->FunT [(at/->FnMethodT [(atst/T s/Int)]
                                                                  (atst/T s/Str)
                                                                  1
-                                                                 false)])))))
+                                                                 false
+                                                                 '[x])])))))
     (testing "non-map is Dyn"
       (is (= at/Dyn (amoa/assoc-type at/Dyn :a (atst/T s/Int)))))))
 

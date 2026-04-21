@@ -119,7 +119,7 @@
   (delay
     (reduce (fn [acc category]
               (let [{ns-sym :ns} (get fixture-envs category)
-                    {entries :entries} (typed-decls/typed-ns-results {} ns-sym)]
+                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym)]
                 (merge acc entries)))
             {}
             schema-fixture-order)))

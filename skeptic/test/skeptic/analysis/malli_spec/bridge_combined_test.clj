@@ -14,7 +14,8 @@
                     (ato/union-type [(at/->GroundT :int 'Int)
                                      (at/->GroundT :str 'Str)])
                     1
-                    false)])]
+                    false
+                    '[arg0])])]
     (is (= expected result))))
 
 (deftest no-dyn-in-combined-type

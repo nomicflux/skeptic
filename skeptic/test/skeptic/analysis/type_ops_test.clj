@@ -12,7 +12,8 @@
         forall (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
                                                            type-var
                                                            1
-                                                           false)]))
+                                                           false
+                                                           '[x])]))
         sealed (at/->SealedDynT type-var)]
     (is (at/type-var-type? type-var))
     (is (at/forall-type? forall))
@@ -22,7 +23,8 @@
                                              (at/->FunT [(at/->FnMethodT [type-var]
                                                                         (at/->TypeVarT 'Y)
                                                                         1
-                                                                        false)])))))
+                                                                        false
+                                                                        '[x])])))))
     (is (= (at/->ForallT 'X (at/->TypeVarT 'X))
            (ata/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
                                 'X
@@ -33,11 +35,13 @@
                                              (ato/intersection-type [(ab/schema->type s/Any)
                                                                      (ab/schema->type s/Int)])
                                              1
-                                             false)])
+                                             false
+                                             '[x])])
         polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
                                                     (at/->SealedDynT (at/->TypeVarT 'X))
                                                     1
-                                                    false)])
+                                                    false
+                                                    '[x])])
         inf-cycle (at/->InfCycleT 'example/self)]
     (is (= fun-type (ato/normalize-type fun-type)))
     (is (= "(=> (intersection Any Int) Int)"

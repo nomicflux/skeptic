@@ -15,7 +15,8 @@
   (is (= (at/->FunT [(at/->FnMethodT [(at/->MaybeT (at/->GroundT :int 'Int))]
                                      (at/->GroundT :int 'Int)
                                      1
-                                     false)])
+                                     false
+                                     '[arg0])])
          (sut/malli-spec->type [:=> [:cat [:maybe :int]] :int]))))
 
 (deftest maybe-unknown-leaf-falls-back-to-dyn

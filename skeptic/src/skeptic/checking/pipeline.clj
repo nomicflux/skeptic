@@ -107,7 +107,7 @@
       (ato/normalize-type output-type))))
 
 (defn def-output-results
-  [dict ns-sym source-file source-form enclosing-form node]
+  [dict ns-sym source-file source-form enclosing-form node provenance]
   (let [declared-t (ac/lookup-type dict ns-sym node)
         init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
         methods (aapi/function-methods init-node)]
@@ -159,6 +159,7 @@
                           :actual-type (:actual-type report)
                           :cast-summary (:cast-summary report)
                           :cast-diagnostics (:cast-diagnostics report)
+                          :source (:source (get provenance enclosing-form))
                           :errors (:errors report)})))))))))
 
 (defn input-error-group
@@ -185,7 +186,7 @@
          :errors (:errors report)}))))
 
 (defn input-cast-result
-  [enclosing-form node error-groups]
+  [enclosing-form node error-groups provenance]
   (let [display (cf/display-expr node)
         primary-group (first error-groups)]
     {:blame (:expr display)
@@ -206,10 +207,11 @@
      :cast-diagnostics (vec (mapcat :cast-diagnostics error-groups))
      :context {:local-vars (ca/local-vars-context node)
                :refs (ca/call-refs node)}
+     :source (:source (get provenance enclosing-form))
      :errors (vec (mapcat :errors error-groups))}))
 
 (defn match-s-exprs
-  [enclosing-form node keep-empty]
+  [enclosing-form node keep-empty provenance]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (aapi/call-expected-argtypes node))
           actual-arglist (vec (aapi/call-actual-argtypes node))]
@@ -227,9 +229,9 @@
         (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
                                            (input-error-group (aapi/node-form node) arg-node expected actual))
                                          matched))]
-          (input-cast-result enclosing-form node error-groups)
+          (input-cast-result enclosing-form node error-groups provenance)
           (when keep-empty
-            (input-cast-result enclosing-form node [])))))))
+            (input-cast-result enclosing-form node [] provenance)))))))
 
 (defn enclosing-form
   [ns-sym source-form]
@@ -250,7 +252,7 @@
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (defn check-resolved-form
-  [dict ignore-body ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
+  [dict ignore-body ns-sym source-file source-form analyzed provenance {:keys [keep-empty remove-context debug] :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? ignore-body ns-sym source-form)
         results (if ignored?
@@ -258,7 +260,7 @@
                   (->> (aapi/annotated-nodes analyzed)
                        (mapcat (fn [node]
                                  (abl/with-error-context (cf/node-error-context node enclosing-form)
-                                   (let [call-result (match-s-exprs enclosing-form node keep-empty)]
+                                   (let [call-result (match-s-exprs enclosing-form node keep-empty provenance)]
                                      (concat (when call-result
                                                [call-result])
                                              (or (def-output-results dict
@@ -266,7 +268,8 @@
                                                                      source-file
                                                                      source-form
                                                                      enclosing-form
-                                                                     node)
+                                                                     node
+                                                                     provenance)
                                                  []))))))
                        vec))
         debug-records (when debug
@@ -340,7 +343,7 @@
                           (str e))})
 
 (defn check-ns-form
-  [dict ignore-body ns source-file source-form opts]
+  [dict ignore-body ns source-file source-form provenance opts]
   (try
     (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
       (vec (check-resolved-form dict
@@ -349,6 +352,7 @@
                                 source-file
                                 source-form
                                 (first resolved)
+                                provenance
                                 opts)))
     (catch Exception e
       [(expression-exception-result ns source-file source-form e)])))
@@ -393,7 +397,7 @@
 (defn check-s-expr
   [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict ignore-body]} (namespace-dict opts ns)
+    (let [{:keys [dict ignore-body provenance]} (namespace-dict opts ns)
           source-form (find-source-form s-expr source-file check-def)
           {:keys [dict accessor-summaries]} (preanalyzed-ns-dict dict ns source-file)
           {:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form] {:accessor-summaries accessor-summaries})]
@@ -403,6 +407,7 @@
                                 source-file
                                 source-form
                                 (first resolved)
+                                provenance
                                 {:keep-empty keep-empty
                                  :remove-context remove-context
                                  :accessor-summaries accessor-summaries})))))
@@ -419,7 +424,7 @@
 
 (defn check-ns
   [ns source-file opts]
-  (let [{:keys [dict ignore-body]} (namespace-dict opts ns)]
+  (let [{:keys [dict ignore-body provenance]} (namespace-dict opts ns)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
         (loop [results []]
@@ -427,7 +432,7 @@
             (case kind
               :eof results
               :form (recur (into results
-                                 (check-ns-form dict ignore-body ns source-file form opts)))
+                                 (check-ns-form dict ignore-body ns source-file form provenance opts)))
               :read-error (conj results (read-exception-result source-file exception)))))))))
 
 (defn load-exception-result
