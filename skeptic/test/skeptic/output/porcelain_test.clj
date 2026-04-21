@@ -3,7 +3,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [skeptic.analysis.types :as at]
-            [skeptic.output.porcelain :as sut]))
+            [skeptic.output.porcelain :as sut]
+            [skeptic.provenance :as prov]))
 
 (defn- capture-lines
   [f]
@@ -22,13 +23,15 @@
    :blame '(+ 1 :x)
    :focuses []
    :focus-sources ["x"]
-   :enclosing-form '(defn f [x] (+ 1 x))
+   :enclosing-form 'foo.bar/f
    :expanded-expression '(clojure.core/+ 1 x)
    :rule :ground-mismatch
    :actual-type (at/->GroundT :keyword 'Keyword)
    :expected-type (at/->GroundT :int 'Int)
-   :source :malli-spec
    :errors ["\u001b[33mKeyword is not compatible with Int\u001b[0m"]})
+
+(def ^:private example-provenance
+  {'foo.bar/f (prov/make-provenance :malli-spec 'foo.bar/f nil nil)})
 
 (def ^:private example-exception-summary
   {:report-kind :exception
@@ -43,7 +46,7 @@
 
 (deftest finding-record-shape
   (let [[line & more] (capture-lines
-                       #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
+                       #((:finding sut/printer) 'foo.bar example-provenance {} example-input-summary {}))
         parsed (parse-line line)]
     (is (empty? more))
     (is (= "finding" (:kind parsed)))
@@ -66,7 +69,7 @@
 
 (deftest exception-record-shape
   (let [[line] (capture-lines
-                #((:finding sut/printer) 'foo.bar example-exception-result
+                #((:finding sut/printer) 'foo.bar {} example-exception-result
                                          example-exception-summary {}))
         parsed (parse-line line)]
     (is (= "exception" (:kind parsed)))
@@ -131,7 +134,7 @@
                 :cast-summary {:foo 'bar}
                 :context {:local-vars {}}}
         [line] (capture-lines
-                #((:finding sut/printer) 'foo.bar result example-input-summary
+                #((:finding sut/printer) 'foo.bar example-provenance result example-input-summary
                                          {:debug true}))
         parsed (parse-line line)]
     (is (= "finding" (:kind parsed)))
@@ -140,6 +143,6 @@
 
 (deftest finding-without-debug-opt-omits-debug-key
   (let [[line] (capture-lines
-                #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
+                #((:finding sut/printer) 'foo.bar example-provenance {} example-input-summary {}))
         parsed (parse-line line)]
     (is (nil? (:debug parsed)))))

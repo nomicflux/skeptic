@@ -5,7 +5,8 @@
             [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
             [skeptic.analysis.annotation :as aa]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.colours :as colours]))
+            [skeptic.colours :as colours]
+            [skeptic.provenance :as prov]))
 
 (def ^:private global-blame-label "scope escape")
 (def ^:private missing-blame-label "<missing>")
@@ -138,18 +139,23 @@
     (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true)
                   " <- " (colours/green (pr-str type))))))
 
+(defn- summary-with-source
+  [provenance summary]
+  (assoc summary :source (prov/source (get provenance (:enclosing-form summary)))))
+
 (defn- print-finding!
-  [ns result summary {:keys [verbose show-context debug] :as _opts}]
-  (let [{:keys [path context]} result]
+  [ns provenance result summary {:keys [verbose show-context debug] :as _opts}]
+  (let [{:keys [path context]} result
+        rendered (summary-with-source provenance summary)]
     (println "---------")
     (println (colours/white (str "Namespace: \t\t" ns) true))
-    (doseq [[label value] (report-fields summary verbose)]
+    (doseq [[label value] (report-fields rendered verbose)]
       (print-report-field label value))
     (when (and verbose path)
       (println (colours/white (str "In macro-expanded path: \t" (pr-str path)) true)))
     (when show-context
       (print-context context))
-    (doseq [error (:errors summary)]
+    (doseq [error (:errors rendered)]
       (println "---")
       (println error "\n"))
     (when debug
