@@ -60,13 +60,17 @@ jobs:
             echo "from_version and to_version must be non-empty and different."
             exit 1
           fi
-          for f in skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj; do
+          files=(skeptic/project.clj lein-skeptic/project.clj project.clj lein-skeptic/src/leiningen/skeptic.clj)
+          if [[ "$FROM" != *"-SNAPSHOT"* && "$TO" != *"-SNAPSHOT"* ]]; then
+            files+=(README.md)
+          fi
+          for f in "${files[@]}"; do
             if ! grep -qF "$FROM" "$f"; then
               echo "Expected to find '$FROM' in $f"
               exit 1
             fi
           done
-          for f in skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj; do
+          for f in "${files[@]}"; do
             sed -i.bak "s|${FROM}|${TO}|g" "$f"
             rm -f "${f}.bak"
           done
