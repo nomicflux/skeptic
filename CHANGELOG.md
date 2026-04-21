@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
   produce real semantic types (`MaybeT` and unions via `ato/union-type`) in
   the type domain instead of `Dyn`, enabling cast checking against
   fixtures like `[:=> [:cat [:maybe :int]] [:or :int :string]]`.
+- Findings now carry a `:source` field identifying the declaration's origin
+  domain (`:schema`, `:malli-spec`, `:native`, or `:type-override`). The
+  text output appends `[source: X]` to the location line and the porcelain
+  JSON emits `:source` on each finding.
 
 ### Changed
 
@@ -21,6 +25,12 @@ All notable changes to this project will be documented in this file.
   `(str/blank? a)` or `(some? a)` guard on a `{:keys [a]}` destructure refines
   the local `a` itself, not only the parent map, so downstream reads of `a`
   see the narrowed type.
+- Analysis no longer throws `Expected typed entry` on Malli `:map` or other
+  unknown Malli forms encountered while building the per-namespace
+  declaration dict.
+- Multi-arity `defn` output is now checked per-arity against the declared
+  return type for that specific arity, instead of comparing every analyzed
+  method against the first arity's declared output.
 
 ## [0.7.0] - 2026-04-19
 
