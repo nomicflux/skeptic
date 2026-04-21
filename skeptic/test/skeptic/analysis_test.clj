@@ -206,42 +206,37 @@
         contracts-ns 'skeptic.test-examples.contracts
         contracts-file (fixture-file-for-ns contracts-ns)
         nullability-ns 'skeptic.test-examples.nullability
-        nullability-file (fixture-file-for-ns nullability-ns)
-        contracts-resolved-defs (:resolved-defs (checking/analyze-source-exprs dict
-                                                                               contracts-ns
-                                                                               contracts-file
-                                                                               (source-exprs-in contracts-ns contracts-file)))
-        nullability-resolved-defs (:resolved-defs (checking/analyze-source-exprs dict
-                                                                                 nullability-ns
-                                                                                 nullability-file
-                                                                                 (source-exprs-in nullability-ns nullability-file)))]
+        nullability-file (fixture-file-for-ns nullability-ns)]
     (testing "accessor summaries are emitted only for trivial unary accessors"
       (is (= {:kind :unary-map-accessor :kw :k}
-             (:accessor-summary (get contracts-resolved-defs 'skeptic.test-examples.contracts/vtype))))
-      (is (nil? (:accessor-summary (get nullability-resolved-defs 'skeptic.test-examples.nullability/non-null-transform))))))
+             (get (:accessor-summaries (checking/analyze-source-exprs dict
+                                                                      contracts-ns
+                                                                      contracts-file
+                                                                      (source-exprs-in contracts-ns contracts-file)))
+                  'skeptic.test-examples.contracts/vtype)))
+      (is (nil? (get (:accessor-summaries (checking/analyze-source-exprs dict
+                                                                         nullability-ns
+                                                                         nullability-file
+                                                                         (source-exprs-in nullability-ns nullability-file)))
+                     'skeptic.test-examples.nullability/non-null-transform)))))
 
   (testing "prepass exposes helper accessor summaries to later case narrowing"
     (let [dict (catalog/typed-test-example-entries)
           fixture-ns 'skeptic.test-examples.contracts
           fixture-file (fixture-file-for-ns fixture-ns)
           exprs (source-exprs-in fixture-ns fixture-file)
-          prepass (:resolved-defs (checking/analyze-source-exprs dict
-                                                                 fixture-ns
-                                                                 fixture-file
-                                                                 exprs))
-          analysis-dict (reduce (fn [acc [sym resolved-entry]]
-                                  (if-let [summary (:accessor-summary resolved-entry)]
-                                    (update acc sym assoc :accessor-summary summary)
-                                    acc))
-                                dict
-                                prepass)
+          {:keys [accessor-summaries]} (checking/analyze-source-exprs dict
+                                                                      fixture-ns
+                                                                      fixture-file
+                                                                      exprs)
           form (->> 'skeptic.test-examples.contracts/conditional-dispatch-success
                     (source/get-fn-code {})
                     read-string)
-          ast (first (:resolved (checking/analyze-source-exprs analysis-dict
+          ast (first (:resolved (checking/analyze-source-exprs dict
                                                                fixture-ns
                                                                fixture-file
-                                                               [form])))
+                                                               [form]
+                                                               {:accessor-summaries accessor-summaries})))
           handle-a (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
