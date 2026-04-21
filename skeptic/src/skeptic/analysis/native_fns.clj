@@ -9,79 +9,93 @@
             [skeptic.provenance :as prov])
   (:import [clojure.lang Numbers]))
 
-(def ^:private number-type at/NumericDyn)
-(def ^:private bool-type (at/->GroundT :bool 'Bool))
-(def ^:private str-type (at/->GroundT :str 'Str))
-(def ^:private int-type (at/->GroundT :int 'Int))
-(def ^:private str-arg-type at/Dyn)
+(defn- native-prov
+  [sym]
+  (prov/make-provenance :native sym nil nil))
+
+(defn- numbers-prov
+  [method]
+  (native-prov (symbol (str "clojure.lang.Numbers/" method))))
 
 (defn static-call-native-info
   [class method arity]
   (when (= class Numbers)
-    (cond
-      (#{'inc 'dec} method)
-      (when (= arity 1)
-        {:output-type number-type :expected-argtypes [number-type]})
-
-      (#{'add 'multiply} method)
-      (when (= arity 2)
-        {:output-type number-type :expected-argtypes [number-type number-type]})
-
-      (= 'minus method)
+    (let [p (numbers-prov method)
+          n (at/NumericDyn p)
+          b (at/->GroundT p :bool 'Bool)]
       (cond
-        (= arity 1) {:output-type number-type :expected-argtypes [number-type]}
-        (= arity 2) {:output-type number-type :expected-argtypes [number-type number-type]}
-        :else nil)
+        (#{'inc 'dec} method)
+        (when (= arity 1)
+          {:output-type n :expected-argtypes [n]})
 
-      (#{'isPos 'isNeg} method)
-      (when (= arity 1)
-        {:output-type bool-type :expected-argtypes [number-type]})
+        (#{'add 'multiply} method)
+        (when (= arity 2)
+          {:output-type n :expected-argtypes [n n]})
 
-      :else nil)))
+        (= 'minus method)
+        (cond
+          (= arity 1) {:output-type n :expected-argtypes [n]}
+          (= arity 2) {:output-type n :expected-argtypes [n n]}
+          :else nil)
 
-(def ^:private num-zero-method (at/->FnMethodT [] number-type 0 false []))
-(def ^:private num-unary-method (at/->FnMethodT [number-type] number-type 1 false '[n]))
-(def ^:private num-binary-method (at/->FnMethodT [number-type number-type] number-type 2 false '[x y]))
-(def ^:private num-ternary-varargs-method
-  (at/->FnMethodT [number-type number-type number-type] number-type 3 true '[x y more]))
+        (#{'isPos 'isNeg} method)
+        (when (= arity 1)
+          {:output-type b :expected-argtypes [n]})
 
-(def ^:private num-plus-star-type
-  (at/->FunT [num-zero-method num-unary-method num-binary-method num-ternary-varargs-method]))
+        :else nil))))
 
-(def ^:private inc-type
-  (at/->FunT [num-unary-method]))
+(defn- plus-star-type-for
+  [sym]
+  (let [p (native-prov sym)
+        n (at/NumericDyn p)
+        zero (at/->FnMethodT p [] n 0 false [])
+        unary (at/->FnMethodT p [n] n 1 false '[n])
+        binary (at/->FnMethodT p [n n] n 2 false '[x y])
+        variadic (at/->FnMethodT p [n n n] n 3 true '[x y more])]
+    (at/->FunT p [zero unary binary variadic])))
 
-(def ^:private str-zero-method (at/->FnMethodT [] str-type 0 false []))
-(def ^:private str-unary-method (at/->FnMethodT [str-arg-type] str-type 1 false '[s]))
-(def ^:private str-varargs-method
-  (at/->FnMethodT [str-arg-type str-arg-type] str-type 2 true '[s args]))
+(defn- inc-type-for
+  [sym]
+  (let [p (native-prov sym)
+        n (at/NumericDyn p)
+        unary (at/->FnMethodT p [n] n 1 false '[n])]
+    (at/->FunT p [unary])))
 
-(def ^:private str-type-val
-  (at/->FunT [str-zero-method str-unary-method str-varargs-method]))
+(defn- str-type-for
+  [sym]
+  (let [p (native-prov sym)
+        str-t (at/->GroundT p :str 'Str)
+        str-arg (at/Dyn p)
+        zero (at/->FnMethodT p [] str-t 0 false [])
+        unary (at/->FnMethodT p [str-arg] str-t 1 false '[s])
+        variadic (at/->FnMethodT p [str-arg str-arg] str-t 2 true '[s args])]
+    (at/->FunT p [zero unary variadic])))
 
-(def ^:private format-unary-method (at/->FnMethodT [str-type] str-type 1 false '[fmt]))
-(def ^:private format-varargs-method
-  (at/->FnMethodT [str-type str-arg-type] str-type 2 true '[fmt args]))
+(defn- format-type-for
+  [sym]
+  (let [p (native-prov sym)
+        str-t (at/->GroundT p :str 'Str)
+        str-arg (at/Dyn p)
+        unary (at/->FnMethodT p [str-t] str-t 1 false '[fmt])
+        variadic (at/->FnMethodT p [str-t str-arg] str-t 2 true '[fmt args])]
+    (at/->FunT p [unary variadic])))
 
-(def ^:private format-type
-  (at/->FunT [format-unary-method format-varargs-method]))
-
-(def ^:private int-pred-method (at/->FnMethodT [int-type] bool-type 1 false '[n]))
-(def ^:private int-pred-type
-  (at/->FunT [int-pred-method]))
+(defn- int-pred-type-for
+  [sym]
+  (let [p (native-prov sym)
+        int-t (at/->GroundT p :int 'Int)
+        bool-t (at/->GroundT p :bool 'Bool)
+        method (at/->FnMethodT p [int-t] bool-t 1 false '[n])]
+    (at/->FunT p [method])))
 
 (def native-fn-dict
-  {'clojure.core/+ num-plus-star-type
-   'clojure.core/* num-plus-star-type
-   'clojure.core/inc inc-type
-   'clojure.core/str str-type-val
-   'clojure.core/format format-type
-   'clojure.core/even? int-pred-type
-   'clojure.core/odd? int-pred-type})
-
-(defn- native-prov
-  [sym]
-  (prov/make-provenance :native sym nil nil))
+  {'clojure.core/+ (plus-star-type-for 'clojure.core/+)
+   'clojure.core/* (plus-star-type-for 'clojure.core/*)
+   'clojure.core/inc (inc-type-for 'clojure.core/inc)
+   'clojure.core/str (str-type-for 'clojure.core/str)
+   'clojure.core/format (format-type-for 'clojure.core/format)
+   'clojure.core/even? (int-pred-type-for 'clojure.core/even?)
+   'clojure.core/odd? (int-pred-type-for 'clojure.core/odd?)})
 
 (def native-fn-provenance
   (into {} (map (fn [sym] [sym (native-prov sym)])) (keys native-fn-dict)))

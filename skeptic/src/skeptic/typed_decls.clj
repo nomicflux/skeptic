@@ -5,8 +5,8 @@
             [skeptic.schema.collect :as collect]))
 
 (defn desc->type
-  [{:keys [schema]}]
-  (ab/schema->type schema))
+  [prov {:keys [schema]}]
+  (ab/schema->type schema prov))
 
 (defn- desc->provenance
   [_desc ns qualified-sym]
@@ -14,10 +14,11 @@
 
 (defn- convert-desc
   [ns qualified-sym desc]
-  {:dict {qualified-sym (desc->type desc)}
-   :provenance {qualified-sym (desc->provenance desc ns qualified-sym)}
-   :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})
-   :errors []})
+  (let [prov (desc->provenance desc ns qualified-sym)]
+    {:dict {qualified-sym (desc->type prov desc)}
+     :provenance {qualified-sym prov}
+     :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})
+     :errors []}))
 
 (defn- safe-convert
   [ns qualified-sym desc]
