@@ -1,4 +1,5 @@
-(ns skeptic.analysis.types)
+(ns skeptic.analysis.types
+  (:require [skeptic.provenance :as prov]))
 
 (def semantic-type-tag-key
   :skeptic.analysis.types/semantic-type)
@@ -118,148 +119,172 @@
     conditional-type-tag})
 
 (defn ->DynT
-  []
-  {semantic-type-tag-key dyn-type-tag})
+  [prov]
+  (prov/attach {semantic-type-tag-key dyn-type-tag} prov))
 
 (defn ->BottomT
-  []
-  {semantic-type-tag-key bottom-type-tag})
+  [prov]
+  (prov/attach {semantic-type-tag-key bottom-type-tag} prov))
 
 (defn ->GroundT
-  [ground display-form]
-  {semantic-type-tag-key ground-type-tag
-   :ground ground
-   :display-form display-form})
+  [prov ground display-form]
+  (prov/attach {semantic-type-tag-key ground-type-tag
+                :ground ground
+                :display-form display-form}
+               prov))
 
 (defn ->NumericDynT
-  []
-  {semantic-type-tag-key numeric-dyn-type-tag})
+  [prov]
+  (prov/attach {semantic-type-tag-key numeric-dyn-type-tag} prov))
 
 (defn ->RefinementT
-  [base display-form accepts? adapter-data]
-  {semantic-type-tag-key refinement-type-tag
-   :base base
-   :display-form display-form
-   :accepts? accepts?
-   :adapter-data adapter-data})
+  [prov base display-form accepts? adapter-data]
+  (prov/attach {semantic-type-tag-key refinement-type-tag
+                :base base
+                :display-form display-form
+                :accepts? accepts?
+                :adapter-data adapter-data}
+               prov))
 
 (defn ->AdapterLeafT
-  [adapter display-form accepts? adapter-data]
-  {semantic-type-tag-key adapter-leaf-type-tag
-   :adapter adapter
-   :display-form display-form
-   :accepts? accepts?
-   :adapter-data adapter-data})
+  [prov adapter display-form accepts? adapter-data]
+  (prov/attach {semantic-type-tag-key adapter-leaf-type-tag
+                :adapter adapter
+                :display-form display-form
+                :accepts? accepts?
+                :adapter-data adapter-data}
+               prov))
 
 (defn ->OptionalKeyT
-  [inner]
-  {semantic-type-tag-key optional-key-type-tag
-   :inner inner})
+  [prov inner]
+  (prov/attach {semantic-type-tag-key optional-key-type-tag
+                :inner inner}
+               prov))
 
 (defn ->FnMethodT
-  [inputs output min-arity variadic? names]
-  {semantic-type-tag-key fn-method-type-tag
-   :inputs inputs
-   :output output
-   :min-arity min-arity
-   :variadic? variadic?
-   :names names})
+  [prov inputs output min-arity variadic? names]
+  (prov/attach {semantic-type-tag-key fn-method-type-tag
+                :inputs inputs
+                :output output
+                :min-arity min-arity
+                :variadic? variadic?
+                :names names}
+               prov))
 
 (defn ->FunT
-  [methods]
-  {semantic-type-tag-key fun-type-tag
-   :methods methods})
+  [prov methods]
+  (prov/attach {semantic-type-tag-key fun-type-tag
+                :methods methods}
+               prov))
 
 (defn ->MaybeT
-  [inner]
-  {semantic-type-tag-key maybe-type-tag
-   :inner inner})
+  [prov inner]
+  (prov/attach {semantic-type-tag-key maybe-type-tag
+                :inner inner}
+               prov))
 
 (defn ->UnionT
-  [members]
-  {semantic-type-tag-key union-type-tag
-   :members members})
+  [prov members]
+  (prov/attach {semantic-type-tag-key union-type-tag
+                :members members}
+               prov))
 
 (defn ->IntersectionT
-  [members]
-  {semantic-type-tag-key intersection-type-tag
-   :members members})
+  [prov members]
+  (prov/attach {semantic-type-tag-key intersection-type-tag
+                :members members}
+               prov))
 
 (defn ->MapT
-  [entries]
-  {semantic-type-tag-key map-type-tag
-   :entries entries})
+  [prov entries]
+  (prov/attach {semantic-type-tag-key map-type-tag
+                :entries entries}
+               prov))
 
 (defn ->VectorT
-  [items homogeneous?]
-  {semantic-type-tag-key vector-type-tag
-   :items items
-   :homogeneous? homogeneous?})
+  [prov items homogeneous?]
+  (prov/attach {semantic-type-tag-key vector-type-tag
+                :items items
+                :homogeneous? homogeneous?}
+               prov))
 
 (defn ->SetT
-  [members homogeneous?]
-  {semantic-type-tag-key set-type-tag
-   :members members
-   :homogeneous? homogeneous?})
+  [prov members homogeneous?]
+  (prov/attach {semantic-type-tag-key set-type-tag
+                :members members
+                :homogeneous? homogeneous?}
+               prov))
 
 (defn ->SeqT
-  [items homogeneous?]
-  {semantic-type-tag-key seq-type-tag
-   :items items
-   :homogeneous? homogeneous?})
+  [prov items homogeneous?]
+  (prov/attach {semantic-type-tag-key seq-type-tag
+                :items items
+                :homogeneous? homogeneous?}
+               prov))
 
 (defn ->VarT
-  [inner]
-  {semantic-type-tag-key var-type-tag
-   :inner inner})
+  [prov inner]
+  (prov/attach {semantic-type-tag-key var-type-tag
+                :inner inner}
+               prov))
 
 (defn ->PlaceholderT
-  [ref]
-  {semantic-type-tag-key placeholder-type-tag
-   :ref ref})
+  [prov ref]
+  (prov/attach {semantic-type-tag-key placeholder-type-tag
+                :ref ref}
+               prov))
 
 (defn ->InfCycleT
-  ([]
-   (->InfCycleT nil))
-  ([ref]
-   (cond-> {semantic-type-tag-key inf-cycle-type-tag}
-     (some? ref) (assoc :ref ref))))
+  ([prov]
+   (->InfCycleT prov nil))
+  ([prov ref]
+   (prov/attach (cond-> {semantic-type-tag-key inf-cycle-type-tag}
+                  (some? ref) (assoc :ref ref))
+                prov)))
 
 (defn ->ValueT
-  [inner value]
-  {semantic-type-tag-key value-type-tag
-   :inner inner
-   :value value})
+  [prov inner value]
+  (prov/attach {semantic-type-tag-key value-type-tag
+                :inner inner
+                :value value}
+               prov))
 
 (defn ->TypeVarT
-  [name]
-  {semantic-type-tag-key type-var-type-tag
-   :name name})
+  [prov name]
+  (prov/attach {semantic-type-tag-key type-var-type-tag
+                :name name}
+               prov))
 
 (defn ->ForallT
-  [binder body]
-  {semantic-type-tag-key forall-type-tag
-   :binder binder
-   :body body})
+  [prov binder body]
+  (prov/attach {semantic-type-tag-key forall-type-tag
+                :binder binder
+                :body body}
+               prov))
 
 (defn ->SealedDynT
-  [ground]
-  {semantic-type-tag-key sealed-dyn-type-tag
-   :ground ground})
+  [prov ground]
+  (prov/attach {semantic-type-tag-key sealed-dyn-type-tag
+                :ground ground}
+               prov))
 
 (defn ->ConditionalT
-  [branches]
-  {semantic-type-tag-key conditional-type-tag
-   :branches branches})
+  [prov branches]
+  (prov/attach {semantic-type-tag-key conditional-type-tag
+                :branches branches}
+               prov))
 
-(def Dyn
-  (->DynT))
+(defn Dyn
+  [prov]
+  (->DynT prov))
 
-(def BottomType
-  (->BottomT))
+(defn BottomType
+  [prov]
+  (->BottomT prov))
 
-(def NumericDyn
-  (->NumericDynT))
+(defn NumericDyn
+  [prov]
+  (->NumericDynT prov))
 
 (defn semantic-type-tag
   [value]
