@@ -94,6 +94,7 @@
                 {:expr 'bad-user
                  :arg '{:name :bad
                         :nickname "x"}}
+                nil
                 (T {:name s/Str
                     :nickname (s/maybe s/Str)})
                 (T {:name s/Keyword
@@ -111,6 +112,7 @@
   (let [report (sut/output-cast-report
                 {:expr 'bad-user
                  :arg '{:user {:name :bad}}}
+                nil
                 (T {:user {:name s/Str}})
                 (T {:user {:name s/Keyword}}))
         [error] (:errors report)]
@@ -143,7 +145,7 @@
     (assert-no-ui-internals text)))
 
 (deftest output-summary-declared-type-shows-full-conditional-union
-  (let [bad (sut/output-cast-report sample-ctx (T s/Keyword) (T conditional-int-or-str))
+  (let [bad (sut/output-cast-report sample-ctx nil (T s/Keyword) (T conditional-int-or-str))
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
@@ -165,7 +167,7 @@
     (is (= [] (:errors report)))))
 
 (deftest output-report-summary-uses-root-expected-type-metadata
-  (let [bad (sut/output-cast-report sample-ctx (T s/Keyword) (T conditional-int-or-str))
+  (let [bad (sut/output-cast-report sample-ctx nil (T s/Keyword) (T conditional-int-or-str))
         summary (sut/report-summary
                  (merge {:report-kind :output
                          :blame :bad}
@@ -253,8 +255,8 @@
     (assert-no-ui-internals error)))
 
 (deftest nested-dynamic-map-cast-stays-structural-test
-  (let [compatible (sut/output-cast-report sample-ctx (T {:a s/Int}) (T {:a s/Any}))
-        incompatible (sut/output-cast-report sample-ctx (T {:a s/Int}) (T {:b s/Any}))]
+  (let [compatible (sut/output-cast-report sample-ctx nil (T {:a s/Int}) (T {:a s/Any}))
+        incompatible (sut/output-cast-report sample-ctx nil (T {:a s/Int}) (T {:b s/Any}))]
     (is (:ok? compatible))
     (is (= :map (:rule compatible)))
     (is (= :map (:rule (:cast-summary compatible))))
@@ -332,47 +334,47 @@
                   cond-pre-int-or-str
                   either-int-or-str
                   if-int-or-str]]
-    (is (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Int))))
-    (is (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Str))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx (T schema) (T s/Keyword)))))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T schema) (T s/Int))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T schema) (T s/Str))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx nil (T schema) (T s/Keyword)))))))
 
 (deftest both-schema-output-cast-report-test
-  (is (:ok? (sut/output-cast-report sample-ctx (T both-any-int) (T s/Int))))
-  (is (:ok? (sut/output-cast-report sample-ctx (T both-int-and-constrained-int) (T s/Int))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-any-int) (T s/Str)))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Int)))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Str)))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx (T both-int-str) (T s/Keyword)))))
-  (is (not (:ok? (sut/output-cast-report sample-ctx (T {:value both-any-int})
+  (is (:ok? (sut/output-cast-report sample-ctx nil (T both-any-int) (T s/Int))))
+  (is (:ok? (sut/output-cast-report sample-ctx nil (T both-int-and-constrained-int) (T s/Int))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx nil (T both-any-int) (T s/Str)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx nil (T both-int-str) (T s/Int)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx nil (T both-int-str) (T s/Str)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx nil (T both-int-str) (T s/Keyword)))))
+  (is (not (:ok? (sut/output-cast-report sample-ctx nil (T {:value both-any-int})
                                          (T {:value s/Str})))))) 
 
 (deftest constrained-and-eq-compatibility-test
   (let [non-negative-int (s/constrained s/Int (fn [n] (not (neg? n))))
         hello (s/eq "hello")]
     (is (:ok? (as/check-cast s/Int non-negative-int)))
-    (is (:ok? (sut/output-cast-report sample-ctx (T non-negative-int) (T s/Int))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T non-negative-int) (T s/Int))))
     (is (not (:ok? (as/check-cast s/Str non-negative-int))))
     (is (not (:ok? (as/check-cast (s/eq -1) non-negative-int))))
 
     (is (:ok? (as/check-cast s/Str hello)))
-    (is (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Str))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T hello) (T s/Str))))
     (is (not (:ok? (as/check-cast s/Int hello))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Int)))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx nil (T hello) (T s/Int)))))
     (is (not (:ok? (as/check-cast (s/eq "bye") hello))))))
 
 (deftest enum-compatibility-test
   (let [hello-or-bye (s/enum "hello" "bye")
         hello-or-one (s/enum "hello" 1)]
     (is (:ok? (as/check-cast s/Str hello-or-bye)))
-    (is (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Str))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T hello-or-bye) (T s/Str))))
     (is (not (:ok? (as/check-cast s/Int hello-or-bye))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Int)))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx nil (T hello-or-bye) (T s/Int)))))
 
     (is (:ok? (as/check-cast s/Str hello-or-one)))
     (is (:ok? (as/check-cast s/Int hello-or-one)))
     (is (not (:ok? (as/check-cast s/Bool hello-or-one))))
 
     (is (not (:ok? (as/check-cast hello-or-one s/Str))))
-    (is (not (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-one)))))
+    (is (not (:ok? (sut/output-cast-report sample-ctx nil (T s/Str) (T hello-or-one)))))
     (is (:ok? (as/check-cast hello-or-bye s/Str)))
-    (is (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-bye))))))
+    (is (:ok? (sut/output-cast-report sample-ctx nil (T s/Str) (T hello-or-bye))))))

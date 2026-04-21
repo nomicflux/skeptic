@@ -130,6 +130,7 @@
                                   (inrep/output-cast-report
                                    {:expr (aapi/node-name node)
                                     :arg (or source-body (aapi/node-form body))}
+                                   (:source (get provenance enclosing-form))
                                    expected-output
                                    actual-output))]
                      (when-not (:ok? report)
@@ -159,7 +160,7 @@
                           :actual-type (:actual-type report)
                           :cast-summary (:cast-summary report)
                           :cast-diagnostics (:cast-diagnostics report)
-                          :source (:source (get provenance enclosing-form))
+                          :source (:source report)
                           :errors (:errors report)})))))))))
 
 (defn input-error-group
