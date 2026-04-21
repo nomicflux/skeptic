@@ -81,7 +81,7 @@
 
 (defn- native-prov
   [sym]
-  (prov/->Provenance :native sym nil nil))
+  (prov/make-provenance :native sym nil nil))
 
 (def native-fn-provenance
   (into {} (map (fn [sym] [sym (native-prov sym)])) (keys native-fn-dict)))

@@ -123,6 +123,9 @@ Tests:
 4. Prefer `schema->type`, not the reverse direction.
    Convert schemas into semantic types at the boundary, do the real analysis in the type domain, and only deal in raw schema forms when interacting with external schema-facing APIs.
 
+5. The declaration dict holds bare Types. No sidecar data on dict values.
+   Once admitted, each dict value is a Type, with no `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, `:type`, or other wrappers. Domain origin survives only as a `Provenance` record in a parallel map.
+
 ## API Boundaries
 
 Some subsystems expose a dedicated API module that external callers must go through instead of reaching into implementation files:
@@ -130,6 +133,7 @@ Some subsystems expose a dedicated API module that external callers must go thro
 - `skeptic.analysis.annotate.api` is the API for the annotate subsystem. Code that reads or writes fields on annotated nodes must use the accessors and mutators defined there (e.g. `node-form`, `node-type`, `with-type`). Direct `(:form node)`, `(:type node)`, `(assoc node :type ...)` are permitted only inside `annotate/*` files that own node shape (the per-AST-op annotators).
 - `skeptic.analysis.bridge` is the entry point for schema→type conversion (`schema->type`). Schema-domain predicates and canonicalization live in `skeptic.analysis.bridge.canonicalize`; per rule 1 these siblings are required directly, they are not "internals of bridge."
 - `skeptic.analysis.cast` is the cast dispatcher. Cast-result construction and blame/path helpers live in `skeptic.analysis.cast.support`. Again these are documented siblings, not cast internals.
+- `skeptic.provenance` is the API for Provenance values carried alongside the declaration dict. Consumers use `make-provenance`, `source`, `provenance?`, and `merge-provenances` — not the `Provenance` record constructor or raw `:source` field access. Only the following namespaces may `(:require [skeptic.provenance …])`: `skeptic.typed-decls`, `skeptic.typed-decls.malli`, `skeptic.analysis.native-fns`, `skeptic.checking.pipeline`.
 
 When an existing API module lacks a helper that a new consumer needs, extend the API module rather than reaching past it. The purpose of the boundary is to keep node shape (and analogous cast-result shape) changeable in one place.
 
@@ -223,6 +227,21 @@ In short:
 
 - schema domain is for input/output boundaries
 - type domain is for internal semantics
+
+## The Dict After Admission Is Types, Full Stop
+
+Once Schema and MalliSpec values have crossed their respective boundaries into the Type domain, the per-namespace declaration dict returned by `skeptic.checking.pipeline/namespace-dict` holds bare Types keyed by qualified symbol. No `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, `:type`, or other sidecar wrappers live on dict values.
+
+The origin of an entry (Schema, MalliSpec, native, or user type-override) is **not** carried on the dict value. It is surfaced separately as a `Provenance` record (see `skeptic.provenance`) in the parallel `:provenance` map produced by `namespace-dict`, keyed by the same qualified symbol. Downstream checking consumes the dict for real type reasoning and consults provenance only to attach `:source` on findings — never to reconstruct the original schema/malli-spec.
+
+The direct admission flow per source is:
+
+- `Schema → schema->type → dict[sym] = Type` (via `skeptic.typed-decls`)
+- `MalliSpec → malli-spec->type → dict[sym] = Type` (via `skeptic.typed-decls.malli`)
+- `native → Type → dict[sym] = Type` (via `skeptic.analysis.native-fns`)
+- `:skeptic/type-overrides → schema->type → dict[sym] = Type` (via `skeptic.config` + `skeptic.typed-decls`)
+
+There is no intermediate entry-map shape between admission and dict insertion.
 
 ## Design Bias
 

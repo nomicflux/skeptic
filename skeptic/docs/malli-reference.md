@@ -147,6 +147,10 @@ Current boundary (pinned to Malli 0.20.1):
     - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
     - Anything else → `Dyn`.
 
+### Direct dict admission flow
+
+Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = Type`. There is no intermediate entry-map shape between the bridge and the dict — `skeptic.typed-decls.malli/typed-ns-malli-results` inserts the bare converted `Type` into the dict keyed by qualified symbol, and carries the MalliSpec origin separately as a `Provenance` record (source `:malli-spec`) in the parallel `:provenance` map. Once the entry is in the dict, analysis treats it identically to a Schema-admitted entry.
+
 ## Stubbed now vs. later
 
 Stubbed now:

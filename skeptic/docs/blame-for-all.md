@@ -348,6 +348,12 @@ everywhere else.
 That is the mechanism that lets the calculus support both gradual typing and
 parametric polymorphism without losing the usual blame guarantees.
 
+## Declaration Dict Invariants
+
+In Skeptic, after the admission boundary (Schema via `schema->type`, MalliSpec via `malli-spec->type`), the per-namespace declaration dict holds bare Types keyed by qualified symbol. No `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, or `:type` wrapper survives on a dict value.
+
+Domain origin (Schema / MalliSpec / native / type-override) is carried separately as a `Provenance` record in a parallel `:provenance` map (see `skeptic.provenance`). It is read only to attach `:source` on findings; it is never used to reconstruct schemas or to branch type reasoning.
+
 ## Primary source
 
 - Ahmed, Findler, Siek, Wadler, "Blame for All", POPL 2011:
