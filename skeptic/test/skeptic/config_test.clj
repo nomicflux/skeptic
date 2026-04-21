@@ -74,11 +74,11 @@
   (is (= {} (sut/compile-overrides nil)))
   (is (= {} (sut/compile-overrides {}))))
 
-(deftest compile-overrides-produces-typed-entry-with-output-type
-  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:output '(s/eq nil)}})]
+(deftest compile-overrides-produces-bare-type
+  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:schema '(s/eq nil)}})]
     (is (= (ab/schema->type (s/eq nil))
-           (get-in result ['clojure.tools.logging/infof :output-type])))))
+           (get result 'clojure.tools.logging/infof)))))
 
 (deftest compile-overrides-symbol-is-key
-  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:output '(s/eq nil)}})]
+  (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:schema 's/Int}})]
     (is (contains? result 'clojure.tools.logging/infof))))

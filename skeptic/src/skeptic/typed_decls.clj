@@ -1,7 +1,6 @@
 (ns skeptic.typed-decls
   (:require [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]))
 
@@ -69,10 +68,9 @@
         result (update result :errors into errors)
         overrides (or (:skeptic/type-overrides opts) {})]
     (reduce (fn [acc [sym v]]
-              (let [t (if (at/semantic-type-value? v) v (or (:type v) at/Dyn))]
-                (-> acc
-                    (assoc-in [:dict sym] t)
-                    (assoc-in [:provenance sym]
-                              (prov/->Provenance :type-override sym nil nil)))))
+              (-> acc
+                  (assoc-in [:dict sym] v)
+                  (assoc-in [:provenance sym]
+                            (prov/->Provenance :type-override sym nil nil))))
             result
             overrides)))
