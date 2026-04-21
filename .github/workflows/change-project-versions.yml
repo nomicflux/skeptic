@@ -89,12 +89,6 @@ jobs:
       - name: Verify monorepo versions
         run: bash script/verify-monorepo-versions.sh
 
-      - name: Install and regenerate POMs
-        run: |
-          set -euo pipefail
-          cd skeptic && lein install && lein pom
-          cd ../lein-skeptic && lein pom
-
       - name: Commit, tag, and push
         env:
           FROM: ${{ inputs.from_version }}
@@ -103,7 +97,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj skeptic/pom.xml lein-skeptic/pom.xml
+          git add skeptic/project.clj lein-skeptic/project.clj README.md project.clj lein-skeptic/src/leiningen/skeptic.clj
           git commit -m "Bump coordinated version ${FROM} -> ${TO}"
           tag="v${TO}"
           git tag "${tag}"
