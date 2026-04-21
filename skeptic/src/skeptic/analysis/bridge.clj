@@ -14,20 +14,20 @@
              schema))
 
 (defn primitive-ground-type
-  [schema]
+  [prov schema]
   (let [schema (sb/canonical-scalar-schema schema)]
     (cond
-      (= schema s/Int) (at/->GroundT :int 'Int)
-      (= schema s/Str) (at/->GroundT :str 'Str)
-      (= schema s/Keyword) (at/->GroundT :keyword 'Keyword)
-      (= schema s/Symbol) (at/->GroundT :symbol 'Symbol)
-      (= schema s/Bool) (at/->GroundT :bool 'Bool)
+      (= schema s/Int) (at/->GroundT prov :int 'Int)
+      (= schema s/Str) (at/->GroundT prov :str 'Str)
+      (= schema s/Keyword) (at/->GroundT prov :keyword 'Keyword)
+      (= schema s/Symbol) (at/->GroundT prov :symbol 'Symbol)
+      (= schema s/Bool) (at/->GroundT prov :bool 'Bool)
       (and (class? schema)
            (.isAssignableFrom IPersistentCollection ^Class schema))
       nil
       (and (class? schema)
            (not (broad-dynamic-schema? schema)))
-      (at/->GroundT {:class schema} (abc/schema-explain schema))
+      (at/->GroundT prov {:class schema} (abc/schema-explain schema))
       :else nil)))
 
 (defn- invalid-schema-input
@@ -75,10 +75,11 @@
     one))
 
 (defn- refinement-import-type
-  [run ctx schema]
+  [run {:keys [prov] :as ctx} schema]
   (let [base-result (run (assoc ctx :schema (sb/de-constrained schema)))]
     (import-result
-     (at/->RefinementT (:type base-result)
+     (at/->RefinementT prov
+                       (:type base-result)
                        (abc/schema-display-form schema)
                        (fn [value]
                          (= (sb/check-if-schema schema value) sb/plumatic-valid))
@@ -87,9 +88,10 @@
      (:closed-refs base-result))))
 
 (defn- adapter-leaf-import-type
-  [schema]
+  [prov schema]
   (import-result
-   (at/->AdapterLeafT :schema
+   (at/->AdapterLeafT prov
+                      :schema
                       (abc/schema-display-form schema)
                       (fn [value]
                         (= (sb/check-if-schema schema value) sb/plumatic-valid))
@@ -111,7 +113,7 @@
     (import-result type closed-refs)))
 
 (defn- map-import-type
-  [run ctx schema]
+  [run {:keys [prov] :as ctx} schema]
   (let [entry-results (mapv (fn [[k v]]
                               (let [key-result (run (assoc ctx :schema k))
                                     value-result (run (assoc ctx :schema v))]
@@ -119,13 +121,14 @@
                                  :closed-refs (merge-closed-refs [key-result value-result])}))
                             schema)]
     (import-result
-     (at/->MapT (into {}
+     (at/->MapT prov
+                (into {}
                       (map :entry)
                       entry-results))
      (merge-closed-refs entry-results))))
 
 (defn- function-import-type
-  [run ctx schema]
+  [run {:keys [prov] :as ctx} schema]
   (let [{:keys [input-schemas output-schema]} (into {} schema)
         output-result (run (assoc ctx :schema output-schema))
         method-results (mapv (fn [inputs]
@@ -133,7 +136,8 @@
                                                          inputs)
                                      child-results (conj input-results output-result)
                                      names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
-                                 {:type (at/->FnMethodT (mapv :type input-results)
+                                 {:type (at/->FnMethodT prov
+                                                        (mapv :type input-results)
                                                         (:type output-result)
                                                         (count inputs)
                                                         false
@@ -141,7 +145,7 @@
                                   :closed-refs (merge-closed-refs child-results)}))
                              input-schemas)]
     (import-result
-     (at/->FunT (mapv :type method-results))
+     (at/->FunT prov (mapv :type method-results))
      (merge-closed-refs (conj method-results output-result)))))
 
 (defn- branch-import-type
@@ -151,22 +155,22 @@
                    (merge-closed-refs child-results))))
 
 (defn- conditional-import-type
-  [run ctx schema]
+  [run {:keys [prov] :as ctx} schema]
   (let [branch-results (mapv (fn [[pred branch]]
                                (let [branch-result (run (assoc ctx :schema branch))]
                                  {:branch [pred (:type branch-result)]
                                   :closed-refs (:closed-refs branch-result)}))
                              (:preds-and-schemas schema))]
     (import-result
-     (at/->ConditionalT (mapv :branch branch-results))
+     (at/->ConditionalT prov (mapv :branch branch-results))
      (merge-closed-refs branch-results))))
 
 (defn- var-import-type
-  [run {:keys [active-refs] :as ctx} schema-var]
+  [run {:keys [prov active-refs] :as ctx} schema-var]
   (let [var-ref (or (sb/qualified-var-symbol schema-var) schema-var)]
     (cond
       (contains? active-refs var-ref)
-      (import-result (at/->InfCycleT var-ref) #{var-ref})
+      (import-result (at/->InfCycleT prov var-ref) #{var-ref})
 
       (bound? schema-var)
       (run (assoc ctx
@@ -175,10 +179,10 @@
                   :owner-ref var-ref))
 
       :else
-      (import-result (at/->PlaceholderT var-ref)))))
+      (import-result (at/->PlaceholderT prov var-ref)))))
 
 (defn- import-schema-type*
-  [run {:keys [schema] :as ctx}]
+  [run {:keys [schema prov] :as ctx}]
   (let [schema (one-step-schema-node schema)
         scalar-schema (sb/canonical-scalar-schema schema)]
     (cond
@@ -186,20 +190,20 @@
       (var-import-type run ctx schema)
 
       (nil? schema)
-      (import-result (at/->MaybeT at/Dyn))
+      (import-result (at/->MaybeT prov (at/Dyn prov)))
 
       (= schema sb/Bottom)
-      (import-result at/BottomType)
+      (import-result (at/BottomType prov))
 
       (sb/placeholder-schema? schema)
-      (import-result (at/->PlaceholderT (sb/placeholder-ref schema)))
+      (import-result (at/->PlaceholderT prov (sb/placeholder-ref schema)))
 
       (or (= scalar-schema s/Num)
           (and (class? scalar-schema) (= scalar-schema java.lang.Number)))
-      (import-result at/NumericDyn)
+      (import-result (at/NumericDyn prov))
 
       (broad-dynamic-schema? scalar-schema)
-      (import-result at/Dyn)
+      (import-result (at/Dyn prov))
 
       (instance? One schema)
       (run (assoc ctx :schema (:schema (into {} schema))))
@@ -208,7 +212,7 @@
       (import-result (ato/exact-value-type schema))
 
       (s/optional-key? schema)
-      (unary-child-result at/->OptionalKeyT
+      (unary-child-result (partial at/->OptionalKeyT prov)
                           (run (assoc ctx :schema (:k schema))))
 
       (sb/eq? schema)
@@ -217,14 +221,14 @@
       (sb/constrained? schema)
       (refinement-import-type run ctx schema)
 
-      (primitive-ground-type scalar-schema)
-      (import-result (primitive-ground-type scalar-schema))
+      (primitive-ground-type prov scalar-schema)
+      (import-result (primitive-ground-type prov scalar-schema))
 
       (sb/fn-schema? schema)
       (function-import-type run ctx schema)
 
       (sb/maybe? schema)
-      (unary-child-result at/->MaybeT
+      (unary-child-result (partial at/->MaybeT prov)
                           (run (assoc ctx :schema (:schema schema))))
 
       (sb/enum-schema? schema)
@@ -247,11 +251,11 @@
 
       (sb/valued-schema? schema)
       (let [inner-result (run (assoc ctx :schema (:schema schema)))]
-        (import-result (at/->ValueT (:type inner-result) (:value schema))
+        (import-result (at/->ValueT prov (:type inner-result) (:value schema))
                        (:closed-refs inner-result)))
 
       (sb/variable? schema)
-      (unary-child-result at/->VarT
+      (unary-child-result (partial at/->VarT prov)
                           (run (assoc ctx :schema (:schema schema))))
 
       (sb/plain-map-schema? schema)
@@ -261,28 +265,28 @@
       (collection-import-type run
                               ctx
                               schema
-                              #(at/->VectorT % (= 1 (count %)))
+                              #(at/->VectorT prov % (= 1 (count %)))
                               (fn [joined]
-                                (at/->VectorT [joined] true)))
+                                (at/->VectorT prov [joined] true)))
 
       (set? schema)
       (collection-import-type run
                               ctx
                               (vec schema)
-                              #(at/->SetT (into #{} %) (= 1 (count %)))
+                              #(at/->SetT prov (into #{} %) (= 1 (count %)))
                               (fn [joined]
-                                (at/->SetT #{joined} true)))
+                                (at/->SetT prov #{joined} true)))
 
       (seq? schema)
       (collection-import-type run
                               ctx
                               (vec schema)
-                              #(at/->SeqT % (= 1 (count %)))
+                              #(at/->SeqT prov % (= 1 (count %)))
                               (fn [joined]
-                                (at/->SeqT [joined] true)))
+                                (at/->SeqT prov [joined] true)))
 
       :else
-      (adapter-leaf-import-type schema))))
+      (adapter-leaf-import-type prov schema))))
 
 (defn- admit-schema*
   [run {:keys [schema active-refs]}]
@@ -337,7 +341,7 @@
               :active-refs active-refs})
         schema)
 
-      (primitive-ground-type scalar-schema)
+      (primitive-ground-type nil scalar-schema)
       schema
 
       (sb/fn-schema? schema)
@@ -457,14 +461,15 @@
 
 (defn import-schema-type
   "Input must be in the schema domain."
-  [schema]
+  [schema prov]
   (letfn [(run [ctx]
             (import-schema-type* run ctx))]
     (:type (run {:schema schema
                  :active-refs #{}
-                 :owner-ref nil}))))
+                 :owner-ref nil
+                 :prov prov}))))
 
 (defn schema->type
   "Input must be schema-domain (e.g. from admitted declarations)."
-  [schema]
-  (import-schema-type (admit-schema schema)))
+  [schema prov]
+  (import-schema-type (admit-schema schema) prov))

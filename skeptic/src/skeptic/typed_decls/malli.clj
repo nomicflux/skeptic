@@ -5,8 +5,8 @@
             [skeptic.schema.collect :as scollect]))
 
 (defn desc->type
-  [{:keys [malli-spec]}]
-  (amb/malli-spec->type malli-spec))
+  [prov {:keys [malli-spec]}]
+  (amb/malli-spec->type malli-spec prov))
 
 (defn- desc->provenance
   [_desc ns qualified-sym]
@@ -16,10 +16,11 @@
 
 (defn- convert-desc
   [ns qualified-sym desc]
-  {:dict {qualified-sym (desc->type desc)}
-   :provenance {qualified-sym (desc->provenance desc ns qualified-sym)}
-   :ignore-body #{}
-   :errors []})
+  (let [prov (desc->provenance desc ns qualified-sym)]
+    {:dict {qualified-sym (desc->type prov desc)}
+     :provenance {qualified-sym prov}
+     :ignore-body #{}
+     :errors []}))
 
 (defn- safe-convert
   [ns qualified-sym desc]

@@ -2,7 +2,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [schema.core]
-            [skeptic.analysis.bridge :as ab])
+            [skeptic.analysis.bridge :as ab]
+            [skeptic.provenance :as prov])
   (:import [java.io File]
            [java.nio.file FileSystems Paths]))
 
@@ -38,7 +39,8 @@
 
 (defn- override->entry
   [[sym {:keys [schema]}]]
-  [sym (ab/schema->type (eval-schema-form schema))])
+  [sym (ab/schema->type (eval-schema-form schema)
+                        (prov/make-provenance :type-override sym nil nil))])
 
 (defn compile-overrides
   [raw-overrides]

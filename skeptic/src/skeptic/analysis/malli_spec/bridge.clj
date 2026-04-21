@@ -26,14 +26,14 @@
 
 (defn- malli-leaf->type
   "Convert a Malli leaf value to a semantic type."
-  [leaf]
+  [prov leaf]
   (cond
-    (= leaf :int) (at/->GroundT :int 'Int)
-    (= leaf :string) (at/->GroundT :str 'Str)
-    (= leaf :keyword) (at/->GroundT :keyword 'Keyword)
-    (= leaf :boolean) (at/->GroundT :bool 'Bool)
-    (= leaf :any) at/Dyn
-    :else at/Dyn))
+    (= leaf :int) (at/->GroundT prov :int 'Int)
+    (= leaf :string) (at/->GroundT prov :str 'Str)
+    (= leaf :keyword) (at/->GroundT prov :keyword 'Keyword)
+    (= leaf :boolean) (at/->GroundT prov :bool 'Bool)
+    (= leaf :any) (at/Dyn prov)
+    :else (at/Dyn prov)))
 
 (defn- function-shape?
   "Check if canonical form is [:=> [:cat & inputs] output]."
@@ -53,22 +53,24 @@
   (and (vector? form) (= :or (first form))))
 
 (defn- form->type
-  [form]
+  [prov form]
   (cond
     (function-shape? form)
     (let [inputs (rest (second form))
           output (nth form 2)
           names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
-      (at/->FunT [(at/->FnMethodT (mapv form->type inputs)
-                                  (form->type output)
+      (at/->FunT prov
+                 [(at/->FnMethodT prov
+                                  (mapv #(form->type prov %) inputs)
+                                  (form->type prov output)
                                   (count inputs)
                                   false
                                   names)]))
-    (maybe-shape? form) (at/->MaybeT (form->type (second form)))
-    (or-shape? form) (ato/union-type (mapv form->type (rest form)))
-    :else (malli-leaf->type form)))
+    (maybe-shape? form) (at/->MaybeT prov (form->type prov (second form)))
+    (or-shape? form) (ato/union-type (mapv #(form->type prov %) (rest form)))
+    :else (malli-leaf->type prov form)))
 
 (defn malli-spec->type
   "Convert a Malli spec to a semantic type."
-  [value]
-  (form->type (admit-malli-spec value)))
+  [value prov]
+  (form->type prov (admit-malli-spec value)))
