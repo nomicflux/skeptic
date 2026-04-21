@@ -7,7 +7,8 @@
   #{"skeptic/typed_decls.clj"
     "skeptic/typed_decls/malli.clj"
     "skeptic/analysis/native_fns.clj"
-    "skeptic/checking/pipeline.clj"})
+    "skeptic/output/text.clj"
+    "skeptic/output/porcelain.clj"})
 
 (defn- clj-file?
   [^java.io.File f]

@@ -3,7 +3,8 @@
             [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
-            [skeptic.inconsistence.report :as inrep]))
+            [skeptic.inconsistence.report :as inrep]
+            [skeptic.provenance :as prov]))
 
 (deftest output-mismatch-renders-canonical-map-types
   (let [results (vec (sut/check-ns 'skeptic.static-call-examples
@@ -55,22 +56,12 @@
             {:kind :map-key :key :name}]
            (-> result :cast-diagnostics first :path)))))
 
-(deftest check-results-carry-source-provenance
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
-        output-result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
-                                      (:enclosing-form %))
-                               %)
-                            results)
-        input-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
-                                      (:enclosing-form %))
-                               %)
-                           results)]
-    (is (some? output-result))
-    (is (= :schema (:source output-result)))
-    (is (some? input-result))
-    (is (nil? (:source input-result)))))
+(deftest namespace-dict-surfaces-schema-source-for-schema-declared-syms
+  (let [{:keys [provenance]} (sut/check-namespace {:remove-context true}
+                                                  'skeptic.static-call-examples
+                                                  ps/static-call-examples-file)]
+    (is (= :schema (prov/source (get provenance 'skeptic.static-call-examples/bad-rebuilt-user))))
+    (is (= :inferred (prov/source (get provenance 'skeptic.static-call-examples/nested-multi-step-failure))))))
 
 (deftest check-results-carry-cast-metadata
   (let [results (vec (sut/check-ns 'skeptic.static-call-examples

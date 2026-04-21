@@ -140,9 +140,9 @@
     (is (= 1 (count results)))))
 
 (deftest check-namespace-full-flow-localizes-declaration-errors
-  (let [results (sut/check-namespace {:remove-context true}
-                                     'skeptic.best-effort-examples
-                                     ps/best-effort-file)
+  (let [{:keys [results]} (sut/check-namespace {:remove-context true}
+                                               'skeptic.best-effort-examples
+                                               ps/best-effort-file)
         declaration-errors (filterv #(= :declaration (:phase %)) results)
         expression-results (filterv #(not= :declaration (:phase %)) results)]
     (is (= 1 (count declaration-errors)))
@@ -152,9 +152,9 @@
     (is (zero? (count expression-results)))))
 
 (deftest check-namespace-localizes-load-failure
-  (let [results (sut/check-namespace {}
-                                     'skeptic.nonexistent.namespace.that.does.not.exist
-                                     (java.io.File. "nonexistent.clj"))]
+  (let [{:keys [results]} (sut/check-namespace {}
+                                               'skeptic.nonexistent.namespace.that.does.not.exist
+                                               (java.io.File. "nonexistent.clj"))]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
     (is (= :load (:phase (first results))))
@@ -190,19 +190,18 @@
         exprs (vec (sut/ns-exprs file))
         exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
     (is (some? exploding-form))
-    (with-redefs [sut/check-resolved-form (fn [dict ignore-body ns-sym source-file source-form analyzed provenance opts]
+    (with-redefs [sut/check-resolved-form (fn [dict ignore-body ns-sym source-file source-form analyzed opts]
                                             (if (= exploding-form source-form)
                                               (map (fn [_]
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
-                                              (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed provenance opts)))]
-      (let [{:keys [dict ignore-body provenance]} (sut/namespace-dict {} 'skeptic.test-examples.basics)
+                                              (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
+      (let [{:keys [dict ignore-body]} (sut/namespace-dict {} 'skeptic.test-examples.basics)
             form-results (sut/check-ns-form dict
                                             ignore-body
                                             'skeptic.test-examples.basics
                                             file
                                             exploding-form
-                                            provenance
                                             {:remove-context true})
             exception-result (first form-results)
             results (ps/check-fixture-ns 'skeptic.test-examples.basics

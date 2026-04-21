@@ -93,9 +93,9 @@
 
 (defn check-fixture-namespace
   [ns-sym opts]
-  (sut/check-namespace opts
-                       ns-sym
-                       (fixture-file-for-ns ns-sym)))
+  (:results (sut/check-namespace opts
+                                 ns-sym
+                                 (fixture-file-for-ns ns-sym))))
 
 (defn run-with-timeout
   [timeout-ms f]

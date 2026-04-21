@@ -288,15 +288,15 @@
   (let [real-check-resolved-form checking/check-resolved-form
         source-file (java.io.File. "test/skeptic/check_project_best_effort_examples.clj")]
     (with-redefs [checking/check-resolved-form
-                  (fn [dict ignore-body ns-sym source-file source-form analyzed provenance opts]
+                  (fn [dict ignore-body ns-sym source-file source-form analyzed opts]
                     (if (= 'exploding-form (second source-form))
                       (map (fn [_]
                              (throw (ex-info "boom during realization" {})))
                            [::explode])
-                      (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed provenance opts)))]
-      (let [results (checking/check-namespace {:remove-context true}
-                                              'skeptic.check-project-best-effort-examples
-                                              source-file)
+                      (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
+      (let [{:keys [results]} (checking/check-namespace {:remove-context true}
+                                                        'skeptic.check-project-best-effort-examples
+                                                        source-file)
             exception-result (some #(when (= :expression (:phase %)) %) results)
             mismatch-result (some #(when (= 'skeptic.check-project-best-effort-examples/later-mismatch
                                             (:enclosing-form %))
@@ -326,7 +326,7 @@
                   checking/check-namespace
                   (fn [_opts ns _source-file]
                     (swap! checked conj ns)
-                    [])]
+                    {:results [] :provenance {}})]
       (is (= 0 (sut/check-project {:namespace "example.ns"} "." ".")))
       (is (= ['example.ns] @checked)))))
 
@@ -340,7 +340,7 @@
                   checking/check-namespace
                   (fn [& _]
                     (reset! checked? true)
-                    [])]
+                    {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Couldn't get namespaces"
                             (sut/check-project {:namespace "example.ns"} "." ".")))
@@ -360,7 +360,7 @@
                   checking/check-namespace
                   (fn [& _]
                     (reset! checked? true)
-                    [])]
+                    {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Couldn't get namespaces"
                             (sut/check-project {} "." ".")))
@@ -377,7 +377,7 @@
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file
                   (fn [file] ['example.ns file])
-                  checking/check-namespace (fn [& _] [])]
+                  checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
                   (is (= 0 (sut/check-project {:porcelain true} "." "."))))
             lines (parse-jsonl out)]
@@ -402,7 +402,7 @@
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file
                   (fn [file] ['example.ns file])
-                  checking/check-namespace (fn [& _] [fake-result])
+                  checking/check-namespace (fn [& _] {:results [fake-result] :provenance {}})
                   inrep/report-summary (fn [r] r)]
       (let [out (with-out-str
                   (is (= 1 (sut/check-project {:porcelain true} "." "."))))
@@ -429,7 +429,7 @@
                                  :exception (ex-info "unreadable" {})}]})
                   file/ns-for-clojure-file
                   (fn [file] ['example.ns file])
-                  checking/check-namespace (fn [& _] [])]
+                  checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
                   (sut/check-project {:porcelain true :namespace "example.ns"}
                                      "." "."))
@@ -459,7 +459,7 @@
                     checking/check-namespace
                     (fn [_opts ns _f]
                       (swap! checked conj ns)
-                      [])]
+                      {:results [] :provenance {}})]
         (sut/check-project {} (.getCanonicalPath tmp) "."))
       (is (= 1 (count @checked)))
       (is (= 'ns.kept.clj (first @checked)))

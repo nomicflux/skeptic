@@ -2,7 +2,8 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.output.serialize :as ser]))
+            [skeptic.output.serialize :as ser]
+            [skeptic.provenance :as prov]))
 
 (def ^:private ansi-pattern #"\u001b\[[0-9;]*m")
 
@@ -48,11 +49,12 @@
     opts result))
 
 (defn- finding-record
-  [ns result summary opts]
+  [ns provenance result summary opts]
   (let [{:keys [report-kind location blame-side blame-polarity rule
-                actual-type expected-type source
+                actual-type expected-type
                 source-expression blame focuses focus-sources enclosing-form
-                expanded-expression errors]} summary]
+                expanded-expression errors]} summary
+        source (prov/source (get provenance enclosing-form))]
     (with-debug
       {:kind "finding"
        :ns (str ns)
@@ -92,10 +94,10 @@
                                    :path path
                                    :message message}))
    :ns-start (fn [_ns _source-file _opts])
-   :finding (fn [ns result summary opts]
+   :finding (fn [ns provenance result summary opts]
               (let [record (if (= :exception (:report-kind summary))
                              (exception-record ns result summary opts)
-                             (finding-record ns result summary opts))]
+                             (finding-record ns provenance result summary opts))]
                 (write-line-raw! (if (:debug opts) record (drop-empties record)))))
    :form-debug (fn [_ns record _opts]
                  (write-line-raw! (ser/json-safe record)))
