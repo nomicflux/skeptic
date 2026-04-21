@@ -10,14 +10,9 @@
   [x]
   (instance? Provenance x))
 
-(def unknown
-  (make-provenance :unknown nil nil nil))
-
 (defn source
   [p]
-  (if (provenance? p)
-    (:source p)
-    :unknown))
+  (:source p))
 
 (def ^:private provenance-meta-key
   :skeptic.provenance/provenance)
@@ -35,8 +30,7 @@
    :malli-spec 1
    :schema 2
    :native 3
-   :inferred 5
-   :unknown 6})
+   :inferred 4})
 
 (defn- source-rank
   [p]
