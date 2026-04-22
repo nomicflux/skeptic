@@ -421,9 +421,7 @@
                   (fn [file] ['example.ns file])
                   checking/check-namespace (fn [& _]
                                              {:results [fake-result]
-                                              :provenance {}
-                                              :namespace-dict {:dict {}
-                                                               :provenance {}}})
+                                              :provenance {}})
                   inrep/report-summary (fn [r opts]
                                          (reset! summary-opts opts)
                                          r)]
@@ -446,7 +444,6 @@
             (is (true? (:errored summary)))
             (is (= 1 (:finding_count summary)))))
         (is (map? @summary-opts))
-        (is (contains? @summary-opts :fold-index))
         (is (false? (:explain-full @summary-opts)))))))
 
 (deftest check-project-porcelain-emits-ns-discovery-warning

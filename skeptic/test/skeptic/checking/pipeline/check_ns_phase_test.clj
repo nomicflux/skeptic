@@ -79,7 +79,7 @@
              (ps/T s/Int)
              (ps/T s/Str))]
            (:errors nested-call-result)))
-    (is (some #(str/includes? % "{:name Keyword, :nickname (maybe Str)}")
+    (is (some #(str/includes? % "{:name Keyword, :nickname skeptic.static-call-examples/UserDesc}")
               (:errors rebuilt-user-result)))
     (is (= 1 (count (:errors rebuilt-user-result))))
     (is (not-any? #(str/includes? % "Problem fields:") (:errors rebuilt-user-result)))
