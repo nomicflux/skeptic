@@ -39,8 +39,8 @@
 
 (defn- override->entry
   [[sym {:keys [schema]}]]
-  [sym (ab/schema->type (eval-schema-form schema)
-                        (prov/make-provenance :type-override sym nil nil))])
+  [sym (ab/schema->type (prov/make-provenance :type-override sym nil nil)
+                        (eval-schema-form schema))])
 
 (defn compile-overrides
   [raw-overrides]

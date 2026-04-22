@@ -40,7 +40,7 @@
 
 (defn classify-leaf-for-predicate?
   [pred-info t]
-  (let [t (ato/normalize-type t)
+  (let [t (ato/normalize t)
         pred (:pred pred-info)]
     (cond
       (at/bottom-type? t) :matches
@@ -127,62 +127,66 @@
       :else :unknown)))
 
 (defn- classify-nil-for-predicate?
-  [pred-info]
-  (classify-leaf-for-predicate? pred-info (ato/exact-value-type nil)))
+  [prov pred-info]
+  (classify-leaf-for-predicate? pred-info (ato/exact-value-type prov nil)))
 
 (defn- combine-parts
-  [parts]
+  [prov parts]
   (let [parts (vec (remove at/bottom-type? parts))]
     (cond
-      (empty? parts) at/BottomType
-      :else (ato/union-type parts))))
+      (empty? parts) (at/BottomType prov)
+      :else (ato/union-type prov parts))))
 
 (defn- partition-leaf
   [t pred-info polarity]
   (let [c (classify-leaf-for-predicate? pred-info t)]
     (cond
       (= :unknown c) t
-      polarity (case c :matches t :does-not-match at/BottomType :unknown t)
-      :else (case c :matches at/BottomType :does-not-match t :unknown t))))
+      polarity (case c :matches t :does-not-match (ato/bottom t) :unknown t)
+      :else (case c :matches (ato/bottom t) :does-not-match t :unknown t))))
 
 (defn- partition-maybe
   [inner pred-info polarity]
-  (let [nil-c (classify-nil-for-predicate? pred-info)
+  (let [prov (ato/derive-prov inner)
+        nil-c (classify-nil-for-predicate? prov pred-info)
         inner-pos (partition-type-for-predicate* inner pred-info true)
         inner-neg (partition-type-for-predicate* inner pred-info false)]
     (if (= :unknown nil-c)
-      (at/->MaybeT (partition-type-for-predicate* inner pred-info polarity))
+      (at/->MaybeT prov (partition-type-for-predicate* inner pred-info polarity))
       (if polarity
-        (combine-parts (cond-> []
-                        (= :matches nil-c) (conj (ato/exact-value-type nil))
-                        (not (at/bottom-type? inner-pos)) (conj inner-pos)))
+        (combine-parts prov
+                       (cond-> []
+                         (= :matches nil-c) (conj (ato/exact-value-type prov nil))
+                         (not (at/bottom-type? inner-pos)) (conj inner-pos)))
         (if (= :matches nil-c)
           inner-neg
-          (combine-parts (cond-> []
-                          (= :does-not-match nil-c) (conj (ato/exact-value-type nil))
-                          (not (at/bottom-type? inner-neg)) (conj inner-neg))))))))
+          (combine-parts prov
+                         (cond-> []
+                           (= :does-not-match nil-c) (conj (ato/exact-value-type prov nil))
+                           (not (at/bottom-type? inner-neg)) (conj inner-neg))))))))
 
 (defn- partition-type-for-predicate*
   [type pred-info polarity]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)]
     (cond
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
       (at/inf-cycle-type? type) type
 
       (at/union-type? type)
-      (combine-parts (map #(partition-type-for-predicate* % pred-info polarity) (:members type)))
+      (combine-parts (ato/derive-prov type)
+                     (map #(partition-type-for-predicate* % pred-info polarity) (:members type)))
 
       (at/maybe-type? type)
       (partition-maybe (:inner type) pred-info polarity)
 
-      (ato/unknown-type? type) type
+      (ato/unknown? type) type
 
       :else (partition-leaf type pred-info polarity))))
 
 (defn partition-type-for-predicate
   [type pred-info polarity]
-  (partition-type-for-predicate* (ato/normalize-type type) pred-info polarity))
+  (partition-type-for-predicate* (ato/normalize type) pred-info polarity))
 
 (defn- false-bool-value-type?
   [t]
@@ -191,7 +195,7 @@
 
 (defn- can-be-falsy-type?
   [t]
-  (let [t (ato/normalize-type t)]
+  (let [t (ato/normalize t)]
     (cond
       (at/dyn-type? t) true
       (at/maybe-type? t) true
@@ -209,19 +213,19 @@
   [type polarity]
   (if-not polarity
     type
-    (let [t (ato/de-maybe-type (ato/normalize-type type))]
+    (let [t (ato/de-maybe (ato/normalize type))]
       (cond
         (at/union-type? t)
         (let [members (vec (remove false-bool-value-type? (:members t)))]
           (if (empty? members)
-            at/BottomType
-            (ato/union-type members)))
+            (ato/bottom t)
+            (ato/union members)))
 
         (false-bool-value-type? t)
-        at/BottomType
+        (ato/bottom t)
 
         (and (at/value-type? t) (nil? (:value t)))
-        at/BottomType
+        (ato/bottom t)
 
         :else t))))
 
@@ -237,27 +241,29 @@
     (let [v (:value t)
           in? (value-in-set? v values)]
       (if polarity
-        (if in? t at/BottomType)
-        (if in? at/BottomType t)))
+        (if in? t (ato/bottom t))
+        (if in? (ato/bottom t) t)))
 
     (at/union-type? t)
-    (combine-parts (map #(partition-values-leaf % values polarity) (:members t)))
+    (combine-parts (ato/derive-prov t)
+                   (map #(partition-values-leaf % values polarity) (:members t)))
 
     :else
-    (if polarity at/BottomType t)))
+    (if polarity (ato/bottom t) t)))
 
 (defn partition-type-for-values
   [type values polarity]
-  (let [type (ato/normalize-type type)
+  (let [type (ato/normalize type)
         values (vec (distinct values))]
     (cond
       (empty? values) type
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
       (at/inf-cycle-type? type) type
-      (ato/unknown-type? type) type
+      (ato/unknown? type) type
       (at/union-type? type)
-      (combine-parts (map #(partition-type-for-values % values polarity) (:members type)))
+      (combine-parts (ato/derive-prov type)
+                     (map #(partition-type-for-values % values polarity) (:members type)))
       (at/maybe-type? type)
-      (at/->MaybeT (partition-type-for-values (:inner type) values polarity))
+      (at/->MaybeT (ato/derive-prov type) (partition-type-for-values (:inner type) values polarity))
       :else (partition-values-leaf type values polarity))))

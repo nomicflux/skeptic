@@ -4,18 +4,21 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
             [skeptic.analysis.cast.support :as ascs]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (deftest quantified-generalize-instantiate-and-seals-test
-  (let [x (at/->TypeVarT 'X)
-        y (at/->TypeVarT 'Y)
-        generalized (sut/check-cast (T s/Any) (at/->ForallT 'X x))
-        capture (sut/check-cast x (at/->ForallT 'X x))
-        instantiated (sut/check-cast (at/->ForallT 'X x) (T s/Any))
+  (let [x (at/->TypeVarT tp 'X)
+        y (at/->TypeVarT tp 'Y)
+        generalized (sut/check-cast (T s/Any) (at/->ForallT tp 'X x))
+        capture (sut/check-cast x (at/->ForallT tp 'X x))
+        instantiated (sut/check-cast (at/->ForallT tp 'X x) (T s/Any))
         sealed (sut/check-cast x (T s/Any))
         sealed-type (:sealed-type sealed)
         collapsed (sut/check-cast sealed-type x)
@@ -31,9 +34,9 @@
     (is (= :sealed-ground-mismatch (:reason mismatch)))))
 
 (deftest abstract-type-mismatch-rules-test
-  (let [x (at/->TypeVarT 'X)
+  (let [x (at/->TypeVarT tp 'X)
         dyn-mismatch (sut/check-cast (T s/Any) x)
-        placeholder-mismatch (sut/check-cast (at/->PlaceholderT ::hole) x)
+        placeholder-mismatch (sut/check-cast (at/->PlaceholderT tp ::hole) x)
         concrete-mismatch (sut/check-cast (T s/Int) x)
         source-mismatch (sut/check-cast x (T s/Int))]
     (is (= :abstract-target-mismatch (:reason dyn-mismatch)))
@@ -42,13 +45,13 @@
     (is (= :abstract-source-mismatch (:reason source-mismatch)))))
 
 (deftest tamper-and-scope-exit-rules-test
-  (let [x (at/->TypeVarT 'X)
+  (let [x (at/->TypeVarT tp 'X)
         sealed-type (:sealed-type (sut/check-cast x (T s/Any)))
         inspect-result (ascs/check-type-test sealed-type (T s/Int))
         escape-result (ascs/exit-nu-scope sealed-type 'X)
         safe-exit (ascs/exit-nu-scope sealed-type 'Y)
-        leaky-target (at/->ForallT 'X
-                                   (at/->FunT [(at/->FnMethodT [x]
+        leaky-target (at/->ForallT tp 'X
+                                   (at/->FunT tp [(at/->FnMethodT tp [x]
                                                                (T s/Any)
                                                                1
                                                                false

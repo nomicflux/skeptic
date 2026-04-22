@@ -4,11 +4,14 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
             [skeptic.analysis.value-check :as avc]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (deftest vector-and-cross-collection-rules-test
   (let [tuple-any (T [s/Any s/Any s/Any])
@@ -29,13 +32,13 @@
     (is (= :vector-to-seq (:rule (sut/check-cast homogeneous-int seq-int))))))
 
 (deftest set-and-leaf-rules-test
-  (let [source-set (at/->SetT #{(T s/Int) (T s/Str)} false)
-        target-set (at/->SetT #{(T s/Any) (T s/Str)} false)
-        bad-set (at/->SetT #{(T s/Int)} false)
-        int-g (at/->GroundT :int 'Int)
-        numeric-dyn at/NumericDyn
-        double-g (at/->GroundT {:class java.lang.Double} 'Double)
-        maybe-obj (at/->MaybeT (at/->GroundT {:class java.lang.Object} 'Object))]
+  (let [source-set (at/->SetT tp #{(T s/Int) (T s/Str)} false)
+        target-set (at/->SetT tp #{(T s/Any) (T s/Str)} false)
+        bad-set (at/->SetT tp #{(T s/Int)} false)
+        int-g (at/->GroundT tp :int 'Int)
+        numeric-dyn (at/NumericDyn tp)
+        double-g (at/->GroundT tp {:class java.lang.Double} 'Double)
+        maybe-obj (at/->MaybeT tp (at/->GroundT tp {:class java.lang.Object} 'Object))]
     (is (= :set (:rule (sut/check-cast source-set target-set))))
     (is (= :set-cardinality-mismatch
            (:reason (sut/check-cast source-set bad-set))))

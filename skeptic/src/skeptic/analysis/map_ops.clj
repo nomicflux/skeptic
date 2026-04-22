@@ -22,7 +22,7 @@
 
 (defn- as-type
   [value]
-  (ato/normalize-type value))
+  (ato/normalize value))
 
 (defn finite-exact-key-values
   [type]
@@ -47,11 +47,12 @@
   (at/tagged-map? query map-key-query-tag true))
 
 (defn exact-key-query
-  ([_type value]
-   (exact-key-query nil value nil))
-  ([_type value source-form]
+  ([prov value]
+   (exact-key-query prov value nil))
+  ([prov value source-form]
    {map-key-query-tag true
     :kind :exact
+    :prov prov
     :value value
     :source-form source-form}))
 
@@ -61,7 +62,7 @@
   ([type source-form]
    {map-key-query-tag true
     :kind :domain
-    :type (ato/normalize-type type)
+    :type (ato/normalize type)
     :source-form source-form}))
 
 (defn exact-key-query?
@@ -72,7 +73,7 @@
 (defn query-key-type
   [query]
   (if (exact-key-query? query)
-    (ato/exact-value-type (:value query))
+    (ato/exact-value-type (:prov query) (:value query))
     (:type query)))
 
 (defn exact-entry-kind
@@ -107,14 +108,15 @@
   (reduce (fn [descriptor [entry-key entry-value]]
             (let [key-type (as-type entry-key)]
               (if-let [exact-values (finite-exact-key-values key-type)]
-                (reduce (fn [desc exact-value]
-                          (add-descriptor-entry
-                           desc
-                           (descriptor-entry (ato/exact-value-type exact-value)
-                                             entry-value
-                                             (exact-entry-kind key-type))))
-                        descriptor
-                        exact-values)
+                (let [key-prov (ato/derive-prov key-type)]
+                  (reduce (fn [desc exact-value]
+                            (add-descriptor-entry
+                             desc
+                             (descriptor-entry (ato/exact-value-type key-prov exact-value)
+                                               entry-value
+                                               (exact-entry-kind key-type))))
+                          descriptor
+                          exact-values))
                 (add-descriptor-entry
                  descriptor
                  (descriptor-entry entry-key
@@ -231,7 +233,7 @@
 (defn candidate-value-type
   [candidates]
   (when (seq candidates)
-    (ato/union-type (map :value candidates))))
+    (ato/union (map :value candidates))))
 
 (defn map-get-type
   ([m key]
@@ -244,12 +246,12 @@
                         (as-type default))]
      (cond
        (at/maybe-type? m)
-       (ato/union-type
+       (ato/union
         [(map-get-type (:inner m) key-query default)
-         (or default-type (at/->MaybeT at/Dyn))])
+         (or default-type (at/->MaybeT (ato/derive-prov m) (ato/dyn m)))])
 
        (at/union-type? m)
-       (ato/union-type (map #(map-get-type % key-query default) (:members m)))
+       (ato/union (map #(map-get-type % key-query default) (:members m)))
 
        (at/map-type? m)
        (if-let [candidates (seq (map-lookup-candidates (:entries m) key-query))]
@@ -260,23 +262,23 @@
                                    (not default-provided?))
                             (if (at/maybe-type? base-value)
                               base-value
-                              (at/->MaybeT base-value))
+                              (at/->MaybeT (ato/derive-prov base-value) base-value))
                             base-value)]
            (if default-provided?
-             (ato/union-type [base-value default-type])
+             (ato/union [base-value default-type])
              base-value))
          (if default-provided?
            default-type
-           at/Dyn))
+           (ato/dyn m)))
 
        :else
        (if default-provided?
-         (ato/union-type [at/Dyn default-type])
-         at/Dyn)))))
+         (ato/union [(ato/dyn m) default-type])
+         (ato/dyn m))))))
 
 (defn merge-map-types
   [types]
   (let [types (mapv as-type types)]
     (if (every? at/map-type? types)
-      (at/->MapT (apply merge (map :entries types)))
-      at/Dyn)))
+      (at/->MapT (apply ato/derive-prov types) (apply merge (map :entries types)))
+      (apply ato/dyn types))))

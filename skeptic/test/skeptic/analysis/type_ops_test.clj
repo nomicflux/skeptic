@@ -2,48 +2,51 @@
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.provenance :as prov]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+
 (deftest tagged-polymorphic-type-helpers-test
-  (let [type-var (at/->TypeVarT 'X)
-        forall (at/->ForallT 'X (at/->FunT [(at/->FnMethodT [type-var]
+  (let [type-var (at/->TypeVarT tp 'X)
+        forall (at/->ForallT tp 'X (at/->FunT tp [(at/->FnMethodT tp [type-var]
                                                            type-var
                                                            1
                                                            false
                                                            '[x])]))
-        sealed (at/->SealedDynT type-var)]
+        sealed (at/->SealedDynT tp type-var)]
     (is (at/type-var-type? type-var))
     (is (at/forall-type? forall))
     (is (at/sealed-dyn-type? sealed))
     (is (= #{'Y}
-           (ata/type-free-vars (at/->ForallT 'X
-                                             (at/->FunT [(at/->FnMethodT [type-var]
-                                                                        (at/->TypeVarT 'Y)
+           (ata/type-free-vars (at/->ForallT tp 'X
+                                             (at/->FunT tp [(at/->FnMethodT tp [type-var]
+                                                                        (at/->TypeVarT tp 'Y)
                                                                         1
                                                                         false
                                                                         '[x])])))))
-    (is (= (at/->ForallT 'X (at/->TypeVarT 'X))
-           (ata/type-substitute (at/->ForallT 'X (at/->TypeVarT 'X))
+    (is (= (at/->ForallT tp 'X (at/->TypeVarT tp 'X))
+           (ata/type-substitute (at/->ForallT tp 'X (at/->TypeVarT tp 'X))
                                 'X
-                                (ab/schema->type s/Any))))))
+                                (ab/schema->type tp s/Any))))))
 
 (deftest semantic-function-type-rendering-test
-  (let [fun-type (at/->FunT [(at/->FnMethodT [(ab/schema->type s/Int)]
-                                             (ato/intersection-type [(ab/schema->type s/Any)
-                                                                     (ab/schema->type s/Int)])
+  (let [fun-type (at/->FunT tp [(at/->FnMethodT tp [(ab/schema->type tp s/Int)]
+                                             (ato/intersection-type tp [(ab/schema->type tp s/Any)
+                                                                     (ab/schema->type tp s/Int)])
                                              1
                                              false
                                              '[x])])
-        polymorphic-fun (at/->FunT [(at/->FnMethodT [(at/->TypeVarT 'X)]
-                                                    (at/->SealedDynT (at/->TypeVarT 'X))
+        polymorphic-fun (at/->FunT tp [(at/->FnMethodT tp [(at/->TypeVarT tp 'X)]
+                                                    (at/->SealedDynT tp (at/->TypeVarT tp 'X))
                                                     1
                                                     false
                                                     '[x])])
-        inf-cycle (at/->InfCycleT 'example/self)]
-    (is (= fun-type (ato/normalize-type fun-type)))
+        inf-cycle (at/->InfCycleT tp 'example/self)]
+    (is (= fun-type (ato/normalize-type tp fun-type)))
     (is (= "(=> (intersection Any Int) Int)"
            (abr/render-type fun-type)))
     (is (= "(=> (sealed X) X)"
@@ -52,30 +55,30 @@
            (abr/render-type inf-cycle)))))
 
 (deftest type-ops-normalization-and-unknown-test
-  (is (= (at/->ValueT (at/->GroundT :keyword 'Keyword) :k)
-         (ato/exact-value-type :k)))
-  (is (= (at/->ValueT (at/->GroundT {:class java.lang.Double} 'Double) 3.5)
-         (ato/exact-value-type 3.5)))
-  (is (= (at/->MaybeT at/Dyn)
-         (ato/normalize-type nil)))
-  (is (= (at/->GroundT :int 'Int)
-         (ato/de-maybe-type (at/->MaybeT (at/->GroundT :int 'Int)))))
-  (is (ato/unknown-type? at/Dyn))
-  (is (ato/unknown-type? (at/->PlaceholderT 'example/x)))
-  (is (ato/unknown-type? (at/->InfCycleT 'example/self)))
-  (is (not (ato/unknown-type? (ab/schema->type s/Int)))))
+  (is (= (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :k)
+         (ato/exact-value-type tp :k)))
+  (is (= (at/->ValueT tp (at/->GroundT tp {:class java.lang.Double} 'Double) 3.5)
+         (ato/exact-value-type tp 3.5)))
+  (is (= (at/->MaybeT tp (at/Dyn tp))
+         (ato/normalize-type tp nil)))
+  (is (= (at/->GroundT tp :int 'Int)
+         (ato/de-maybe-type tp (at/->MaybeT tp (at/->GroundT tp :int 'Int)))))
+  (is (ato/unknown-type? tp (at/Dyn tp)))
+  (is (ato/unknown-type? tp (at/->PlaceholderT tp 'example/x)))
+  (is (ato/unknown-type? tp (at/->InfCycleT tp 'example/self)))
+  (is (not (ato/unknown-type? tp (ab/schema->type tp s/Int)))))
 
 (deftest semantic-type-tag-validation-test
   (is (not (at/semantic-type-value? {at/semantic-type-tag-key :not-a-real-semantic-type})))
   (is (= at/ground-type-tag
-         (at/semantic-type-tag (at/->GroundT :int 'Int))))
+         (at/semantic-type-tag (at/->GroundT tp :int 'Int))))
   (is (at/known-semantic-type-tag? at/ground-type-tag)))
 
 (deftest strict-normalize-type-contract-test
-  (let [semantic-map (at/->MapT {(at/->GroundT :keyword 'Keyword)
-                                 (at/->GroundT :int 'Int)})]
+  (let [semantic-map (at/->MapT tp {(at/->GroundT tp :keyword 'Keyword)
+                                 (at/->GroundT tp :int 'Int)})]
     (is (= semantic-map
-           (ato/normalize-type semantic-map))))
+           (ato/normalize-type tp semantic-map))))
   (is (thrown-with-msg? IllegalArgumentException
                         #"normalize-type only accepts canonical semantic types or internal type-like values"
-                        (ato/normalize-type s/Int))))
+                        (ato/normalize-type tp s/Int))))

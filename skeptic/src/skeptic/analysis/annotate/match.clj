@@ -5,7 +5,8 @@
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]))
 
 (defn case-test-literal-nodes
   [case-test-entry]
@@ -41,10 +42,10 @@
     node))
 
 (defn case-assumption-root-for-local
-  [target]
-  (or (ao/local-root-origin target)
+  [ctx target]
+  (or (ao/local-root-origin ctx target)
       (when (= :local (:op target))
-        (ao/root-origin (:form target) (or (:type target) at/Dyn)))))
+        (ao/root-origin (:form target) (or (:type target) (aapi/dyn ctx))))))
 
 (defn- case-get-access-kw-and-target
   [node]
@@ -75,10 +76,10 @@
       (case-get-access-kw-and-target node)))
 
 (defn case-kw-root-info
-  [test-node]
+  [ctx test-node]
   (some (fn [node]
           (when-let [[kw target] (case-kw-and-target node)]
-            (when-let [root (and (keyword? kw) (case-assumption-root-for-local target))]
+            (when-let [root (and (keyword? kw) (case-assumption-root-for-local ctx target))]
               {:kw kw :root root})))
         (sac/ast-nodes test-node)))
 
@@ -117,18 +118,23 @@
   [type kw]
   (cond
     (at/map-type? type)
-    (at/->MapT (into {}
+    (at/->MapT (ato/derive-prov type)
+               (into {}
                      (remove (fn [[entry-key _]]
                                (discriminator-entry? entry-key kw)))
                      (:entries type)))
 
     (at/union-type? type)
-    (ato/union-type (map #(drop-discriminator-key % kw) (:members type)))
+    (ato/union (map #(drop-discriminator-key % kw) (:members type)))
 
     (at/maybe-type? type)
-    (at/->MaybeT (drop-discriminator-key (:inner type) kw))
+    (at/->MaybeT (ato/derive-prov type) (drop-discriminator-key (:inner type) kw))
 
     :else type))
+
+(defn- branches-prov
+  [branches]
+  (apply ato/derive-prov (map second branches)))
 
 (defn case-conditional-narrow-for-lits
   [branches kw lits]
@@ -138,7 +144,7 @@
                          (drop-discriminator-key branch-type kw)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
-    (if (empty? picked) at/BottomType (ato/union-type picked))))
+    (if (empty? picked) (at/BottomType (branches-prov branches)) (ato/union picked))))
 
 (defn case-conditional-default-narrow
   [branches kw all-lits]
@@ -148,7 +154,9 @@
                                      (map second)
                                      (map #(drop-discriminator-key % kw)))
                             branches)]
-    (if (empty? default-types) at/BottomType (ato/union-type default-types))))
+    (if (empty? default-types)
+      (at/BottomType (branches-prov branches))
+      (ato/union default-types))))
 
 (defn annotate-case-one-then
   [ctx locals assumptions i tests thens disc-root use-conditional? cond-branches kw-root-info]
@@ -167,7 +175,7 @@
                       :values lits
                       :polarity true}
                      :else nil)
-        envs (ao/branch-local-envs locals assumptions (if assumption [assumption] []))
+        envs (ao/branch-local-envs ctx locals assumptions (if assumption [assumption] []))
         then-body (:then (nth thens i))
         annotated ((:recurse ctx)
                    (assoc ctx
@@ -200,11 +208,10 @@
         tests (:tests node)
         thens (:thens node)
         n (min (count tests) (count thens))
-        kw-root-info (case-kw-root-info discriminant-expr)
+        kw-root-info (case-kw-root-info ctx discriminant-expr)
         disc-root (or (:root kw-root-info)
-                      (some-> discriminant-expr
-                              case-discriminant-leaf-node
-                              case-assumption-root-for-local))
+                      (when-let [leaf (some-> discriminant-expr case-discriminant-leaf-node)]
+                        (case-assumption-root-for-local ctx leaf)))
         cond-branches (when kw-root-info
                         (case-conditional-branches-from-type (:type (:root kw-root-info))))
         use-conditional? (seq cond-branches)
@@ -215,14 +222,14 @@
                                  disc-root use-conditional? cond-branches kw-root-info))
                               (range n))
         assumption (default-assumption use-conditional? disc-root cond-branches kw-root-info all-values)
-        envs (ao/branch-local-envs locals assumptions (if assumption [assumption] []))
+        envs (ao/branch-local-envs ctx locals assumptions (if assumption [assumption] []))
         default-node ((:recurse ctx)
                       (assoc ctx
                              :locals (:then-locals envs)
                              :assumptions (:then-assumptions envs))
                       (:default node))
         branch-types (mapv (comp :type :then) annotated-thens)
-        joined (av/type-join* (conj branch-types (:type default-node)))]
+        joined (av/type-join* (prov/with-ctx ctx) (conj branch-types (:type default-node)))]
     (assoc node
            :test test-node
            :tests (vec (take n tests))

@@ -3,13 +3,15 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]
             [skeptic.typed-decls :as sut]))
 
-(defn T [schema] (ab/schema->type schema))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+
+(defn T [schema] (ab/schema->type tp schema))
 
 (deftest desc->type-fn-schema-returns-fun-type
-  (let [t (sut/desc->type
-            {:name "skeptic.schema.collect/raw-symbol-fn"
+  (let [t (sut/desc->type tp {:name "skeptic.schema.collect/raw-symbol-fn"
              :schema (s/make-fn-schema clojure.lang.Symbol
                                        [[(s/one java.lang.String 'f)]])})]
     (is (at/fun-type? t))
@@ -18,7 +20,7 @@
     (is (= (T s/Symbol) (at/fn-method-output (first (at/fun-methods t)))))))
 
 (deftest desc->type-non-callable-returns-ground-type
-  (let [t (sut/desc->type {:name "foo/bar" :schema s/Keyword})]
+  (let [t (sut/desc->type tp {:name "foo/bar" :schema s/Keyword})]
     (is (= (T s/Keyword) t))
     (is (not (at/fun-type? t)))))
 
@@ -33,7 +35,7 @@
     (testing "multi-arity methods are all present"
       (is (= 3 (count (at/fun-methods int-add-type)))))
     (testing "all methods have Int output"
-      (is (every? #(= (T s/Int) (at/fn-method-output %)) (at/fun-methods int-add-type))))))
+      (is (every? #(at/type=? (T s/Int) (at/fn-method-output %)) (at/fun-methods int-add-type))))))
 
 (deftest merge-type-dicts-passes-through-singletons-and-intersects-shared
   (let [int-t (T s/Int) str-t (T s/Str) kw-t (T s/Keyword)

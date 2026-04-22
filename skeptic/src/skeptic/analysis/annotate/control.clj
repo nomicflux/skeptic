@@ -1,13 +1,15 @@
 (ns skeptic.analysis.annotate.control
-  (:require [skeptic.analysis.annotate.base :as base]
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.narrowing :as narrowing]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
-            [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]))
 
 (defn nil-test-leaf-node
   [node]
@@ -46,8 +48,8 @@
     node))
 
 (defn- alias-root-sym
-  [node]
-  (some-> node alias-leaf-node ao/local-root-origin :sym))
+  [ctx node]
+  (some-> node alias-leaf-node (->> (ao/local-root-origin ctx)) :sym))
 
 (defn- nilish-alias-branch?
   [node]
@@ -56,11 +58,11 @@
         (at/bottom-type? (:type node)))))
 
 (defn- narrowing-alias-root-sym
-  [init-node base-origin]
+  [ctx init-node base-origin]
   (when (= :if (:op init-node))
     (let [test-root-sym (get-in base-origin [:test :root :sym])
-          then-root-sym (alias-root-sym (:then init-node))
-          else-root-sym (alias-root-sym (:else init-node))
+          then-root-sym (alias-root-sym ctx (:then init-node))
+          else-root-sym (alias-root-sym ctx (:else init-node))
           source-root-sym (cond
                             (and then-root-sym (nilish-alias-branch? (:else init-node))) then-root-sym
                             (and else-root-sym (nilish-alias-branch? (:then init-node))) else-root-sym
@@ -84,15 +86,17 @@
     (assoc node :statements statements :ret ret :type (:type ret))))
 
 (defn binding-recur-target-types
-  [bindings]
+  [ctx bindings]
   (mapv (fn [binding]
-          (let [type (or (:type binding) at/Dyn)]
-            (if (ato/nil-value-type? type) (at/->MaybeT at/Dyn) type)))
+          (let [type (or (:type binding) (aapi/dyn ctx))]
+            (if (ato/nil-value-type? type)
+              (at/->MaybeT (prov/with-ctx ctx) (aapi/dyn ctx))
+              type)))
         bindings))
 
 (defn binding-base-entry
-  [annotated]
-  (or (ac/node-info annotated) {:type at/Dyn}))
+  [ctx annotated]
+  (or (ac/node-info annotated) {:type (aapi/dyn ctx)}))
 
 (defn binding-alias-origin
   [init]
@@ -103,7 +107,6 @@
 (defn binding-env-entry
   [annotated {:keys [base-entry fallback-origin track-fn-binding?]}]
   (let [init (:init annotated)
-        base-entry (or base-entry (binding-base-entry annotated))
         origin (or (binding-alias-origin init)
                    fallback-origin
                    (:origin base-entry))]
@@ -118,12 +121,12 @@
   [ctx env binding]
   (let [annotated (base/annotate-binding (assoc ctx :locals env) binding)
         init (:init annotated)
-        base-entry (binding-base-entry annotated)
+        base-entry (binding-base-entry ctx annotated)
         base-origin (:origin base-entry)
         preserve-structured-origin? (= :map-key-lookup (:kind base-origin))
         branch-test-sym (get-in base-origin [:test :root :sym])
         binding-sym (:form binding)
-        narrowing-alias-sym (narrowing-alias-root-sym init base-origin)
+        narrowing-alias-sym (narrowing-alias-root-sym ctx init base-origin)
         self-origin (when (and (not preserve-structured-origin?)
                                (or (nil? branch-test-sym)
                                    (= branch-test-sym binding-sym)
@@ -152,7 +155,7 @@
     (assoc node :bindings bindings :body body :type (:type body))))
 
 (defn widen-int-loop-counter-recur-targets
-  [targets body loop-id]
+  [ctx targets body loop-id]
   (let [recurs (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
                         (sac/ast-nodes body))]
     (reduce (fn [acc recur-node]
@@ -164,7 +167,7 @@
                                      (= :int (:ground target))
                                      (or (at/numeric-dyn-type? actual)
                                          (numeric/non-int-numeric-type? actual)))
-                              (ato/normalize-type actual)
+                              (aapi/normalize-type ctx actual)
                               target)))
                         acc
                         exprs)
@@ -175,7 +178,7 @@
 (defn loop-one-binding
   [ctx env binding]
   (let [annotated (base/annotate-binding (assoc ctx :locals env) binding)
-        base-entry (binding-base-entry annotated)]
+        base-entry (binding-base-entry ctx annotated)]
     [annotated
      (assoc env (:form binding)
             (binding-env-entry annotated
@@ -184,7 +187,7 @@
 
 (defn annotate-loop-body-with-recur-target-widening
   [ctx node final-locals recur-targets loop-id targets-v0 body-v1]
-  (let [targets-v1 (widen-int-loop-counter-recur-targets targets-v0 body-v1 loop-id)]
+  (let [targets-v1 (widen-int-loop-counter-recur-targets ctx targets-v0 body-v1 loop-id)]
     (if (= targets-v1 targets-v0)
       body-v1
       ((:recurse ctx)
@@ -203,7 +206,7 @@
                     [(conj acc annotated) next-env]))
                 [[] locals]
                 (:bindings node))
-        targets-v0 (binding-recur-target-types bindings)
+        targets-v0 (binding-recur-target-types ctx bindings)
         recur-ctx (assoc ctx
                          :locals final-locals
                          :recur-targets (assoc recur-targets loop-id targets-v0))
@@ -216,10 +219,10 @@
   [{:keys [recur-targets] :as ctx} node]
   (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
         targets (some-> (:loop-id node) recur-targets)
-        actual-argtypes (mapv #(ato/normalize-type (:type %)) exprs)]
-    (cond-> (assoc node :exprs exprs :type at/BottomType)
+        actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
+    (cond-> (assoc node :exprs exprs :type (aapi/bottom ctx))
       (and (seq targets) (= (count targets) (count exprs)))
-      (assoc :expected-argtypes (mapv ato/normalize-type targets)
+      (assoc :expected-argtypes (mapv #(aapi/normalize-type ctx %) targets)
              :actual-argtypes actual-argtypes))))
 
 (defn- truthy-literal?
@@ -254,8 +257,8 @@
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
   (let [test-node ((:recurse ctx) ctx (:test node))
-        conjuncts (ao/if-test-conjuncts test-node locals)
-        envs (ao/branch-local-envs locals assumptions conjuncts)
+        conjuncts (ao/if-test-conjuncts ctx test-node locals)
+        envs (ao/branch-local-envs ctx locals assumptions conjuncts)
         then-node ((:recurse ctx) (assoc ctx
                                          :locals (:then-locals envs)
                                          :assumptions (:then-assumptions envs))
@@ -267,7 +270,7 @@
         narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
         joined-type (if narrow?
                       (:type then-node)
-                      (av/type-join* [(:type then-node) (:type else-node)]))
+                      (av/type-join* (prov/with-ctx ctx) [(:type then-node) (:type else-node)]))
         origin (if narrow?
                  (ao/node-origin then-node)
                  (branch-origin conjuncts then-node else-node joined-type))]

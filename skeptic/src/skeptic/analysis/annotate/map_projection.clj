@@ -1,7 +1,7 @@
 (ns skeptic.analysis.annotate.map-projection
-  (:require [skeptic.analysis.ast-children :as sac]
-            [skeptic.analysis.origin :as ao]
-            [skeptic.analysis.types :as at]))
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.ast-children :as sac]
+            [skeptic.analysis.origin :as ao]))
 
 (defn- local-node-key
   [node]
@@ -41,14 +41,14 @@
             node))))))
 
 (defn projection-root-origin
-  [target-node]
+  [ctx target-node]
   (when-let [root-local (projection-root-local target-node)]
-    (or (ao/local-root-origin root-local)
-        (ao/root-origin (:form root-local) (or (:type root-local) at/Dyn)))))
+    (or (ao/local-root-origin ctx root-local)
+        (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
 
 (defn map-key-lookup-origin
-  [target-node key-query]
-  (when-let [root (projection-root-origin target-node)]
+  [ctx target-node key-query]
+  (when-let [root (projection-root-origin ctx target-node)]
     {:kind :map-key-lookup
      :root root
      :key-query key-query}))

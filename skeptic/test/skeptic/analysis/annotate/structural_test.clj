@@ -28,4 +28,4 @@
     (is (= :const (aapi/node-op vec-ast)))
     (is (= :const (aapi/node-op map-ast)))
     (is (= :const (aapi/node-op set-ast)))
-    (is (= (atst/T [s/Int s/Int]) (aapi/node-type vec-ast)))))
+    (is (at/type=? (atst/T [s/Int s/Int]) (aapi/node-type vec-ast)))))

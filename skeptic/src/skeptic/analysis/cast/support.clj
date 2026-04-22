@@ -6,7 +6,7 @@
 
 (defn sealed-ground-name
   [type]
-  (some-> type ato/normalize-type :ground ata/type-var-name))
+  (some-> type ato/normalize :ground ata/type-var-name))
 
 (defn cast-result
   [{:keys [ok? source-type target-type rule polarity reason children details]}]
@@ -74,7 +74,7 @@
 
 (defn semantic-type-children
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)]
     (cond
       (at/sealed-dyn-type? type) [(:ground type)]
       (at/fn-method-type? type) (into [(:output type)] (:inputs type))
@@ -94,7 +94,7 @@
   (boolean
    (some #(and (at/sealed-dyn-type? %)
                (= binder (sealed-ground-name %)))
-         (tree-seq seq semantic-type-children (ato/normalize-type type)))))
+         (tree-seq seq semantic-type-children (ato/normalize type)))))
 
 (defn rule-seal-delta
   [result binder]
@@ -122,28 +122,27 @@
         (tree-seq seq :children cast-result)))
 
 (defn exit-nu-scope
-  ([artifact binder]
-   (exit-nu-scope artifact binder {}))
-  ([artifact binder _opts]
-   (let [binder (or (ata/type-var-name (ato/normalize-type binder)) binder)]
-     (if (and (map? artifact)
-              (contains? artifact :ok?)
-              (contains? artifact :rule)
-              (contains? artifact :children))
-       (if (pos? (seal-balance artifact binder))
-         (cast-fail (or (leaked-sealed-type artifact binder)
-                        (:source-type artifact))
-                    (at/->TypeVarT binder)
-                    :nu-tamper
-                    :global
-                    :nu-tamper
-                    [artifact]
-                    nil)
-         (cast-ok (:target-type artifact) (at/->TypeVarT binder) :nu-pass [artifact] nil))
-       (let [type (ato/normalize-type artifact)]
-         (if (contains-sealed-ground? type binder)
-           (cast-fail type (at/->TypeVarT binder) :nu-tamper :global :nu-tamper [] nil)
-           (cast-ok type (at/->TypeVarT binder) :nu-pass [] nil)))))))
+  [artifact binder]
+  (if (and (map? artifact)
+           (contains? artifact :ok?)
+           (contains? artifact :rule)
+           (contains? artifact :children))
+    (if (pos? (seal-balance artifact binder))
+      (let [source (or (leaked-sealed-type artifact binder)
+                       (:source-type artifact))]
+        (cast-fail source
+                   (at/->TypeVarT (ato/derive-prov source) binder)
+                   :nu-tamper
+                   :global
+                   :nu-tamper
+                   [artifact]
+                   nil))
+      (let [target (:target-type artifact)]
+        (cast-ok target (at/->TypeVarT (ato/derive-prov target) binder) :nu-pass [artifact] nil)))
+    (let [type (ato/normalize artifact)]
+      (if (contains-sealed-ground? type binder)
+        (cast-fail type (at/->TypeVarT (ato/derive-prov type) binder) :nu-tamper :global :nu-tamper [] nil)
+        (cast-ok type (at/->TypeVarT (ato/derive-prov type) binder) :nu-pass [] nil)))))
 
 (defn method-accepts-arity?
   [method arity]
@@ -166,9 +165,9 @@
   ([value-type ground-type]
    (check-type-test value-type ground-type {}))
   ([value-type ground-type _opts]
-   (let [value-type (ato/normalize-type value-type)
-         ground-type (ato/normalize-type ground-type)
-         details {:matches? (= value-type ground-type)}]
+   (let [value-type (ato/normalize value-type)
+         ground-type (ato/normalize ground-type)
+         details {:matches? (at/type=? value-type ground-type)}]
      (if (at/sealed-dyn-type? value-type)
        (cast-fail value-type ground-type :is-tamper :global :is-tamper [] details)
        (cast-ok value-type ground-type :dynamic-test [] details)))))

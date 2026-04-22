@@ -6,17 +6,17 @@
             [skeptic.analysis.types :as at]))
 
 (defn invoke-output-type
-  [fn-node args output-type]
+  [ctx fn-node args output-type]
   (cond
-    (ac/get-call? fn-node) (shared-call/shared-call-output-type :get args output-type)
-    (ac/merge-call? fn-node) (shared-call/shared-call-output-type :merge args output-type)
+    (ac/get-call? fn-node) (shared-call/shared-call-output-type ctx :get args output-type)
+    (ac/merge-call? fn-node) (shared-call/shared-call-output-type ctx :merge args output-type)
     (and (ac/assoc-call? fn-node) (>= (count args) 3))
-    (shared-call/shared-call-output-type :assoc args output-type)
+    (shared-call/shared-call-output-type ctx :assoc args output-type)
     (and (ac/dissoc-call? fn-node) (>= (count args) 2))
-    (shared-call/shared-call-output-type :dissoc args output-type)
+    (shared-call/shared-call-output-type ctx :dissoc args output-type)
     (and (ac/update-call? fn-node) (>= (count args) 3))
-    (shared-call/shared-call-output-type :update args output-type)
-    (ac/contains-call? fn-node) (shared-call/shared-call-output-type :contains args output-type)
+    (shared-call/shared-call-output-type ctx :update args output-type)
+    (ac/contains-call? fn-node) (shared-call/shared-call-output-type ctx :contains args output-type)
     (and (ac/first-call? fn-node) (= 1 (count args)))
     (or (coll/coll-first-type (:type (first args))) output-type)
     (and (ac/second-call? fn-node) (= 1 (count args)))
@@ -54,8 +54,9 @@
     (ac/into-call? fn-node) (or (coll/into-output-type args) output-type)
     (and (ac/chunk-first-call? fn-node) (= 1 (count args)))
     (or (when-let [elem (coll/seqish-element-type (:type (first args)))]
-          (at/->SeqT [(ato/normalize-type elem)] true))
+          (let [prov (ato/derive-prov elem)]
+            (at/->SeqT prov [(ato/normalize-type prov elem)] true)))
         output-type)
     (and (ac/seq-call? fn-node) (= 1 (count args)))
-    (shared-call/shared-call-output-type :seq args output-type)
+    (shared-call/shared-call-output-type ctx :seq args output-type)
     :else output-type))

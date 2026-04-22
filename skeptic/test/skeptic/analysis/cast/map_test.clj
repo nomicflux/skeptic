@@ -3,11 +3,14 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
-            [skeptic.analysis.cast.result :as cast-result]))
+            [skeptic.analysis.cast.result :as cast-result]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (deftest structural-map-cast-regressions-test
   (let [ok (sut/check-cast (T {:a s/Int :b s/Str})

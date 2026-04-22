@@ -6,7 +6,7 @@
 
 (defn desc->type
   [prov {:keys [schema]}]
-  (ab/schema->type schema prov))
+  (ab/schema->type prov schema))
 
 (defn- desc->provenance
   [_desc ns qualified-sym]
@@ -47,7 +47,7 @@
      (fn [acc sym]
        (let [types (keep #(get (:dict %) sym) results)
              provs (keep #(get (:provenance %) sym) results)
-             merged-type (ato/intersection-type (distinct types))
+             merged-type (ato/intersection (distinct types))
              merged-prov (reduce prov/merge-provenances (first provs) (rest provs))]
          (-> acc
              (assoc-in [:dict sym] merged-type)

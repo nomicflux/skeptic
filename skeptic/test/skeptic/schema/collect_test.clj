@@ -2,7 +2,10 @@
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]
             [skeptic.schema.collect :as sut]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (deftest arg-list-only-varargs
   (is (= {:count 2, :args '[x y], :with-varargs false, :varargs []}
@@ -49,7 +52,7 @@
 (deftest collect-schemas-rejects-invalid-schema-annotations-early
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"Invalid schema annotation"
-                        (sut/collect-schemas {:schema [(at/->GroundT :int 'Int)]
+                        (sut/collect-schemas {:schema [(at/->GroundT tp :int 'Int)]
                                               :ns 'skeptic.schema.collect
                                               :name 'invalid
                                               :arglists '([])}))))
@@ -58,7 +61,7 @@
   (let [regex-schema (s/make-fn-schema s/Int
                                        [[(s/one #"^[\u0020-\u007e]*$" 'x)]])
         invalid-semantic-type-schema (s/make-fn-schema s/Int
-                                                       [[(s/one (at/->GroundT :int 'Int)
+                                                       [[(s/one (at/->GroundT tp :int 'Int)
                                                                 'x)]])]
     (let [regex (get-in (sut/collect-schemas {:schema regex-schema
                                               :ns 'skeptic.schema.collect

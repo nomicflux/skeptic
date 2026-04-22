@@ -3,9 +3,12 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.provenance :as prov]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.mismatch :as sut]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (def ^:private ui-internal-markers
   [":skeptic.analysis.types/"
@@ -23,11 +26,11 @@
     (is (not (str/includes? (str text) marker)))))
 
 (deftest mismatched-output-schema-msg-public-names-test
-  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
+  (let [placeholder (at/->PlaceholderT tp 'clj-threals.threals/Threal)
         message (sut/mismatched-output-schema-msg
                  {:expr 'for-birthday
                   :arg '[g r b]}
-                 (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
+                 (at/->VectorT tp [(at/->SetT tp #{(at/->VectorT tp [placeholder placeholder placeholder]
                                                       false)}
                                             false)]
                                true)
@@ -36,10 +39,10 @@
     (assert-no-ui-internals message)))
 
 (deftest unknown-output-type-test
-  (is (sut/unknown-output-type? (ab/schema->type s/Any)))
-  (is (sut/unknown-output-type? (ab/schema->type (s/maybe s/Any))))
-  (is (sut/unknown-output-type? (ab/schema->type (sb/placeholder-schema [:output 'example/f]))))
-  (is (not (sut/unknown-output-type? (ab/schema->type s/Int)))))
+  (is (sut/unknown-output-type? (ab/schema->type tp s/Any)))
+  (is (sut/unknown-output-type? (ab/schema->type tp (s/maybe s/Any))))
+  (is (sut/unknown-output-type? (ab/schema->type tp (sb/placeholder-schema [:output 'example/f]))))
+  (is (not (sut/unknown-output-type? (ab/schema->type tp s/Int)))))
 
 (deftest mismatched-messages-shape-test
   (let [ctx {:expr '(f 1) :arg 1}]

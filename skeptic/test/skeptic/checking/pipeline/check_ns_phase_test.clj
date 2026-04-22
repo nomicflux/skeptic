@@ -2,27 +2,29 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.source :as source]
+            [skeptic.provenance :as prov]
             [skeptic.typed-decls :as typed-decls]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
   (is (= []
-         (vec (sut/check-ns 'skeptic.core-fns
-                            (java.io.File. "src/skeptic/core_fns.clj")
-                            {})))))
+         (:results (sut/check-ns 'skeptic.core-fns
+                                 (java.io.File. "src/skeptic/core_fns.clj")
+                                 {})))))
 
 (deftest check-ns-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
-        results (vec (sut/check-ns 'skeptic.test-examples.basics
-                                   temp-file
-                                   {:remove-context true}))]
+        results (:results (sut/check-ns 'skeptic.test-examples.basics
+                                        temp-file
+                                        {:remove-context true}))]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
     (is (= :read (:phase (first results))))
@@ -49,9 +51,9 @@
     (is (= [] results))))
 
 (deftest static-call-examples-check-ns
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
+  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+                                        ps/static-call-examples-file
+                                        {:remove-context true}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -68,12 +70,9 @@
                                                     (:enclosing-form %))
                                             %)
                                          results)]
-    (is (= [(incm/mismatched-output-schema-msg {:expr 'bad-count-default
-                                                :arg '(get counts :count "zero")}
-                                               (ato/union-type [(ps/T s/Int)
-                                                                (ps/T s/Str)])
-                                               (ps/T s/Int))]
-           (:errors count-result)))
+    (is (= 1 (count (:errors count-result))))
+    (is (re-find #"(?s)\(get counts :count \"zero\"\).*in.*bad-count-default.*has inferred output type:.*\(union (Int Str|Str Int)\).*but the declared return type expects:.*Int"
+                 (first (:errors count-result))))
     (is (= [(incm/mismatched-ground-type-msg
              {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
               :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
@@ -96,9 +95,9 @@
                    results))))
 
 (deftest examples-maybe-multi-step-check-ns
-  (let [results (vec (sut/check-ns 'skeptic.examples
-                                   ps/examples-file
-                                   {:remove-context true}))]
+  (let [results (:results (sut/check-ns 'skeptic.examples
+                                        ps/examples-file
+                                        {:remove-context true}))]
     (is (some #(when (= 'skeptic.examples/flat-maybe-base-type-failure
                         (:enclosing-form %))
                  %)
@@ -127,9 +126,9 @@
 (deftest namespace-checking-keeps-going-after-declaration-errors
   (let [{:keys [errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
         results (vec (concat errors
-                             (sut/check-ns 'skeptic.best-effort-examples
-                                           ps/best-effort-file
-                                           {:remove-context true})))
+                             (:results (sut/check-ns 'skeptic.best-effort-examples
+                                                     ps/best-effort-file
+                                                     {:remove-context true}))))
         declaration-error (some #(when (= :declaration (:phase %)) %) results)
         stray-form-result (some #(when (= 'skeptic.best-effort-examples/good-call
                                         (:enclosing-form %))
@@ -203,14 +202,14 @@
                                             file
                                             exploding-form
                                             {:remove-context true})
-            exception-result (first form-results)
+            exception-result (first (:results form-results))
             results (ps/check-fixture-ns 'skeptic.test-examples.basics
                                          {:remove-context true})
             later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
                                           (:enclosing-form %))
                                    %)
                                 results)]
-        (is (= 1 (count form-results)))
+        (is (= 1 (count (:results form-results))))
         (is (= :expression (:phase exception-result)))
         (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
                (:enclosing-form exception-result)))

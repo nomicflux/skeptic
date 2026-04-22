@@ -1,5 +1,6 @@
 (ns skeptic.provenance-test
   (:require [clojure.test :refer [deftest is]]
+            [skeptic.analysis.types :as at]
             [skeptic.provenance :as sut]))
 
 (deftest provenance-record-shape
@@ -43,16 +44,13 @@
     (is (sut/provenance? result))
     (is (= :malli-spec (sut/source result)))))
 
-(deftest attach-of-roundtrip
-  (let [t {:skeptic.analysis.types/semantic-type :skeptic.analysis.types/ground-type}
-        p (sut/make-provenance :schema 'a/b 'a nil)
-        attached (sut/attach t p)]
-    (is (= t attached))
-    (is (= p (sut/of attached)))))
+(deftest of-reads-prov-field-from-semantic-type
+  (let [p (sut/make-provenance :schema 'a/b 'a nil)
+        t (at/->GroundT p :int 'Int)]
+    (is (= p (sut/of t)))))
 
-(deftest of-on-plain-map-returns-nil
-  (is (nil? (sut/of {})))
-  (is (nil? (sut/of {:a 1}))))
+(deftest of-throws-on-value-without-provenance
+  (is (thrown? IllegalArgumentException (sut/of {:not :a-type}))))
 
 (deftest merge-schema-and-inferred-keeps-schema
   (let [ps (sut/make-provenance :schema 'a/b 'a nil)

@@ -6,71 +6,76 @@
             [skeptic.analysis.types :as at]))
 
 (defn class->type
-  [klass]
+  [prov klass]
   (let [klass (sb/canonical-scalar-schema klass)]
     (cond
-      (= klass s/Int) (at/->GroundT :int 'Int)
-      (= klass s/Str) (at/->GroundT :str 'Str)
-      (= klass s/Keyword) (at/->GroundT :keyword 'Keyword)
-      (= klass s/Symbol) (at/->GroundT :symbol 'Symbol)
-      (= klass s/Bool) (at/->GroundT :bool 'Bool)
+      (= klass s/Int) (at/->GroundT prov :int 'Int)
+      (= klass s/Str) (at/->GroundT prov :str 'Str)
+      (= klass s/Keyword) (at/->GroundT prov :keyword 'Keyword)
+      (= klass s/Symbol) (at/->GroundT prov :symbol 'Symbol)
+      (= klass s/Bool) (at/->GroundT prov :bool 'Bool)
       (or (= klass s/Num)
           (= klass Number)
           (= klass java.lang.Number))
-      at/NumericDyn
+      (at/NumericDyn prov)
       (and (class? klass)
            (not (or (= klass s/Any)
                     (= klass Object)
                     (= klass java.lang.Object))))
-      (at/->GroundT {:class klass} (abc/schema-explain klass))
-      :else at/Dyn)))
+      (at/->GroundT prov {:class klass} (abc/schema-explain klass))
+      :else (at/Dyn prov))))
 
 (declare type-of-value type-join*)
 
 (defn exact-runtime-value-type
-  [value]
-  (at/->ValueT (type-of-value value) value))
+  [prov value]
+  (at/->ValueT prov (type-of-value prov value) value))
 
 (defn collection-element-type
-  [values]
+  [prov values]
   (if (seq values)
-    (type-join* (map type-of-value values))
-    at/Dyn))
+    (type-join* prov (map #(type-of-value prov %) values))
+    (at/Dyn prov)))
 
 (defn homogeneous-seq-type
-  [constructor values]
-  (constructor [(collection-element-type values)] true))
+  [prov constructor values]
+  (constructor prov [(collection-element-type prov values)] true))
 
 (defn map-value-type
-  [m]
-  (at/->MapT
-   (into {}
-         (map (fn [[k v]]
-                [(exact-runtime-value-type k)
-                 (exact-runtime-value-type v)]))
-         m)))
+  [prov m]
+  (at/->MapT prov
+             (into {}
+                   (map (fn [[k v]]
+                          [(exact-runtime-value-type prov k)
+                           (exact-runtime-value-type prov v)]))
+                   m)))
 
 (defn type-of-value
-  [value]
+  [prov value]
   (cond
-    (nil? value) (ato/exact-value-type nil)
+    (nil? value) (ato/exact-value-type prov nil)
     (or (integer? value)
         (string? value)
         (keyword? value)
         (symbol? value)
-        (boolean? value)) (class->type (class value))
-    (vector? value) (at/->VectorT (mapv type-of-value value) (= 1 (count value)))
-    (or (list? value) (seq? value)) (homogeneous-seq-type at/->SeqT value)
-    (set? value) (at/->SetT #{(collection-element-type value)} true)
-    (map? value) (map-value-type value)
-    (class? value) (class->type java.lang.Class)
-    :else (class->type (class value))))
+        (boolean? value)) (class->type prov (class value))
+    (vector? value) (at/->VectorT prov (mapv #(type-of-value prov %) value) (= 1 (count value)))
+    (or (list? value) (seq? value)) (homogeneous-seq-type prov at/->SeqT value)
+    (set? value) (at/->SetT prov #{(collection-element-type prov value)} true)
+    (map? value) (map-value-type prov value)
+    (class? value) (class->type prov java.lang.Class)
+    :else (class->type prov (class value))))
 
 (defn type-join*
-  [types]
-  (let [types (vec (remove nil? (map ato/normalize-type types)))
+  [prov types]
+  (let [types (vec (remove nil? (map #(ato/normalize-type prov %) types)))
         non-bottom (vec (remove at/bottom-type? types))]
     (cond
-      (seq non-bottom) (ato/union-type non-bottom)
-      (seq types) at/BottomType
-      :else at/Dyn)))
+      (seq non-bottom) (ato/union-type prov non-bottom)
+      (seq types) (at/BottomType prov)
+      :else (at/Dyn prov))))
+
+(defn join
+  "Convenience: derives prov from typed inputs."
+  [types]
+  (type-join* (apply ato/derive-prov types) types))

@@ -9,9 +9,12 @@
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.output.text :as text])
+            [skeptic.output.text :as text]
+            [skeptic.provenance :as prov])
   (:import [java.io File]
            [java.nio.file Files]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (def ui-internal-markers
   [":skeptic.analysis.types/"
@@ -39,8 +42,8 @@
    :blame-side :term
    :blame-polarity :positive
    :rule :function
-   :actual-type (ab/schema->type s/Int)
-   :expected-type (ab/schema->type s/Str)
+   :actual-type (ab/schema->type tp s/Int)
+   :expected-type (ab/schema->type tp s/Str)
    :source-expression "(takes-str x)"
    :focus-sources ["x"]
    :enclosing-form 'example/takes-str
@@ -124,11 +127,11 @@
                            (str/includes? value "\u001B[37m<missing>"))))))))
 
 (deftest report-fields-render-semantic-polymorphic-types-in-verbose-mode
-  (let [type-var (at/->TypeVarT 'X)
+  (let [type-var (at/->TypeVarT tp 'X)
         fields (text/report-fields
                 {:rule :generalize
-                 :actual-type (at/->SealedDynT type-var)
-                 :expected-type (at/->ForallT 'X type-var)
+                 :actual-type (at/->SealedDynT tp type-var)
+                 :expected-type (at/->ForallT tp 'X type-var)
                  :source-expression "(poly x)"}
                 true)]
     (is (some #{["Cast rule: \t\t" "generalize"]} fields))
@@ -138,13 +141,13 @@
 (deftest report-summary-collapses-output-into-single-entry
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-summary {:actual-type (ab/schema->type {:name s/Keyword})
-                                :expected-type (ab/schema->type {:name s/Str})}
+                  :cast-summary {:actual-type (ab/schema->type tp {:name s/Keyword})
+                                :expected-type (ab/schema->type tp {:name s/Str})}
                   :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :path [{:kind :map-key :key :name}]
-                                  :actual-type (ab/schema->type s/Keyword)
-                                  :expected-type (ab/schema->type s/Str)}]})]
+                                  :actual-type (ab/schema->type tp s/Keyword)
+                                  :expected-type (ab/schema->type tp s/Str)}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "declared return type")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
@@ -154,8 +157,8 @@
 (deftest report-summary-hides-internal-cast-branches
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-summary {:actual-type (ab/schema->type {:b s/Int})
-                                :expected-type (ab/schema->type {:b s/Int})}
+                  :cast-summary {:actual-type (ab/schema->type tp {:b s/Int})
+                                :expected-type (ab/schema->type tp {:b s/Int})}
                   :cast-diagnostics [{:reason :missing-key
                                   :path [{:kind :source-union-branch :index 1}
                                          {:kind :map-key :key :b}]}]})]
@@ -170,12 +173,12 @@
                   :focuses [:bad]
                   :errors ["err-1" "err-2"]
                   :cast-diagnostics [{:reason :leaf-mismatch
-                                  :actual-type (ab/schema->type s/Keyword)
-                                  :expected-type (ab/schema->type s/Int)
+                                  :actual-type (ab/schema->type tp s/Keyword)
+                                  :expected-type (ab/schema->type tp s/Int)
                                   :path [{:kind :target-union-branch :index 0}]}
                                  {:reason :leaf-mismatch
-                                  :actual-type (ab/schema->type s/Keyword)
-                                  :expected-type (ab/schema->type s/Str)
+                                  :actual-type (ab/schema->type tp s/Keyword)
+                                  :expected-type (ab/schema->type tp s/Str)
                                   :path [{:kind :target-union-branch :index 1}]}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "expected type")))
@@ -183,19 +186,19 @@
     (assert-no-ui-internals (first (:errors summary)))))
 
 (deftest report-summary-and-fields-sanitize-placeholder-heavy-types
-  (let [placeholder (at/->PlaceholderT 'clj-threals.threals/Threal)
+  (let [placeholder (at/->PlaceholderT tp 'clj-threals.threals/Threal)
         summary (inrep/report-summary
                  {:report-kind :input
                   :blame '(simplify gt_fn [g r b])
                   :focuses ['[g r b]]
                   :cast-summary {:rule :vector
-                                :actual-type (ab/schema->type [s/Any])
-                                :expected-type (at/->VectorT [(at/->SetT #{(at/->VectorT [placeholder placeholder placeholder]
+                                :actual-type (ab/schema->type tp [s/Any])
+                                :expected-type (at/->VectorT tp [(at/->SetT tp #{(at/->VectorT tp [placeholder placeholder placeholder]
                                                                              false)}
                                                                        false)]
                                                            true)}
                   :cast-diagnostics [{:reason :leaf-mismatch
-                                  :actual-type (ab/schema->type s/Any)
+                                  :actual-type (ab/schema->type tp s/Any)
                                   :expected-type placeholder
                                   :path [{:kind :vector-index :index 0}]}]})
         fields (text/report-fields summary)
@@ -219,11 +222,11 @@
   (let [fields (text/report-fields
                 (inrep/report-summary
                  {:rule :leaf-overlap
-                  :actual-type (ab/schema->type s/Keyword)
-                  :expected-type (ab/schema->type s/Int)
+                  :actual-type (ab/schema->type tp s/Keyword)
+                  :expected-type (ab/schema->type tp s/Int)
                   :cast-summary {:rule :target-union
-                                :actual-type (ab/schema->type s/Keyword)
-                                :expected-type (ab/schema->type (s/either s/Int s/Str))}
+                                :actual-type (ab/schema->type tp s/Keyword)
+                                :expected-type (ab/schema->type tp (s/either s/Int s/Str))}
                   :source-expression "(takes-either-branch :bad)"
                   :errors ["err"]
                   :cast-diagnostics []})
@@ -237,20 +240,20 @@
               fields))))
 
 (deftest output-report-fields-prefer-actionable-leaf-metadata-in-verbose-mode
-  (let [actual-result (at/->ConditionalT [[integer? (ab/schema->type s/Int)]
-                                          [string? (ab/schema->type s/Str)]])
+  (let [actual-result (at/->ConditionalT tp [[integer? (ab/schema->type tp s/Int)]
+                                          [string? (ab/schema->type tp s/Str)]])
         summary (inrep/report-summary
                  {:report-kind :output
                   :rule :source-union
                   :actual-type actual-result
-                  :expected-type (ab/schema->type s/Keyword)
+                  :expected-type (ab/schema->type tp s/Keyword)
                   :cast-summary {:rule :source-union
                                 :actual-type actual-result
-                                :expected-type (ab/schema->type s/Keyword)}
+                                :expected-type (ab/schema->type tp s/Keyword)}
                   :cast-diagnostics [{:reason :source-branch-failed
                                   :rule :source-union
                                   :actual-type actual-result
-                                  :expected-type (ab/schema->type s/Keyword)
+                                  :expected-type (ab/schema->type tp s/Keyword)
                                   :path []}]})
         fields (text/report-fields summary true)]
     (is (some #{["Cast rule: \t\t" "source-union"]} fields))
@@ -396,8 +399,8 @@
                      :blame '(+ 1 :x)
                      :errors ["Keyword is not compatible with Int"]
                      :cast-diagnostics []
-                     :actual-type (at/->GroundT :keyword 'Keyword)
-                     :expected-type (at/->GroundT :int 'Int)}]
+                     :actual-type (at/->GroundT tp :keyword 'Keyword)
+                     :expected-type (at/->GroundT tp :int 'Int)}]
     (with-redefs [file/discover-clojure-files
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file

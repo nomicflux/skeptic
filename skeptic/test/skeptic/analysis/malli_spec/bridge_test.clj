@@ -1,7 +1,10 @@
 (ns skeptic.analysis.malli-spec.bridge-test
   (:require [clojure.test :refer [deftest is]]
             [skeptic.analysis.malli-spec.bridge :as sut]
+            [skeptic.provenance :as prov]
             [skeptic.analysis.types :as at]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (deftest admit-malli-spec-accepts-malli-values-and-rejects-others
   (is (= :int (sut/admit-malli-spec :int)))
@@ -9,30 +12,30 @@
          (sut/admit-malli-spec [:=> [:cat :int] :int])))
   (is (thrown-with-msg? IllegalArgumentException
                         #"Expected Malli spec value"
-                        (sut/admit-malli-spec (at/->GroundT :int 'Int)))))
+                        (sut/admit-malli-spec (at/->GroundT tp :int 'Int)))))
 
 (deftest malli-spec->type-converts-=>-with-primitive-leaves
-  (is (= (at/->FunT [(at/->FnMethodT [(at/->GroundT :int 'Int)]
-                                     (at/->GroundT :int 'Int)
+  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :int 'Int)]
+                                     (at/->GroundT tp :int 'Int)
                                      1
                                      false
                                      '[arg0])])
-         (sut/malli-spec->type [:=> [:cat :int] :int])))
-  (is (= (at/->FunT [(at/->FnMethodT [(at/->GroundT :str 'Str)
-                                     (at/->GroundT :keyword 'Keyword)]
-                                     (at/->GroundT :bool 'Bool)
+         (sut/malli-spec->type tp [:=> [:cat :int] :int])))
+  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :str 'Str)
+                                     (at/->GroundT tp :keyword 'Keyword)]
+                                     (at/->GroundT tp :bool 'Bool)
                                      2
                                      false
                                      '[arg0 arg1])])
-         (sut/malli-spec->type [:=> [:cat :string :keyword] :boolean])))
-  (is (= (at/->FunT [(at/->FnMethodT [at/Dyn]
-                                     at/Dyn
+         (sut/malli-spec->type tp [:=> [:cat :string :keyword] :boolean])))
+  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/Dyn tp)]
+                                     (at/Dyn tp)
                                      1
                                      false
                                      '[arg0])])
-         (sut/malli-spec->type [:=> [:cat :any] :any]))))
+         (sut/malli-spec->type tp [:=> [:cat :any] :any]))))
 
 (deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes
-  (is (= at/Dyn (sut/malli-spec->type [:map [:x :int]])))
-  (is (= at/Dyn (sut/malli-spec->type [:vector :int])))
-  (is (= (at/->GroundT :int 'Int) (sut/malli-spec->type :int))))
+  (is (= (at/Dyn tp) (sut/malli-spec->type tp [:map [:x :int]])))
+  (is (= (at/Dyn tp) (sut/malli-spec->type tp [:vector :int])))
+  (is (= (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int))))

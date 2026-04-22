@@ -3,8 +3,11 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.provenance :as prov]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.display :as sut]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (deftest ppr-str-test
   (is (str/includes? (sut/ppr-str {:a 1}) ":a"))
@@ -27,7 +30,7 @@
   (is (= :a (sut/exact-key-form :a)))
   (is (= :a (sut/exact-key-form (s/optional-key :a))))
   (is (= :a (sut/exact-key-form {:cleaned-key (s/optional-key :a)})))
-  (is (= :a (sut/exact-key-form (at/->OptionalKeyT (at/->ValueT (at/->GroundT :keyword 'Keyword) :a))))))
+  (is (= :a (sut/exact-key-form (at/->OptionalKeyT tp (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :a))))))
 
 (deftest format-and-block-user-form-test
   (is (= ":x" (sut/format-user-form :x)))
@@ -35,28 +38,28 @@
   (is (string? (sut/block-user-form :short))))
 
 (deftest user-type-and-domain-form-test
-  (is (= 'Int (sut/user-type-form (ab/schema->type s/Int))))
-  (is (= false (sut/user-type-form (ab/schema->type (s/eq false)))))
-  (is (= (symbol "nil") (sut/user-type-form (ab/schema->type (s/eq nil)))))
+  (is (= 'Int (sut/user-type-form (ab/schema->type tp s/Int))))
+  (is (= false (sut/user-type-form (ab/schema->type tp (s/eq false)))))
+  (is (= (symbol "nil") (sut/user-type-form (ab/schema->type tp (s/eq nil)))))
   (is (= 'Str (sut/user-schema-form s/Str)))
   (is (= :kw (sut/user-raw-form :kw))))
 
 (deftest describe-display-helpers-test
-  (is (= "Int" (sut/describe-type (ab/schema->type s/Int))))
-  (is (string? (sut/describe-type-block (ab/schema->type s/Int))))
+  (is (= "Int" (sut/describe-type (ab/schema->type tp s/Int))))
+  (is (string? (sut/describe-type-block (ab/schema->type tp s/Int))))
   (is (= "Str" (sut/describe-schema s/Str)))
   (is (= ":kw" (sut/describe-raw :kw)))
   (is (= ":kw" (sut/describe-item :kw))))
 
 (deftest user-fn-input-form-test
-  (let [m (at/->FnMethodT [(ab/schema->type s/Int) (ab/schema->type s/Str)]
-                          (ab/schema->type s/Bool)
+  (let [m (at/->FnMethodT tp [(ab/schema->type tp s/Int) (ab/schema->type tp s/Str)]
+                          (ab/schema->type tp s/Bool)
                           2
                           false
                           '[x y])]
     (is (= ['Int 'Str] (vec (sut/user-fn-input-form m)))))
-  (let [v (at/->FnMethodT [(ab/schema->type s/Int) (ab/schema->type s/Str)]
-                          (ab/schema->type s/Bool)
+  (let [v (at/->FnMethodT tp [(ab/schema->type tp s/Int) (ab/schema->type tp s/Str)]
+                          (ab/schema->type tp s/Bool)
                           1
                           true
                           '[x y])

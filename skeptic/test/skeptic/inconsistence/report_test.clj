@@ -7,7 +7,10 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.inconsistence.report :as sut]))
+            [skeptic.inconsistence.report :as sut]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (def sample-ctx
   {:expr '(f x 2)
@@ -55,7 +58,7 @@
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (def HasA
   {(s/required-key :a) s/Int})
@@ -220,11 +223,11 @@
                   :blame '(get counts :count "zero")
                   :focuses ['(get counts :count "zero")]
                   :cast-summary {:rule :source-union
-                                 :actual-type (ato/union-type [(T s/Int) (T s/Str)])
+                                 :actual-type (ato/union-type tp [(T s/Int) (T s/Str)])
                                  :expected-type (T s/Int)}
                   :cast-diagnostics [{:reason :source-branch-failed
                                       :rule :source-union
-                                      :actual-type (ato/union-type [(T s/Int) (T s/Str)])
+                                      :actual-type (ato/union-type tp [(T s/Int) (T s/Str)])
                                       :expected-type (T s/Int)
                                       :path []}]})
         [error] (:errors summary)
@@ -239,7 +242,7 @@
                   :blame 'bad-user
                   :focuses ['bad-user]
                   :cast-summary {:rule :source-union
-                                 :actual-type (ab/schema->type (sb/join s/Any s/Keyword))
+                                 :actual-type (ab/schema->type tp (sb/join s/Any s/Keyword))
                                  :expected-type (T s/Int)}
                   :cast-diagnostics [{:reason :leaf-mismatch
                                       :rule :leaf-overlap
@@ -269,7 +272,7 @@
                                         (T {:a s/Int
                                             :b s/Int})
                                         (T {s/Keyword s/Int}))
-        successful-cast (as/check-cast {s/Keyword s/Int}
+        successful-cast (as/check-cast tp {s/Keyword s/Int}
                                        {:a s/Int
                                         s/Keyword s/Int})]
     (is (not (:ok? failing-report)))
@@ -310,8 +313,8 @@
     (is (str/includes? (strip-ansi error) "a nullable value was provided where the type requires a non-null value"))))
 
 (deftest semantic-tamper-message-test
-  (let [type-var (at/->TypeVarT 'X)
-        sealed (at/->SealedDynT type-var)
+  (let [type-var (at/->TypeVarT tp 'X)
+        sealed (at/->SealedDynT tp type-var)
         inspect-message (sut/cast-result->message sample-ctx
                                                   {:actual-type sealed
                                                    :expected-type (T s/Int)
@@ -349,30 +352,30 @@
 (deftest constrained-and-eq-compatibility-test
   (let [non-negative-int (s/constrained s/Int (fn [n] (not (neg? n))))
         hello (s/eq "hello")]
-    (is (:ok? (as/check-cast s/Int non-negative-int)))
+    (is (:ok? (as/check-cast tp s/Int non-negative-int)))
     (is (:ok? (sut/output-cast-report sample-ctx (T non-negative-int) (T s/Int))))
-    (is (not (:ok? (as/check-cast s/Str non-negative-int))))
-    (is (not (:ok? (as/check-cast (s/eq -1) non-negative-int))))
+    (is (not (:ok? (as/check-cast tp s/Str non-negative-int))))
+    (is (not (:ok? (as/check-cast tp (s/eq -1) non-negative-int))))
 
-    (is (:ok? (as/check-cast s/Str hello)))
+    (is (:ok? (as/check-cast tp s/Str hello)))
     (is (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Str))))
-    (is (not (:ok? (as/check-cast s/Int hello))))
+    (is (not (:ok? (as/check-cast tp s/Int hello))))
     (is (not (:ok? (sut/output-cast-report sample-ctx (T hello) (T s/Int)))))
-    (is (not (:ok? (as/check-cast (s/eq "bye") hello))))))
+    (is (not (:ok? (as/check-cast tp (s/eq "bye") hello))))))
 
 (deftest enum-compatibility-test
   (let [hello-or-bye (s/enum "hello" "bye")
         hello-or-one (s/enum "hello" 1)]
-    (is (:ok? (as/check-cast s/Str hello-or-bye)))
+    (is (:ok? (as/check-cast tp s/Str hello-or-bye)))
     (is (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Str))))
-    (is (not (:ok? (as/check-cast s/Int hello-or-bye))))
+    (is (not (:ok? (as/check-cast tp s/Int hello-or-bye))))
     (is (not (:ok? (sut/output-cast-report sample-ctx (T hello-or-bye) (T s/Int)))))
 
-    (is (:ok? (as/check-cast s/Str hello-or-one)))
-    (is (:ok? (as/check-cast s/Int hello-or-one)))
-    (is (not (:ok? (as/check-cast s/Bool hello-or-one))))
+    (is (:ok? (as/check-cast tp s/Str hello-or-one)))
+    (is (:ok? (as/check-cast tp s/Int hello-or-one)))
+    (is (not (:ok? (as/check-cast tp s/Bool hello-or-one))))
 
-    (is (not (:ok? (as/check-cast hello-or-one s/Str))))
+    (is (not (:ok? (as/check-cast tp hello-or-one s/Str))))
     (is (not (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-one)))))
-    (is (:ok? (as/check-cast hello-or-bye s/Str)))
+    (is (:ok? (as/check-cast tp hello-or-bye s/Str)))
     (is (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-bye))))))

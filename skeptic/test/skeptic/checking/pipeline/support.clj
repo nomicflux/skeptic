@@ -5,11 +5,14 @@
             [skeptic.best-effort-examples]
             [skeptic.checking.pipeline :as sut]
             [skeptic.examples]
+            [skeptic.provenance :as prov]
             [skeptic.schema.collect]
             [skeptic.source :as source]
             [skeptic.static-call-examples]
             [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (def examples-file
   (File. "src/skeptic/examples.clj"))
@@ -87,9 +90,9 @@
 
 (defn check-fixture-ns
   [ns-sym opts]
-  (vec (sut/check-ns ns-sym
-                     (fixture-file-for-ns ns-sym)
-                     opts)))
+  (:results (sut/check-ns ns-sym
+                          (fixture-file-for-ns ns-sym)
+                          opts)))
 
 (defn check-fixture-namespace
   [ns-sym opts]
@@ -133,7 +136,7 @@
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (defn single-failure?
   [sym blame]
