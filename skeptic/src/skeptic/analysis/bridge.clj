@@ -10,6 +10,7 @@
 
 (def ^:dynamic *annotation-refs* nil)
 (def ^:dynamic *var-provs* nil)
+(def ^:dynamic *form-refs* nil)
 
 (defn broad-dynamic-schema?
   [schema]

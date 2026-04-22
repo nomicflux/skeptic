@@ -296,3 +296,30 @@
            (run! #(put-annotation-entry! acc ns-sym %))))
     (catch Exception _))
   acc)
+
+(defn- extract-form-for
+  [form]
+  (when (seq? form)
+    (case (first form)
+      (s/defn schema.core/defn defn) (cf/extract-defn-annotation-form form)
+      (s/def schema.core/def def)    (cf/extract-def-annotation-form form)
+      (s/defschema schema.core/defschema defschema) (cf/extract-defschema-body-form form)
+      nil)))
+
+(defn- put-form-entry!
+  [^java.util.IdentityHashMap acc ns-sym form]
+  (when-let [extracted (extract-form-for form)]
+    (when-let [decl-sym (declared-name-sym form)]
+      (when-let [decl-var (resolve-in-ns ns-sym decl-sym)]
+        (.put acc decl-var extracted)))))
+
+(defn build-form-refs!
+  [^java.util.IdentityHashMap acc ns-sym source-file]
+  (try
+    (with-open [reader (file/pushback-reader source-file)]
+      (->> (repeatedly #(file/try-read reader))
+           (take-while some?)
+           (remove file/is-ns-block?)
+           (run! #(put-form-entry! acc ns-sym %))))
+    (catch Exception _))
+  acc)

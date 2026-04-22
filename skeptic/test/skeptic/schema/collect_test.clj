@@ -116,3 +116,47 @@
     (let [refs (sut/build-annotation-refs! (java.util.IdentityHashMap.) ns-sym tmp)]
       (is (zero? (.size refs))))
     (.delete tmp)))
+
+(deftest build-form-refs-stores-defn-annotation-form
+  (require 'skeptic.test-examples.annotation-refs)
+  (let [ns-sym 'skeptic.test-examples.annotation-refs
+        file (File. "test/skeptic/test_examples/annotation_refs.clj")
+        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
+        annotated-fn-var (resolve 'skeptic.test-examples.annotation-refs/annotated-fn)]
+    (is (= 'RefSchema (.get refs annotated-fn-var)))))
+
+(deftest build-form-refs-stores-def-annotation-form
+  (require 'skeptic.test-examples.annotation-refs)
+  (let [ns-sym 'skeptic.test-examples.annotation-refs
+        file (File. "test/skeptic/test_examples/annotation_refs.clj")
+        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
+        annotated-val-var (resolve 'skeptic.test-examples.annotation-refs/annotated-val)]
+    (is (= 'RefSchema (.get refs annotated-val-var)))))
+
+(deftest build-form-refs-stores-defschema-body-form
+  (require 'skeptic.test-examples.annotation-refs)
+  (let [ns-sym 'skeptic.test-examples.annotation-refs
+        file (File. "test/skeptic/test_examples/annotation_refs.clj")
+        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
+        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)]
+    (is (= 's/Int (.get refs ref-schema-var)))))
+
+(deftest build-form-refs-stores-map-and-vector-literals
+  (require 'skeptic.test-examples.form-refs)
+  (let [ns-sym 'skeptic.test-examples.form-refs
+        file (File. "test/skeptic/test_examples/form_refs.clj")
+        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
+        map-body-var (resolve 'skeptic.test-examples.form-refs/MapBody)
+        vec-body-var (resolve 'skeptic.test-examples.form-refs/VecBody)
+        fn-with-map-var (resolve 'skeptic.test-examples.form-refs/fn-with-map-ann)]
+    (is (= '{:a s/Int :b s/Str} (.get refs map-body-var)))
+    (is (= '[s/Int] (.get refs vec-body-var)))
+    (is (= '{:result s/Int :cache s/Str} (.get refs fn-with-map-var)))))
+
+(deftest build-form-refs-skips-forms-without-annotation
+  (let [ns-sym 'skeptic.test-examples.form-refs
+        tmp (java.io.File/createTempFile "form-refs-test" ".clj")]
+    (spit tmp "(ns skeptic.test-examples.form-refs (:require [schema.core :as s])) (s/defn no-ann [x] x)")
+    (let [refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym tmp)]
+      (is (zero? (.size refs))))
+    (.delete tmp)))

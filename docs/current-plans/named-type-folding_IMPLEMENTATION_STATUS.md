@@ -222,3 +222,37 @@ Phase 2b — nested-source-form bare-symbol capture. Phase 3 (porcelain) and Pha
 
 ### Pending
 Phase 2b.1 — form-refs map and pipeline binding. Phase 2b.2 — admission consumption and end-to-end test.
+
+## Phase 2b.1 — Form-refs map + pipeline binding — COMPLETE
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/bridge.clj`**
+- `(def ^:dynamic *form-refs* nil)` added at line 13, alongside `*annotation-refs*` and `*var-provs*`.
+
+**`skeptic/src/skeptic/schema/collect.clj`**
+- `extract-form-for [form] -> form-or-nil` (private): dispatches by form head — `s/defn`/`schema.core/defn`/`defn` → `cf/extract-defn-annotation-form`; `s/def`/`schema.core/def`/`def` → `cf/extract-def-annotation-form`; `s/defschema`/`schema.core/defschema`/`defschema` → `cf/extract-defschema-body-form`; else nil.
+- `put-form-entry! [^IdentityHashMap acc ns-sym form]` (private): resolves declared name via `resolve-in-ns`, `.put`s `decl-var → form` when both succeed.
+- `build-form-refs! [^IdentityHashMap acc ns-sym source-file]` (public): mirrors `build-annotation-refs!` source-iteration pattern (`with-open` + `pushback-reader`, `repeatedly` + `try-read`, `take-while some?`, `remove is-ns-block?`, `try/catch Exception _`).
+
+**`skeptic/src/skeptic/checking/pipeline.clj`**
+- `namespace-dict` builds a SECOND IdentityHashMap `form-refs`, populates via `collect/build-form-refs!`, binds `ab/*form-refs* form-refs` alongside `ab/*annotation-refs* refs` in a single `binding` form.
+
+**`skeptic/test/skeptic/test_examples/form_refs.clj`** (new fixture)
+- `(s/defschema MapBody {:a s/Int :b s/Str})`
+- `(s/defschema VecBody [s/Int])`
+- `(s/defn fn-with-map-ann :- {:result s/Int :cache s/Str} [x :- s/Int] {:result x :cache "k"})`
+
+**`skeptic/test/skeptic/schema/collect_test.clj`**
+- `build-form-refs-stores-defn-annotation-form`: `annotated-fn` → `'RefSchema`.
+- `build-form-refs-stores-def-annotation-form`: `annotated-val` → `'RefSchema`.
+- `build-form-refs-stores-defschema-body-form`: `RefSchema` → `'s/Int`.
+- `build-form-refs-stores-map-and-vector-literals`: covers map-literal body, vector-literal body, and defn map-literal annotation.
+- `build-form-refs-skips-forms-without-annotation`: tempfile fixture; assert `.size` is 0 for unannotated defn.
+
+### Verification
+- `cd skeptic && lein test`: 399 tests, 1882 assertions, 0 failures, 0 errors.
+- `cd skeptic && clj-kondo --lint src test`: 0 errors, 0 warnings.
+
+### Pending
+Phase 2b.2 — admission entry-point form-prov override + composite source-form propagation + end-to-end test.
