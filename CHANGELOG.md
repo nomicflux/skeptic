@@ -11,10 +11,15 @@ All notable changes to this project will be documented in this file.
   produce real semantic types (`MaybeT` and unions via `ato/union-type`) in
   the type domain instead of `Dyn`, enabling cast checking against
   fixtures like `[:=> [:cat [:maybe :int]] [:or :int :string]]`.
-- Findings now carry a `:source` field identifying the declaration's origin
-  domain (`:schema`, `:malli-spec`, `:native`, or `:type-override`). The
-  text output appends `[source: X]` to the location line and the porcelain
-  JSON emits `:source` on each finding.
+- Every finding now carries a `:source` field identifying the origin
+  domain (`:schema`, `:malli-spec`, `:native`, `:type-override`, or
+  `:inferred`), attached at construction from the blamed Type's `:prov`
+  field. The text output unconditionally appends `[source: X]` to the
+  location line and the porcelain JSON unconditionally emits `:source`
+  on each finding — no conditional rendering, no missing-source fallback.
+  Internally, every semantic Type is a `defrecord` whose first field is
+  `:prov`, and there is no `prov/unknown` sentinel anywhere in the
+  system.
 
 ### Changed
 

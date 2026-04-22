@@ -352,7 +352,9 @@ parametric polymorphism without losing the usual blame guarantees.
 
 In Skeptic, after the admission boundary (Schema via `schema->type`, MalliSpec via `malli-spec->type`), the per-namespace declaration dict holds bare Types keyed by qualified symbol. No `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, or `:type` wrapper survives on a dict value.
 
-Domain origin (Schema / MalliSpec / native / type-override) is carried separately as a `Provenance` record in a parallel `:provenance` map (see `skeptic.provenance`). It is read only to attach `:source` on findings; it is never used to reconstruct schemas or to branch type reasoning.
+Every Type is itself a `defrecord` whose first field is `:prov`, a `Provenance` record. `prov/of` is the strict reader; a missing `:prov` throws. There is no `prov/unknown` sentinel anywhere in the system. Ingestion boundaries supply the root Provenance (`:schema`, `:malli-spec`, `:native`, `:type-override`, `:inferred`); combinators that build composite Types take an explicit anchor Provenance and do not derive the container's identity from its items.
+
+Domain origin (Schema / MalliSpec / native / type-override) is also carried separately as a `Provenance` record in a parallel `:provenance` map (see `skeptic.provenance`). The pipeline's `check-namespace` merges inferred provenances (from the analyzer) with the declared-source provenance map before reporting, so every finding can attach a real `:source` read from the blamed Type's `:prov`. It is read only to attach `:source` on findings; it is never used to reconstruct schemas or to branch type reasoning.
 
 ## Primary source
 

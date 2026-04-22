@@ -140,6 +140,7 @@ Current boundary (pinned to Malli 0.20.1):
   - Calls `malli.core/schema` and returns `malli.core/form` on success.
   - Raises `IllegalArgumentException` on failure, carried up as a declaration-phase error.
 - Conversion (`skeptic.analysis.malli-spec.bridge/malli-spec->type`):
+  - Takes a `Provenance` (source `:malli-spec`) as first argument and threads it through every sub-constructor it produces. `FunT`, `FnMethodT`, `MaybeT`, each `UnionT` member, and every primitive leaf carry that `:malli-spec` prov on their `:prov` field. `prov/of` on any returned sub-Type will report `:malli-spec`.
   - Recursive runner over the admitted form.
     - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
     - `[:maybe X]` → `MaybeT` over the converted inner.

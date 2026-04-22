@@ -133,7 +133,7 @@ Some subsystems expose a dedicated API module that external callers must go thro
 - `skeptic.analysis.annotate.api` is the API for the annotate subsystem. Code that reads or writes fields on annotated nodes must use the accessors and mutators defined there (e.g. `node-form`, `node-type`, `with-type`). Direct `(:form node)`, `(:type node)`, `(assoc node :type ...)` are permitted only inside `annotate/*` files that own node shape (the per-AST-op annotators).
 - `skeptic.analysis.bridge` is the entry point for schema→type conversion (`schema->type`). Schema-domain predicates and canonicalization live in `skeptic.analysis.bridge.canonicalize`; per rule 1 these siblings are required directly, they are not "internals of bridge."
 - `skeptic.analysis.cast` is the cast dispatcher. Cast-result construction and blame/path helpers live in `skeptic.analysis.cast.support`. Again these are documented siblings, not cast internals.
-- `skeptic.provenance` is the API for Provenance values carried alongside the declaration dict. Consumers use `make-provenance`, `source`, `provenance?`, and `merge-provenances` — not the `Provenance` record constructor or raw `:source` field access. Only the following namespaces may `(:require [skeptic.provenance …])`: `skeptic.typed-decls`, `skeptic.typed-decls.malli`, `skeptic.analysis.native-fns`, `skeptic.checking.pipeline`.
+- `skeptic.provenance` is the API for Provenance values carried alongside the declaration dict and attached to every Type. Consumers use `make-provenance`, `of`, `source`, `provenance?`, and `merge-provenances` — not the `Provenance` record constructor or raw `:source` field access. `prov/of` is strict: it throws if given a value without `:prov`, so any code that fabricates a Type without a real Provenance is rejected at the earliest read. There is no `prov/unknown` sentinel; every Type everywhere must carry a named-source Provenance.
 
 When an existing API module lacks a helper that a new consumer needs, extend the API module rather than reaching past it. The purpose of the boundary is to keep node shape (and analogous cast-result shape) changeable in one place.
 
@@ -242,6 +242,32 @@ The direct admission flow per source is:
 - `:skeptic/type-overrides → schema->type → dict[sym] = Type` (via `skeptic.config` + `skeptic.typed-decls`)
 
 There is no intermediate entry-map shape between admission and dict insertion.
+
+## Types Carry Provenance As A Record Field
+
+Every Type in `skeptic.analysis.types` is a `defrecord` with `:prov` as field 1. The constructor contract is absolute:
+
+- Every positional arrow constructor (`at/->GroundT`, `at/->MapT`, `at/->FunT`, `at/->FnMethodT`, `at/->MaybeT`, `at/->UnionT`, `at/->SeqT`, `at/->VectorT`, `at/->SetT`, `at/->ValueT`, `at/->ForallT`, `at/->PlaceholderT`, `at/->InfCycleT`, `at/->RefinementT`, `at/->AdapterLeafT`, `at/->OptionalKeyT`, `at/->VarT`, `at/->TypeVarT`, `at/->BottomT`, `at/->DynT`, `at/->SealedDynT`) takes a Provenance as first argument.
+- Type helpers that wrap constructors (`at/Dyn`, `at/NumericDyn`, `at/BottomType`) also take a Provenance as first argument.
+- `prov/of` is the canonical reader and throws if `:prov` is absent. There is no fallback and no `prov/unknown` sentinel.
+
+Combinator provenance rule (container-owns-identity):
+
+- When a combinator joins or merges existing Types into a new composite (union, intersection, merged map, joined seq), the result carries an **anchor provenance** supplied by the caller — the container's own prov — not a provenance derived from the items. Items keep their own provs on themselves; the composite owns its own.
+- Combinators requiring an anchor take it as an explicit first parameter: `av/join anchor-prov types`, `amo/merge-map-types anchor-prov types`, `amoa/merge-types anchor-prov types`, `coll/concat-output-type anchor-prov args`, `shared-call/shared-call-output-type` derives the anchor from `default-output-type`.
+
+Ingestion boundaries supply the root Provenance used throughout a derived subtree:
+
+- `skeptic.analysis.bridge/schema->type` and `skeptic.analysis.bridge.localize/*` — `:schema`.
+- `skeptic.analysis.malli-spec.bridge/malli-spec->type` threads `:malli-spec` through every sub-constructor (`FunT`, `FnMethodT`, `MaybeT`, `UnionT` members, primitive leaves).
+- `skeptic.analysis.native-fns/static-call-native-info` — `:native`.
+- `skeptic.config` / `skeptic.typed-decls` for `:type-overrides` — `:type-override`.
+- `skeptic.analysis.type-ops/exact-value-type`, `skeptic.analysis.value/type-of-value`, and the analyzer annotation layer — `:inferred`, taken from `prov/with-ctx` when inside the analyzer.
+
+Equality helpers:
+
+- `at/type=?` compares Types by shape, stripping `:prov` recursively. Tests and any shape-sensitive code must use it instead of `=`, because `=` on defrecords also compares `:prov`.
+- `at/dedup-types` deduplicates by shape (same recursive strip) while preserving one representative from the input.
 
 ## Design Bias
 
