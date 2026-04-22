@@ -2,8 +2,7 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.output.serialize :as ser]
-            [skeptic.provenance :as prov]))
+            [skeptic.output.serialize :as ser]))
 
 (def ^:private ansi-pattern #"\u001b\[[0-9;]*m")
 
@@ -34,7 +33,7 @@
     (:debug opts) (assoc :debug {:raw-result (ser/json-safe result)})))
 
 (defn- exception-record
-  [ns result {:keys [phase location blame errors]} opts]
+  [ns result {:keys [phase location blame errors source]} opts]
   (with-debug
     {:kind "exception"
      :ns (str ns)
@@ -43,18 +42,18 @@
      :line (:line location)
      :column (:column location)
      :blame (->str blame)
+     :source (name source)
      :exception_class (some-> (:exception-class result) str)
      :exception_message (:exception-message result)
      :messages (mapv strip-ansi errors)}
     opts result))
 
 (defn- finding-record
-  [ns provenance result summary opts]
+  [ns result summary opts]
   (let [{:keys [report-kind location blame-side blame-polarity rule
                 actual-type expected-type
                 source-expression blame focuses focus-sources enclosing-form
-                expanded-expression errors]} summary
-        source (prov/source (get provenance enclosing-form))]
+                expanded-expression errors source]} summary]
     (with-debug
       {:kind "finding"
        :ns (str ns)
@@ -70,7 +69,7 @@
        :expected_type (abr/type->json-data expected-type)
        :actual_type_str (abr/render-type actual-type)
        :expected_type_str (abr/render-type expected-type)
-       :source (some-> source name)
+       :source (name source)
        :focuses (vec (or focus-sources (map ->str focuses)))
        :enclosing_form (some-> enclosing-form ->str)
        :expanded_expression (some-> expanded-expression ->str)
@@ -94,10 +93,10 @@
                                    :path path
                                    :message message}))
    :ns-start (fn [_ns _source-file _opts])
-   :finding (fn [ns provenance result summary opts]
+   :finding (fn [ns result summary opts]
               (let [record (if (= :exception (:report-kind summary))
                              (exception-record ns result summary opts)
-                             (finding-record ns provenance result summary opts))]
+                             (finding-record ns result summary opts))]
                 (write-line-raw! (if (:debug opts) record (drop-empties record)))))
    :form-debug (fn [_ns record _opts]
                  (write-line-raw! (ser/json-safe record)))

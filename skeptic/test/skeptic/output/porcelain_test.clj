@@ -30,16 +30,15 @@
    :rule :ground-mismatch
    :actual-type (at/->GroundT tp :keyword 'Keyword)
    :expected-type (at/->GroundT tp :int 'Int)
+   :source :malli-spec
    :errors ["\u001b[33mKeyword is not compatible with Int\u001b[0m"]})
-
-(def ^:private example-provenance
-  {'foo.bar/f (prov/make-provenance :malli-spec 'foo.bar/f nil nil)})
 
 (def ^:private example-exception-summary
   {:report-kind :exception
    :phase :declaration
    :location {:file "src/foo.clj" :line 99 :column 1}
    :blame 'my-fn
+   :source :schema
    :errors ["Skeptic hit an exception while checking declared schema for my-fn ..."]})
 
 (def ^:private example-exception-result
@@ -48,7 +47,7 @@
 
 (deftest finding-record-shape
   (let [[line & more] (capture-lines
-                       #((:finding sut/printer) 'foo.bar example-provenance {} example-input-summary {}))
+                       #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
         parsed (parse-line line)]
     (is (empty? more))
     (is (= "finding" (:kind parsed)))
@@ -71,7 +70,7 @@
 
 (deftest exception-record-shape
   (let [[line] (capture-lines
-                #((:finding sut/printer) 'foo.bar {} example-exception-result
+                #((:finding sut/printer) 'foo.bar example-exception-result
                                          example-exception-summary {}))
         parsed (parse-line line)]
     (is (= "exception" (:kind parsed)))
@@ -79,7 +78,8 @@
     (is (= "java.lang.RuntimeException" (:exception_class parsed)))
     (is (= "could not resolve schema" (:exception_message parsed)))
     (is (= 99 (:line parsed)))
-    (is (= "my-fn" (:blame parsed)))))
+    (is (= "my-fn" (:blame parsed)))
+    (is (= "schema" (:source parsed)))))
 
 (deftest discovery-warning-shape
   (let [[line] (capture-lines
@@ -136,7 +136,7 @@
                 :cast-summary {:foo 'bar}
                 :context {:local-vars {}}}
         [line] (capture-lines
-                #((:finding sut/printer) 'foo.bar example-provenance result example-input-summary
+                #((:finding sut/printer) 'foo.bar result example-input-summary
                                          {:debug true}))
         parsed (parse-line line)]
     (is (= "finding" (:kind parsed)))
@@ -145,6 +145,6 @@
 
 (deftest finding-without-debug-opt-omits-debug-key
   (let [[line] (capture-lines
-                #((:finding sut/printer) 'foo.bar example-provenance {} example-input-summary {}))
+                #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
         parsed (parse-line line)]
     (is (nil? (:debug parsed)))))
