@@ -17,10 +17,6 @@
   [prov k]
   (at/->ValueT prov (at/->GroundT prov :keyword 'Keyword) k))
 
-(defn- named-map
-  [prov]
-  (at/->MapT prov {(kw-key prov :result) (ground-int prov)}))
-
 (defn- named-vector
   [prov]
   (at/->VectorT prov [(ground-int prov)] false))
@@ -126,69 +122,48 @@
     (is (= {:t "var" :inner {:t "ground" :name "Int"}}
            (sut/type->json-data (at/->VarT tp (at/->GroundT tp :int 'Int)))))))
 
-(deftest build-fold-index-deterministic-selection
-  (let [schema-prov (p :schema 'zeta/Thing)
-        override-prov (p :type-override 'alpha/Thing)
-        schema-type (named-map schema-prov)
-        override-type (named-map override-prov)
-        idx (sut/build-fold-index {'zeta/Thing schema-type
-                                   'alpha/Thing override-type}
-                                  {'zeta/Thing schema-prov
-                                   'alpha/Thing override-prov})]
-    (is (= 'alpha/Thing
-           (:qualified-sym (sut/folded-entry idx schema-type))))
-    (is (= :type-override
-           (:source (sut/folded-entry idx schema-type)))))
+(deftest folded-name-returns-qualified-sym-for-foldable-source
+  (let [schema-prov (p :schema 'demo/Thing)
+        t (named-vector schema-prov)]
+    (is (= 'demo/Thing (#'sut/folded-name t)))))
 
-  (let [malli-a (p :malli-spec 'alpha/Thing)
-        malli-z (p :malli-spec 'zeta/Thing)
-        idx (sut/build-fold-index {'zeta/Thing (named-map malli-z)
-                                   'alpha/Thing (named-map malli-a)}
-                                  {'zeta/Thing malli-z
-                                   'alpha/Thing malli-a})]
-    (is (= 'alpha/Thing
-           (:qualified-sym (sut/folded-entry idx (named-map tp))))))
+(deftest folded-name-nil-for-non-foldable-source
+  (let [inferred-prov (p :inferred 'demo/x)
+        t (named-vector inferred-prov)]
+    (is (nil? (#'sut/folded-name t)))))
 
-  (let [native-prov (p :native 'native/fn)
-        idx (sut/build-fold-index {'native/fn (named-map native-prov)}
-                                  {'native/fn native-prov})]
-    (is (empty? idx))))
+(deftest render-type-form*-folds-non-root-foldable-subtree
+  (let [schema-prov (p :schema 'demo/Thing)
+        inner (named-vector schema-prov)
+        outer (at/->MapT (p :inferred 'demo/x) {(kw-key (p :inferred 'demo/x) :result) inner})]
+    (is (= {:result 'demo/Thing}
+           (sut/render-type-form* outer {})))))
 
-(deftest opts-aware-render-and-json-folding
-  (let [schema-prov (p :schema 'demo/ThreeColour)
-        inferred-prov (p :inferred 'demo/caller)
-        fold-index (sut/build-fold-index {'demo/ThreeColour (named-vector schema-prov)}
-                                         {'demo/ThreeColour schema-prov})
-        nested-map (at/->MapT inferred-prov {(kw-key inferred-prov :result)
-                                             (named-vector inferred-prov)})
-        named-union (at/->UnionT inferred-prov
-                                 #{(named-vector inferred-prov)
-                                   (at/->MapT inferred-prov {(kw-key inferred-prov :x)
-                                                             (ground-int inferred-prov)})})]
-    (is (= {:result 'demo/ThreeColour}
-           (sut/render-type-form* nested-map {:fold-index fold-index})))
-    (is (= ['Int]
-           (sut/render-type-form* (named-vector inferred-prov)
-                                  {:fold-index fold-index
-                                   :explain-full true})))
-    (is (= {:t "named"
-            :name "demo/ThreeColour"
-            :source "schema"}
-           (sut/type->json-data* (named-vector inferred-prov)
-                                 {:fold-index fold-index})))
-    (is (= {:t "vector"
-            :items [{:t "ground" :name "Int"}]}
-           (sut/type->json-data* (named-vector inferred-prov)
-                                 {:fold-index fold-index
-                                  :explain-full true})))
-    (let [rendered (sut/render-type-form* named-union {:fold-index fold-index})]
-      (is (= 'union (first rendered)))
-      (is (= #{'demo/ThreeColour '{:x Int}}
-             (set (rest rendered)))))
-    (let [members (:members (sut/type->json-data* named-union {:fold-index fold-index}))]
-      (is (= "union" (:t (sut/type->json-data* named-union {:fold-index fold-index}))))
-      (is (= #{{:t "named" :name "demo/ThreeColour" :source "schema"}
-               {:t "map"
-                :entries [{:key {:t "value" :value ":x"}
-                           :val {:t "ground" :name "Int"}}]}}
-             (set members))))))
+(deftest render-type-form*-does-not-fold-root
+  (let [schema-prov (p :schema 'demo/Thing)
+        inferred-prov (p :inferred 'demo/x)
+        t (at/->VectorT schema-prov [(at/->GroundT inferred-prov :int 'Int)] false)]
+    (is (= ['Int] (sut/render-type-form* t {})))))
+
+(deftest render-type-form*-explain-full-disables-folding
+  (let [schema-prov (p :schema 'demo/Thing)
+        inner (named-vector schema-prov)
+        outer (at/->MapT (p :inferred 'demo/x) {(kw-key (p :inferred 'demo/x) :result) inner})]
+    (is (= {:result ['Int]}
+           (sut/render-type-form* outer {:explain-full true})))))
+
+(deftest type->json-data*-folds-non-root-foldable-subtree
+  (let [schema-prov (p :schema 'demo/Thing)
+        inner (named-vector schema-prov)
+        outer (at/->MapT (p :inferred 'demo/x) {(kw-key (p :inferred 'demo/x) :result) inner})
+        result (sut/type->json-data* outer {})
+        first-val (-> result :entries first :val)]
+    (is (= {:t "named" :name "demo/Thing" :source "schema"} first-val))))
+
+(deftest type->json-data*-explain-full-disables-folding
+  (let [schema-prov (p :schema 'demo/Thing)
+        inner (named-vector schema-prov)
+        outer (at/->MapT (p :inferred 'demo/x) {(kw-key (p :inferred 'demo/x) :result) inner})
+        result (sut/type->json-data* outer {:explain-full true})
+        first-val (-> result :entries first :val)]
+    (is (= "vector" (:t first-val)))))

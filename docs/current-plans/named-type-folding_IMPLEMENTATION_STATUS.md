@@ -136,3 +136,68 @@ branch + canonicalize outer-strip-only). Awaiting user approval.~~
 - `cd lein-skeptic && lein test`: 0 tests, clean run.
 - `cd skeptic && clj-kondo --lint src test`: errors 0, warnings 0.
 - `cd lein-skeptic && clj-kondo --lint src`: errors 0, warnings 0.
+
+---
+
+## Phase 2 — Renderer fold by prov; --explain-full; opts threading; delete fold-index scaffolding — COMPLETE
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/bridge/render.clj`**
+- Deleted prior fold-index scaffolding: `source-priority`, `source-rank`, `better-fold-entry`, `normalize-fold-key` (and its inner `strip-prov-local`), `build-fold-index`, `folded-entry`, `:fold-index` opts key.
+- New `default-render-opts` `{:explain-full false :root? true}`.
+- New private `folded-name [t]` returns `(:qualified-sym (prov/of t))` when prov source ∈ `foldable-sources` AND t is not a leaf type. Leaf predicates: `at/dyn-type? at/bottom-type? at/ground-type? at/numeric-dyn-type? at/refinement-type? at/adapter-leaf-type? at/value-type? at/type-var-type?`.
+- `render-type-form*` 2-arity: merges with default-render-opts; computes `child-opts` with `:root? false`; `fold-hit` fires when not explain-full AND not root AND `folded-name` returns truthy. Folded subtrees emit the qualified-sym; non-folded recurse with child-opts.
+- `type->json-data*` 2-arity: same pattern; folded subtrees emit `{:t "named" :name "<qsym>" :source "<source-name>"}`.
+
+**`skeptic/src/skeptic/inconsistence/mismatch.clj`**
+- `describe-display-block` becomes 2-arity `[value opts]`.
+- `mismatched-nullable-msg`, `mismatched-ground-type-msg`, `mismatched-output-schema-msg`, `mismatched-schema-msg` each gain a 4-arity `[ctx actual expected opts]`. Existing 3-arity remains as a `{}`-delegating wrapper.
+
+**`skeptic/src/skeptic/inconsistence/report.clj`**
+- `output-cast-report` 4-arity now uses `opts` (was `_opts`) and threads it into `mm/mismatched-output-schema-msg`.
+
+**`skeptic/src/skeptic/checking/pipeline.clj`**
+- `check-namespace` no longer returns `:namespace-dict` — return shape is `{:results … :provenance …}`. (`namespace-dict` defn retained; still called from `check-s-expr` and `check-ns`.)
+
+**`skeptic/src/skeptic/core.clj`**
+- Removed `[skeptic.analysis.bridge.render :as abr]` require (no longer used).
+- `check-project` no longer destructures `:namespace-dict` and no longer builds `fold-index`. `opts*` retains `:explain-full` only.
+
+**`skeptic/src/skeptic/typed_decls.clj`**
+- `desc->provenance` now stamps source `:fn-annotation` for descs with arglists (function declarations) and `:schema` for schema declarations. Reason: `:fn-annotation` is not in `foldable-sources`, so function-name provs do not fold inner subtypes (which would mis-render e.g. `[abcde-maps-bad]` for an inline-annotated fn return).
+
+**`skeptic/src/skeptic/schema/collect.clj`**
+- `build-var-provs!` now skips function vars (`(not (fn? @v))` plus `bound?` guard). Reason: `*var-provs*`-driven prov override on Var ref must not stamp function-name prov on a referenced fn var.
+
+**`skeptic/src/skeptic/provenance.clj`**
+- Added `:fn-annotation 3` to `source-rank-map`; pushed `:native` to 4 and `:inferred` to 5. Reason: without a rank, `merge-provenances nil <fn-annotation-prov>` returned nil, causing `derive-prov` to throw across many call sites.
+
+**Test updates**
+- `skeptic/test/skeptic/analysis/bridge/render_test.clj`: deleted prior `build-fold-index-deterministic-selection` and `opts-aware-render-and-json-folding`; added 7 behavior tests for `folded-name`, `:root?` semantics, leaf exclusion, `:explain-full` toggle, and json-data variants. Removed unused `named-map` helper.
+- `skeptic/test/skeptic/inconsistence/report_test.clj`: `report-summary-honours-fold-options` rewritten to nest the named type inside an outer map (since root never folds, the named type must be at non-root for folding to be visible).
+- `skeptic/test/skeptic/output/porcelain_test.clj`, `skeptic/test/skeptic/inconsistence/display_test.clj`: removed `:fold-index` opts and `abr/build-fold-index` calls; opts shape is `{}` (default fold) or `{:explain-full true}`.
+- `skeptic/test/skeptic/core_test.clj`: removed `:namespace-dict` mock from `check-namespace` return; replaced `:fold-index` opts assertion with `:explain-full` assertion.
+- `skeptic/test/skeptic/checking/pipeline/check_ns_phase_test.clj`, `skeptic/test/skeptic/checking/pipeline/reporting_phase_test.clj`: updated string expectations from structural `(maybe Str)` to folded `skeptic.static-call-examples/UserDesc` (the named composite reachable from the slot value now folds).
+
+**Phase 4 prior-attempt files deleted** (Phase 2 boundary; Phase 4 will rewrite from scratch):
+- `skeptic/test/skeptic/checking/pipeline/named_fold_regression_test.clj`
+- `skeptic/test/skeptic/test_examples/named_fold.clj`
+- `skeptic/test/skeptic/test_examples/catalog.clj`: removed `:named-fold` require, schema-fixture-order entry, and fixture-env entry.
+
+### Verification
+
+- `cd skeptic && lein test`: 391 tests, 1857 assertions, 0 failures, 0 errors.
+- `cd lein-skeptic && lein test`: 0 tests, clean run.
+- `cd skeptic && clj-kondo --lint src test`: errors 0, warnings 0.
+- `cd lein-skeptic && clj-kondo --lint src`: errors 0, warnings 0.
+
+### Behaviour observable after Phase 2
+
+End-to-end on `clj-threals/operations.clj add-with-cache`:
+- Recursive `Threal` references inside the declared return type fold to `clj-threals.threals/Threal` (the user-facing fix for the recursion-blowup case).
+- The OUTER slot values (`{:result … :cache …}`) still render structurally one level deep, because `add-with-cache`'s declared return is an inline map annotation. Inline annotations stamp `:fn-annotation` source which is not foldable; the slot values inherit that prov. Folding kicks in only when admission re-encounters a Var ref or Named wrapper inside the values (which happens for the recursive Threal self-references but not for the top-level slot values themselves).
+- This is significantly better than the pre-Phase-2 baseline (no recursion blow-up) but does not fully reach the user's stated goal of `{:result Threal :cache ThrealCache}`. Phase 2b will close that gap by extending the bare-symbol-capture mechanism to nested positions in source forms.
+
+### Pending
+Phase 2b — nested-source-form bare-symbol capture. Phase 3 (porcelain) and Phase 4 (regression test) follow.

@@ -42,8 +42,9 @@
   {:type-override 0
    :malli-spec 1
    :schema 2
-   :native 3
-   :inferred 4})
+   :fn-annotation 3
+   :native 4
+   :inferred 5})
 
 (defn- source-rank
   [p]

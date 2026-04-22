@@ -3,7 +3,6 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema.cast :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
@@ -384,28 +383,26 @@
 (deftest report-summary-honours-fold-options
   (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
         inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil)
-        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
-        expected-type (at/->VectorT inferred-prov [(at/->GroundT inferred-prov :int 'Int)] false)
+        named-vec (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
+        kw-key (at/->ValueT inferred-prov (at/->GroundT inferred-prov :keyword 'Keyword) :result)
+        outer-map (at/->MapT inferred-prov {kw-key named-vec})
         actual-type (at/->GroundT inferred-prov :keyword 'Keyword)
-        fold-index (abr/build-fold-index {'foo/NamedVec named-type}
-                                         {'foo/NamedVec schema-prov})
         report {:report-kind :output
                 :blame 'bad-user
                 :focuses ['bad-user]
                 :cast-summary {:rule :leaf-overlap
                                :actual-type actual-type
-                               :expected-type expected-type}
+                               :expected-type outer-map}
                 :cast-diagnostics [{:reason :leaf-mismatch
                                     :rule :leaf-overlap
                                     :actual-type actual-type
-                                    :expected-type expected-type
+                                    :expected-type outer-map
                                     :path []}]}
-        folded (-> (sut/report-summary report {:fold-index fold-index})
+        folded (-> (sut/report-summary report {})
                    :errors
                    first
                    strip-ansi)
-        full (-> (sut/report-summary report {:fold-index fold-index
-                                             :explain-full true})
+        full (-> (sut/report-summary report {:explain-full true})
                  :errors
                  first
                  strip-ansi)]

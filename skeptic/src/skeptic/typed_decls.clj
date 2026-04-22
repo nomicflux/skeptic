@@ -10,8 +10,9 @@
   (ab/schema->type prov schema))
 
 (defn- desc->provenance
-  [_desc ns qualified-sym]
-  (prov/make-provenance :schema qualified-sym ns nil))
+  [{:keys [arglists]} ns qualified-sym]
+  (let [source (if (seq arglists) :fn-annotation :schema)]
+    (prov/make-provenance source qualified-sym ns nil)))
 
 (defn- effective-prov
   [declared-var desc-prov]

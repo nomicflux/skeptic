@@ -392,7 +392,7 @@
 (defn output-cast-report
   ([ctx expected actual]
    (output-cast-report ctx expected actual {}))
-  ([ctx expected actual _opts]
+  ([ctx expected actual opts]
    (let [expected-type (ato/normalize-for-declared-type expected)
          actual-type (ato/normalize-for-declared-type actual)
          source (prov/source (prov/of actual-type))
@@ -411,5 +411,5 @@
           :actual-type (:actual-type summary)})
        (merge {:ok? false
                :source source
-               :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type)]}
+               :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type opts)]}
               (cast-report-metadata raw))))))

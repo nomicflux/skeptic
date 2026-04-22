@@ -228,7 +228,8 @@
   (doseq [v (mapcat (comp vals ns-interns) (all-ns))
           :let [m (meta v)
                 qsym (sb/qualified-var-symbol v)]
-          :when (and qsym (:schema m) (not (:macro m)))]
+          :when (and qsym (:schema m) (not (:macro m))
+                     (bound? v) (not (fn? @v)))]
     (.put acc v (prov/make-provenance :schema
                                       qsym
                                       (some-> v .ns ns-name)
