@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.provenance :as prov]
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.display :as sut]))
@@ -67,3 +68,16 @@
     (is (= 'Int (first r)))
     (is (= '& (second r)))
     (is (= ['Str] (vec (nth r 2))))))
+
+(deftest describe-type-honours-fold-opts
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
+        inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil)
+        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
+        actual-type (at/->VectorT inferred-prov [(at/->GroundT inferred-prov :int 'Int)] false)
+        fold-index (abr/build-fold-index {'foo/NamedVec named-type}
+                                         {'foo/NamedVec schema-prov})]
+    (is (= "foo/NamedVec"
+           (sut/describe-type actual-type {:fold-index fold-index})))
+    (is (= "[Int]"
+           (sut/describe-type actual-type {:fold-index fold-index
+                                           :explain-full true})))))

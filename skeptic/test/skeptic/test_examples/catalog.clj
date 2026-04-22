@@ -5,6 +5,7 @@
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
             [skeptic.test-examples.malli-contracts]
+            [skeptic.test-examples.named-fold]
             [skeptic.test-examples.nullability]
             [skeptic.test-examples.resolution]
             [skeptic.typed-decls :as typed-decls])
@@ -14,6 +15,7 @@
   [:basics
    :control-flow
    :collections
+   :named-fold
    :resolution
    :contracts
    :nullability
@@ -29,6 +31,8 @@
                   :file (File. "test/skeptic/test_examples/control_flow.clj")}
    :collections {:ns 'skeptic.test-examples.collections
                  :file (File. "test/skeptic/test_examples/collections.clj")}
+   :named-fold {:ns 'skeptic.test-examples.named-fold
+                :file (File. "test/skeptic/test_examples/named_fold.clj")}
    :resolution {:ns 'skeptic.test-examples.resolution
                 :file (File. "test/skeptic/test_examples/resolution.clj")}
    :contracts {:ns 'skeptic.test-examples.contracts

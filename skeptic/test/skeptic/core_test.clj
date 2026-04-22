@@ -405,6 +405,7 @@
 
 (deftest check-project-porcelain-emits-finding-per-result
   (let [source-file (java.io.File. "test/example.clj")
+        summary-opts (atom nil)
         fake-result {:report-kind :input
                      :location {:file "test/example.clj" :line 10 :column 1 :source :inferred}
                      :blame-side :term
@@ -418,8 +419,14 @@
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file
                   (fn [file] ['example.ns file])
-                  checking/check-namespace (fn [& _] {:results [fake-result] :provenance {}})
-                  inrep/report-summary (fn [r] r)]
+                  checking/check-namespace (fn [& _]
+                                             {:results [fake-result]
+                                              :provenance {}
+                                              :namespace-dict {:dict {}
+                                                               :provenance {}}})
+                  inrep/report-summary (fn [r opts]
+                                         (reset! summary-opts opts)
+                                         r)]
       (let [out (with-out-str
                   (is (= 1 (sut/check-project {:porcelain true} "." "."))))
             lines (parse-jsonl out)]
@@ -437,7 +444,10 @@
         (testing "run-summary has errored=true"
           (let [summary (last lines)]
             (is (true? (:errored summary)))
-            (is (= 1 (:finding_count summary)))))))))
+            (is (= 1 (:finding_count summary)))))
+        (is (map? @summary-opts))
+        (is (contains? @summary-opts :fold-index))
+        (is (false? (:explain-full @summary-opts)))))))
 
 (deftest check-project-porcelain-emits-ns-discovery-warning
   (let [source-file (java.io.File. "test/example.clj")]

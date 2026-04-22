@@ -460,13 +460,17 @@
 
 (defn check-namespace
   "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
-  (typed declarations and form checking). Returns {:results [...] :provenance {sym → Provenance}}."
+  (typed declarations and form checking). Returns
+  {:results [...] :provenance {sym → Provenance} :namespace-dict {...}}."
   [opts ns-sym source-file]
   (try
-    (let [{:keys [errors provenance]} (namespace-dict opts ns-sym)
+    (let [ns-dict (namespace-dict opts ns-sym)
+          {:keys [errors provenance]} ns-dict
           {check-results :results check-provenance :provenance} (check-ns ns-sym source-file opts)]
       {:results (vec (concat errors check-results))
-       :provenance (merge check-provenance provenance)})
+       :provenance (merge check-provenance provenance)
+       :namespace-dict ns-dict})
     (catch Exception e
       {:results [(load-exception-result ns-sym e)]
-       :provenance {}})))
+       :provenance {}
+       :namespace-dict nil})))

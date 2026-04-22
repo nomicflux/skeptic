@@ -1,8 +1,29 @@
 (ns skeptic.analysis.bridge.render-test
   (:require [clojure.test :refer [deftest is testing]]
-            [skeptic.analysis.bridge.render :as sut]
-            [skeptic.test-helpers :refer [tp]]
-            [skeptic.analysis.types :as at]))
+    [skeptic.analysis.bridge.render :as sut]
+    [skeptic.test-helpers :refer [tp]]
+    [skeptic.analysis.types :as at]
+    [skeptic.provenance :as prov]))
+
+(defn- p
+  [source sym]
+  (prov/make-provenance source sym 'skeptic.test nil))
+
+(defn- ground-int
+  [prov]
+  (at/->GroundT prov :int 'Int))
+
+(defn- kw-key
+  [prov k]
+  (at/->ValueT prov (at/->GroundT prov :keyword 'Keyword) k))
+
+(defn- named-map
+  [prov]
+  (at/->MapT prov {(kw-key prov :result) (ground-int prov)}))
+
+(defn- named-vector
+  [prov]
+  (at/->VectorT prov [(ground-int prov)] false))
 
 (deftest type->json-data-scalars
   (testing "nil passthrough"
@@ -104,3 +125,70 @@
            (sut/type->json-data (at/->SeqT tp [(at/->GroundT tp :int 'Int)] false))))
     (is (= {:t "var" :inner {:t "ground" :name "Int"}}
            (sut/type->json-data (at/->VarT tp (at/->GroundT tp :int 'Int)))))))
+
+(deftest build-fold-index-deterministic-selection
+  (let [schema-prov (p :schema 'zeta/Thing)
+        override-prov (p :type-override 'alpha/Thing)
+        schema-type (named-map schema-prov)
+        override-type (named-map override-prov)
+        idx (sut/build-fold-index {'zeta/Thing schema-type
+                                   'alpha/Thing override-type}
+                                  {'zeta/Thing schema-prov
+                                   'alpha/Thing override-prov})]
+    (is (= 'alpha/Thing
+           (:qualified-sym (sut/folded-entry idx schema-type))))
+    (is (= :type-override
+           (:source (sut/folded-entry idx schema-type)))))
+
+  (let [malli-a (p :malli-spec 'alpha/Thing)
+        malli-z (p :malli-spec 'zeta/Thing)
+        idx (sut/build-fold-index {'zeta/Thing (named-map malli-z)
+                                   'alpha/Thing (named-map malli-a)}
+                                  {'zeta/Thing malli-z
+                                   'alpha/Thing malli-a})]
+    (is (= 'alpha/Thing
+           (:qualified-sym (sut/folded-entry idx (named-map tp))))))
+
+  (let [native-prov (p :native 'native/fn)
+        idx (sut/build-fold-index {'native/fn (named-map native-prov)}
+                                  {'native/fn native-prov})]
+    (is (empty? idx))))
+
+(deftest opts-aware-render-and-json-folding
+  (let [schema-prov (p :schema 'demo/ThreeColour)
+        inferred-prov (p :inferred 'demo/caller)
+        fold-index (sut/build-fold-index {'demo/ThreeColour (named-vector schema-prov)}
+                                         {'demo/ThreeColour schema-prov})
+        nested-map (at/->MapT inferred-prov {(kw-key inferred-prov :result)
+                                             (named-vector inferred-prov)})
+        named-union (at/->UnionT inferred-prov
+                                 #{(named-vector inferred-prov)
+                                   (at/->MapT inferred-prov {(kw-key inferred-prov :x)
+                                                             (ground-int inferred-prov)})})]
+    (is (= {:result 'demo/ThreeColour}
+           (sut/render-type-form* nested-map {:fold-index fold-index})))
+    (is (= ['Int]
+           (sut/render-type-form* (named-vector inferred-prov)
+                                  {:fold-index fold-index
+                                   :explain-full true})))
+    (is (= {:t "named"
+            :name "demo/ThreeColour"
+            :source "schema"}
+           (sut/type->json-data* (named-vector inferred-prov)
+                                 {:fold-index fold-index})))
+    (is (= {:t "vector"
+            :items [{:t "ground" :name "Int"}]}
+           (sut/type->json-data* (named-vector inferred-prov)
+                                 {:fold-index fold-index
+                                  :explain-full true})))
+    (let [rendered (sut/render-type-form* named-union {:fold-index fold-index})]
+      (is (= 'union (first rendered)))
+      (is (= #{'demo/ThreeColour '{:x Int}}
+             (set (rest rendered)))))
+    (let [members (:members (sut/type->json-data* named-union {:fold-index fold-index}))]
+      (is (= "union" (:t (sut/type->json-data* named-union {:fold-index fold-index}))))
+      (is (= #{{:t "named" :name "demo/ThreeColour" :source "schema"}
+               {:t "map"
+                :entries [{:key {:t "value" :value ":x"}
+                           :val {:t "ground" :name "Int"}}]}}
+             (set members))))))

@@ -92,71 +92,81 @@
           render-path))
 
 (defn key-description
-  [key]
-  (or (disp/describe-item key)
-      "Unknown"))
+  ([key]
+   (key-description key {}))
+  ([key opts]
+   (or (disp/describe-item key opts)
+       "Unknown")))
 
 (defn missing-detail
-  [path expected-key]
-  (let [path-text (render-visible-path path)
-        exact-key (disp/exact-key-form expected-key)
-        key-text (key-description expected-key)]
-    (cond
-      (and path-text exact-key) (str path-text " is missing")
-      path-text (str path-text " is missing required key matching " key-text)
-      :else (str "missing required key matching " key-text))))
+  ([path expected-key]
+   (missing-detail path expected-key {}))
+  ([path expected-key opts]
+   (let [path-text (render-visible-path path)
+         exact-key (disp/exact-key-form expected-key)
+         key-text (key-description expected-key opts)]
+     (cond
+       (and path-text exact-key) (str path-text " is missing")
+       path-text (str path-text " is missing required key matching " key-text)
+       :else (str "missing required key matching " key-text)))))
 
 (defn unexpected-detail
-  [report-kind path actual-key]
-  (let [path-text (render-visible-path path)
-        key-text (key-description actual-key)
-        suffix (if (= report-kind :output)
-                 "not allowed by the declared type"
-                 "not allowed by the expected type")]
-    (cond
-      path-text (str path-text " is " suffix)
-      :else (str "disallowed key matching " key-text " is provided"))))
+  ([report-kind path actual-key]
+   (unexpected-detail report-kind path actual-key {}))
+  ([report-kind path actual-key opts]
+   (let [path-text (render-visible-path path)
+         key-text (key-description actual-key opts)
+         suffix (if (= report-kind :output)
+                  "not allowed by the declared type"
+                  "not allowed by the expected type")]
+     (cond
+       path-text (str path-text " is " suffix)
+       :else (str "disallowed key matching " key-text " is provided")))))
 
 (defn nullable-detail
-  [path actual-key expected-key]
-  (let [path-text (render-visible-path path)
-        exact-key (or (disp/exact-key-form actual-key)
-                      (disp/exact-key-form expected-key))
-        key-text (key-description (or actual-key expected-key))]
-    (cond
-      (and path-text exact-key)
-      (str path-text " is potentially nullable, but the type doesn't allow that")
+  ([path actual-key expected-key]
+   (nullable-detail path actual-key expected-key {}))
+  ([path actual-key expected-key opts]
+   (let [path-text (render-visible-path path)
+         exact-key (or (disp/exact-key-form actual-key)
+                       (disp/exact-key-form expected-key))
+         key-text (key-description (or actual-key expected-key) opts)]
+     (cond
+       (and path-text exact-key)
+       (str path-text " is potentially nullable, but the type doesn't allow that")
 
-      path-text
-      (str path-text " has key matching " key-text
-           " that is potentially nullable, but the type doesn't allow that")
+       path-text
+       (str path-text " has key matching " key-text
+            " that is potentially nullable, but the type doesn't allow that")
 
-      :else
-      (str "key matching " key-text
-           " is potentially nullable, but the type doesn't allow that"))))
+       :else
+       (str "key matching " key-text
+            " is potentially nullable, but the type doesn't allow that")))))
 
 (defn mismatch-detail
-  [path source-type target-type]
-  (let [path-text (render-visible-path path)
-        source-text (disp/describe-type source-type)
-        target-text (disp/describe-type target-type)]
-    (if (or (> (count source-text) pretty-type-threshold)
-            (> (count target-text) pretty-type-threshold))
-      (str (if path-text
-             (str path-text " has:")
-             "has:")
-           "\n\n"
-           (disp/describe-type-block source-type)
-           "\n\nbut expected:\n\n"
-           (disp/describe-type-block target-type))
-      (if path-text
-        (str path-text " has "
-             source-text
-             " but expected "
-             target-text)
-        (str source-text
-             " but expected "
-             target-text)))))
+  ([path source-type target-type]
+   (mismatch-detail path source-type target-type {}))
+  ([path source-type target-type opts]
+   (let [path-text (render-visible-path path)
+         source-text (disp/describe-type source-type opts)
+         target-text (disp/describe-type target-type opts)]
+     (if (or (> (count source-text) pretty-type-threshold)
+             (> (count target-text) pretty-type-threshold))
+       (str (if path-text
+              (str path-text " has:")
+              "has:")
+            "\n\n"
+            (disp/describe-type-block source-type opts)
+            "\n\nbut expected:\n\n"
+            (disp/describe-type-block target-type opts))
+       (if path-text
+         (str path-text " has "
+              source-text
+              " but expected "
+              target-text)
+         (str source-text
+              " but expected "
+              target-text))))))
 
 (defn with-path-detail
   [message cast-result]
@@ -165,45 +175,49 @@
     message))
 
 (defn detail-line
-  [report-kind {:keys [reason path actual-type expected-type actual-key expected-key]}]
-  (case reason
-    :missing-key
-    (missing-detail path expected-key)
+  ([report-kind diagnostic]
+   (detail-line report-kind diagnostic {}))
+  ([report-kind {:keys [reason path actual-type expected-type actual-key expected-key]} opts]
+   (case reason
+     :missing-key
+     (missing-detail path expected-key opts)
 
-    :nullable-key
-    (nullable-detail path actual-key expected-key)
+     :nullable-key
+     (nullable-detail path actual-key expected-key opts)
 
-    :unexpected-key
-    (unexpected-detail report-kind path actual-key)
+     :unexpected-key
+     (unexpected-detail report-kind path actual-key opts)
 
-    :nullable-source
-    (if-let [path-text (render-visible-path path)]
-      (str path-text " is nullable, but expected is not")
-      "a nullable value was provided where the type requires a non-null value")
+     :nullable-source
+     (if-let [path-text (render-visible-path path)]
+       (str path-text " is nullable, but expected is not")
+       "a nullable value was provided where the type requires a non-null value")
 
-    (mismatch-detail path actual-type expected-type)))
+     (mismatch-detail path actual-type expected-type opts))))
 
 (defn union-alternatives-line
-  [cast-results]
-  (let [without-visible-path (->> cast-results
-                                  (remove #(some-> (:path %)
-                                                   visible-path
-                                                   seq))
-                                  vec)
-        actual-types (->> without-visible-path
-                          (map :actual-type)
-                          distinct
-                          vec)
-        expected-types (->> without-visible-path
-                            (map :expected-type)
-                            distinct
-                            vec)]
-    (when (and (seq without-visible-path)
-               (= 1 (count actual-types))
-               (> (count expected-types) 1))
-      (str (disp/describe-type (first actual-types))
-           " does not match any of: "
-           (str/join ", " (map disp/describe-type expected-types))))))
+  ([cast-results]
+   (union-alternatives-line cast-results {}))
+  ([cast-results opts]
+   (let [without-visible-path (->> cast-results
+                                   (remove #(some-> (:path %)
+                                                    visible-path
+                                                    seq))
+                                   vec)
+         actual-types (->> without-visible-path
+                           (map :actual-type)
+                           distinct
+                           vec)
+         expected-types (->> without-visible-path
+                             (map :expected-type)
+                             distinct
+                             vec)]
+     (when (and (seq without-visible-path)
+                (= 1 (count actual-types))
+                (> (count expected-types) 1))
+       (str (disp/describe-type (first actual-types) opts)
+            " does not match any of: "
+            (str/join ", " (map #(disp/describe-type % opts) expected-types)))))))
 
 (s/defn missing-key-message :- (s/maybe s/Str)
   [{:keys [expr arg]} :- ErrorMsgCtx
