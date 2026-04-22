@@ -3,11 +3,13 @@
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at])
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov])
   (:import [clojure.lang IPersistentCollection]
            [schema.core One]))
 
 (def ^:dynamic *annotation-refs* nil)
+(def ^:dynamic *var-provs* nil)
 
 (defn broad-dynamic-schema?
   [schema]
@@ -73,9 +75,7 @@
                  schema)]
     (when (at/semantic-type-value? schema)
       (invalid-schema-input schema))
-    (if (sb/named? schema)
-      (sb/de-named schema)
-      schema)))
+    schema))
 
 (defn- fn-input-schema
   [one]
@@ -180,6 +180,15 @@
      (at/->ConditionalT prov (mapv :branch branch-results))
      (merge-closed-refs branch-results))))
 
+(defn- named-import-type
+  [run {:keys [prov] :as ctx} schema]
+  (let [name-sym (sb/named-name schema)
+        named-prov (prov/make-provenance :schema
+                                         name-sym
+                                         (:declared-in prov)
+                                         (:var-meta prov))]
+    (run (assoc ctx :schema (sb/de-named schema) :prov named-prov))))
+
 (defn- var-import-type
   [run {:keys [prov active-refs] :as ctx} schema-var]
   (let [var-ref (or (sb/qualified-var-symbol schema-var) schema-var)]
@@ -188,10 +197,13 @@
       (import-result (at/->InfCycleT prov var-ref) #{var-ref})
 
       (bound? schema-var)
-      (run (assoc ctx
-                  :schema @schema-var
-                  :active-refs (conj active-refs var-ref)
-                  :owner-ref var-ref))
+      (let [hit (when *var-provs*
+                  (.get ^java.util.IdentityHashMap *var-provs* schema-var))]
+        (run (assoc ctx
+                    :schema @schema-var
+                    :prov (or hit prov)
+                    :active-refs (conj active-refs var-ref)
+                    :owner-ref var-ref)))
 
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
@@ -201,6 +213,9 @@
   (let [schema (one-step-schema-node schema)
         scalar-schema (sb/canonical-scalar-schema schema)]
     (cond
+      (sb/named? schema)
+      (named-import-type run ctx schema)
+
       (instance? clojure.lang.Var schema)
       (var-import-type run ctx schema)
 

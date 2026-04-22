@@ -5,6 +5,7 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.checking.form :as cf]
             [skeptic.file :as file]
+            [skeptic.provenance :as prov]
             [skeptic.schema :as dschema]
             [schema.core :as s]))
 
@@ -222,23 +223,41 @@
           (select-keys (or (ex-data e) {})
                        [:declaration-slot :rejected-schema]))))
 
+(defn- build-var-provs!
+  [^java.util.IdentityHashMap acc]
+  (doseq [v (mapcat (comp vals ns-interns) (all-ns))
+          :let [m (meta v)
+                qsym (sb/qualified-var-symbol v)]
+          :when (and qsym (:schema m) (not (:macro m)))]
+    (.put acc v (prov/make-provenance :schema
+                                      qsym
+                                      (some-> v .ns ns-name)
+                                      m)))
+  acc)
+
+(defn- reduce-ns-vars
+  [ns]
+  (reduce (fn [{:keys [entries errors] :as acc} v]
+            (if-let [raw (extract-raw-declaration v)]
+              (let [qualified-sym (:qualified-sym raw)]
+                (try
+                  {:entries (assoc entries qualified-sym (admit-declaration-from-extract raw))
+                   :errors errors}
+                  (catch Exception e
+                    {:entries entries
+                     :errors (conj errors (declaration-error-result ns qualified-sym v e))})))
+              acc))
+          {:entries {}
+           :errors []}
+          (concat (vals (ns-interns ns))
+                  (vals (ns-refers ns)))))
+
 (defn ns-schema-results
   [_opts ns]
-  (binding [*ns* (the-ns ns)]
-    (reduce (fn [{:keys [entries errors] :as acc} v]
-              (if-let [raw (extract-raw-declaration v)]
-                (let [qualified-sym (:qualified-sym raw)]
-                  (try
-                    {:entries (assoc entries qualified-sym (admit-declaration-from-extract raw))
-                     :errors errors}
-                    (catch Exception e
-                      {:entries entries
-                       :errors (conj errors (declaration-error-result ns qualified-sym v e))})))
-                acc))
-            {:entries {}
-             :errors []}
-            (concat (vals (ns-interns ns))
-                    (vals (ns-refers ns))))))
+  (binding [ab/*var-provs* (java.util.IdentityHashMap.)]
+    (build-var-provs! ab/*var-provs*)
+    (binding [*ns* (the-ns ns)]
+      (reduce-ns-vars ns))))
 
 (defn ns-schemas
   [opts ns]

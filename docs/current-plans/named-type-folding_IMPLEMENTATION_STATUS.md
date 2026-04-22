@@ -74,5 +74,65 @@ handle the inline-Named subtree.
 
 ### Pending
 
-Phase 1 — Reference-identity prov capture (var-prov + admission Named
-branch + canonicalize outer-strip-only). Awaiting user approval.
+~~Phase 1 — Reference-identity prov capture (var-prov + admission Named
+branch + canonicalize outer-strip-only). Awaiting user approval.~~
+
+---
+
+## Phase 1 — Reference-identity prov capture — COMPLETE
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/schema_base.clj`**
+- `named-name [s] -> sym` added at L74-76. Returns `(:name s)` for a NamedSchema.
+
+**`skeptic/src/skeptic/analysis/bridge/canonicalize.clj`**
+- `canonicalize-schema` (L255-259) rewritten to strip ONE outer Named before
+  delegating to `canonicalize-schema*`. The `(sb/named? schema)` branch that
+  previously appeared inside `canonicalize-schema*` is deleted — inner Named
+  values now survive to `import-schema-type*`.
+
+**`skeptic/src/skeptic/analysis/bridge.clj`**
+- `[skeptic.provenance :as prov]` added to require block (L7).
+- `(def ^:dynamic *var-provs* nil)` added at L12 after `*annotation-refs*`.
+- `one-step-schema-node` (L68-78): `sb/named?` branch removed; Named values
+  pass through to `import-schema-type*` unchanged.
+- `named-import-type` (L183-190): new private helper. Extracts `name-sym` via
+  `sb/named-name`, constructs a `:schema` Provenance from it, recurses with
+  `sb/de-named` schema and the new prov.
+- `import-schema-type*` (L211+): `(sb/named? schema)` branch inserted as the
+  FIRST cond branch, before the Var branch.
+- `var-import-type` (L192-209): bound-Var branch now consults `*var-provs*`
+  (IdentityHashMap); on hit, substitutes the stored prov for the caller prov.
+
+**`skeptic/src/skeptic/schema/collect.clj`**
+- `[skeptic.provenance :as prov]` added to require block (L8).
+- `build-var-provs! [^IdentityHashMap acc] -> acc` (L226-236): private helper.
+  Iterates all interned Vars across all-ns; for each with `:schema` meta and
+  non-macro, `.put`s `{Var → Provenance(:schema qsym ns meta)}`.
+- `reduce-ns-vars [ns]` (L238-253): extracted from prior inline reduce in
+  `ns-schema-results`.
+- `ns-schema-results` (L255-260): now binds `ab/*var-provs*` to a fresh
+  IdentityHashMap, calls `build-var-provs!`, then binds `*ns*` and calls
+  `reduce-ns-vars`.
+
+### Behavior tests added (`skeptic/test/skeptic/analysis/bridge_test.clj`)
+
+- `named-import-type-inline-named-schema-test`: inline `(s/named [#{s/Int}] 'Inline)` admitted directly; prov qsym = `'Inline`.
+- `nested-var-ref-carries-referenced-declaration-prov-test`: `NestedRefB {:inner #'NestedRefA}` admitted with var-provs; map value type prov qsym = NestedRefA's qualified-sym.
+- `recursive-var-ref-prov-down-to-inf-cycle-test`: recursive schema `RecR` admitted with var-provs; body's set member prov qsym = RecR's qualified-sym.
+- `caller-prov-preserved-when-no-var-provs-test`: `*var-provs* nil`; plain `s/Int` prov = caller prov.
+- `var-prov-used-when-var-provs-populated-test`: `MyIntAlias` admitted via #'MyIntAlias with var-provs; result prov qsym = MyIntAlias's qualified-sym.
+- `singleton-non-collision-test`: `s/Int` admitted directly (not via #'MyIntAlias); prov qsym ≠ MyIntAlias's qsym.
+- `build-var-provs-excludes-non-schema-vars-test`: `build-var-provs!` over all-ns; every entry has `:schema` meta; map is non-empty.
+
+### Pre-existing tests modified
+
+- `nested-var-ref-carries-referenced-declaration-prov-test`: `NestedRefB` schema changed from `{:inner NestedRefA}` (bare value) to `{:inner #'NestedRefA}` (Var reference) so the Var-import path is exercised; expected qsym changed from `'NestedRefA` (unqualified) to `(sb/qualified-var-symbol #'NestedRefA)` (fully qualified). Reason: the old shape did not involve a Var in the schema graph, so *var-provs* had no effect; the new shape correctly exercises the feature.
+
+### Verification
+
+- `cd skeptic && lein test`: 387 tests, 2078 assertions, 0 failures, 0 errors.
+- `cd lein-skeptic && lein test`: 0 tests, clean run.
+- `cd skeptic && clj-kondo --lint src test`: errors 0, warnings 0.
+- `cd lein-skeptic && clj-kondo --lint src`: errors 0, warnings 0.
