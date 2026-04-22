@@ -259,7 +259,6 @@
           :focuses focuses
           :enclosing-form enclosing-form
           :expanded-expression expanded-expression
-          :source (:source report)
           :errors (summarize-errors report)}
          (or (if (= :output (:report-kind report))
                (let [root-sum (:cast-summary report)

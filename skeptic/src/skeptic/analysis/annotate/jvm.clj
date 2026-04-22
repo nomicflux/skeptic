@@ -5,7 +5,8 @@
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.native-fns :as native-fns]))
+            [skeptic.analysis.native-fns :as native-fns]
+            [skeptic.analysis.type-ops :as ato]))
 
 (defn annotate-instance-call
   [ctx node]
@@ -32,9 +33,10 @@
     :else nil))
 
 (defn- static-native-output-type
-  [ctx node args actual-argtypes native-info]
+  [ctx node args actual-argtypes default-output-type native-info]
   (if native-info
-    (numeric/narrow-static-numbers-output node args actual-argtypes native-info)
+    (numeric/narrow-static-numbers-output (ato/derive-prov default-output-type)
+                                          node args actual-argtypes native-info)
     (aapi/dyn ctx)))
 
 (defn annotate-static-call
@@ -48,7 +50,7 @@
         expected-argtypes (or (:expected-argtypes native-info)
                               (vec (repeat (count args) (aapi/dyn ctx))))
         type (or (shared-static-output-type ctx node args default-output-type)
-                 (static-native-output-type ctx node args actual-argtypes native-info))
+                 (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
         origin (when (and (ac/static-get-call? node)
                           (= 2 (count args)))
                  (map-projection/map-key-lookup-origin ctx (first args)

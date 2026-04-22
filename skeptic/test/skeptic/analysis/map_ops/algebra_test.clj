@@ -28,6 +28,21 @@
       (is (= (at/Dyn tp) (amoa/assoc-type (at/Dyn tp) :a (atst/T s/Int)))))))
 
 (deftest merge-types-test
-  (is (= (at/Dyn tp) (amoa/merge-types [(atst/T s/Int) (at/->MapT tp {})])))
-  (is (at/map-type? (amoa/merge-types [(at/->MapT tp {(ato/exact-value-type tp :a) (atst/T s/Int)})
-                                       (at/->MapT tp {(ato/exact-value-type tp :b) (atst/T s/Str)})]))))
+  (is (= (at/Dyn tp) (amoa/merge-types tp [(atst/T s/Int) (at/->MapT tp {})])))
+  (is (at/map-type? (amoa/merge-types tp [(at/->MapT tp {(ato/exact-value-type tp :a) (atst/T s/Int)})
+                                          (at/->MapT tp {(ato/exact-value-type tp :b) (atst/T s/Str)})]))))
+
+(def ^:private other-prov
+  (prov/make-provenance :schema 'other 'other.ns nil))
+
+(deftest merge-types-container-owns-prov-test
+  (testing "empty types with anchor does not crash and carries anchor prov"
+    (let [result (amoa/merge-types tp [])]
+      (is (= (at/Dyn tp) result))
+      (is (= tp (prov/of result)))))
+  (testing "result prov is the anchor, not derived from input map provs"
+    (let [m1 (at/->MapT other-prov {(ato/exact-value-type other-prov :a) (atst/T s/Int)})
+          m2 (at/->MapT other-prov {(ato/exact-value-type other-prov :b) (atst/T s/Str)})
+          result (amoa/merge-types tp [m1 m2])]
+      (is (at/map-type? result))
+      (is (= tp (prov/of result))))))

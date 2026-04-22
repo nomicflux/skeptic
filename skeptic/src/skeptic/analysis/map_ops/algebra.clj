@@ -65,8 +65,9 @@
     (assoc-type m-type key-lit out)))
 
 (defn merge-types
-  [types]
+  [anchor-prov types]
   (let [types (mapv ato/normalize types)]
-    (if (every? at/map-type? types)
-      (amo/merge-map-types types)
-      (apply ato/dyn types))))
+    (cond
+      (empty? types) (at/Dyn anchor-prov)
+      (every? at/map-type? types) (amo/merge-map-types anchor-prov types)
+      :else (apply ato/dyn types))))

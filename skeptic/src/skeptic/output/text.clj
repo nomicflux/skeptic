@@ -11,13 +11,15 @@
 (def ^:private missing-blame-label "<missing>")
 
 (defn- format-location
-  [{:keys [file line column]}]
-  (cond
-    (and file line column) (str file ":" line ":" column)
-    (and file line) (str file ":" line)
-    file file
-    line (str line)
-    :else nil))
+  [{:keys [file line column source]}]
+  (let [base (cond
+               (and file line column) (str file ":" line ":" column)
+               (and file line) (str file ":" line)
+               file file
+               line (str line)
+               :else nil)]
+    (when base
+      (str base " [source: " (name source) "]"))))
 
 (defn- format-focuses
   [focuses]
@@ -62,10 +64,6 @@
       :else
       (colours/white missing-blame-label))))
 
-(defn- render-source-suffix
-  [src]
-  (str " [source: " (name src) "]"))
-
 (defn- print-report-field
   [label value]
   (let [text (str value)]
@@ -83,12 +81,12 @@
            actual-type actual-type-text expected-type expected-type-text
            source-expression blame focus-sources focuses enclosing-form
            expanded-expression exception-class declaration-slot
-           rejected-schema source]}
+           rejected-schema]}
    verbose]
   (if (= :exception report-kind)
     (remove nil?
             [(when-let [location-text (format-location location)]
-               ["Location: \t\t" (str location-text (render-source-suffix source))])
+               ["Location: \t\t" location-text])
              (when verbose
                ["Phase: \t\t\t" (name phase)])
              (when (and verbose exception-class)
@@ -103,7 +101,7 @@
                ["In enclosing form: \t" (pr-str enclosing-form)])])
     (remove nil?
             [(when-let [location-text (format-location location)]
-               ["Location: \t\t" (str location-text (render-source-suffix source))])
+               ["Location: \t\t" location-text])
              ["Blame: \t\t\t" (format-blame blame-side blame-polarity)]
              (when (and verbose
                         (or rule-text rule))

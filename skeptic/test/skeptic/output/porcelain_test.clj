@@ -18,7 +18,7 @@
 
 (def ^:private example-input-summary
   {:report-kind :input
-   :location {:file "src/foo.clj" :line 42 :column 3}
+   :location {:file "src/foo.clj" :line 42 :column 3 :source :malli-spec}
    :blame-side :term
    :blame-polarity :positive
    :source-expression "(+ 1 :x)"
@@ -30,15 +30,13 @@
    :rule :ground-mismatch
    :actual-type (at/->GroundT tp :keyword 'Keyword)
    :expected-type (at/->GroundT tp :int 'Int)
-   :source :malli-spec
    :errors ["\u001b[33mKeyword is not compatible with Int\u001b[0m"]})
 
 (def ^:private example-exception-summary
   {:report-kind :exception
    :phase :declaration
-   :location {:file "src/foo.clj" :line 99 :column 1}
+   :location {:file "src/foo.clj" :line 99 :column 1 :source :schema}
    :blame 'my-fn
-   :source :schema
    :errors ["Skeptic hit an exception while checking declared schema for my-fn ..."]})
 
 (def ^:private example-exception-result
@@ -53,8 +51,10 @@
     (is (= "finding" (:kind parsed)))
     (is (= "foo.bar" (:ns parsed)))
     (is (= "input" (:report_kind parsed)))
-    (is (= "src/foo.clj" (:file parsed)))
-    (is (= 42 (:line parsed)))
+    (is (= "src/foo.clj" (get-in parsed [:location :file])))
+    (is (= 42 (get-in parsed [:location :line])))
+    (is (= 3 (get-in parsed [:location :column])))
+    (is (= "malli-spec" (get-in parsed [:location :source])))
     (is (= "term" (:blame_side parsed)))
     (is (= "positive" (:blame_polarity parsed)))
     (is (= "ground-mismatch" (:rule parsed)))
@@ -64,7 +64,6 @@
     (is (= "Keyword" (:actual_type_str parsed)))
     (is (= ["x"] (:focuses parsed)))
     (is (= ["Keyword is not compatible with Int"] (:messages parsed)))
-    (is (= "malli-spec" (:source parsed)))
     (testing "ANSI stripped"
       (is (not (re-find #"\u001b" line))))))
 
@@ -77,9 +76,9 @@
     (is (= "declaration" (:phase parsed)))
     (is (= "java.lang.RuntimeException" (:exception_class parsed)))
     (is (= "could not resolve schema" (:exception_message parsed)))
-    (is (= 99 (:line parsed)))
-    (is (= "my-fn" (:blame parsed)))
-    (is (= "schema" (:source parsed)))))
+    (is (= 99 (get-in parsed [:location :line])))
+    (is (= "schema" (get-in parsed [:location :source])))
+    (is (= "my-fn" (:blame parsed)))))
 
 (deftest discovery-warning-shape
   (let [[line] (capture-lines

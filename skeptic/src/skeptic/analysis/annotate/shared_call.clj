@@ -34,18 +34,15 @@
           :else nil)
         (at/Dyn (ato/derive-prov type)))))
 
-(defn- args-prov
-  [args]
-  (apply ato/derive-prov (map :type args)))
-
 (defn shared-call-output-type
   [ctx shared-op args default-output-type]
-  (case shared-op
-    :get (shared-get-output-type ctx args)
-    :merge (amoa/merge-types (map :type args))
-    :assoc (map-path/reduce-assoc-pairs (:type (first args)) (partition 2 (rest args)))
-    :dissoc (map-path/reduce-dissoc-keys (:type (first args)) (rest args))
-    :update (shared-update-output-type args default-output-type)
-    :contains (numeric/bool-type (args-prov args))
-    :seq (shared-seq-output-type args)
-    default-output-type))
+  (let [anchor-prov (ato/derive-prov default-output-type)]
+    (case shared-op
+      :get (shared-get-output-type ctx args)
+      :merge (amoa/merge-types anchor-prov (map :type args))
+      :assoc (map-path/reduce-assoc-pairs (:type (first args)) (partition 2 (rest args)))
+      :dissoc (map-path/reduce-dissoc-keys (:type (first args)) (rest args))
+      :update (shared-update-output-type args default-output-type)
+      :contains (numeric/bool-type anchor-prov)
+      :seq (shared-seq-output-type args)
+      default-output-type)))

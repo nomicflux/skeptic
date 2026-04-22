@@ -277,8 +277,9 @@
          (ato/dyn m))))))
 
 (defn merge-map-types
-  [types]
+  [anchor-prov types]
   (let [types (mapv as-type types)]
-    (if (every? at/map-type? types)
-      (at/->MapT (apply ato/derive-prov types) (apply merge (map :entries types)))
-      (apply ato/dyn types))))
+    (cond
+      (empty? types) (at/Dyn anchor-prov)
+      (every? at/map-type? types) (at/->MapT anchor-prov (apply merge (map :entries types)))
+      :else (apply ato/dyn types))))

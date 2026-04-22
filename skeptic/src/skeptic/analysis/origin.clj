@@ -234,8 +234,9 @@
     :branch (case (assumption-truth (:test origin) assumptions)
               :true (origin-type (:then-origin origin) assumptions)
               :false (origin-type (:else-origin origin) assumptions)
-              (av/join [(origin-type (:then-origin origin) assumptions)
-                        (origin-type (:else-origin origin) assumptions)]))
+              (let [then-t (origin-type (:then-origin origin) assumptions)
+                    else-t (origin-type (:else-origin origin) assumptions)]
+                (av/join (ato/derive-prov then-t else-t) [then-t else-t])))
     (:type origin)))
 
 (defn- local-type-and-origin
