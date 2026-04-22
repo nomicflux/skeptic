@@ -1,5 +1,6 @@
 (ns skeptic.core
   (:require [clojure.java.io :as io]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.checking.pipeline :as checking]
             [skeptic.config :as config]
             [skeptic.file :as file]
@@ -73,13 +74,19 @@
       (doseq [[ns source-file] nss]
         (ns-start ns source-file opts)
         (let [ns-findings (atom 0)
-              {:keys [results]} (checking/check-namespace opts ns source-file)]
+              {:keys [results namespace-dict]} (checking/check-namespace opts ns source-file)
+              fold-index (when namespace-dict
+                           (abr/build-fold-index (:dict namespace-dict)
+                                                 (:provenance namespace-dict)))
+              opts* (assoc opts
+                           :fold-index fold-index
+                           :explain-full (boolean (:explain-full opts)))]
           (doseq [result results]
             (if (= :debug-form (:report-kind result))
               (form-debug ns result opts)
-              (let [summary (inrep/report-summary result)
+              (let [summary (inrep/report-summary result opts*)
                     exception? (= :exception (:report-kind summary))]
-                (finding ns result summary opts)
+                (finding ns result summary opts*)
                 (reset! errored true)
                 (swap! ns-findings inc)
                 (swap! totals update
@@ -87,6 +94,6 @@
                        inc))))
           (when (pos? @ns-findings)
             (swap! totals update :namespaces-with-findings inc))
-          (ns-end ns @ns-findings opts)))
+          (ns-end ns @ns-findings opts*)))
       (run-end @errored @totals)
       (if @errored 1 0))))

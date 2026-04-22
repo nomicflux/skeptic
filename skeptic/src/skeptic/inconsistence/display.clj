@@ -92,10 +92,12 @@
         inline))))
 
 (defn user-type-form
-  [type]
-  (if (nil? type)
-    'Unknown
-    (abr/render-type-form type)))
+  ([type]
+   (user-type-form type {}))
+  ([type opts]
+   (if (nil? type)
+     'Unknown
+     (abr/render-type-form* type opts))))
 
 (defn user-schema-form
   [schema]
@@ -109,20 +111,26 @@
       'Unknown))
 
 (defn user-fn-input-form
-  [method]
-  (let [inputs (mapv user-type-form (:inputs method))]
-    (if (:variadic? method)
-      (concat (take (:min-arity method) inputs)
-              ['& (drop (:min-arity method) inputs)])
-      inputs)))
+  ([method]
+   (user-fn-input-form method {}))
+  ([method opts]
+   (let [inputs (mapv #(user-type-form % opts) (:inputs method))]
+     (if (:variadic? method)
+       (concat (take (:min-arity method) inputs)
+               ['& (drop (:min-arity method) inputs)])
+       inputs))))
 
 (defn describe-type
-  [type]
-  (format-user-form (user-type-form type)))
+  ([type]
+   (describe-type type {}))
+  ([type opts]
+   (format-user-form (user-type-form type opts))))
 
 (defn describe-type-block
-  [type]
-  (block-user-form (user-type-form type)))
+  ([type]
+   (describe-type-block type {}))
+  ([type opts]
+   (block-user-form (user-type-form type opts))))
 
 (defn describe-schema
   [schema]
@@ -133,7 +141,9 @@
   (format-user-form (user-raw-form value)))
 
 (defn describe-item
-  [x]
-  (if (at/semantic-type-value? x)
-    (describe-type x)
-    (describe-raw x)))
+  ([x]
+   (describe-item x {}))
+  ([x opts]
+   (if (at/semantic-type-value? x)
+     (describe-type x opts)
+     (describe-raw x))))

@@ -2,6 +2,7 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.types :as at]
             [skeptic.output.porcelain :as sut]
             [skeptic.provenance :as prov]))
@@ -157,3 +158,27 @@
                 #((:finding sut/printer) 'foo.bar {} example-input-summary {}))
         parsed (parse-line line)]
     (is (nil? (:debug parsed)))))
+
+(deftest explain-full-controls-named-folding-in-porcelain
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
+        inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil)
+        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
+        actual-type (at/->VectorT inferred-prov [(at/->GroundT inferred-prov :int 'Int)] false)
+        fold-index (abr/build-fold-index {'foo/NamedVec named-type}
+                                         {'foo/NamedVec schema-prov})
+        summary (assoc example-input-summary
+                       :actual-type actual-type
+                       :expected-type actual-type)
+        [folded-line] (capture-lines
+                       #((:finding sut/printer) 'foo.bar {} summary {:fold-index fold-index}))
+        [full-line] (capture-lines
+                     #((:finding sut/printer) 'foo.bar {} summary {:fold-index fold-index
+                                                                    :explain-full true}))
+        folded (parse-line folded-line)
+        full (parse-line full-line)]
+    (is (= "named" (get-in folded [:actual_type :t])))
+    (is (= "foo/NamedVec" (get-in folded [:actual_type :name])))
+    (is (= "schema" (get-in folded [:actual_type :source])))
+    (is (= "foo/NamedVec" (:actual_type_str folded)))
+    (is (= "vector" (get-in full [:actual_type :t])))
+    (is (= "[Int]" (:actual_type_str full)))))

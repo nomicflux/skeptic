@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema.cast :as as]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
@@ -379,3 +380,34 @@
     (is (not (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-one)))))
     (is (:ok? (as/check-cast tp hello-or-bye s/Str)))
     (is (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-bye))))))
+
+(deftest report-summary-honours-fold-options
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
+        inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil)
+        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
+        expected-type (at/->VectorT inferred-prov [(at/->GroundT inferred-prov :int 'Int)] false)
+        actual-type (at/->GroundT inferred-prov :keyword 'Keyword)
+        fold-index (abr/build-fold-index {'foo/NamedVec named-type}
+                                         {'foo/NamedVec schema-prov})
+        report {:report-kind :output
+                :blame 'bad-user
+                :focuses ['bad-user]
+                :cast-summary {:rule :leaf-overlap
+                               :actual-type actual-type
+                               :expected-type expected-type}
+                :cast-diagnostics [{:reason :leaf-mismatch
+                                    :rule :leaf-overlap
+                                    :actual-type actual-type
+                                    :expected-type expected-type
+                                    :path []}]}
+        folded (-> (sut/report-summary report {:fold-index fold-index})
+                   :errors
+                   first
+                   strip-ansi)
+        full (-> (sut/report-summary report {:fold-index fold-index
+                                             :explain-full true})
+                 :errors
+                 first
+                 strip-ansi)]
+    (is (str/includes? folded "foo/NamedVec"))
+    (is (str/includes? full "[Int]"))))
