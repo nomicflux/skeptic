@@ -12,8 +12,8 @@
                                       '(skeptic.test-examples.basics/int-add 1 2)
                                       {:ns 'skeptic.analysis-test})]
       (is (= :invoke (aapi/node-op ast)))
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes ast)))
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes ast)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes ast)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes ast)))
       (is (aapi/typed-call-metadata-only? ast))
       (is (not-any? at/forall-type? (keep aapi/node-type (aapi/annotated-nodes ast))))
       (is (not-any? at/type-var-type? (keep aapi/node-type (aapi/annotated-nodes ast))))

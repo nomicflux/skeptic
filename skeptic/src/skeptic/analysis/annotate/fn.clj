@@ -1,8 +1,9 @@
 (ns skeptic.analysis.annotate.fn
-  (:require [skeptic.analysis.calls :as ac]
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.calls :as ac]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]))
 
 (defn- dict-fun-type
   [dict ns-sym name]
@@ -15,30 +16,30 @@
       (some #(when (:variadic? %) %) (at/fun-methods ft))))
 
 (defn arg-type-specs
-  [dict ns-sym name params]
+  [ctx dict ns-sym name params]
   (let [arity (count params)
         method (some-> (dict-fun-type dict ns-sym name) (method-at-arity arity))
         inputs (some-> method at/fn-method-inputs)
         names (some-> method at/fn-method-input-names)]
     (if (seq inputs)
       (mapv (fn [i param]
-              {:type (get inputs i at/Dyn)
+              {:type (get inputs i (aapi/dyn ctx))
                :optional? false
                :name (or (get names i) (:form param))})
             (range arity)
             params)
       (mapv (fn [param]
-              {:type at/Dyn :optional? false :name (:form param)})
+              {:type (aapi/dyn ctx) :optional? false :name (:form param)})
             params))))
 
 (defn fn-method-param-specs-with-overrides
-  [dict ns-sym name params param-type-overrides]
+  [ctx dict ns-sym name params param-type-overrides]
   (mapv (fn [param spec]
           (if-let [type (get param-type-overrides (:form param))]
-            (assoc spec :type (ato/normalize-type type))
+            (assoc spec :type (aapi/normalize-type ctx type))
             spec))
         params
-        (arg-type-specs dict ns-sym name params)))
+        (arg-type-specs ctx dict ns-sym name params)))
 
 (defn fn-method-merge-param-nodes
   [params param-specs]
@@ -50,23 +51,23 @@
         param-specs))
 
 (defn- param-locals
-  [locals annotated-params]
+  [ctx locals annotated-params]
   (into locals
-        (map (fn [param] [(:form param) (or (:type param) at/Dyn)]))
+        (map (fn [param] [(:form param) (or (:type param) (aapi/dyn ctx))]))
         annotated-params))
 
 (defn annotate-fn-method
   [{:keys [locals dict name ns recur-targets] :as ctx} node & [param-type-overrides]]
   (let [param-type-overrides (or param-type-overrides {})
         param-specs (fn-method-param-specs-with-overrides
-                     dict ns name (:params node) param-type-overrides)
+                     ctx dict ns name (:params node) param-type-overrides)
         annotated-params (fn-method-merge-param-nodes (:params node) param-specs)
         recur-targets (cond-> (or recur-targets {})
                         (:loop-id node)
                         (assoc (:loop-id node) (mapv :type annotated-params)))
         body ((:recurse ctx)
               (assoc ctx
-                     :locals (param-locals locals annotated-params)
+                     :locals (param-locals ctx locals annotated-params)
                      :recur-targets recur-targets
                      :name nil)
               (:body node))]
@@ -87,8 +88,9 @@
                 (:param-specs method))})
 
 (defn- method-fn-type
-  [method]
-  (at/->FnMethodT (mapv :type (:param-specs method))
+  [ctx method]
+  (at/->FnMethodT (prov/with-ctx ctx)
+                  (mapv :type (:param-specs method))
                   (:output-type method)
                   (count (:param-specs method))
                   (boolean (:variadic? method))
@@ -99,8 +101,8 @@
   (let [overrides (:param-type-overrides opts {})
         methods (mapv #(annotate-fn-method ctx % overrides) (:methods node))
         arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)
-        output-type (av/type-join* (map :output-type methods))
-        fn-type (at/->FunT (mapv method-fn-type methods))]
+        output-type (av/type-join* (prov/with-ctx ctx) (map :output-type methods))
+        fn-type (at/->FunT (prov/with-ctx ctx) (mapv #(method-fn-type ctx %) methods))]
     (assoc node
            :methods methods
            :output-type output-type

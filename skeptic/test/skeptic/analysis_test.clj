@@ -6,6 +6,7 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.provenance :as prov]
             [skeptic.source :as source]
             [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
@@ -35,13 +36,15 @@
 (def z nil)
 (def cache nil)
 
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 ;; Broad numeric annotation for native math when the checker only knows
 ;; "numeric, but not whether Int or non-Int numeric".
-(def numeric-dyn at/NumericDyn)
+(def numeric-dyn (at/NumericDyn tp))
 
 (defn arg-entry
   [[name schema]]
@@ -182,7 +185,7 @@
                     read-string)
           ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
-      (is (= (T s/Any) (aapi/node-type call-node)))
+      (is (at/type=? (T s/Any) (aapi/node-type call-node)))
       (is (not (at/union-type? (aapi/node-type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
@@ -195,9 +198,9 @@
                                                                          (source-exprs-in fixture-ns fixture-file))
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f)))
-      (is (= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g)))
-      (is (= [(T s/Int)] (aapi/call-actual-argtypes call-node)))
+      (is (at/type=? (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f)))
+      (is (at/type=? (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g)))
+      (is (at/type=? [(T s/Int)] (aapi/call-actual-argtypes call-node)))
       (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
                                                               'skeptic.test-examples.resolution/flat-multi-step-g)))))))
 
@@ -241,5 +244,5 @@
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-b v) (aapi/node-form %))))]
-      (is (= (T {:x s/Int}) (first (aapi/call-actual-argtypes handle-a))))
-      (is (= (T {:y s/Str}) (first (aapi/call-actual-argtypes handle-b)))))))
+      (is (at/type=? (T {:x s/Int}) (first (aapi/call-actual-argtypes handle-a))))
+      (is (at/type=? (T {:y s/Str}) (first (aapi/call-actual-argtypes handle-b)))))))

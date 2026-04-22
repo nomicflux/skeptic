@@ -12,6 +12,7 @@
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
+            [skeptic.provenance :as prov]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
@@ -101,10 +102,11 @@
 (defn method-output-type
   [method]
   (let [{:keys [body output-type]} (aapi/method-result-type method)
-        tagged-output (some-> (aapi/node-tag body) av/class->type)]
-    (if (incm/unknown-output-type? (ato/normalize-type output-type))
-      (ato/normalize-type (or tagged-output output-type))
-      (ato/normalize-type output-type))))
+        tagged-output (when-let [tag (aapi/node-tag body)]
+                        (av/class->type (prov/of output-type) tag))]
+    (if (incm/unknown-output-type? (ato/normalize output-type))
+      (ato/normalize (or tagged-output output-type))
+      (ato/normalize output-type))))
 
 (defn def-output-results
   [dict ns-sym source-file source-form enclosing-form node]
@@ -116,7 +118,7 @@
            (keep (fn [[method decl]]
                    (let [expected-output (some-> (at/select-method (at/fun-methods declared-t) (count (:params method)))
                                                  :output
-                                                 ato/normalize-type)
+                                                 ato/normalize)
                          source-body (cf/method-source-body decl)
                          actual-output (method-output-type method)
                          body (aapi/method-body method)
@@ -339,19 +341,25 @@
    :exception-message (or (.getMessage e)
                           (str e))})
 
+(defn- resolved-defs-provenance
+  [resolved-defs]
+  (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
+
 (defn check-ns-form
   [dict ignore-body ns source-file source-form opts]
   (try
-    (let [{:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form])]
-      (vec (check-resolved-form dict
-                                ignore-body
-                                ns
-                                source-file
-                                source-form
-                                (first resolved)
-                                opts)))
+    (let [{:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form])]
+      {:results (vec (check-resolved-form dict
+                                          ignore-body
+                                          ns
+                                          source-file
+                                          source-form
+                                          (first resolved)
+                                          opts))
+       :provenance (resolved-defs-provenance resolved-defs)})
     (catch Exception e
-      [(expression-exception-result ns source-file source-form e)])))
+      {:results [(expression-exception-result ns source-file source-form e)]
+       :provenance {}})))
 
 (defn- find-source-form
   "Locate the top-level form for the def name in source-file by name match.
@@ -385,7 +393,8 @@
   (if (and source-file ns-sym)
     (let [exprs (ns-exprs source-file)
           {:keys [resolved-defs accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
-      {:dict (merge dict (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym)) at/Dyn)])) accessor-summaries))
+      {:dict (merge dict (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym))
+                                                              (at/Dyn (prov/inferred {:name sym :ns ns-sym})))])) accessor-summaries))
        :accessor-summaries accessor-summaries})
     {:dict dict
      :accessor-summaries {}}))
@@ -422,13 +431,15 @@
   (let [{:keys [dict ignore-body]} (namespace-dict opts ns)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
-        (loop [results []]
+        (loop [acc {:results [] :provenance {}}]
           (let [{:keys [kind form exception]} (next-checkable-form reader)]
             (case kind
-              :eof results
-              :form (recur (into results
-                                 (check-ns-form dict ignore-body ns source-file form opts)))
-              :read-error (conj results (read-exception-result source-file exception)))))))))
+              :eof acc
+              :form (let [{:keys [results provenance]} (check-ns-form dict ignore-body ns source-file form opts)]
+                      (recur (-> acc
+                                 (update :results into results)
+                                 (update :provenance merge provenance))))
+              :read-error (recur (update acc :results conj (read-exception-result source-file exception))))))))))
 
 (defn load-exception-result
   [ns-sym e]
@@ -448,9 +459,9 @@
   [opts ns-sym source-file]
   (try
     (let [{:keys [errors provenance]} (namespace-dict opts ns-sym)
-          check-results (check-ns ns-sym source-file opts)]
+          {check-results :results check-provenance :provenance} (check-ns ns-sym source-file opts)]
       {:results (vec (concat errors check-results))
-       :provenance provenance})
+       :provenance (merge check-provenance provenance)})
     (catch Exception e
       {:results [(load-exception-result ns-sym e)]
        :provenance {}})))

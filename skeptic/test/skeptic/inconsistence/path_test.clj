@@ -4,15 +4,18 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.inconsistence.report :as inc]
-            [skeptic.inconsistence.path :as sut]))
+            [skeptic.inconsistence.path :as sut]
+            [skeptic.provenance :as prov]))
 
 (def sample-ctx
   {:expr '(f x 2)
    :arg 'x})
 
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (def ^:private ui-internal-markers
   [":skeptic.analysis.types/"
@@ -122,8 +125,8 @@
   (let [message (inc/cast-result->message
                  {:expr '{:a 1}
                   :arg '{:a 1}}
-                 {:actual-type (ab/schema->type {(s/optional-key :a) s/Int})
-                  :expected-type (ab/schema->type {:a s/Int})
+                 {:actual-type (ab/schema->type tp {(s/optional-key :a) s/Int})
+                  :expected-type (ab/schema->type tp {:a s/Int})
                   :rule :map-nullable-key
                   :reason :nullable-key
                   :actual-key (s/optional-key :a)
@@ -145,8 +148,8 @@
 (deftest rendered-path-hides-internal-cast-branches
   (let [message (inc/cast-result->message
                  sample-ctx
-                 {:actual-type (ab/schema->type s/Int)
-                  :expected-type (ab/schema->type s/Str)
+                 {:actual-type (ab/schema->type tp s/Int)
+                  :expected-type (ab/schema->type tp s/Str)
                   :rule :leaf-overlap
                   :reason :leaf-mismatch
                   :path [{:kind :source-union-branch :index 1}

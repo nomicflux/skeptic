@@ -5,14 +5,17 @@
             [skeptic.analysis.cast :as cast]
             [skeptic.analysis.cast.result :as cast-result]
             [skeptic.analysis.cast.support :as sut]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (deftest live-support-api-test
-  (let [wrapped (at/->OptionalKeyT (T s/Int))
+  (let [wrapped (at/->OptionalKeyT tp (T s/Int))
         plain (T s/Str)
         result (sut/with-cast-path (sut/cast-fail (T s/Keyword)
                                                   (T s/Str)

@@ -5,9 +5,11 @@
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.types :as at]
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
             [skeptic.typed-decls :as typed-decls]
+            [skeptic.test-helpers :refer [tp]]
             [skeptic.static-call-examples])
   (:import [java.io File]))
 
@@ -63,22 +65,22 @@
           unknown-invoke (atst/analyze-form '(f 1 2)
                                             (atst/locals 'f))
           known-call (atst/analyze-form '(skeptic.test-examples.basics/int-add 1 2))]
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes dynamic-call)))
-      (is (= atst/numeric-dyn (aapi/node-type dynamic-call)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes dynamic-call)))
+      (is (at/type=? atst/numeric-dyn (aapi/node-type dynamic-call)))
       (assert-typed-call-metadata-only dynamic-call)
-      (is (= (atst/T (s/make-fn-schema s/Any [[s/Any s/Any]]))
-             (aapi/node-fn-type unknown-invoke)))
+      (is (at/type=? (atst/T (s/make-fn-schema s/Any [[s/Any s/Any]]))
+                     (aapi/node-fn-type unknown-invoke)))
       (assert-typed-call-metadata-only unknown-invoke)
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes known-call)))
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes known-call)))
-      (is (= (atst/T s/Int) (aapi/node-type known-call)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes known-call)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes known-call)))
+      (is (at/type=? (atst/T s/Int) (aapi/node-type known-call)))
       (assert-typed-call-metadata-only known-call))))
 
 (deftest analyse-application-test
   (testing "original partially unknown application setup"
     (let [root (atst/analyze-form '(+ 1 x))]
       (is (= :static-call (aapi/node-op root)))
-      (is (= [(atst/T s/Int) (atst/T s/Any)] (aapi/call-actual-argtypes root)))))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Any)] (aapi/call-actual-argtypes root)))))
   (testing "original zero-arity application setup"
     (let [root (atst/analyze-form '(f))]
       (is (= :invoke (aapi/node-op root)))
@@ -94,28 +96,25 @@
 (deftest attach-type-info-application-test
   (testing "original generic application typed setup"
     (let [root (atst/analyze-form {} '(+ 1 2))]
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes root)))
-      (is (= atst/numeric-dyn (aapi/node-type root)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes root)))
+      (is (at/type=? atst/numeric-dyn (aapi/node-type root)))
       (assert-typed-call-metadata-only root)))
   (testing "original known application typed setup"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(skeptic.test-examples.basics/int-add 1 2))]
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes root)))
-      (is (= [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes root)))
-      (is (= (atst/T s/Int) (aapi/node-type root)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes root)))
+      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes root)))
+      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))
       (assert-typed-call-metadata-only root))))
 
 (deftest canonicalized-callable-entry-test
-  (let [symbol-type (typed-decls/desc->type
-                     {:name "f"
+  (let [symbol-type (typed-decls/desc->type tp {:name "f"
                       :schema (s/make-fn-schema clojure.lang.Symbol
                                                 [[(s/one java.lang.String 'arg)]])})
-        keyword-type (typed-decls/desc->type
-                      {:name "f"
+        keyword-type (typed-decls/desc->type tp {:name "f"
                        :schema (s/make-fn-schema clojure.lang.Keyword
                                                  [[(s/one s/Any 'arg)]])})
-        int-type (typed-decls/desc->type
-                  {:name "f"
+        int-type (typed-decls/desc->type tp {:name "f"
                    :schema (s/make-fn-schema java.lang.Integer
                                              [[(s/one s/Any 'arg)]])})
         symbol-call (atst/analyze-form {}
@@ -131,11 +130,11 @@
                                    {:ns 'skeptic.analysis-test
                                     :locals {'f int-type}})
         quoted-symbol (atst/analyze-form '(quote foo))]
-    (is (= (atst/T s/Symbol) (aapi/node-type symbol-call)))
-    (is (= [(atst/T s/Str)] (aapi/call-expected-argtypes symbol-call)))
-    (is (= (atst/T s/Keyword) (aapi/node-type keyword-call)))
-    (is (= (atst/T s/Int) (aapi/node-type int-call)))
-    (is (= (atst/T s/Symbol) (aapi/node-type quoted-symbol)))
+    (is (at/type=? (atst/T s/Symbol) (aapi/node-type symbol-call)))
+    (is (at/type=? [(atst/T s/Str)] (aapi/call-expected-argtypes symbol-call)))
+    (is (at/type=? (atst/T s/Keyword) (aapi/node-type keyword-call)))
+    (is (at/type=? (atst/T s/Int) (aapi/node-type int-call)))
+    (is (at/type=? (atst/T s/Symbol) (aapi/node-type quoted-symbol)))
     (assert-typed-call-metadata-only symbol-call)
     (assert-typed-call-metadata-only keyword-call)
     (assert-typed-call-metadata-only int-call)))
@@ -154,10 +153,10 @@
                                            '(get counts :count "zero")
                                            {:ns 'skeptic.analysis-test
                                             :locals {'counts {:type (atst/T skeptic.static-call-examples/MaybeCount)}}})]
-      (is (= (atst/T s/Str) (aapi/node-type required-get)))
-      (is (= (atst/T (s/maybe s/Str)) (aapi/node-type optional-get)))
-      (is (= (atst/T (sb/join s/Int s/Str))
-             (aapi/node-type defaulted-get)))))
+      (is (at/type=? (atst/T s/Str) (aapi/node-type required-get)))
+      (is (at/type=? (atst/T (s/maybe s/Str)) (aapi/node-type optional-get)))
+      (is (at/type=? (atst/T (sb/join s/Int s/Str))
+                     (aapi/node-type defaulted-get)))))
 
   (testing "merge returns merged typed maps"
     (let [merged (atst/analyze-form static-call-dict
@@ -165,8 +164,8 @@
                                     {:ns 'skeptic.analysis-test
                                      :locals {'left {:type (atst/T skeptic.static-call-examples/LeftFields)}
                                               'right {:type (atst/T skeptic.static-call-examples/RightFields)}}})]
-      (is (= (atst/T {:a s/Int :b s/Int})
-             (aapi/node-type merged)))))
+      (is (at/type=? (atst/T {:a s/Int :b s/Int})
+                     (aapi/node-type merged)))))
 
   (testing "rebuilt maps stay in semantic map format"
     (let [root (atst/analyze-form static-call-dict
@@ -174,9 +173,9 @@
                                     :nickname (get user :nickname)}
                                   {:ns 'skeptic.analysis-test
                                    :locals {'user {:type (atst/T skeptic.static-call-examples/UserDesc)}}})]
-      (is (= (atst/T {:name s/Str
-                      :nickname (s/maybe s/Str)})
-             (aapi/node-type root))))))
+      (is (at/type=? (atst/T {:name s/Str
+                              :nickname (s/maybe s/Str)})
+                     (aapi/node-type root))))))
 
 (deftest resolved-static-get-feeds-parent-call-test
   (testing "resolved static get feeds final reduced field types into parent calls"
@@ -187,7 +186,7 @@
                                                             (atst/source-exprs-in 'skeptic.static-call-examples static-call-examples-file))
           failure-ast (atst/ast-by-name resolved 'nested-multi-step-failure)
           call-node (atst/node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
-      (is (= [(atst/T s/Int)] (aapi/call-actual-argtypes call-node)))
+      (is (at/type=? [(atst/T s/Int)] (aapi/call-actual-argtypes call-node)))
       (assert-typed-call-metadata-only call-node))))
 
 (deftest attach-type-info-local-fn-invocation-test
@@ -195,15 +194,15 @@
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(let [f (fn [x] nil)]
                                      (skeptic.test-examples.basics/int-add 1 (f x))))]
-      (is (= (atst/T s/Int) (aapi/node-type root)))
-      (is (= (atst/T (s/eq nil))
-             (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
+      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))
+      (is (at/type=? (atst/T (s/eq nil))
+                     (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
       (assert-typed-call-metadata-only (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
   (testing "local fn invocation keeps callable metadata with outer local"
     (let [root (atst/analyze-form '(let [f (fn [x] nil)]
                                      (skeptic.test-examples.basics/int-add 1 (f x)))
                                    (atst/locals 'x))]
-      (is (= (atst/T s/Int) (aapi/node-type root)))
-      (is (= (atst/T (s/eq nil))
-             (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
+      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))
+      (is (at/type=? (atst/T (s/eq nil))
+                     (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
       (assert-typed-call-metadata-only (aapi/find-node root #(= '(f x) (aapi/node-form %)))))))

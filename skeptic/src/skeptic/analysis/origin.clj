@@ -13,12 +13,12 @@
   [sym type]
   {:kind :root
    :sym sym
-   :type (ato/normalize-type-for-declared-type type)})
+   :type (ato/normalize-for-declared-type type)})
 
 (defn opaque-origin
   [type]
   {:kind :opaque
-   :type (ato/normalize-type type)})
+   :type (ato/normalize type)})
 
 (defn type-origin
   [sym t]
@@ -234,55 +234,56 @@
     :branch (case (assumption-truth (:test origin) assumptions)
               :true (origin-type (:then-origin origin) assumptions)
               :false (origin-type (:else-origin origin) assumptions)
-              (av/type-join* [(origin-type (:then-origin origin) assumptions)
-                              (origin-type (:else-origin origin) assumptions)]))
+              (av/join [(origin-type (:then-origin origin) assumptions)
+                        (origin-type (:else-origin origin) assumptions)]))
     (:type origin)))
 
 (defn- local-type-and-origin
-  [sym entry]
+  [ctx sym entry]
   (cond
     (at/semantic-type-value? entry)
-    [(ato/normalize-type-for-declared-type entry) (root-origin sym (ato/normalize-type-for-declared-type entry))]
+    [(ato/normalize-for-declared-type entry) (root-origin sym (ato/normalize-for-declared-type entry))]
 
     (map? entry)
-    (let [t (ato/normalize-type-for-declared-type (or (:type entry) at/Dyn))
+    (let [t (ato/normalize-for-declared-type (or (:type entry) (aapi/dyn ctx)))
           origin (or (:origin entry) (root-origin sym t))]
       [t origin])
 
     :else
-    [at/Dyn (root-origin sym at/Dyn)]))
+    (let [d (aapi/dyn ctx)]
+      [d (root-origin sym d)])))
 
 (defn effective-type
-  [sym entry assumptions]
-  (let [[t origin] (local-type-and-origin sym entry)
+  [ctx sym entry assumptions]
+  (let [[t origin] (local-type-and-origin ctx sym entry)
         refined (or (some-> origin (origin-type assumptions)) t)]
-    (ato/normalize-type-for-declared-type refined)))
+    (ato/normalize-for-declared-type refined)))
 
 (defn local-root-origin
-  [node]
+  [ctx node]
   (let [origin (node-origin node)]
     (cond
       (= :root (:kind origin))
       origin
 
       (aapi/local-node? node)
-      (root-origin (aapi/node-form node) (or (aapi/node-type node) at/Dyn))
+      (root-origin (aapi/node-form node) (or (aapi/node-type node) (aapi/dyn ctx)))
 
       :else nil)))
 
 (defn contains-key-test-assumption
-  [target-node key]
-  (when-let [root (local-root-origin target-node)]
+  [ctx target-node key]
+  (when-let [root (local-root-origin ctx target-node)]
     {:kind :contains-key
      :root root
      :key key
      :polarity true}))
 
 (defn test->assumption
-  [test-node]
+  [ctx test-node]
   (cond
     (aapi/local-node? test-node)
-    (when-let [root (local-root-origin test-node)]
+    (when-let [root (local-root-origin ctx test-node)]
       {:kind :truthy-local
        :root root
        :polarity true})
@@ -292,9 +293,9 @@
           cls (aapi/node-class test-node)]
       (when (and (aapi/local-node? target)
                  (class? cls)
-                 (local-root-origin target))
+                 (local-root-origin ctx target))
         {:kind :type-predicate
-         :root (local-root-origin target)
+         :root (local-root-origin ctx target)
          :pred :instance?
          :class cls
          :polarity true}))
@@ -304,7 +305,7 @@
     (let [args (aapi/call-args test-node)]
       (when (= 1 (count args))
         (some-> (first args)
-                test->assumption
+                (->> (test->assumption ctx))
                 invert-assumption)))
 
     (and (= :invoke (aapi/node-op test-node))
@@ -314,9 +315,9 @@
           targ (if (= :instance? (:pred info))
                  (second args)
                  (first args))]
-      (when (and info (aapi/local-node? targ) (local-root-origin targ))
+      (when (and info (aapi/local-node? targ) (local-root-origin ctx targ))
         (cond-> {:kind :type-predicate
-                 :root (local-root-origin targ)
+                 :root (local-root-origin ctx targ)
                  :pred (:pred info)
                  :polarity true}
           (:class info) (assoc :class (:class info)))))
@@ -324,15 +325,15 @@
     (and (= :invoke (aapi/node-op test-node))
          (ac/blank-call? (aapi/call-fn-node test-node)))
     (let [targ (first (aapi/call-args test-node))]
-      (when (and (aapi/local-node? targ) (local-root-origin targ))
+      (when (and (aapi/local-node? targ) (local-root-origin ctx targ))
         {:kind :blank-check
-         :root (local-root-origin targ)
+         :root (local-root-origin ctx targ)
          :polarity true}))
 
     (ac/keyword-invoke-on-local? test-node)
     (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]
       (when (keyword? kw)
-        (contains-key-test-assumption target kw)))
+        (contains-key-test-assumption ctx target kw)))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/contains-call? (aapi/call-fn-node test-node)))
@@ -340,7 +341,7 @@
       (when (ac/literal-map-key? key-node)
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key)
-            (contains-key-test-assumption target-node key)))))
+            (contains-key-test-assumption ctx target-node key)))))
 
     (and (= :static-call (aapi/node-op test-node))
          (ac/static-contains-call? test-node))
@@ -348,36 +349,36 @@
       (when (ac/literal-map-key? key-node)
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key)
-            (contains-key-test-assumption target-node key)))))
+            (contains-key-test-assumption ctx target-node key)))))
 
     (and (= :static-call (aapi/node-op test-node))
          (ac/static-nil?-call? test-node))
     (when-let [targ (ac/static-nil?-target test-node)]
-      (when (and (aapi/local-node? targ) (local-root-origin targ))
+      (when (and (aapi/local-node? targ) (local-root-origin ctx targ))
         {:kind :type-predicate
-         :root (local-root-origin targ)
+         :root (local-root-origin ctx targ)
          :pred :nil?
          :polarity true}))
 
     (aapi/let-node? test-node)
-    (test->assumption (aapi/node-body test-node))
+    (test->assumption ctx (aapi/node-body test-node))
 
     (aapi/if-node? test-node)
-    (test->assumption (aapi/then-node test-node))
+    (test->assumption ctx (aapi/then-node test-node))
 
     :else
     nil))
 
 (defn local-binding-init-assumption
-  [test-node locals]
+  [ctx test-node locals]
   (when (and (aapi/local-node? test-node) locals)
     (when-let [entry (get locals (aapi/node-form test-node))]
       (when-let [init (aapi/binding-init entry)]
-        (test->assumption init)))))
+        (test->assumption ctx init)))))
 
 (defn and-chain-assumptions
   "Assumptions for `clojure.core/and` expansion: (let [g e1] (if g e2' g))."
-  [node]
+  [ctx node]
   (if (and (aapi/let-node? node)
            (= 1 (count (aapi/node-bindings node))))
     (let [b (first (aapi/node-bindings node))
@@ -387,48 +388,48 @@
       (if (and (aapi/if-node? body)
                (aapi/local-node? (aapi/node-test body))
                (= sym (aapi/node-form (aapi/node-test body))))
-        (vec (concat (when-some [a (test->assumption init)] [a])
-                     (and-chain-assumptions (aapi/then-node body))))
-        (and-chain-assumptions body)))
+        (vec (concat (when-some [a (test->assumption ctx init)] [a])
+                     (and-chain-assumptions ctx (aapi/then-node body))))
+        (and-chain-assumptions ctx body)))
     (case (aapi/node-op node)
-      :if (when-some [a (test->assumption (aapi/node-test node))] [a])
-      :let (and-chain-assumptions (aapi/node-body node))
+      :if (when-some [a (test->assumption ctx (aapi/node-test node))] [a])
+      :let (and-chain-assumptions ctx (aapi/node-body node))
       :local []
-      (when-some [a (test->assumption node)] [a]))))
+      (when-some [a (test->assumption ctx node)] [a]))))
 
 (defn if-test-conjuncts
-  [test-node locals]
-  (let [chain (and-chain-assumptions test-node)]
+  [ctx test-node locals]
+  (let [chain (and-chain-assumptions ctx test-node)]
     (if (seq chain)
       chain
-      (vec (concat (when-some [a (test->assumption test-node)] [a])
-                   (when-some [a (local-binding-init-assumption test-node locals)] [a]))))))
+      (vec (concat (when-some [a (test->assumption ctx test-node)] [a])
+                   (when-some [a (local-binding-init-assumption ctx test-node locals)] [a]))))))
 
 (defn- refine-local-entry
-  [sym entry assumptions]
-  (let [refined-type (effective-type sym entry assumptions)]
+  [ctx sym entry assumptions]
+  (let [refined-type (effective-type ctx sym entry assumptions)]
     (if (at/semantic-type-value? entry)
       refined-type
       (assoc entry :type refined-type))))
 
 (defn refine-locals-for-assumption
-  [locals assumptions]
+  [ctx locals assumptions]
   (into {}
         (map (fn [[sym entry]]
-               [sym (refine-local-entry sym entry assumptions)]))
+               [sym (refine-local-entry ctx sym entry assumptions)]))
         locals))
 
 (defn branch-local-envs
-  [locals assumptions conjuncts]
+  [ctx locals assumptions conjuncts]
   (let [conjuncts (vec conjuncts)
         then-assumptions (into (vec assumptions) conjuncts)
         else-assumptions (if (= 1 (count conjuncts))
                            (let [opp (opposite-polarity (first conjuncts))]
                              (cond-> (vec assumptions) opp (conj opp)))
                            (vec assumptions))]
-    {:then-locals (refine-locals-for-assumption locals then-assumptions)
+    {:then-locals (refine-locals-for-assumption ctx locals then-assumptions)
      :then-assumptions then-assumptions
-     :else-locals (refine-locals-for-assumption locals else-assumptions)
+     :else-locals (refine-locals-for-assumption ctx locals else-assumptions)
      :else-assumptions else-assumptions}))
 
 (defn guard-assumption
@@ -452,4 +453,4 @@
         new-assumptions (into (vec assumptions) parts)]
     (assoc ctx
            :assumptions new-assumptions
-           :locals (refine-locals-for-assumption locals new-assumptions))))
+           :locals (refine-locals-for-assumption ctx locals new-assumptions))))

@@ -7,9 +7,9 @@
             [skeptic.provenance :as prov]))
 
 (deftest output-mismatch-renders-canonical-map-types
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
+  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+                                        ps/static-call-examples-file
+                                        {:remove-context true}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
                               (:enclosing-form %))
                         %)
@@ -21,9 +21,9 @@
     (is (not (.contains error "\":name : Keyword\"")))))
 
 (deftest output-summary-highlights-path-or-drops-redundant-self-context
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
+  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+                                        ps/static-call-examples-file
+                                        {:remove-context true}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -36,14 +36,14 @@
         rebuilt-error (-> rebuilt-user-result inrep/report-summary :errors first ps/strip-ansi)]
     (is (re-find #"(?s)^\(get counts :count \"zero\"\)\s+has an output mismatch against the declared return type\." count-error))
     (is (not (re-find #"(?s)^\(get counts :count \"zero\"\)\s+\tin\s+\(get counts :count \"zero\"\)" count-error)))
-    (is (str/includes? count-error "(union Int Str) but expected Int"))
+    (is (re-find #"\(union (Int Str|Str Int)\) but expected Int" count-error))
     (is (re-find #"(?s)^\[:name\]\s+\tin\s+\{:name :bad, :nickname \(get user :nickname\)\}" rebuilt-error))
     (is (str/includes? rebuilt-error "[:name] has Keyword but expected Str"))))
 
 (deftest nested-output-mismatch-renders-field-paths
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
+  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+                                        ps/static-call-examples-file
+                                        {:remove-context true}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
                               (:enclosing-form %))
                         %)
@@ -64,9 +64,9 @@
     (is (= :inferred (prov/source (get provenance 'skeptic.static-call-examples/nested-multi-step-failure))))))
 
 (deftest check-results-carry-cast-metadata
-  (let [results (vec (sut/check-ns 'skeptic.static-call-examples
-                                   ps/static-call-examples-file
-                                   {:remove-context true}))
+  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+                                        ps/static-call-examples-file
+                                        {:remove-context true}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

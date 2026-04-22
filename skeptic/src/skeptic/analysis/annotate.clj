@@ -12,7 +12,8 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn node-location
   [node]
@@ -27,7 +28,7 @@
 
 (defn- annotate-generic
   [ctx node]
-  (assoc (base/annotate-children ctx node) :type at/Dyn))
+  (assoc (base/annotate-children ctx node) :type (at/Dyn (prov/with-ctx ctx))))
 
 (defn- annotate-dispatch
   [ctx node]
@@ -73,7 +74,9 @@
       (when-not (ab/schema-domain? schema)
         (throw (IllegalArgumentException.
                 (format "Invalid :skeptic/type override: %s" (pr-str type-form)))))
-      (ab/schema->type schema))))
+      (ab/schema->type (prov/make-provenance :type-override
+                                             (:name ctx) (:ns ctx) nil)
+                       schema))))
 
 (defn- apply-type-override
   [annotated ctx node]
@@ -93,13 +96,14 @@
   ([dict ast]
    (annotate-ast dict ast {}))
   ([dict ast {:keys [locals name ns assumptions accessor-summaries]}]
-   (annotate-node {:dict (or dict {})
-                   :locals (or locals {})
-                   :assumptions (vec assumptions)
-                   :recur-targets {}
-                   :name name
-                   :ns ns
-                   :accessor-summaries (or accessor-summaries {})}
+   (annotate-node (prov/set-ctx {:dict (or dict {})
+                                 :locals (or locals {})
+                                 :assumptions (vec assumptions)
+                                 :recur-targets {}
+                                 :name name
+                                 :ns ns
+                                 :accessor-summaries (or accessor-summaries {})}
+                                (prov/inferred {:name name :ns ns}))
                   ast)))
 
 (defn- target-ns

@@ -1,8 +1,9 @@
 (ns skeptic.analysis.calls
   (:require [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.map-ops :as amo]
-            [skeptic.analysis.value :as av]
-            [skeptic.analysis.types :as at])
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov])
   (:import [clojure.lang Util]))
 
 (defn node-info
@@ -21,15 +22,15 @@
     (aapi/node-form node)))
 
 (defn map-literal-key-type
-  [node]
+  [ctx node]
   (if (literal-map-key? node)
-    (av/exact-runtime-value-type (literal-node-value node))
-    (or (aapi/node-type node) at/Dyn)))
+    (aapi/exact-value-type ctx (literal-node-value node))
+    (or (aapi/node-type node) (aapi/dyn ctx))))
 
 (defn get-key-query
-  [node]
+  [ctx node]
   (if (literal-map-key? node)
-    (amo/exact-key-query nil (literal-node-value node) (aapi/node-form node))
+    (amo/exact-key-query (prov/with-ctx ctx) (literal-node-value node) (aapi/node-form node))
     (amo/domain-key-query (aapi/node-type node) (aapi/node-form node))))
 
 (defn var->sym
@@ -56,7 +57,7 @@
     (some dict candidates)))
 
 (defn fun-type->call-opts
-  [{:keys [methods]}]
+  [{:keys [methods] :as fun-type}]
   (let [arglists (into {}
                        (map (fn [{:keys [inputs min-arity variadic?]}]
                               (if variadic?
@@ -65,17 +66,20 @@
                        methods)
         output-type (some :output methods)]
     {:arglists arglists
-     :output-type (or output-type at/Dyn)}))
+     :output-type (or output-type (at/Dyn (prov/of fun-type)))}))
 
 (defn default-call-info
-  [arity output]
-  (let [output-type (or output at/Dyn)
-        expected-argtypes (vec (repeat arity at/Dyn))
-        fn-type (at/->FunT [(at/->FnMethodT expected-argtypes
-                                           output-type
-                                           arity
-                                           false
-                                           (mapv #(symbol (str "arg" %)) (range arity)))])]
+  [ctx arity output]
+  (let [output-type (or output (aapi/dyn ctx))
+        prov (ato/derive-prov output-type)
+        expected-argtypes (vec (repeat arity (at/Dyn prov)))
+        fn-type (at/->FunT prov
+                           [(at/->FnMethodT prov
+                                            expected-argtypes
+                                            output-type
+                                            arity
+                                            false
+                                            (mapv #(symbol (str "arg" %)) (range arity)))])]
     {:expected-argtypes expected-argtypes
      :output-type output-type
      :fn-type fn-type}))
@@ -327,10 +331,10 @@
   [ft arity]
   (let [method (at/select-method (at/fun-methods ft) arity)
         inputs (at/fn-method-inputs method)
-        output (or (:output method) at/Dyn)
+        output (or (:output method) (ato/dyn ft))
         c (count inputs)
         argtypes (cond
-                   (zero? c) (vec (repeat arity at/Dyn))
+                   (zero? c) (vec (repeat arity (ato/dyn ft)))
                    (>= c arity) (subvec (vec inputs) 0 arity)
                    :else (vec (concat inputs (repeat (- arity c) (peek inputs)))))]
     {:expected-argtypes argtypes
@@ -338,7 +342,7 @@
      :fn-type ft}))
 
 (defn call-info
-  [fn-node args]
+  [ctx fn-node args]
   (if-let [ft (aapi/node-fun-type fn-node)]
     (fun-type-call-info ft (count args))
-    (default-call-info (count args) (aapi/node-output-type fn-node))))
+    (default-call-info ctx (count args) (aapi/node-output-type fn-node))))

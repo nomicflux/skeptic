@@ -18,7 +18,7 @@
 
 (defn render-type-form
   [type]
-  (let [type (ato/normalize-type-for-declared-type type)]
+  (let [type (ato/normalize-for-declared-type type)]
     (cond
       (at/dyn-type? type) 'Any
       (at/bottom-type? type) 'Bottom
@@ -82,7 +82,7 @@
 (defn type->json-data
   "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
   [type]
-  (let [type (some-> type ato/normalize-type-for-declared-type)]
+  (let [type (some-> type ato/normalize-for-declared-type)]
     (cond
       (nil? type) nil
       (at/dyn-type? type) {:t "any"}

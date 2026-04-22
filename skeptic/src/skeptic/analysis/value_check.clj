@@ -13,7 +13,7 @@
 
 (defn- as-type
   [value]
-  (ato/normalize-type value))
+  (ato/normalize value))
 
 (defn exact-value-type?
   [type]
@@ -86,9 +86,9 @@
                               branch))))
                   set)]
     (cond
-      (empty? kept) at/BottomType
+      (empty? kept) (ato/bottom type)
       (= 1 (count kept)) (first kept)
-      :else (ato/union-type kept))))
+      :else (ato/union kept))))
 
 (def integral-ground-classes
   #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
@@ -273,7 +273,7 @@
       (at/vector-type? type)
       (and (vector? value)
            (if (:homogeneous? type)
-             (every? #(value-satisfies-type? % (or (first (:items type)) at/Dyn))
+             (every? #(value-satisfies-type? % (or (first (:items type)) (ato/dyn type)))
                      value)
              (and (= (count value) (count (:items type)))
                   (every? true? (map value-satisfies-type? value (:items type))))))

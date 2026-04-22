@@ -3,21 +3,22 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(def bool-type
-  (at/->GroundT :bool 'Bool))
+(defn bool-type
+  [prov]
+  (at/->GroundT prov :bool 'Bool))
 
 (def integral-arg-classes
   #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
 
 (defn- numeric-ground-class
   [type]
-  (let [ground (:ground (ato/normalize-type type))]
+  (let [ground (:ground (ato/normalize type))]
     (when (and (map? ground) (:class ground))
       (:class ground))))
 
 (defn integral-type?
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)]
     (cond
       (and (at/ground-type? type) (= :int (:ground type))) true
       (and (at/ground-type? type) (map? (:ground type)) (:class (:ground type)))
@@ -31,7 +32,7 @@
 
 (defn numeric-type?
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)]
     (cond
       (integral-type? type) true
       (at/numeric-dyn-type? type) true
@@ -43,7 +44,7 @@
 
 (defn non-int-numeric-type?
   [type]
-  (let [type (ato/normalize-type type)
+  (let [type (ato/normalize type)
         klass (numeric-ground-class type)]
     (cond
       (and (at/value-type? type) (number? (:value type)) (not (integer? (:value type))))
@@ -62,10 +63,11 @@
 
 (defn- numeric-ground-output-type
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)
+        prov (ato/derive-prov type)]
     (cond
       (at/value-type? type)
-      (or (:inner type) at/NumericDyn)
+      (or (:inner type) (at/NumericDyn prov))
 
       (and (at/ground-type? type) (numeric-ground-class type))
       type
@@ -77,11 +79,12 @@
 
 (defn inc-dec-output-type
   [arg-type]
-  (cond
-    (integral-type? arg-type) (at/->GroundT :int 'Int)
-    (non-int-numeric-type? arg-type) (or (numeric-ground-output-type arg-type) at/NumericDyn)
-    (numeric-type? arg-type) at/NumericDyn
-    :else nil))
+  (let [prov (ato/derive-prov arg-type)]
+    (cond
+      (integral-type? arg-type) (at/->GroundT prov :int 'Int)
+      (non-int-numeric-type? arg-type) (or (numeric-ground-output-type arg-type) (at/NumericDyn prov))
+      (numeric-type? arg-type) (at/NumericDyn prov)
+      :else nil)))
 
 (defn binary-integral-locals-narrow?
   [arg-nodes arg-types]
@@ -90,6 +93,10 @@
        (not= :const (:op (second arg-nodes)))
        (integral-type? (first arg-types))
        (integral-type? (second arg-types))))
+
+(defn- narrowed-prov
+  [actual-argtypes]
+  (apply ato/derive-prov actual-argtypes))
 
 (defn invoke-integral-math-narrow-type
   [fn-node args actual-argtypes]
@@ -102,16 +109,16 @@
          (seq args)
          (every? #(not= :const (:op %)) args)
          (every? integral-type? actual-argtypes))
-    (at/->GroundT :int 'Int)
+    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
 
     (and (ac/minus-invoke? fn-node) (= 1 (count args))
          (not= :const (:op (first args)))
          (integral-type? (first actual-argtypes)))
-    (at/->GroundT :int 'Int)
+    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
 
     (and (ac/minus-invoke? fn-node) (= 2 (count args))
          (binary-integral-locals-narrow? args actual-argtypes))
-    (at/->GroundT :int 'Int)
+    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
     :else nil))
 
 (defn narrow-static-numbers-output
@@ -123,15 +130,15 @@
             (inc-dec-output-type (first actual-argtypes))))
         (when (#{'add 'multiply} method)
           (when (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT :int 'Int)))
+            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)))
         (when (= 'minus method)
           (cond
             (and (= 1 (count args))
                  (not= :const (:op (first args)))
                  (integral-type? (first actual-argtypes)))
-            (at/->GroundT :int 'Int)
+            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
 
             (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT :int 'Int)
+            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
             :else nil))
         (:output-type native-info))))

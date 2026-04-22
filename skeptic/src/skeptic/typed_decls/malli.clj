@@ -6,7 +6,7 @@
 
 (defn desc->type
   [prov {:keys [malli-spec]}]
-  (amb/malli-spec->type malli-spec prov))
+  (amb/malli-spec->type prov malli-spec))
 
 (defn- desc->provenance
   [_desc ns qualified-sym]

@@ -80,7 +80,8 @@
 
 (defn- exact-source-results
   [run-child source-type target-type source-entry target-domain-entries opts]
-  (let [source-key (ato/exact-value-type (:exact-value source-entry))
+  (let [source-key (ato/exact-value-type (ato/derive-prov (:inner-key-type source-entry))
+                                         (:exact-value source-entry))
         targets (vec (filter #(amo/key-domain-covered? source-key (:inner-key-type %))
                              target-domain-entries))
         requests (mapv #(candidate-request (:value source-entry) % opts nil) targets)]
@@ -135,8 +136,8 @@
 
 (defn- map-children
   [run-child source-type target-type opts]
-  (let [source-desc (amo/map-entry-descriptor (:entries (ato/normalize-type source-type)))
-        target-desc (amo/map-entry-descriptor (:entries (ato/normalize-type target-type)))
+  (let [source-desc (amo/map-entry-descriptor (:entries (ato/normalize source-type)))
+        target-desc (amo/map-entry-descriptor (:entries (ato/normalize target-type)))
         target-exacts (vec (amo/effective-exact-entries target-desc))
         target-values (set (map :exact-value target-exacts))
         target-domains (vec (:domain-entries target-desc))

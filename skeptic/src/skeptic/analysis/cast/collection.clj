@@ -1,5 +1,6 @@
 (ns skeptic.analysis.cast.collection
   (:require [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value-check :as avc]))
 
@@ -14,7 +15,7 @@
 (defn- expand-items
   [type slot-count]
   (if (:homogeneous? type)
-    (vec (repeat slot-count (or (first (:items type)) at/Dyn)))
+    (vec (repeat slot-count (or (first (:items type)) (ato/dyn type))))
     (:items type)))
 
 (defn- slot-count
@@ -51,7 +52,7 @@
   [source-member target-members polarity]
   (ascs/with-cast-path
     (ascs/cast-fail source-member
-                    (or (first target-members) at/Dyn)
+                    (or (first target-members) (ato/dyn source-member))
                     :set-element
                     polarity
                     :element-mismatch)

@@ -5,12 +5,13 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.map-ops.algebra :as amoa]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn- shared-get-output-type
-  [args]
+  [ctx args]
   (let [[target key-node default-node] args
-        key-type (ac/get-key-query key-node)]
+        key-type (ac/get-key-query ctx key-node)]
     (if default-node
       (amo/map-get-type (:type target) key-type (:type default-node))
       (amo/map-get-type (:type target) key-type))))
@@ -31,16 +32,20 @@
           (at/seq-type? type) type
           (at/vector-type? type) (coll/vector-to-homogeneous-seq-type type)
           :else nil)
-        at/Dyn)))
+        (at/Dyn (ato/derive-prov type)))))
+
+(defn- args-prov
+  [args]
+  (apply ato/derive-prov (map :type args)))
 
 (defn shared-call-output-type
-  [shared-op args default-output-type]
+  [ctx shared-op args default-output-type]
   (case shared-op
-    :get (shared-get-output-type args)
+    :get (shared-get-output-type ctx args)
     :merge (amoa/merge-types (map :type args))
     :assoc (map-path/reduce-assoc-pairs (:type (first args)) (partition 2 (rest args)))
     :dissoc (map-path/reduce-dissoc-keys (:type (first args)) (rest args))
     :update (shared-update-output-type args default-output-type)
-    :contains numeric/bool-type
+    :contains (numeric/bool-type (args-prov args))
     :seq (shared-seq-output-type args)
     default-output-type))

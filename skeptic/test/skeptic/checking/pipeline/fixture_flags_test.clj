@@ -1,6 +1,7 @@
 (ns skeptic.checking.pipeline.fixture-flags-test
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.config :as config]
@@ -34,8 +35,8 @@
   (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
         result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags)]
-    (is (= (ps/T s/Int)
-           (get-in result [:dict 'some.ns/some-fn]))
+    (is (at/type=? (ps/T s/Int)
+                   (get-in result [:dict 'some.ns/some-fn]))
         "typed-ns-results must merge :skeptic/type-overrides into :dict")))
 
 (deftest failing-functions

@@ -1,9 +1,10 @@
 (ns skeptic.analysis.annotate.base
-  (:require [skeptic.analysis.calls :as ac]
+  (:require [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
-            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]))
 
 (defn- annotate-child
   [ctx value]
@@ -20,8 +21,8 @@
           (:children node)))
 
 (defn annotate-const
-  [_ctx node]
-  (assoc node :type (av/type-of-value (:val node))))
+  [ctx node]
+  (assoc node :type (av/type-of-value (prov/with-ctx ctx) (:val node))))
 
 (defn annotate-binding
   [ctx node]
@@ -31,28 +32,30 @@
     node))
 
 (defn- local-origin-for-entry
-  [sym entry t]
+  [ctx sym entry t]
   (if (at/semantic-type-value? entry)
-    (ao/root-origin sym (ato/normalize-type-for-declared-type t))
+    (ao/root-origin sym (aapi/normalize-type-for-declared-type ctx t))
     (:origin entry)))
 
 (defn annotate-local
-  [{:keys [locals assumptions]} node]
-  (let [sym (:form node)
+  [ctx node]
+  (let [{:keys [locals assumptions]} ctx
+        sym (:form node)
         entry (get locals sym)]
     (if (nil? entry)
-      (assoc node :type at/Dyn)
-      (let [t (ao/effective-type sym entry assumptions)
-            origin (local-origin-for-entry sym entry t)]
+      (assoc node :type (aapi/dyn ctx))
+      (let [t (ao/effective-type ctx sym entry assumptions)
+            origin (local-origin-for-entry ctx sym entry t)]
         (cond-> (merge node
                        (when (map? entry) (select-keys entry [:binding-init :fn-binding-node]))
                        {:type t})
           origin (assoc :origin origin))))))
 
 (defn annotate-var-like
-  [{:keys [dict ns accessor-summaries]} node]
-  (let [entry (ac/lookup-type dict ns node)
+  [ctx node]
+  (let [{:keys [dict ns accessor-summaries]} ctx
+        entry (ac/lookup-type dict ns node)
         qualified (ac/qualify-symbol ns (:form node))
         summary (get accessor-summaries qualified)]
-    (cond-> (assoc node :type (or entry at/Dyn))
+    (cond-> (assoc node :type (or entry (aapi/dyn ctx)))
       summary (assoc :accessor-summary summary))))

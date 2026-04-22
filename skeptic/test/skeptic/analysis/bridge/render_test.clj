@@ -1,6 +1,7 @@
 (ns skeptic.analysis.bridge.render-test
   (:require [clojure.test :refer [deftest is testing]]
             [skeptic.analysis.bridge.render :as sut]
+            [skeptic.test-helpers :refer [tp]]
             [skeptic.analysis.types :as at]))
 
 (deftest type->json-data-scalars
@@ -8,26 +9,26 @@
     (is (nil? (sut/type->json-data nil))))
 
   (testing "Dyn and Bottom"
-    (is (= {:t "any"} (sut/type->json-data (at/->DynT))))
-    (is (= {:t "bottom"} (sut/type->json-data (at/->BottomT)))))
+    (is (= {:t "any"} (sut/type->json-data (at/->DynT tp))))
+    (is (= {:t "bottom"} (sut/type->json-data (at/->BottomT tp)))))
 
   (testing "Ground"
     (is (= {:t "ground" :name "Int"}
-           (sut/type->json-data (at/->GroundT :int 'Int)))))
+           (sut/type->json-data (at/->GroundT tp :int 'Int)))))
 
   (testing "Value"
     (is (= {:t "value" :value ":k"}
            (sut/type->json-data
-            (at/->ValueT (at/->GroundT :keyword 'Keyword) :k))))))
+            (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :k))))))
 
 (deftest type->json-data-constructors
   (testing "Maybe"
     (is (= {:t "maybe" :inner {:t "ground" :name "Int"}}
-           (sut/type->json-data (at/->MaybeT (at/->GroundT :int 'Int))))))
+           (sut/type->json-data (at/->MaybeT tp (at/->GroundT tp :int 'Int))))))
 
   (testing "Conditional"
-    (let [conditional (at/->ConditionalT [[integer? (at/->GroundT :int 'Int)]
-                                          [string? (at/->MaybeT (at/->GroundT :keyword 'Keyword))]])]
+    (let [conditional (at/->ConditionalT tp [[integer? (at/->GroundT tp :int 'Int)]
+                                          [string? (at/->MaybeT tp (at/->GroundT tp :keyword 'Keyword))]])]
       (is (= '(conditional Int (maybe Keyword))
              (sut/render-type-form conditional)))
       (is (= {:t "conditional"
@@ -38,31 +39,31 @@
 
   (testing "Union sorts members for stability"
     (let [result (sut/type->json-data
-                  (at/->UnionT #{(at/->GroundT :int 'Int)
-                                 (at/->GroundT :keyword 'Keyword)}))]
+                  (at/->UnionT tp #{(at/->GroundT tp :int 'Int)
+                                 (at/->GroundT tp :keyword 'Keyword)}))]
       (is (= "union" (:t result)))
       (is (= [{:t "ground" :name "Int"} {:t "ground" :name "Keyword"}]
              (:members result)))))
 
   (testing "Vector"
     (is (= {:t "vector" :items [{:t "ground" :name "Int"}]}
-           (sut/type->json-data (at/->VectorT [(at/->GroundT :int 'Int)] false)))))
+           (sut/type->json-data (at/->VectorT tp [(at/->GroundT tp :int 'Int)] false)))))
 
   (testing "Map"
     (is (= {:t "map"
             :entries [{:key {:t "ground" :name "Keyword"}
                        :val {:t "ground" :name "Int"}}]}
            (sut/type->json-data
-            (at/->MapT {(at/->GroundT :keyword 'Keyword)
-                        (at/->GroundT :int 'Int)})))))
+            (at/->MapT tp {(at/->GroundT tp :keyword 'Keyword)
+                        (at/->GroundT tp :int 'Int)})))))
 
   (testing "OptionalKey"
     (is (= {:t "optional-key" :inner {:t "ground" :name "Int"}}
-           (sut/type->json-data (at/->OptionalKeyT (at/->GroundT :int 'Int))))))
+           (sut/type->json-data (at/->OptionalKeyT tp (at/->GroundT tp :int 'Int))))))
 
   (testing "Fun and FnMethod"
-    (let [m (at/->FnMethodT [(at/->GroundT :int 'Int)]
-                            (at/->GroundT :keyword 'Keyword)
+    (let [m (at/->FnMethodT tp [(at/->GroundT tp :int 'Int)]
+                            (at/->GroundT tp :keyword 'Keyword)
                             1
                             false
                             '[x])]
@@ -78,28 +79,28 @@
                          :output {:t "ground" :name "Keyword"}
                          :variadic false
                          :min_arity 1}]}
-             (sut/type->json-data (at/->FunT [m]))))))
+             (sut/type->json-data (at/->FunT tp [m]))))))
 
   (testing "Forall"
     (is (= {:t "forall"
             :binder ["X"]
             :body {:t "type-var" :name "X"}}
            (sut/type->json-data
-            (at/->ForallT ['X] (at/->TypeVarT 'X))))))
+            (at/->ForallT tp ['X] (at/->TypeVarT tp 'X))))))
 
   (testing "TypeVar"
     (is (= {:t "type-var" :name "T"}
-           (sut/type->json-data (at/->TypeVarT 'T)))))
+           (sut/type->json-data (at/->TypeVarT tp 'T)))))
 
   (testing "SealedDyn"
     (is (= {:t "sealed" :ground {:t "ground" :name "Int"}}
            (sut/type->json-data
-            (at/->SealedDynT (at/->GroundT :int 'Int))))))
+            (at/->SealedDynT tp (at/->GroundT tp :int 'Int))))))
 
   (testing "Set and Seq and Var"
     (is (= {:t "set" :members [{:t "ground" :name "Int"}]}
-           (sut/type->json-data (at/->SetT #{(at/->GroundT :int 'Int)} false))))
+           (sut/type->json-data (at/->SetT tp #{(at/->GroundT tp :int 'Int)} false))))
     (is (= {:t "seq" :items [{:t "ground" :name "Int"}]}
-           (sut/type->json-data (at/->SeqT [(at/->GroundT :int 'Int)] false))))
+           (sut/type->json-data (at/->SeqT tp [(at/->GroundT tp :int 'Int)] false))))
     (is (= {:t "var" :inner {:t "ground" :name "Int"}}
-           (sut/type->json-data (at/->VarT (at/->GroundT :int 'Int)))))))
+           (sut/type->json-data (at/->VarT tp (at/->GroundT tp :int 'Int)))))))

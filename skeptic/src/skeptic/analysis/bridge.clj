@@ -13,6 +13,23 @@
                Object}
              schema))
 
+(defn primitive-ground-schema?
+  [schema]
+  (let [schema (sb/canonical-scalar-schema schema)]
+    (cond
+      (= schema s/Int) true
+      (= schema s/Str) true
+      (= schema s/Keyword) true
+      (= schema s/Symbol) true
+      (= schema s/Bool) true
+      (and (class? schema)
+           (.isAssignableFrom IPersistentCollection ^Class schema))
+      false
+      (and (class? schema)
+           (not (broad-dynamic-schema? schema)))
+      true
+      :else false)))
+
 (defn primitive-ground-type
   [prov schema]
   (let [schema (sb/canonical-scalar-schema schema)]
@@ -23,12 +40,8 @@
       (= schema s/Symbol) (at/->GroundT prov :symbol 'Symbol)
       (= schema s/Bool) (at/->GroundT prov :bool 'Bool)
       (and (class? schema)
-           (.isAssignableFrom IPersistentCollection ^Class schema))
-      nil
-      (and (class? schema)
            (not (broad-dynamic-schema? schema)))
-      (at/->GroundT prov {:class schema} (abc/schema-explain schema))
-      :else nil)))
+      (at/->GroundT prov {:class schema} (abc/schema-explain schema)))))
 
 (defn- invalid-schema-input
   [value]
@@ -103,12 +116,12 @@
                  (:closed-refs child-result)))
 
 (defn- collection-import-type
-  [run {:keys [owner-ref] :as ctx} schemas fixed-build homogeneous-build]
+  [run {:keys [owner-ref prov] :as ctx} schemas fixed-build homogeneous-build]
   (let [child-results (mapv #(run (assoc ctx :schema %)) schemas)
         child-types (mapv :type child-results)
         closed-refs (merge-closed-refs child-results)
         type (if (and owner-ref (contains? closed-refs owner-ref))
-               (homogeneous-build (ato/union-type child-types))
+               (homogeneous-build (ato/union-type prov child-types))
                (fixed-build child-types))]
     (import-result type closed-refs)))
 
@@ -209,19 +222,19 @@
       (run (assoc ctx :schema (:schema (into {} schema))))
 
       (sb/schema-literal? schema)
-      (import-result (ato/exact-value-type schema))
+      (import-result (ato/exact-value-type prov schema))
 
       (s/optional-key? schema)
       (unary-child-result (partial at/->OptionalKeyT prov)
                           (run (assoc ctx :schema (:k schema))))
 
       (sb/eq? schema)
-      (import-result (ato/exact-value-type (sb/de-eq schema)))
+      (import-result (ato/exact-value-type prov (sb/de-eq schema)))
 
       (sb/constrained? schema)
       (refinement-import-type run ctx schema)
 
-      (primitive-ground-type prov scalar-schema)
+      (primitive-ground-schema? scalar-schema)
       (import-result (primitive-ground-type prov scalar-schema))
 
       (sb/fn-schema? schema)
@@ -232,22 +245,22 @@
                           (run (assoc ctx :schema (:schema schema))))
 
       (sb/enum-schema? schema)
-      (import-result (ato/union-type (map ato/exact-value-type (sb/de-enum schema))))
+      (import-result (ato/union-type prov (mapv #(ato/exact-value-type prov %) (sb/de-enum schema))))
 
       (sb/join? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
 
       (sb/either? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
 
       (sb/conditional-schema? schema)
       (conditional-import-type run ctx schema)
 
       (sb/cond-pre? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
 
       (sb/both? schema)
-      (branch-import-type run ctx (:schemas schema) ato/intersection-type)
+      (branch-import-type run ctx (:schemas schema) #(ato/intersection-type prov %))
 
       (sb/valued-schema? schema)
       (let [inner-result (run (assoc ctx :schema (:schema schema)))]
@@ -341,7 +354,7 @@
               :active-refs active-refs})
         schema)
 
-      (primitive-ground-type nil scalar-schema)
+      (primitive-ground-schema? scalar-schema)
       schema
 
       (sb/fn-schema? schema)
@@ -461,7 +474,7 @@
 
 (defn import-schema-type
   "Input must be in the schema domain."
-  [schema prov]
+  [prov schema]
   (letfn [(run [ctx]
             (import-schema-type* run ctx))]
     (:type (run {:schema schema
@@ -471,5 +484,5 @@
 
 (defn schema->type
   "Input must be schema-domain (e.g. from admitted declarations)."
-  [schema prov]
-  (import-schema-type (admit-schema schema) prov))
+  [prov schema]
+  (import-schema-type prov (admit-schema schema)))

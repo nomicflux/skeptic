@@ -6,24 +6,37 @@
   [source qualified-sym declared-in var-meta]
   (->Provenance source qualified-sym declared-in var-meta))
 
+(defn inferred
+  [{:keys [name ns]}]
+  (make-provenance :inferred name ns nil))
+
+(def ^:private ctx-key :skeptic.provenance/ctx-provenance)
+
+(defn with-ctx
+  "Read the current provenance from an analyzer ctx."
+  [ctx]
+  (or (get ctx ctx-key)
+      (throw (IllegalArgumentException.
+              (format "prov/with-ctx called with ctx missing provenance: %s" ctx)))))
+
+(defn set-ctx
+  "Return ctx with the given provenance installed."
+  [ctx prov]
+  (assoc ctx ctx-key prov))
+
 (defn provenance?
   [x]
   (instance? Provenance x))
 
 (defn source
-  [p]
-  (:source p))
-
-(def ^:private provenance-meta-key
-  :skeptic.provenance/provenance)
-
-(defn attach
-  [t prov]
-  (vary-meta t assoc provenance-meta-key prov))
+  [{:keys [source]}]
+  source)
 
 (defn of
   [t]
-  (some-> t meta (get provenance-meta-key)))
+  (or (:prov t)
+      (throw (IllegalArgumentException.
+              "prov/of called on value without provenance"))))
 
 (def ^:private source-rank-map
   {:type-override 0

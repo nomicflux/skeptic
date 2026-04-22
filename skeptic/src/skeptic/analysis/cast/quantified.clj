@@ -1,6 +1,7 @@
 (ns skeptic.analysis.cast.quantified
   (:require [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-algebra :as ata]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
 (defn- quantified-failure
@@ -23,8 +24,8 @@
          :instantiated-type (:instantiated-type details)))
 
 (defn- quantified-result
-  [source-type target-type rule binder child opts details]
-  (let [exit-result (ascs/exit-nu-scope child binder opts)]
+  [source-type target-type rule binder child details]
+  (let [exit-result (ascs/exit-nu-scope child binder)]
     (if (:ok? exit-result)
       (ascs/cast-ok source-type target-type rule [child] details)
       (quantified-exit-failure source-type target-type child details exit-result))))
@@ -39,20 +40,20 @@
                               :target-type (:body target-type)
                               :opts opts})]
         (if (:ok? child)
-          (quantified-result source-type target-type :generalize binder child opts details)
+          (quantified-result source-type target-type :generalize binder child details)
           (quantified-failure source-type target-type :generalize :generalize-failed child opts details))))))
 
 (defn- instantiate-cast
   [run-child source-type target-type opts]
   (let [binder (:binder source-type)
-        instantiated (ata/type-substitute (:body source-type) binder at/Dyn)
+        instantiated (ata/type-substitute (:body source-type) binder (ato/dyn source-type))
         details {:binder binder
                  :instantiated-type instantiated}
         child (run-child {:source-type instantiated
                           :target-type target-type
                           :opts opts})]
     (if (:ok? child)
-      (quantified-result source-type target-type :instantiate binder child opts details)
+      (quantified-result source-type target-type :instantiate binder child details)
       (quantified-failure source-type target-type :instantiate :instantiate-failed child opts details))))
 
 (defn- sealed-match?
@@ -74,7 +75,7 @@
   (let [polarity (:polarity opts)]
     (cond
       (and (at/type-var-type? source-type) (at/dyn-type? target-type))
-      (let [sealed-type (at/->SealedDynT source-type)]
+      (let [sealed-type (at/->SealedDynT (ato/derive-prov source-type) source-type)]
         (ascs/cast-ok source-type target-type :seal [] {:sealed-type sealed-type}))
 
       (at/type-var-type? target-type)

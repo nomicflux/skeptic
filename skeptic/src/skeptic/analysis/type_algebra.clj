@@ -9,7 +9,7 @@
 
 (defn type-free-vars
   [type]
-  (let [type (ato/normalize-type type)]
+  (let [type (ato/normalize type)]
     (cond
       (or (at/dyn-type? type)
           (at/bottom-type? type)
@@ -74,8 +74,9 @@
 
 (defn type-substitute
   [type binder replacement]
-  (let [type (ato/normalize-type type)
-        replacement (ato/normalize-type replacement)]
+  (let [type (ato/normalize type)
+        replacement (ato/normalize replacement)
+        prov (ato/derive-prov type replacement)]
     (cond
       (or (at/dyn-type? type)
           (at/bottom-type? type)
@@ -88,51 +89,57 @@
       type
 
       (at/optional-key-type? type)
-      (at/->OptionalKeyT (type-substitute (:inner type) binder replacement))
+      (at/->OptionalKeyT prov (type-substitute (:inner type) binder replacement))
 
       (at/fn-method-type? type)
-      (at/->FnMethodT (mapv #(type-substitute % binder replacement) (:inputs type))
+      (at/->FnMethodT prov
+                      (mapv #(type-substitute % binder replacement) (:inputs type))
                       (type-substitute (:output type) binder replacement)
                       (:min-arity type)
                       (:variadic? type)
                       (:names type))
 
       (at/fun-type? type)
-      (at/->FunT (mapv #(type-substitute % binder replacement) (:methods type)))
+      (at/->FunT prov (mapv #(type-substitute % binder replacement) (:methods type)))
 
       (at/maybe-type? type)
-      (at/->MaybeT (type-substitute (:inner type) binder replacement))
+      (at/->MaybeT prov (type-substitute (:inner type) binder replacement))
 
       (at/union-type? type)
-      (at/->UnionT (set (map #(type-substitute % binder replacement) (:members type))))
+      (at/->UnionT prov (set (map #(type-substitute % binder replacement) (:members type))))
 
       (at/intersection-type? type)
-      (at/->IntersectionT (set (map #(type-substitute % binder replacement) (:members type))))
+      (at/->IntersectionT prov (set (map #(type-substitute % binder replacement) (:members type))))
 
       (at/map-type? type)
-      (at/->MapT (into {}
-                      (map (fn [[k v]]
-                             [(type-substitute k binder replacement)
-                              (type-substitute v binder replacement)]))
-                      (:entries type)))
+      (at/->MapT prov
+                 (into {}
+                       (map (fn [[k v]]
+                              [(type-substitute k binder replacement)
+                               (type-substitute v binder replacement)]))
+                       (:entries type)))
 
       (at/vector-type? type)
-      (at/->VectorT (mapv #(type-substitute % binder replacement) (:items type))
+      (at/->VectorT prov
+                    (mapv #(type-substitute % binder replacement) (:items type))
                     (:homogeneous? type))
 
       (at/set-type? type)
-      (at/->SetT (set (map #(type-substitute % binder replacement) (:members type)))
+      (at/->SetT prov
+                 (set (map #(type-substitute % binder replacement) (:members type)))
                  (:homogeneous? type))
 
       (at/seq-type? type)
-      (at/->SeqT (mapv #(type-substitute % binder replacement) (:items type))
+      (at/->SeqT prov
+                 (mapv #(type-substitute % binder replacement) (:items type))
                  (:homogeneous? type))
 
       (at/var-type? type)
-      (at/->VarT (type-substitute (:inner type) binder replacement))
+      (at/->VarT prov (type-substitute (:inner type) binder replacement))
 
       (at/value-type? type)
-      (at/->ValueT (type-substitute (:inner type) binder replacement)
+      (at/->ValueT prov
+                   (type-substitute (:inner type) binder replacement)
                    (:value type))
 
       (at/type-var-type? type)
@@ -143,11 +150,12 @@
       (at/forall-type? type)
       (if (= binder (:binder type))
         type
-        (at/->ForallT (:binder type)
+        (at/->ForallT prov
+                      (:binder type)
                       (type-substitute (:body type) binder replacement)))
 
       (at/sealed-dyn-type? type)
-      (at/->SealedDynT (type-substitute (:ground type) binder replacement))
+      (at/->SealedDynT prov (type-substitute (:ground type) binder replacement))
 
       :else
       type)))

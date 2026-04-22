@@ -1,22 +1,32 @@
 (ns skeptic.analysis.type-ops
   (:require [schema.core :as s]
             [skeptic.analysis.schema-base :as sb]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(defn derive-prov
+  "Merge attached provenance of typed inputs. Requires at least one input
+  that carries prov — throws otherwise, signalling a caller without real
+  provenance context."
+  [& types]
+  (or (reduce prov/merge-provenances nil (keep prov/of types))
+      (throw (IllegalArgumentException.
+              "derive-prov called without any typed input carrying provenance"))))
 
 (defn literal-ground-type
-  [value]
+  [prov value]
   (cond
-    (integer? value) (at/->GroundT :int 'Int)
-    (number? value) (at/->GroundT {:class (class value)} (symbol (.getSimpleName ^Class (class value))))
-    (string? value) (at/->GroundT :str 'Str)
-    (keyword? value) (at/->GroundT :keyword 'Keyword)
-    (symbol? value) (at/->GroundT :symbol 'Symbol)
-    (boolean? value) (at/->GroundT :bool 'Bool)
+    (integer? value) (at/->GroundT prov :int 'Int)
+    (number? value) (at/->GroundT prov {:class (class value)} (symbol (.getSimpleName ^Class (class value))))
+    (string? value) (at/->GroundT prov :str 'Str)
+    (keyword? value) (at/->GroundT prov :keyword 'Keyword)
+    (symbol? value) (at/->GroundT prov :symbol 'Symbol)
+    (boolean? value) (at/->GroundT prov :bool 'Bool)
     :else nil))
 
 (defn exact-value-type
-  [value]
-  (at/->ValueT (or (literal-ground-type value) at/Dyn) value))
+  [prov value]
+  (at/->ValueT prov (or (literal-ground-type prov value) (at/Dyn prov)) value))
 
 (defn- invalid-normalize-type-input
   [value]
@@ -33,10 +43,18 @@
   [t]
   (or (at/maybe-type? t) (nil-value-type? t)))
 
+(defn- maybe-bases-without-dyn
+  [plain-members maybe-bases]
+  (let [non-dyn (set (remove at/dyn-type? maybe-bases))]
+    (if (and (some at/dyn-type? maybe-bases)
+             (seq (concat plain-members non-dyn)))
+      non-dyn
+      maybe-bases)))
+
 (defn nil-bearing-type-members
-  [norm-fn members]
+  [norm-fn prov members]
   (->> members
-       (map norm-fn)
+       (map #(norm-fn prov %))
        (mapcat (fn [member]
                  (if (at/union-type? member)
                    (:members member)
@@ -49,52 +67,48 @@
                                  (remove nil-value-type?)
                                  (map :inner)
                                  set)
-                maybe-bases (if (and (contains? maybe-bases at/Dyn)
-                                     (seq (concat plain-members
-                                                  (disj maybe-bases at/Dyn))))
-                              (disj maybe-bases at/Dyn)
-                              maybe-bases)]
+                maybe-bases (maybe-bases-without-dyn plain-members maybe-bases)]
             {:nil-bearing? (boolean nil-bearing?)
              :has-nil-value? (boolean (some nil-value-type? nil-bearing-members))
-             :members (into (set plain-members) maybe-bases)})))))
+             :members (at/dedup-types (into (set plain-members) maybe-bases))})))))
 
 (defn- union-type-with-normalize
-  [norm-fn members]
-  (let [{:keys [nil-bearing? has-nil-value? members]} (nil-bearing-type-members norm-fn members)
+  [norm-fn prov members]
+  (let [{:keys [nil-bearing? has-nil-value? members]} (nil-bearing-type-members norm-fn prov members)
         base (cond
-               (empty? members) at/Dyn
+               (empty? members) (at/Dyn prov)
                (= 1 (count members)) (first members)
-               :else (at/->UnionT members))]
+               :else (at/->UnionT prov members))]
     (cond
-      (and nil-bearing? has-nil-value? (empty? members)) (exact-value-type nil)
-      nil-bearing? (at/->MaybeT base)
+      (and nil-bearing? has-nil-value? (empty? members)) (exact-value-type prov nil)
+      nil-bearing? (at/->MaybeT prov base)
       :else base)))
 
 (defn normalize-type
-  [value]
+  [prov value]
   (cond
     (at/conditional-type? value)
-    (union-type-with-normalize normalize-type (map second (:branches value)))
+    (union-type-with-normalize normalize-type prov (map second (:branches value)))
 
     (at/semantic-type-value? value) value
-    (nil? value) (at/->MaybeT at/Dyn)
-    (sb/schema-literal? value) (exact-value-type value)
-    (s/optional-key? value) (at/->OptionalKeyT (normalize-type (:k value)))
+    (nil? value) (at/->MaybeT prov (at/Dyn prov))
+    (sb/schema-literal? value) (exact-value-type prov value)
+    (s/optional-key? value) (at/->OptionalKeyT prov (normalize-type prov (:k value)))
     (and (map? value) (not (record? value)))
-    (at/->MapT (into {}
-                     (map (fn [[k v]]
-                            [(normalize-type k)
-                             (normalize-type v)]))
-                     value))
-    (vector? value) (at/->VectorT (mapv normalize-type value) (= 1 (count value)))
-    (set? value) (at/->SetT (into #{} (map normalize-type) value) (= 1 (count value)))
-    (seq? value) (at/->SeqT (mapv normalize-type value) (= 1 (count value)))
+    (at/->MapT prov (into {}
+                          (map (fn [[k v]]
+                                 [(normalize-type prov k)
+                                  (normalize-type prov v)]))
+                          value))
+    (vector? value) (at/->VectorT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
+    (set? value) (at/->SetT prov (into #{} (map #(normalize-type prov %)) value) (= 1 (count value)))
+    (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
     :else (invalid-normalize-type-input value)))
 
 (defn normalize-intersection-members
-  [members]
+  [prov members]
   (->> members
-       (map normalize-type)
+       (map #(normalize-type prov %))
        (mapcat (fn [member]
                  (if (at/intersection-type? member)
                    (:members member)
@@ -102,50 +116,95 @@
        set))
 
 (defn union-type
-  [members]
-  (union-type-with-normalize normalize-type members))
+  [prov members]
+  (union-type-with-normalize normalize-type prov members))
 
 (defn normalize-type-for-declared-type
   "Preserves top-level ConditionalT (with normalized branch types) so schema-declared
   conditional params keep predicates for case narrowing. Else same as normalize-type."
-  [value]
+  [prov value]
   (if (at/conditional-type? value)
-    (at/->ConditionalT (mapv (fn [[pred typ]] [pred (normalize-type typ)])
-                       (:branches value)))
-    (normalize-type value)))
+    (at/->ConditionalT prov (mapv (fn [[pred typ]] [pred (normalize-type prov typ)])
+                                  (:branches value)))
+    (normalize-type prov value)))
 
 (defn intersection-type
-  [members]
-  (let [members (normalize-intersection-members members)]
+  [prov members]
+  (let [members (normalize-intersection-members prov members)]
     (cond
-      (empty? members) at/Dyn
+      (empty? members) (at/Dyn prov)
       (= 1 (count members)) (first members)
-      :else (at/->IntersectionT members))))
+      :else (at/->IntersectionT prov members))))
 
 (defn de-maybe-type
-  [type]
-  (let [type (normalize-type type)]
+  [prov type]
+  (let [type (normalize-type prov type)]
     (cond
       (at/maybe-type? type)
       (:inner type)
 
       (at/union-type? type)
-      (union-type (map (fn [member]
-                         (if (at/maybe-type? member)
-                           (:inner member)
-                           member))
-                       (:members type)))
+      (union-type prov (map (fn [member]
+                              (if (at/maybe-type? member)
+                                (:inner member)
+                                member))
+                            (:members type)))
 
       :else
       type)))
 
 (defn unknown-type?
-  [type]
-  (let [type (normalize-type type)]
+  [prov type]
+  (let [type (normalize-type prov type)]
     (cond
       (at/dyn-type? type) true
       (at/placeholder-type? type) true
       (at/inf-cycle-type? type) true
-      (at/maybe-type? type) (unknown-type? (:inner type))
-      (at/union-type? type) (some unknown-type? (:members type))
+      (at/maybe-type? type) (unknown-type? prov (:inner type))
+      (at/union-type? type) (some #(unknown-type? prov %) (:members type))
       :else false)))
+
+(defn normalize
+  "Convenience: derives prov from the typed input."
+  [value]
+  (normalize-type (derive-prov value) value))
+
+(defn normalize-for-declared-type
+  "Convenience: derives prov from the typed input."
+  [value]
+  (normalize-type-for-declared-type (derive-prov value) value))
+
+(defn union
+  "Convenience: derives prov from members."
+  [members]
+  (union-type (apply derive-prov members) members))
+
+(defn intersection
+  "Convenience: derives prov from members."
+  [members]
+  (intersection-type (apply derive-prov members) members))
+
+(defn de-maybe
+  "Convenience: derives prov from the typed input."
+  [type]
+  (de-maybe-type (derive-prov type) type))
+
+(defn unknown?
+  "Convenience: derives prov from the typed input."
+  [type]
+  (unknown-type? (derive-prov type) type))
+
+(defn dyn
+  "Convenience: produce an at/Dyn with prov derived from typed inputs."
+  [& types]
+  (at/Dyn (apply derive-prov types)))
+
+(defn bottom
+  "Convenience: produce an at/BottomType with prov derived from typed inputs."
+  [& types]
+  (at/BottomType (apply derive-prov types)))
+
+(defn numeric-dyn
+  "Convenience: produce an at/NumericDyn with prov derived from typed inputs."
+  [& types]
+  (at/NumericDyn (apply derive-prov types)))

@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
@@ -13,18 +14,18 @@
         call-result (first (filter #(= '(int-add x y z) (:blame %)) results))
         local-vars (get-in call-result [:context :local-vars])]
     (is (some? call-result))
-    (is (= [] (:errors call-result)))
-    (is (= (ps/T s/Any) (get-in local-vars ['x :type])))
-    (is (= [] (get-in local-vars ['x :resolution-path])))
-    (is (= (ps/T s/Int) (get-in local-vars ['y :type])))
-    (is (= ['(int-add 1 nil) 'int-add]
+    (is (at/type=? [] (:errors call-result)))
+    (is (at/type=? (ps/T s/Any) (get-in local-vars ['x :type])))
+    (is (at/type=? [] (get-in local-vars ['x :resolution-path])))
+    (is (at/type=? (ps/T s/Int) (get-in local-vars ['y :type])))
+    (is (at/type=? ['(int-add 1 nil) 'int-add]
            (mapv :form (get-in local-vars ['y :resolution-path]))))
-    (is (= (ps/T s/Int) (-> local-vars (get 'y) :resolution-path first :type)))
-    (is (= (ps/T s/Int) (get-in local-vars ['z :type])))
-    (is (= ['(int-add 2 3) 'int-add]
+    (is (at/type=? (ps/T s/Int) (-> local-vars (get 'y) :resolution-path first :type)))
+    (is (at/type=? (ps/T s/Int) (get-in local-vars ['z :type])))
+    (is (at/type=? ['(int-add 2 3) 'int-add]
            (mapv :form (get-in local-vars ['z :resolution-path]))))
-    (is (= (ps/T s/Int) (-> local-vars (get 'z) :resolution-path first :type)))
-    (is (= ['int-add]
+    (is (at/type=? (ps/T s/Int) (-> local-vars (get 'z) :resolution-path first :type)))
+    (is (at/type=? ['int-add]
            (mapv :form (get-in call-result [:context :refs]))))
     (is (every? some? (mapv :type (get-in call-result [:context :refs]))))))
 
@@ -44,9 +45,9 @@
                                     (:enclosing-form %))
                              %)
                           flat-results)
-        nested-results (vec (sut/check-ns 'skeptic.static-call-examples
-                                          ps/static-call-examples-file
-                                          {:remove-context true}))
+        nested-results (:results (sut/check-ns 'skeptic.static-call-examples
+                                               ps/static-call-examples-file
+                                               {:remove-context true}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

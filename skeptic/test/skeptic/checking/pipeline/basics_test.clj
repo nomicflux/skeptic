@@ -2,10 +2,13 @@
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
             [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.test-examples.basics :as basics]
             [skeptic.typed-decls :as typed-decls]))
+
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (deftest annotated-input-ground-type-mismatch
   (are [sym errors] (= (set (partition 2 errors))
@@ -51,7 +54,7 @@
      [(incm/mismatched-schema-msg {:expr '(. clojure.lang.Numbers (add 1 (g f)))
                                    :arg '(g f)}
                                   (ps/T (s/eq nil))
-                                  at/NumericDyn)]]
+                                  (at/NumericDyn tp))]]
 
     'skeptic.test-examples.basics/sample-str-fn
     ['(int-add 1 (str x))

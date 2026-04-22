@@ -39,4 +39,4 @@
 
 (defn unknown-output-type?
   [type]
-  (ato/unknown-type? type))
+  (ato/unknown? type))

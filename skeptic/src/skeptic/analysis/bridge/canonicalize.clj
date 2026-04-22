@@ -259,11 +259,6 @@
   (canonicalize-schema* (raw-schema-domain-value schema)
                         {:constrained->base? false}))
 
-(defn canonicalize-output-schema
-  [schema]
-  (canonicalize-schema* (raw-schema-domain-value schema)
-                        {:constrained->base? false}))
-
 (defn maybe-schema
   [schema]
   (if (sb/maybe? schema)
@@ -298,13 +293,3 @@
                                          (map second)
                                          set)
     :else nil))
-
-(defn union-like-join
-  [schema]
-  (when-let [branches (union-like-branches schema)]
-    (schema-join branches)))
-
-(defn both-components
-  [schema]
-  (when (sb/both? schema)
-    (set (:schemas schema))))

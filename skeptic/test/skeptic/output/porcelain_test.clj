@@ -6,6 +6,8 @@
             [skeptic.output.porcelain :as sut]
             [skeptic.provenance :as prov]))
 
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+
 (defn- capture-lines
   [f]
   (-> (with-out-str (f))
@@ -26,8 +28,8 @@
    :enclosing-form 'foo.bar/f
    :expanded-expression '(clojure.core/+ 1 x)
    :rule :ground-mismatch
-   :actual-type (at/->GroundT :keyword 'Keyword)
-   :expected-type (at/->GroundT :int 'Int)
+   :actual-type (at/->GroundT tp :keyword 'Keyword)
+   :expected-type (at/->GroundT tp :int 'Int)
    :errors ["\u001b[33mKeyword is not compatible with Int\u001b[0m"]})
 
 (def ^:private example-provenance

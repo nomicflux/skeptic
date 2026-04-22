@@ -67,10 +67,10 @@
                                   false
                                   names)]))
     (maybe-shape? form) (at/->MaybeT prov (form->type prov (second form)))
-    (or-shape? form) (ato/union-type (mapv #(form->type prov %) (rest form)))
+    (or-shape? form) (ato/union-type prov (mapv #(form->type prov %) (rest form)))
     :else (malli-leaf->type prov form)))
 
 (defn malli-spec->type
   "Convert a Malli spec to a semantic type."
-  [value prov]
+  [prov value]
   (form->type prov (admit-malli-spec value)))

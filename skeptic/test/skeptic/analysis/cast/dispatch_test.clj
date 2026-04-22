@@ -3,11 +3,14 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
 (defn T
   [schema]
-  (ab/schema->type schema))
+  (ab/schema->type tp schema))
 
 (deftest dispatch-precedence-and-root-rules-test
   (let [exact (sut/check-cast (T s/Int) (T s/Int))
@@ -17,7 +20,7 @@
         target-intersection (sut/check-cast (T s/Int) (T (s/both s/Any s/Int)))
         maybe-source (sut/check-cast (T (s/maybe s/Any)) (T s/Int))
         vector-target (sut/check-cast (T [s/Any s/Any]) (T [s/Int]))
-        bottom-source (sut/check-cast at/BottomType (T s/Int))]
+        bottom-source (sut/check-cast (at/BottomType tp) (T s/Int))]
     (is (= :exact (:rule exact)))
     (is (= :target-dyn (:rule target-dyn)))
     (is (= :target-union (:rule target-union)))

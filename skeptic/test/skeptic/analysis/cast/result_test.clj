@@ -1,11 +1,9 @@
 (ns skeptic.analysis.cast.result-test
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as cast]
-            [skeptic.analysis.cast.result :as sut]))
-
-(defn T [schema] (ab/schema->type schema))
+            [skeptic.analysis.cast.result :as sut]
+            [skeptic.test-helpers :refer [T]]))
 
 (def HasA
   {(s/required-key :a) s/Int})

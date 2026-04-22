@@ -1,7 +1,41 @@
 (ns skeptic.analysis.annotate.api
   (:require [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(defn dyn          [ctx] (at/Dyn (prov/with-ctx ctx)))
+(defn bottom       [ctx] (at/BottomType (prov/with-ctx ctx)))
+(defn numeric-dyn  [ctx] (at/NumericDyn (prov/with-ctx ctx)))
+
+(defn normalize-type
+  [ctx value]
+  (ato/normalize-type (prov/with-ctx ctx) value))
+
+(defn normalize-type-for-declared-type
+  [ctx value]
+  (ato/normalize-type-for-declared-type (prov/with-ctx ctx) value))
+
+(defn union-type
+  [ctx members]
+  (ato/union-type (prov/with-ctx ctx) members))
+
+(defn intersection-type
+  [ctx members]
+  (ato/intersection-type (prov/with-ctx ctx) members))
+
+(defn exact-value-type
+  [ctx value]
+  (ato/exact-value-type (prov/with-ctx ctx) value))
+
+(defn de-maybe-type
+  [ctx value]
+  (ato/de-maybe-type (prov/with-ctx ctx) value))
+
+(defn unknown-type?
+  [ctx value]
+  (ato/unknown-type? (prov/with-ctx ctx) value))
 
 (def ^:private legacy-schema-mirror-keys
   #{:schema :output :expected-arglist :actual-arglist})
