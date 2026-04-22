@@ -390,10 +390,13 @@
 (defn namespace-dict
   [opts ns-sym source-file]
   (require ns-sym)
-  (let [refs (java.util.IdentityHashMap.)]
+  (let [refs (java.util.IdentityHashMap.)
+        form-refs (java.util.IdentityHashMap.)]
     (when source-file
-      (collect/build-annotation-refs! refs ns-sym source-file))
-    (binding [ab/*annotation-refs* refs]
+      (collect/build-annotation-refs! refs ns-sym source-file)
+      (collect/build-form-refs! form-refs ns-sym source-file))
+    (binding [ab/*annotation-refs* refs
+              ab/*form-refs* form-refs]
       (let [schema-result (typed-decls/typed-ns-results opts ns-sym)
             malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym)
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
