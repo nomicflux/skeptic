@@ -15,7 +15,7 @@
     (is (= :domain (:kind query)))
     (is (contains? query :type))
     (is (not (contains? query :schema)))
-    (is (= (ab/schema->type tp s/Keyword)
+    (is (at/type=? (ab/schema->type tp s/Keyword)
            (amo/query-key-type query)))))
 
 (deftest explicit-map-key-query-contract-test
@@ -27,7 +27,7 @@
     (is (= :exact (:kind optional-query)))
     (is (= :a (:value optional-query)))
     (is (= :domain (:kind domain-query)))
-    (is (= (ab/schema->type tp s/Keyword)
+    (is (at/type=? (ab/schema->type tp s/Keyword)
            (amo/query-key-type domain-query)))))
 
 (deftest map-lookup-and-map-get-type-regression-test
@@ -40,18 +40,18 @@
     (is (= :required-explicit
            (-> descriptor (amo/exact-key-entry :a) :kind)))
     (is (= 1 (count (amo/map-lookup-candidates entries exact-query))))
-    (is (= (ab/schema->type tp s/Int)
+    (is (at/type=? (ab/schema->type tp s/Int)
            (amo/map-get-type mtype exact-query)))
-    (is (= (ab/schema->type tp (sb/join s/Int s/Str))
+    (is (at/type=? (ab/schema->type tp (sb/join s/Int s/Str))
            (amo/map-get-type mtype domain-query)))))
 
 (deftest merge-map-types-regression-test
   (testing "semantic map merge stays structural"
-    (is (= (ab/schema->type tp {:a s/Int :b s/Int})
+    (is (at/type=? (ab/schema->type tp {:a s/Int :b s/Int})
            (amo/merge-map-types tp [(ab/schema->type tp {:a s/Int})
                                     (ab/schema->type tp {:b s/Int})]))))
   (testing "non-map inputs stay dynamic"
-    (is (= (at/Dyn tp)
+    (is (at/type=? (at/Dyn tp)
            (amo/merge-map-types tp [(ab/schema->type tp {:a s/Int})
                                     (ab/schema->type tp s/Int)])))))
 
@@ -61,7 +61,7 @@
 (deftest merge-map-types-container-owns-prov-test
   (testing "empty types with anchor does not crash and carries anchor prov"
     (let [result (amo/merge-map-types tp [])]
-      (is (= (at/Dyn tp) result))
+      (is (at/type=? (at/Dyn tp) result))
       (is (= tp (prov/of result)))))
   (testing "result prov is the anchor, not derived from input map provs"
     (let [m1 (at/->MapT other-prov {})
@@ -75,6 +75,6 @@
                                 s/Keyword s/Str})
         entries (:entries mtype)
         domain-query (amo/domain-key-query (ab/schema->type tp s/Keyword) 'k)]
-    (is (= (ab/schema->type tp (sb/join s/Int s/Str))
+    (is (at/type=? (ab/schema->type tp (sb/join s/Int s/Str))
            (amo/map-get-type mtype domain-query)))
     (is (= 2 (count (amo/map-lookup-candidates entries domain-query))))))

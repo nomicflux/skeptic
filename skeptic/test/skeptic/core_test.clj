@@ -82,6 +82,18 @@
     (is (some #{["In enclosing form: \t" "example/takes-str"]} fields))
     (is (some #{["Analyzed expression: \t" "(takes-str x)"]} fields))))
 
+(deftest report-fields-render-source-suffix-for-every-source-kind
+  (doseq [src [:inferred :schema :malli-spec :native :type-override]]
+    (let [summary (assoc report-summary
+                         :location {:file "f.clj" :line 1 :column 2 :source src})
+          fields (text/report-fields summary)
+          location-value (some (fn [[label value]]
+                                 (when (= "Location: \t\t" label) value))
+                               fields)]
+      (is (str/includes? (or location-value "")
+                         (str "[source: " (name src) "]"))
+          (str "source kind " src " must render unconditionally")))))
+
 (deftest report-fields-render-user-friendly-blame-for-context-and-global-cases
   (let [context-fields (text/report-fields {:blame-side :context
                                            :blame-polarity :negative})

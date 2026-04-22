@@ -14,10 +14,10 @@
   (let [vec-type (atst/T [s/Int s/Int])
         seq-type (atst/T [s/Int])]
     (is (sut/vec-homogeneous-items? [(atst/T s/Int) (atst/T s/Int)]))
-    (is (= (atst/T s/Int) (sut/vector-slot-type vec-type 0)))
-    (is (= (atst/T s/Int) (sut/coll-first-type vec-type)))
-    (is (= (atst/T s/Int) (sut/coll-last-type seq-type)))
-    (is (= (atst/T [s/Int]) (sut/coll-take-prefix-type vec-type 1)))))
+    (is (at/type=? (atst/T s/Int) (sut/vector-slot-type vec-type 0)))
+    (is (at/type=? (atst/T s/Int) (sut/coll-first-type vec-type)))
+    (is (at/type=? (atst/T s/Int) (sut/coll-last-type seq-type)))
+    (is (at/type=? (atst/T [s/Int]) (sut/coll-take-prefix-type vec-type 1)))))
 
 (deftest collection-output-helpers-test
   (let [args [{:type (atst/T [s/Int])} {:type (atst/T [s/Int])}]]

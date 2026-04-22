@@ -15,20 +15,20 @@
                         (sut/admit-malli-spec (at/->GroundT tp :int 'Int)))))
 
 (deftest malli-spec->type-converts-=>-with-primitive-leaves
-  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :int 'Int)]
+  (is (at/type=? (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :int 'Int)]
                                      (at/->GroundT tp :int 'Int)
                                      1
                                      false
                                      '[arg0])])
          (sut/malli-spec->type tp [:=> [:cat :int] :int])))
-  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :str 'Str)
+  (is (at/type=? (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :str 'Str)
                                      (at/->GroundT tp :keyword 'Keyword)]
                                      (at/->GroundT tp :bool 'Bool)
                                      2
                                      false
                                      '[arg0 arg1])])
          (sut/malli-spec->type tp [:=> [:cat :string :keyword] :boolean])))
-  (is (= (at/->FunT tp [(at/->FnMethodT tp [(at/Dyn tp)]
+  (is (at/type=? (at/->FunT tp [(at/->FnMethodT tp [(at/Dyn tp)]
                                      (at/Dyn tp)
                                      1
                                      false
@@ -36,6 +36,6 @@
          (sut/malli-spec->type tp [:=> [:cat :any] :any]))))
 
 (deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes
-  (is (= (at/Dyn tp) (sut/malli-spec->type tp [:map [:x :int]])))
-  (is (= (at/Dyn tp) (sut/malli-spec->type tp [:vector :int])))
-  (is (= (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int))))
+  (is (at/type=? (at/Dyn tp) (sut/malli-spec->type tp [:map [:x :int]])))
+  (is (at/type=? (at/Dyn tp) (sut/malli-spec->type tp [:vector :int])))
+  (is (at/type=? (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int))))
