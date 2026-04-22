@@ -7,6 +7,7 @@
             [skeptic.inconsistence.display :as disp]
             [skeptic.inconsistence.mismatch :as mm]
             [skeptic.inconsistence.path :as pth]
+            [skeptic.provenance :as prov]
             [clojure.string :as str]))
 
 (declare cast-result->message
@@ -258,6 +259,7 @@
           :focuses focuses
           :enclosing-form enclosing-form
           :expanded-expression expanded-expression
+          :source (:source report)
           :errors (summarize-errors report)}
          (or (if (= :output (:report-kind report))
                (let [root-sum (:cast-summary report)
@@ -341,11 +343,13 @@
   [ctx expected actual]
   (let [expected-type (ato/normalize-for-declared-type expected)
         actual-type (ato/normalize-for-declared-type actual)
+        source (prov/source (prov/of actual-type))
         raw (acast/check-cast actual-type expected-type)]
     (if (:ok? raw)
       (let [summary (cast-result/root-summary raw)]
         {:ok? true
          :errors []
+         :source source
          :cast-summary     summary
          :cast-diagnostics []
          :blame-side :none
@@ -358,17 +362,19 @@
                         (map #(cast-result->message ctx %))
                         distinct
                         vec)]
-        (merge {:ok? false :errors errors} metadata)))))
+        (merge {:ok? false :source source :errors errors} metadata)))))
 
 (defn output-cast-report
   [ctx expected actual]
   (let [expected-type (ato/normalize-for-declared-type expected)
         actual-type (ato/normalize-for-declared-type actual)
+        source (prov/source (prov/of actual-type))
         raw (acast/check-cast actual-type expected-type)]
     (if (:ok? raw)
       (let [summary (cast-result/root-summary raw)]
         {:ok? true
          :errors []
+         :source source
          :cast-summary     summary
          :cast-diagnostics []
          :blame-side :none
@@ -377,5 +383,6 @@
          :expected-type (:expected-type summary)
          :actual-type (:actual-type summary)})
       (merge {:ok? false
+              :source source
               :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type)]}
              (cast-report-metadata raw)))))

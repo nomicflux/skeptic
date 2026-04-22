@@ -10,6 +10,7 @@
    :enclosing-form qualified-sym
    :namespace ns-sym
    :location (select-keys (meta v) [:file :line :column :end-line :end-column])
+   :source :malli-spec
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e) (str e))
    :exception-data (ex-data e)})

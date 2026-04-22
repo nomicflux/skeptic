@@ -159,6 +159,7 @@
                           :rule (:rule report)
                           :expected-type (:expected-type report)
                           :actual-type (:actual-type report)
+                          :source (:source report)
                           :cast-summary (:cast-summary report)
                           :cast-diagnostics (:cast-diagnostics report)
                           :errors (:errors report)})))))))))
@@ -182,6 +183,7 @@
          :rule (:rule report)
          :expected-type (:expected-type report)
          :actual-type (:actual-type report)
+         :source (:source report)
          :cast-summary (:cast-summary report)
          :cast-diagnostics (:cast-diagnostics report)
          :errors (:errors report)}))))
@@ -204,6 +206,7 @@
      :rule (:rule primary-group)
      :expected-type (:expected-type primary-group)
      :actual-type (:actual-type primary-group)
+     :source (:source primary-group)
      :cast-summary (:cast-summary primary-group)
      :cast-diagnostics (vec (mapcat :cast-diagnostics error-groups))
      :context {:local-vars (ca/local-vars-context node)
@@ -306,6 +309,7 @@
    :source-expression nil
    :location {:file (cf/source-file-path source-file)}
    :enclosing-form nil
+   :source :inferred
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})
@@ -337,6 +341,7 @@
    :source-expression (cf/form-source source-form)
    :location (cf/form-location source-file source-form)
    :enclosing-form (enclosing-form ns-sym source-form)
+   :source :inferred
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})
@@ -449,6 +454,7 @@
    :enclosing-form ns-sym
    :namespace ns-sym
    :location {}
+   :source :inferred
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})

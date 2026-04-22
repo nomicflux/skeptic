@@ -44,6 +44,7 @@
    :rule :function
    :actual-type (ab/schema->type tp s/Int)
    :expected-type (ab/schema->type tp s/Str)
+   :source :inferred
    :source-expression "(takes-str x)"
    :focus-sources ["x"]
    :enclosing-form 'example/takes-str
@@ -51,7 +52,7 @@
 
 (deftest report-fields-hide-detail-fields-when-not-verbose
   (let [fields (text/report-fields report-summary)]
-    (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
+    (is (some #{["Location: \t\t" "src/example.clj:12:3 [source: inferred]"]} fields))
     (is (= "context( value )"
            (some->> fields
                     (some (fn [[label value]]
@@ -67,7 +68,7 @@
 
 (deftest report-fields-include-detail-fields-when-verbose
   (let [fields (text/report-fields report-summary true)]
-    (is (some #{["Location: \t\t" "src/example.clj:12:3"]} fields))
+    (is (some #{["Location: \t\t" "src/example.clj:12:3 [source: inferred]"]} fields))
     (is (= "context( value )"
            (some->> fields
                     (some (fn [[label value]]
@@ -275,10 +276,11 @@
                  :declaration-slot :output
                  :rejected-schema #"^[a-z]+$"
                  :blame 'example/bad
+                 :source :schema
                  :source-expression "(bad)"
                  :errors ["oops"]}
                 true)]
-    (is (some #{["Location: \t\t" "test.clj:7"]} fields))
+    (is (some #{["Location: \t\t" "test.clj:7 [source: schema]"]} fields))
     (is (some #{["Phase: \t\t\t" "declaration"]} fields))
     (is (some #{["Exception class: \t" "clojure.lang.ExceptionInfo"]} fields))
     (is (some #{["Schema slot: \t\t" ":output"]} fields))
@@ -397,6 +399,7 @@
                      :blame-side :term
                      :blame-polarity :positive
                      :blame '(+ 1 :x)
+                     :source :inferred
                      :errors ["Keyword is not compatible with Int"]
                      :cast-diagnostics []
                      :actual-type (at/->GroundT tp :keyword 'Keyword)

@@ -73,13 +73,13 @@
       (doseq [[ns source-file] nss]
         (ns-start ns source-file opts)
         (let [ns-findings (atom 0)
-              {:keys [results provenance]} (checking/check-namespace opts ns source-file)]
+              {:keys [results]} (checking/check-namespace opts ns source-file)]
           (doseq [result results]
             (if (= :debug-form (:report-kind result))
               (form-debug ns result opts)
               (let [summary (inrep/report-summary result)
                     exception? (= :exception (:report-kind summary))]
-                (finding ns provenance result summary opts)
+                (finding ns result summary opts)
                 (reset! errored true)
                 (swap! ns-findings inc)
                 (swap! totals update
