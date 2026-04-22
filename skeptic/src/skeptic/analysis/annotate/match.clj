@@ -132,22 +132,18 @@
 
     :else type))
 
-(defn- branches-prov
-  [branches]
-  (apply ato/derive-prov (map second branches)))
-
 (defn case-conditional-narrow-for-lits
-  [branches kw lits]
+  [anchor-prov branches kw lits]
   (let [pick (fn [lit]
                (some (fn [[pred branch-type]]
                        (when (case-predicate-matches-lit? pred kw lit)
                          (drop-discriminator-key branch-type kw)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
-    (if (empty? picked) (at/BottomType (branches-prov branches)) (ato/union picked))))
+    (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
 
 (defn case-conditional-default-narrow
-  [branches kw all-lits]
+  [anchor-prov branches kw all-lits]
   (let [matched? (fn [[pred _]]
                    (some #(case-predicate-matches-lit? pred kw %) all-lits))
         default-types (into [] (comp (remove matched?)
@@ -155,18 +151,18 @@
                                      (map #(drop-discriminator-key % kw)))
                             branches)]
     (if (empty? default-types)
-      (at/BottomType (branches-prov branches))
+      (at/BottomType anchor-prov)
       (ato/union default-types))))
 
 (defn annotate-case-one-then
-  [ctx locals assumptions i tests thens disc-root use-conditional? cond-branches kw-root-info]
+  [anchor-prov ctx locals assumptions i tests thens disc-root use-conditional? cond-branches kw-root-info]
   (let [lits (vec (distinct (case-test-literals (nth tests i))))
         assumption (cond
                      (and use-conditional? disc-root (seq lits))
                      {:kind :conditional-branch
                       :root disc-root
                       :narrowed-type (case-conditional-narrow-for-lits
-                                      cond-branches (:kw kw-root-info) lits)
+                                      anchor-prov cond-branches (:kw kw-root-info) lits)
                       :polarity true}
 
                      (and disc-root (seq lits))
@@ -185,13 +181,13 @@
     (assoc (nth thens i) :then annotated)))
 
 (defn- default-assumption
-  [use-conditional? disc-root cond-branches kw-root-info all-values]
+  [anchor-prov use-conditional? disc-root cond-branches kw-root-info all-values]
   (cond
     (and use-conditional? disc-root (seq all-values))
     {:kind :conditional-branch
      :root disc-root
      :narrowed-type (case-conditional-default-narrow
-                     cond-branches (:kw kw-root-info) all-values)
+                     anchor-prov cond-branches (:kw kw-root-info) all-values)
      :polarity true}
 
     (and disc-root (seq all-values))
@@ -203,7 +199,8 @@
 
 (defn annotate-case
   [{:keys [locals assumptions] :as ctx} node]
-  (let [test-node ((:recurse ctx) ctx (:test node))
+  (let [anchor-prov (prov/with-ctx ctx)
+        test-node ((:recurse ctx) ctx (:test node))
         discriminant-expr (case-discriminant-expr-node test-node)
         tests (:tests node)
         thens (:thens node)
@@ -218,10 +215,10 @@
         all-values (into [] (distinct (mapcat case-test-literals (take n tests))))
         annotated-thens (mapv (fn [i]
                                 (annotate-case-one-then
-                                 ctx locals assumptions i tests thens
+                                 anchor-prov ctx locals assumptions i tests thens
                                  disc-root use-conditional? cond-branches kw-root-info))
                               (range n))
-        assumption (default-assumption use-conditional? disc-root cond-branches kw-root-info all-values)
+        assumption (default-assumption anchor-prov use-conditional? disc-root cond-branches kw-root-info all-values)
         envs (ao/branch-local-envs ctx locals assumptions (if assumption [assumption] []))
         default-node ((:recurse ctx)
                       (assoc ctx

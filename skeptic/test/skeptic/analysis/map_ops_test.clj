@@ -48,12 +48,27 @@
 (deftest merge-map-types-regression-test
   (testing "semantic map merge stays structural"
     (is (= (ab/schema->type tp {:a s/Int :b s/Int})
-           (amo/merge-map-types [(ab/schema->type tp {:a s/Int})
-                                 (ab/schema->type tp {:b s/Int})]))))
+           (amo/merge-map-types tp [(ab/schema->type tp {:a s/Int})
+                                    (ab/schema->type tp {:b s/Int})]))))
   (testing "non-map inputs stay dynamic"
     (is (= (at/Dyn tp)
-           (amo/merge-map-types [(ab/schema->type tp {:a s/Int})
-                                 (ab/schema->type tp s/Int)])))))
+           (amo/merge-map-types tp [(ab/schema->type tp {:a s/Int})
+                                    (ab/schema->type tp s/Int)])))))
+
+(def ^:private other-prov
+  (prov/make-provenance :schema 'other 'other.ns nil))
+
+(deftest merge-map-types-container-owns-prov-test
+  (testing "empty types with anchor does not crash and carries anchor prov"
+    (let [result (amo/merge-map-types tp [])]
+      (is (= (at/Dyn tp) result))
+      (is (= tp (prov/of result)))))
+  (testing "result prov is the anchor, not derived from input map provs"
+    (let [m1 (at/->MapT other-prov {})
+          m2 (at/->MapT other-prov {})
+          result (amo/merge-map-types tp [m1 m2])]
+      (is (at/map-type? result))
+      (is (= tp (prov/of result))))))
 
 (deftest semantic-map-query-regression-test
   (let [mtype (ab/schema->type tp {:a s/Int

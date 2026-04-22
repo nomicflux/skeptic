@@ -50,7 +50,7 @@
     (or (coll/coll-same-element-seq-type (:type (second args))) output-type)
     (and (ac/drop-while-call? fn-node) (= 2 (count args)))
     (or (coll/coll-same-element-seq-type (:type (second args))) output-type)
-    (ac/concat-call? fn-node) (or (coll/concat-output-type args) output-type)
+    (ac/concat-call? fn-node) (or (coll/concat-output-type (ato/derive-prov output-type) args) output-type)
     (ac/into-call? fn-node) (or (coll/into-output-type args) output-type)
     (and (ac/chunk-first-call? fn-node) (= 1 (count args)))
     (or (when-let [elem (coll/seqish-element-type (:type (first args)))]

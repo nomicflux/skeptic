@@ -22,8 +22,8 @@
     (cond
       (and (at/vector-type? type) (:homogeneous? type)) (first (:items type))
       (and (at/seq-type? type) (:homogeneous? type)) (first (:items type))
-      (at/vector-type? type) (av/join (:items type))
-      (at/seq-type? type) (av/join (:items type))
+      (at/vector-type? type) (av/join (ato/derive-prov type) (:items type))
+      (at/seq-type? type) (av/join (ato/derive-prov type) (:items type))
       :else nil)))
 
 (defn vector-to-homogeneous-seq-type
@@ -32,7 +32,7 @@
     (let [type (ato/normalize type)
           elem (if (:homogeneous? type)
                  (first (:items type))
-                 (av/join (:items type)))]
+                 (av/join (ato/derive-prov type) (:items type)))]
       (at/->SeqT (ato/derive-prov type) [(ato/normalize elem)] true))))
 
 (defn vector-slot-type
@@ -52,13 +52,13 @@
       (or (when literal (vector-slot-type coll-type literal))
           (ato/normalize (if (:homogeneous? coll-type)
                            (first (:items coll-type))
-                           (av/join (:items coll-type)))))
+                           (av/join (ato/derive-prov coll-type) (:items coll-type)))))
 
       (at/seq-type? coll-type)
       (when (or (nil? literal) (and (nat-int? literal) (:homogeneous? coll-type)))
         (ato/normalize (if (:homogeneous? coll-type)
                          (first (:items coll-type))
-                         (av/join (:items coll-type)))))
+                         (av/join (ato/derive-prov coll-type) (:items coll-type)))))
 
       :else nil)))
 
@@ -72,7 +72,7 @@
       (and (at/seq-type? type) (seq (:items type)))
       (if (:homogeneous? type)
         (ato/normalize (first (:items type)))
-        (av/join (:items type)))
+        (av/join (ato/derive-prov type) (:items type)))
       :else nil)))
 
 (defn coll-second-type
@@ -86,7 +86,7 @@
       (ato/normalize (first (:items type)))
 
       (at/seq-type? type)
-      (av/join (:items type))
+      (av/join (ato/derive-prov type) (:items type))
       :else nil)))
 
 (defn coll-last-type
@@ -99,7 +99,7 @@
       (and (at/seq-type? type) (seq (:items type)))
       (if (:homogeneous? type)
         (ato/normalize (first (:items type)))
-        (av/join (:items type)))
+        (av/join (ato/derive-prov type) (:items type)))
       :else nil)))
 
 (defn coll-rest-output-type
@@ -114,13 +114,13 @@
       (and (at/vector-type? type) (seq (:items type)))
       (let [elem (if (:homogeneous? type)
                    (first (:items type))
-                   (av/join (:items type)))]
+                   (av/join prov (:items type)))]
         (at/->SeqT prov [(ato/normalize elem)] true))
 
       (at/seq-type? type)
       (let [elem (if (:homogeneous? type)
                    (first (:items type))
-                   (av/join (:items type)))]
+                   (av/join prov (:items type)))]
         (at/->SeqT prov [elem] (:homogeneous? type)))
       :else nil)))
 
@@ -166,13 +166,12 @@
     (at/->SeqT (ato/derive-prov elem) [elem] true)))
 
 (defn concat-output-type
-  [args]
+  [anchor-prov args]
   (let [arg-types (map :type args)
-        elems (keep seqish-element-type arg-types)
-        prov (apply ato/derive-prov arg-types)]
+        elems (keep seqish-element-type arg-types)]
     (cond
-      (empty? args) (at/->SeqT prov [(at/Dyn prov)] true)
-      (= (count elems) (count args)) (at/->SeqT prov [(av/join elems)] true)
+      (empty? args) (at/->SeqT anchor-prov [(at/Dyn anchor-prov)] true)
+      (= (count elems) (count args)) (at/->SeqT anchor-prov [(av/join anchor-prov elems)] true)
       :else nil)))
 
 (defn into-output-type
@@ -182,12 +181,12 @@
           from-type (ato/normalize (:type (second args)))
           to-elem (seqish-element-type to-type)
           from-elem (seqish-element-type from-type)
+          prov (ato/derive-prov to-type from-type)
           elem (cond
-                 (and to-elem from-elem) (av/join [to-elem from-elem])
+                 (and to-elem from-elem) (av/join prov [to-elem from-elem])
                  from-elem from-elem
                  to-elem to-elem
-                 :else nil)
-          prov (ato/derive-prov to-type from-type)]
+                 :else nil)]
       (when elem
         (if (at/vector-type? to-type)
           (at/->VectorT prov [elem] true)
@@ -210,7 +209,7 @@
                            (some-> node :args first :type))))))
              vec)]
     (when (seq cons-types)
-      (ato/normalize (av/join cons-types)))))
+      (ato/normalize (av/join (ato/derive-prov (:type body)) cons-types)))))
 
 (defn lazy-seq-new-type
   [class-node args]

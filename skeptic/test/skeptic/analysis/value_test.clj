@@ -4,7 +4,21 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]
             [skeptic.test-helpers :refer [T tp]]))
+
+(def ^:private other-prov
+  (prov/make-provenance :schema 'other 'other.ns nil))
+
+(deftest join-container-owns-prov-test
+  (testing "empty item seq does not crash; result carries anchor prov"
+    (let [result (av/join tp [])]
+      (is (= tp (prov/of result)))))
+  (testing "non-empty items carry their own provs, but result's prov is the anchor"
+    (let [int-t (at/->GroundT other-prov :int 'Int)
+          str-t (at/->GroundT other-prov :str 'Str)
+          result (av/join tp [int-t str-t])]
+      (is (= tp (prov/of result))))))
 
 (deftest type-of-value-literals-test
   (testing "scalars"

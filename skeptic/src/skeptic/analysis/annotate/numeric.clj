@@ -94,12 +94,8 @@
        (integral-type? (first arg-types))
        (integral-type? (second arg-types))))
 
-(defn- narrowed-prov
-  [actual-argtypes]
-  (apply ato/derive-prov actual-argtypes))
-
 (defn invoke-integral-math-narrow-type
-  [fn-node args actual-argtypes]
+  [anchor-prov fn-node args actual-argtypes]
   (cond
     (and (ac/inc-invoke? fn-node) (= 1 (count args))
          (numeric-type? (first actual-argtypes)))
@@ -109,20 +105,20 @@
          (seq args)
          (every? #(not= :const (:op %)) args)
          (every? integral-type? actual-argtypes))
-    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
+    (at/->GroundT anchor-prov :int 'Int)
 
     (and (ac/minus-invoke? fn-node) (= 1 (count args))
          (not= :const (:op (first args)))
          (integral-type? (first actual-argtypes)))
-    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
+    (at/->GroundT anchor-prov :int 'Int)
 
     (and (ac/minus-invoke? fn-node) (= 2 (count args))
          (binary-integral-locals-narrow? args actual-argtypes))
-    (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
+    (at/->GroundT anchor-prov :int 'Int)
     :else nil))
 
 (defn narrow-static-numbers-output
-  [node args actual-argtypes native-info]
+  [anchor-prov node args actual-argtypes native-info]
   (let [method (:method node)]
     (or (when (#{'inc 'dec} method)
           (when (and (= 1 (count args))
@@ -130,15 +126,15 @@
             (inc-dec-output-type (first actual-argtypes))))
         (when (#{'add 'multiply} method)
           (when (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)))
+            (at/->GroundT anchor-prov :int 'Int)))
         (when (= 'minus method)
           (cond
             (and (= 1 (count args))
                  (not= :const (:op (first args)))
                  (integral-type? (first actual-argtypes)))
-            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
+            (at/->GroundT anchor-prov :int 'Int)
 
             (binary-integral-locals-narrow? args actual-argtypes)
-            (at/->GroundT (narrowed-prov actual-argtypes) :int 'Int)
+            (at/->GroundT anchor-prov :int 'Int)
             :else nil))
         (:output-type native-info))))

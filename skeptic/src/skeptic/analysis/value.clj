@@ -76,6 +76,7 @@
       :else (at/Dyn prov))))
 
 (defn join
-  "Convenience: derives prov from typed inputs."
-  [types]
-  (type-join* (apply ato/derive-prov types) types))
+  "Join item types into a union. The result's provenance is `anchor-prov`
+  (the container's); item provs stay on the items."
+  [anchor-prov types]
+  (type-join* anchor-prov types))

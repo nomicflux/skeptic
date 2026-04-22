@@ -5,7 +5,8 @@
             [skeptic.analysis.annotate.invoke-output :as invoke-output]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.map-ops :as amo]))
+            [skeptic.analysis.map-ops :as amo]
+            [skeptic.analysis.type-ops :as ato]))
 
 (defn resolve-unary-fn-arg-type-hint
   [ctx fn-ast args]
@@ -54,7 +55,7 @@
         call-info (ac/call-info ctx fn-node args)
         output-type (invoke-output/invoke-output-type ctx fn-node args (:output-type call-info))
         output-type (or (numeric/invoke-integral-math-narrow-type
-                         fn-node args (mapv :type args))
+                         (ato/derive-prov output-type) fn-node args (mapv :type args))
                         output-type)]
     (build-invoke-node ctx node fn-node args output-type (:fn-type call-info) (:expected-argtypes call-info))))
 

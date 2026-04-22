@@ -32,17 +32,21 @@
   (cond-> record
     (:debug opts) (assoc :debug {:raw-result (ser/json-safe result)})))
 
+(defn- location-record
+  [{:keys [file line column source]}]
+  {:file file
+   :line line
+   :column column
+   :source (name source)})
+
 (defn- exception-record
-  [ns result {:keys [phase location blame errors source]} opts]
+  [ns result {:keys [phase location blame errors]} opts]
   (with-debug
     {:kind "exception"
      :ns (str ns)
      :phase (some-> phase name)
-     :file (:file location)
-     :line (:line location)
-     :column (:column location)
+     :location (location-record location)
      :blame (->str blame)
-     :source (name source)
      :exception_class (some-> (:exception-class result) str)
      :exception_message (:exception-message result)
      :messages (mapv strip-ansi errors)}
@@ -53,14 +57,12 @@
   (let [{:keys [report-kind location blame-side blame-polarity rule
                 actual-type expected-type
                 source-expression blame focuses focus-sources enclosing-form
-                expanded-expression errors source]} summary]
+                expanded-expression errors]} summary]
     (with-debug
       {:kind "finding"
        :ns (str ns)
        :report_kind (some-> report-kind name)
-       :file (:file location)
-       :line (:line location)
-       :column (:column location)
+       :location (location-record location)
        :blame (or source-expression (->str blame))
        :blame_side (some-> blame-side name)
        :blame_polarity (some-> blame-polarity name)
@@ -69,7 +71,6 @@
        :expected_type (abr/type->json-data expected-type)
        :actual_type_str (abr/render-type actual-type)
        :expected_type_str (abr/render-type expected-type)
-       :source (name source)
        :focuses (vec (or focus-sources (map ->str focuses)))
        :enclosing_form (some-> enclosing-form ->str)
        :expanded_expression (some-> expanded-expression ->str)

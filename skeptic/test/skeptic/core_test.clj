@@ -38,13 +38,13 @@
 (def report-summary
   {:location {:file "src/example.clj"
               :line 12
-              :column 3}
+              :column 3
+              :source :inferred}
    :blame-side :term
    :blame-polarity :positive
    :rule :function
    :actual-type (ab/schema->type tp s/Int)
    :expected-type (ab/schema->type tp s/Str)
-   :source :inferred
    :source-expression "(takes-str x)"
    :focus-sources ["x"]
    :enclosing-form 'example/takes-str
@@ -271,12 +271,11 @@
   (let [fields (text/report-fields
                 {:report-kind :exception
                  :phase :declaration
-                 :location {:file "test.clj" :line 7}
+                 :location {:file "test.clj" :line 7 :source :schema}
                  :exception-class 'clojure.lang.ExceptionInfo
                  :declaration-slot :output
                  :rejected-schema #"^[a-z]+$"
                  :blame 'example/bad
-                 :source :schema
                  :source-expression "(bad)"
                  :errors ["oops"]}
                 true)]
@@ -395,11 +394,10 @@
 (deftest check-project-porcelain-emits-finding-per-result
   (let [source-file (java.io.File. "test/example.clj")
         fake-result {:report-kind :input
-                     :location {:file "test/example.clj" :line 10 :column 1}
+                     :location {:file "test/example.clj" :line 10 :column 1 :source :inferred}
                      :blame-side :term
                      :blame-polarity :positive
                      :blame '(+ 1 :x)
-                     :source :inferred
                      :errors ["Keyword is not compatible with Int"]
                      :cast-diagnostics []
                      :actual-type (at/->GroundT tp :keyword 'Keyword)
@@ -419,6 +417,9 @@
             (is (= "finding" (:kind finding)))
             (is (= "example.ns" (:ns finding)))
             (is (= "input" (:report_kind finding)))
+            (is (= "test/example.clj" (get-in finding [:location :file])))
+            (is (= 10 (get-in finding [:location :line])))
+            (is (= "inferred" (get-in finding [:location :source])))
             (is (= "Int" (get-in finding [:expected_type :name])))
             (is (= "Keyword" (get-in finding [:actual_type :name])))))
         (testing "run-summary has errored=true"
