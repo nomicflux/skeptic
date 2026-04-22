@@ -195,7 +195,7 @@
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
                                               (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
-      (let [{:keys [dict ignore-body]} (sut/namespace-dict {} 'skeptic.test-examples.basics)
+      (let [{:keys [dict ignore-body]} (sut/namespace-dict {} 'skeptic.test-examples.basics file)
             form-results (sut/check-ns-form dict
                                             ignore-body
                                             'skeptic.test-examples.basics

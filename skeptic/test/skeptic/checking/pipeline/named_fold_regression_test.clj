@@ -10,7 +10,7 @@
   (let [sym 'skeptic.test-examples.named-fold/named-fold-output-failure
         ns-sym (ps/fixture-ns sym)
         results (vec (ps/check-fixture sym {:remove-context true}))
-        namespace-dict (checking/namespace-dict {} ns-sym)
+        namespace-dict (checking/namespace-dict {} ns-sym (ps/fixture-file-for-ns ns-sym))
         fold-index (abr/build-fold-index (:dict namespace-dict)
                                          (:provenance namespace-dict))
         result (first results)

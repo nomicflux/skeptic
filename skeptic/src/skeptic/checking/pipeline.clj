@@ -1,6 +1,7 @@
 (ns skeptic.checking.pipeline
   (:require [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]
@@ -13,6 +14,7 @@
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.provenance :as prov]
+            [skeptic.schema.collect :as collect]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
@@ -386,12 +388,16 @@
    :errors []})
 
 (defn namespace-dict
-  [opts ns-sym]
+  [opts ns-sym source-file]
   (require ns-sym)
-  (let [schema-result (typed-decls/typed-ns-results opts ns-sym)
-        malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym)
-        merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
-    merged))
+  (let [refs (java.util.IdentityHashMap.)]
+    (when source-file
+      (collect/build-annotation-refs! refs ns-sym source-file))
+    (binding [ab/*annotation-refs* refs]
+      (let [schema-result (typed-decls/typed-ns-results opts ns-sym)
+            malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym)
+            merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
+        merged))))
 
 (defn- preanalyzed-ns-dict
   [dict ns-sym source-file]
@@ -407,7 +413,7 @@
 (defn check-s-expr
   [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict ignore-body]} (namespace-dict opts ns)
+    (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)
           source-form (find-source-form s-expr source-file check-def)
           {:keys [dict accessor-summaries]} (preanalyzed-ns-dict dict ns source-file)
           {:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form] {:accessor-summaries accessor-summaries})]
@@ -433,7 +439,7 @@
 
 (defn check-ns
   [ns source-file opts]
-  (let [{:keys [dict ignore-body]} (namespace-dict opts ns)]
+  (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
         (loop [acc {:results [] :provenance {}}]
@@ -464,7 +470,7 @@
   {:results [...] :provenance {sym → Provenance} :namespace-dict {...}}."
   [opts ns-sym source-file]
   (try
-    (let [ns-dict (namespace-dict opts ns-sym)
+    (let [ns-dict (namespace-dict opts ns-sym source-file)
           {:keys [errors provenance]} ns-dict
           {check-results :results check-provenance :provenance} (check-ns ns-sym source-file opts)]
       {:results (vec (concat errors check-results))

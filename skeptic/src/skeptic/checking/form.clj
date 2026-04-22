@@ -123,6 +123,22 @@
   [form]
   (:source (meta form)))
 
+(defn- annotation-symbol
+  [[x y]]
+  (when (and (= x ':-) (symbol? y)) y))
+
+(defn extract-defn-annotation-symbol
+  [form]
+  (let [[_defn-sym _name & more] form
+        more (if (string? (first more)) (next more) more)
+        more (if (map? (first more)) (next more) more)]
+    (annotation-symbol more)))
+
+(defn extract-def-annotation-symbol
+  [form]
+  (let [[_def-sym _name & more] form]
+    (annotation-symbol more)))
+
 (defn defn-decls
   [form]
   (when (and (seq? form)
