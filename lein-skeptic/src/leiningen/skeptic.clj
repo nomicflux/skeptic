@@ -6,7 +6,7 @@
             [skeptic.core]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
-                                     ['org.clojars.nomicflux/skeptic "0.7.2-SNAPSHOT"]]})
+                                     ['org.clojars.nomicflux/skeptic "0.8.0-SNAPSHOT"]]})
 
 (def cli-options
   [["-v" "--verbose" "Turn on verbose logging"]
@@ -14,6 +14,7 @@
    ["-k" "--keep-empty" "Print out checking results with empty error set"]
    ["-c" "--show-context" "Show context and resolution path on items"]
    ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
+   [nil  "--explain-full" "Show fully expanded structural forms in type-mismatch output (disable name-folding)"]
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
@@ -30,6 +31,7 @@ Options:
   -k, --keep-empty          Print out checking results with empty error set
   -c, --show-context        Show context and resolution path on items
   -n, --namespace NS        Only check the given namespace
+      --explain-full        Show fully expanded structural forms in type-mismatch output (disable name-folding)
   -p, --porcelain           Emit machine-readable JSONL (one JSON object per line)
       --debug               Emit raw internal state for cross-environment diffing
       --profile             Profile the run (CPU, memory, wall-clock time)
