@@ -127,6 +127,10 @@
   [[x y]]
   (when (and (= x ':-) (symbol? y)) y))
 
+(defn- annotation-form
+  [[x y]]
+  (when (= x ':-) y))
+
 (defn extract-defn-annotation-symbol
   [form]
   (let [[_defn-sym _name & more] form
@@ -138,6 +142,30 @@
   [form]
   (let [[_def-sym _name & more] form]
     (annotation-symbol more)))
+
+(defn extract-defn-annotation-form
+  [form]
+  (let [[_defn-sym _name & more] form
+        more (if (string? (first more)) (next more) more)
+        more (if (map? (first more)) (next more) more)]
+    (annotation-form more)))
+
+(defn extract-def-annotation-form
+  [form]
+  (let [[_def-sym _name & more] form]
+    (annotation-form more)))
+
+(defn- schema-defschema-symbol?
+  [sym]
+  (and (symbol? sym)
+       (= "defschema" (name sym))
+       (#{"s" "schema.core"} (namespace sym))))
+
+(defn extract-defschema-body-form
+  [form]
+  (when (and (seq? form)
+             (schema-defschema-symbol? (first form)))
+    (nth form 2 nil)))
 
 (defn defn-decls
   [form]

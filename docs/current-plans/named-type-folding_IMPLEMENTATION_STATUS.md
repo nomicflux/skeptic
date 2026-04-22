@@ -201,3 +201,24 @@ End-to-end on `clj-threals/operations.clj add-with-cache`:
 
 ### Pending
 Phase 2b — nested-source-form bare-symbol capture. Phase 3 (porcelain) and Phase 4 (regression test) follow.
+
+## Phase 2b.0 — Source-form extractors — COMPLETE
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/checking/form.clj`**
+- `extract-defn-annotation-form [form] -> form-or-nil`: parses past name, optional docstring, optional attr-map; returns the form following `:-` (any shape: bare symbol, map literal, vector, list); nil when no `:-` annotation present.
+- `extract-def-annotation-form [form] -> form-or-nil`: parses past name; returns the form following `:-` (any shape); nil when no `:-` annotation present.
+- `extract-defschema-body-form [form] -> form-or-nil`: returns the body form (3rd element) of `(s/defschema Name body)` / `(schema.core/defschema Name body)`; nil for non-defschema heads.
+
+**`skeptic/test/skeptic/checking/form_test.clj`**
+- `extract-defn-annotation-form-test`: bare symbol, map literal `{:result Foo :cache Bar}`, vector `[Foo]`, list `(s/maybe Foo)`, docstring/attr-map permutations, multi-arity, missing annotation.
+- `extract-def-annotation-form-test`: bare symbol, map literal, vector, missing annotation.
+- `extract-defschema-body-form-test`: map body, vector body, qualified `schema.core/defschema`, non-defschema heads → nil.
+
+### Verification
+- `cd skeptic && lein test`: 394 tests, 1875 assertions, 0 failures, 0 errors.
+- `cd skeptic && clj-kondo --lint src test`: errors 0, warnings 0.
+
+### Pending
+Phase 2b.1 — form-refs map and pipeline binding. Phase 2b.2 — admission consumption and end-to-end test.
