@@ -71,6 +71,10 @@
     (named? s)
     :schema))
 
+(defn named-name
+  [s]
+  (:name s))
+
 (defn de-constrained
   [s]
   (cond-> s

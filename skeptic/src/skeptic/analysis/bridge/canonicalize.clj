@@ -194,8 +194,6 @@
   (let [schema (abl/localize-value schema)]
     (cond
     (nil? schema) nil
-    (sb/named? schema) (canonicalize-schema* (sb/de-named schema)
-                                          {:constrained->base? constrained->base?})
     (sb/placeholder-schema? schema) schema
     (sb/bottom-schema? schema) sb/Bottom
     (sb/fn-schema? schema) (canonicalize-fn-schema schema)
@@ -256,8 +254,9 @@
 
 (defn canonicalize-schema
   [schema]
-  (canonicalize-schema* (raw-schema-domain-value schema)
-                        {:constrained->base? false}))
+  (let [v (raw-schema-domain-value schema)]
+    (canonicalize-schema* (cond-> v (sb/named? v) sb/de-named)
+                          {:constrained->base? false})))
 
 (defn maybe-schema
   [schema]

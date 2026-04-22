@@ -9,7 +9,10 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.test-helpers :refer [T tp]]))
+            [skeptic.provenance :as prov]
+            [skeptic.schema.collect :as collect]
+            [skeptic.test-helpers :refer [T tp]])
+  (:import [java.util IdentityHashMap]))
 
 (declare UnboundSchemaRef
          DirectRecursiveSchemaRef
@@ -151,3 +154,68 @@
             :type forall
             :output-type sealed}
            stripped))))
+
+(s/defschema NestedRefA [#{s/Int}])
+(s/defschema NestedRefB {:inner #'NestedRefA})
+(s/defschema RecR [#{(s/recursive #'RecR)}])
+(s/defschema MyIntAlias s/Int)
+
+(defn- build-var-provs-for-test!
+  [^IdentityHashMap acc & vars]
+  (doseq [v vars
+          :let [m (meta v)
+                qsym (sb/qualified-var-symbol v)]]
+    (.put acc v (prov/make-provenance :schema qsym (some-> v .ns ns-name) m)))
+  acc)
+
+(deftest named-import-type-inline-named-schema-test
+  (let [inline (s/named [#{s/Int}] 'Inline)
+        result (ab/schema->type tp inline)
+        inner-prov (prov/of result)]
+    (is (= :schema (prov/source inner-prov)))
+    (is (= 'Inline (:qualified-sym inner-prov)))))
+
+(deftest nested-var-ref-carries-referenced-declaration-prov-test
+  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'NestedRefA #'NestedRefB)
+        result (binding [ab/*var-provs* var-provs]
+                 (ab/schema->type tp #'NestedRefB))
+        inner-val-type (first (vals (:entries result)))
+        inner-prov (prov/of inner-val-type)]
+    (is (= :schema (prov/source inner-prov)))
+    (is (= (sb/qualified-var-symbol #'NestedRefA) (:qualified-sym inner-prov)))))
+
+(deftest recursive-var-ref-prov-down-to-inf-cycle-test
+  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'RecR)
+        result (binding [ab/*var-provs* var-provs]
+                 (ab/schema->type tp #'RecR))
+        r-qsym (sb/qualified-var-symbol #'RecR)
+        body-type (first (:items result))
+        body-prov (prov/of body-type)]
+    (is (= :schema (prov/source body-prov)))
+    (is (= r-qsym (:qualified-sym body-prov)))))
+
+(deftest caller-prov-preserved-when-no-var-provs-test
+  (let [result (binding [ab/*var-provs* nil]
+                 (ab/schema->type tp s/Int))]
+    (is (= tp (prov/of result)))))
+
+(deftest var-prov-used-when-var-provs-populated-test
+  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'MyIntAlias)
+        result (binding [ab/*var-provs* var-provs]
+                 (ab/schema->type tp #'MyIntAlias))
+        alias-qsym (sb/qualified-var-symbol #'MyIntAlias)]
+    (is (= :schema (prov/source (prov/of result))))
+    (is (= alias-qsym (:qualified-sym (prov/of result))))))
+
+(deftest singleton-non-collision-test
+  (let [result (binding [ab/*var-provs* nil]
+                 (ab/schema->type tp s/Int))
+        alias-qsym (sb/qualified-var-symbol #'MyIntAlias)]
+    (is (not= alias-qsym (:qualified-sym (prov/of result))))))
+
+(deftest build-var-provs-excludes-non-schema-vars-test
+  (let [acc (IdentityHashMap.)]
+    (#'collect/build-var-provs! acc)
+    (doseq [[v _] acc]
+      (is (:schema (meta v))))
+    (is (pos? (.size acc)))))
