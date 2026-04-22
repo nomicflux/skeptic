@@ -21,7 +21,7 @@
       "opaque fn body must not produce mismatches")
   (is (empty? (ps/check-fixture 'skeptic.test-examples.fixture-flags/caller-of-opaque))
       "caller of opaque fn must see s/Any and produce no mismatches")
-  (is (not (contains? (:dict (sut/namespace-dict {} 'skeptic.test-examples.fixture-flags))
+  (is (not (contains? (:dict (sut/namespace-dict {} 'skeptic.test-examples.fixture-flags nil))
                       'skeptic.test-examples.fixture-flags/opaque-fn))
       "opaque fn must be absent from dict so callers see Dyn"))
 

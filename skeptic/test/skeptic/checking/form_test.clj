@@ -64,3 +64,21 @@
 
 (deftest strip-schema-argvec-test
   (is (= '[x y] (cf/strip-schema-argvec '[x :- s/Int y :- s/Str]))))
+
+(deftest extract-defn-annotation-symbol-test
+  (is (= 'Foo (cf/extract-defn-annotation-symbol '(s/defn f :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-symbol '(s/defn f "doc" :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-symbol '(s/defn f {:meta 1} :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-symbol '(s/defn f "doc" {:meta 1} :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-symbol '(s/defn f :- Foo ([x] x) ([x y] y)))))
+  (is (nil? (cf/extract-defn-annotation-symbol '(s/defn f [x] x))))
+  (is (nil? (cf/extract-defn-annotation-symbol '(s/defn f :- (s/named s/Int 'Foo) [x] x))))
+  (is (nil? (cf/extract-defn-annotation-symbol '(s/defn f :- "string" [x] x))))
+  (is (nil? (cf/extract-defn-annotation-symbol '(s/defn f :- :keyword [x] x)))))
+
+(deftest extract-def-annotation-symbol-test
+  (is (= 'Foo (cf/extract-def-annotation-symbol '(s/def x :- Foo 42))))
+  (is (= 'Foo (cf/extract-def-annotation-symbol '(def x :- Foo 42))))
+  (is (nil? (cf/extract-def-annotation-symbol '(s/def x 42))))
+  (is (nil? (cf/extract-def-annotation-symbol '(s/def x :- (s/named s/Int 'Foo) 42))))
+  (is (nil? (cf/extract-def-annotation-symbol '(s/def x)))))

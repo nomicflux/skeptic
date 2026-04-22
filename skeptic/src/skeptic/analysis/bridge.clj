@@ -7,6 +7,8 @@
   (:import [clojure.lang IPersistentCollection]
            [schema.core One]))
 
+(def ^:dynamic *annotation-refs* nil)
+
 (defn broad-dynamic-schema?
   [schema]
   (contains? #{s/Any
