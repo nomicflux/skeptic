@@ -88,7 +88,7 @@
         joined-vector (T #'JoinedRecursiveSchemaRef)
         joined-seq (T #'RecursiveSeqRef)
         joined-set (T #'RecursiveSetRef)]
-    (is (= (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
+    (is (at/type=? (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
            (T #'DirectRecursiveSchemaRef)))
     (is (at/vector-type? joined-vector))
     (is (:homogeneous? joined-vector))
@@ -107,8 +107,8 @@
            (:members joined-set)))))
 
 (deftest broad-numeric-schemas-import-to-numeric-dyn-test
-  (is (= (at/NumericDyn tp) (T s/Num)))
-  (is (= (at/NumericDyn tp) (T java.lang.Number))))
+  (is (at/type=? (at/NumericDyn tp) (T s/Num)))
+  (is (at/type=? (at/NumericDyn tp) (T java.lang.Number))))
 
 (deftest admit-schema-defines-the-shared-schema-boundary-test
   (let [regex (ab/admit-schema #"^[a-z]+$")]

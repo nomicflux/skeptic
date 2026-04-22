@@ -28,7 +28,7 @@
                                                                         1
                                                                         false
                                                                         '[x])])))))
-    (is (= (at/->ForallT tp 'X (at/->TypeVarT tp 'X))
+    (is (at/type=? (at/->ForallT tp 'X (at/->TypeVarT tp 'X))
            (ata/type-substitute (at/->ForallT tp 'X (at/->TypeVarT tp 'X))
                                 'X
                                 (ab/schema->type tp s/Any))))))
@@ -55,13 +55,13 @@
            (abr/render-type inf-cycle)))))
 
 (deftest type-ops-normalization-and-unknown-test
-  (is (= (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :k)
+  (is (at/type=? (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :k)
          (ato/exact-value-type tp :k)))
-  (is (= (at/->ValueT tp (at/->GroundT tp {:class java.lang.Double} 'Double) 3.5)
+  (is (at/type=? (at/->ValueT tp (at/->GroundT tp {:class java.lang.Double} 'Double) 3.5)
          (ato/exact-value-type tp 3.5)))
-  (is (= (at/->MaybeT tp (at/Dyn tp))
+  (is (at/type=? (at/->MaybeT tp (at/Dyn tp))
          (ato/normalize-type tp nil)))
-  (is (= (at/->GroundT tp :int 'Int)
+  (is (at/type=? (at/->GroundT tp :int 'Int)
          (ato/de-maybe-type tp (at/->MaybeT tp (at/->GroundT tp :int 'Int)))))
   (is (ato/unknown-type? tp (at/Dyn tp)))
   (is (ato/unknown-type? tp (at/->PlaceholderT tp 'example/x)))

@@ -40,12 +40,12 @@
 
 (deftest type-of-value-collections-test
   (testing "empty list"
-    (is (= (at/->SeqT tp [(at/Dyn tp)] true) (av/type-of-value tp '()))))
+    (is (at/type=? (at/->SeqT tp [(at/Dyn tp)] true) (av/type-of-value tp '()))))
   (testing "simple vector"
     (is (= (T [s/Int s/Int]) (av/type-of-value tp [1 2]))))
   (testing "nested vector with map and set"
     (let [type (av/type-of-value tp '[1 {:a 2 :b {:c #{3 4}}} 5])]
-      (is (= (at/->VectorT tp [(T s/Int)
+      (is (at/type=? (at/->VectorT tp [(T s/Int)
                             (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :a) (at/->ValueT tp (T s/Int) 2)
                                         (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :c)
                                                                                                    (at/->ValueT tp (at/->SetT tp #{(T s/Int)} true) #{3 4})})

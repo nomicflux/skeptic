@@ -67,6 +67,16 @@
     (testing "ANSI stripped"
       (is (not (re-find #"\u001b" line))))))
 
+(deftest finding-record-carries-source-for-every-source-kind
+  (doseq [src [:inferred :schema :malli-spec :native :type-override]]
+    (let [summary (assoc example-input-summary
+                         :location {:file "f.clj" :line 1 :column 2 :source src})
+          [line] (capture-lines
+                  #((:finding sut/printer) 'foo.bar {} summary {}))
+          parsed (parse-line line)]
+      (is (= (name src) (get-in parsed [:location :source]))
+          (str "source kind " src " must be serialized")))))
+
 (deftest exception-record-shape
   (let [[line] (capture-lines
                 #((:finding sut/printer) 'foo.bar example-exception-result

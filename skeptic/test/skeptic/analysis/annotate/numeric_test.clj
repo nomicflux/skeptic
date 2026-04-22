@@ -19,18 +19,18 @@
   (let [fn-node (aat/test-fn-node '+)
         args [(aat/test-typed-node :local 'x (atst/T s/Int))
               (aat/test-typed-node :local 'y (atst/T s/Int))]]
-    (is (= (atst/T s/Int)
+    (is (at/type=? (atst/T s/Int)
            (sut/invoke-integral-math-narrow-type tp fn-node args (mapv :type args))))))
 
 (deftest invoke-inc-on-constant-int-narrows-to-int
   (let [fn-node (aat/test-fn-node 'inc)
         args [(aat/test-typed-node :const 0 (atst/T (s/eq 0)))]]
-    (is (= (atst/T s/Int)
+    (is (at/type=? (atst/T s/Int)
            (sut/invoke-integral-math-narrow-type tp fn-node args (mapv :type args))))))
 
 (deftest invoke-dec-on-constant-int-narrows-to-int
   (let [args [(aat/test-typed-node :const 0 (atst/T (s/eq 0)))]]
-    (is (= (atst/T s/Int)
+    (is (at/type=? (atst/T s/Int)
            (sut/narrow-static-numbers-output tp
                                              {:method 'dec}
                                              args
@@ -40,14 +40,14 @@
 (deftest inc-on-numeric-dyn-stays-numeric-dyn
   (let [fn-node (aat/test-fn-node 'inc)
         args [(aat/test-typed-node :local 'x (at/NumericDyn tp))]]
-    (is (= (at/NumericDyn tp)
+    (is (at/type=? (at/NumericDyn tp)
            (sut/invoke-integral-math-narrow-type tp fn-node args (mapv :type args))))))
 
 (deftest inc-on-non-int-numeric-literal-preserves-fine-ground
   (let [fn-node (aat/test-fn-node 'inc)
         literal-type (ato/exact-value-type tp 3.5)
         args [(aat/test-typed-node :const 3.5 literal-type)]]
-    (is (= (at/->GroundT tp {:class java.lang.Double} 'Double)
+    (is (at/type=? (at/->GroundT tp {:class java.lang.Double} 'Double)
            (sut/invoke-integral-math-narrow-type tp fn-node args (mapv :type args))))))
 
 (def ^:private other-prov
@@ -60,7 +60,7 @@
           args [(aat/test-typed-node :local 'x int-at-other)
                 (aat/test-typed-node :local 'y int-at-other)]
           result (sut/invoke-integral-math-narrow-type tp fn-node args (mapv :type args))]
-      (is (= (at/->GroundT tp :int 'Int) result))
+      (is (at/type=? (at/->GroundT tp :int 'Int) result))
       (is (= tp (prov/of result))))))
 
 (deftest narrow-static-numbers-output-uses-anchor-prov-test
@@ -70,5 +70,5 @@
                 (aat/test-typed-node :local 'y int-at-other)]
           result (sut/narrow-static-numbers-output
                   tp {:method 'add} args (mapv :type args) {:output-type (at/NumericDyn tp)})]
-      (is (= (at/->GroundT tp :int 'Int) result))
+      (is (at/type=? (at/->GroundT tp :int 'Int) result))
       (is (= tp (prov/of result))))))

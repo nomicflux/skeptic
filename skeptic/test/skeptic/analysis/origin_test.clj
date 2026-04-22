@@ -20,9 +20,9 @@
     (let [o (ao/root-origin 'x (atst/T s/Str))]
       (is (= :root (:kind o)))
       (is (= 'x (:sym o)))
-      (is (= (atst/T s/Str) (:type o)))))
+      (is (at/type=? (atst/T s/Str) (:type o)))))
   (testing "effective-type returns refined type"
-    (is (= (atst/T s/Int) (ao/effective-type tp 'x (atst/T s/Int) [])))))
+    (is (at/type=? (atst/T s/Int) (ao/effective-type tp 'x (atst/T s/Int) [])))))
 
 (deftest typed-binding-and-refinement-test
   (testing "let-driven flow through or expands to refinable branch"
@@ -137,8 +137,8 @@
           then-x (aapi/find-node (aapi/then-node if-node)
                                  #(and (= :local (aapi/node-op %))
                                        (= 'x (aapi/node-form %))))]
-      (is (= (atst/T s/Str) (aapi/node-type if-node)))
-      (is (= (atst/T s/Str) (aapi/node-type then-x)))))
+      (is (at/type=? (atst/T s/Str) (aapi/node-type if-node)))
+      (is (at/type=? (atst/T s/Str) (aapi/node-type then-x)))))
 
   (testing "narrowing-preserving aliases get their own root for later refinement"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
@@ -150,7 +150,7 @@
                                  #(and (= :local (aapi/node-op %))
                                        (= 'p (aapi/node-form %))
                                        (= (atst/T s/Str) (aapi/node-type %))))]
-      (is (= (atst/T s/Str) (aapi/node-type then-p)))
+      (is (at/type=? (atst/T s/Str) (aapi/node-type then-p)))
       (is (= 'p (:sym (ao/local-root-origin tp then-p)))))))
 
 (deftest guarded-keys-maybe-s-caller-origin-test
