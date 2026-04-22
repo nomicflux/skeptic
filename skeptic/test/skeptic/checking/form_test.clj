@@ -82,3 +82,27 @@
   (is (nil? (cf/extract-def-annotation-symbol '(s/def x 42))))
   (is (nil? (cf/extract-def-annotation-symbol '(s/def x :- (s/named s/Int 'Foo) 42))))
   (is (nil? (cf/extract-def-annotation-symbol '(s/def x)))))
+
+(deftest extract-defn-annotation-form-test
+  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f :- Foo [x] x))))
+  (is (= '{:result Foo :cache Bar} (cf/extract-defn-annotation-form '(s/defn f :- {:result Foo :cache Bar} [] {}))))
+  (is (= '[Foo] (cf/extract-defn-annotation-form '(s/defn f :- [Foo] [] []))))
+  (is (= '(s/maybe Foo) (cf/extract-defn-annotation-form '(s/defn f :- (s/maybe Foo) [] nil))))
+  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f "doc" :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f {:meta 1} :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f "doc" {:meta 1} :- Foo [x] x))))
+  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f :- Foo ([x] x) ([x y] y)))))
+  (is (nil? (cf/extract-defn-annotation-form '(s/defn f [x] x)))))
+
+(deftest extract-def-annotation-form-test
+  (is (= 'Foo (cf/extract-def-annotation-form '(s/def x :- Foo 42))))
+  (is (= '{:result Foo :cache Bar} (cf/extract-def-annotation-form '(s/def x :- {:result Foo :cache Bar} 42))))
+  (is (= '[Foo] (cf/extract-def-annotation-form '(s/def x :- [Foo] 42))))
+  (is (nil? (cf/extract-def-annotation-form '(s/def x 42)))))
+
+(deftest extract-defschema-body-form-test
+  (is (= '{:a Foo} (cf/extract-defschema-body-form '(s/defschema X {:a Foo}))))
+  (is (= '[Foo] (cf/extract-defschema-body-form '(s/defschema X [Foo]))))
+  (is (= '{:a Foo} (cf/extract-defschema-body-form '(schema.core/defschema Y {:a Foo}))))
+  (is (nil? (cf/extract-defschema-body-form '(defn f [x] x))))
+  (is (nil? (cf/extract-defschema-body-form '(s/def x 42)))))
