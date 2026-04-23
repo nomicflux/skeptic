@@ -29,6 +29,10 @@
           (accessor-summary-from-body [param-sym body]
             (let [body (aapi/unwrap-with-meta body)]
               (cond
+                (and (= :local (aapi/node-op body))
+                     (= param-sym (aapi/node-form body)))
+                {:kind :unary-identity}
+
                 (= :keyword-invoke (aapi/node-op body))
                 (let [target (:target body)
                       kw-node (:keyword body)
@@ -77,23 +81,33 @@
          :entry (aapi/strip-derived-types entry)
          :summary summary}))))
 
+(defn- analyze-source-expr
+  [dict ns-sym source-file accessor-summaries expr]
+  (aa/annotate-form-loop dict
+                         (cf/normalize-check-form expr)
+                         {:ns ns-sym
+                          :source-file (cf/source-file-path source-file)
+                          :accessor-summaries accessor-summaries}))
+
+(defn- accumulate-analysis
+  [dict ns-sym source-file acc expr]
+  (let [analyzed (analyze-source-expr dict ns-sym source-file (:accessor-summaries acc) expr)
+        entry (analyzed-def-entry ns-sym analyzed)]
+    (cond-> (update acc :analyzed conj analyzed)
+      entry (update :entries conj entry)
+      (:summary entry) (assoc-in [:accessor-summaries (:sym entry)] (:summary entry)))))
+
 (defn- run-analyze-source-exprs
   [dict ns-sym source-file exprs accessor-summaries]
-  (let [analyzed (mapv (fn [expr]
-                         (aa/annotate-form-loop dict
-                                                (cf/normalize-check-form expr)
-                                                {:ns ns-sym
-                                                 :source-file (cf/source-file-path source-file)
-                                                 :accessor-summaries accessor-summaries}))
-                       exprs)
-        entries (keep #(analyzed-def-entry ns-sym %) analyzed)]
+  (let [{:keys [analyzed entries accessor-summaries]}
+        (reduce #(accumulate-analysis dict ns-sym source-file %1 %2)
+                {:analyzed [] :entries [] :accessor-summaries accessor-summaries}
+                exprs)]
     {:analysis-dict dict
      :analyzed analyzed
      :resolved analyzed
      :resolved-defs (into {} (map (juxt :sym :entry)) entries)
-     :accessor-summaries (into {} (keep (fn [{:keys [sym summary]}]
-                                          (when summary [sym summary])))
-                               entries)}))
+     :accessor-summaries accessor-summaries}))
 
 (defn analyze-source-exprs
   ([dict ns-sym source-file exprs]
@@ -408,8 +422,10 @@
   (if (and source-file ns-sym)
     (let [exprs (ns-exprs source-file)
           {:keys [resolved-defs accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
-      {:dict (merge dict (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym))
-                                                              (at/Dyn (prov/inferred {:name sym :ns ns-sym})))])) accessor-summaries))
+      {:dict (merge (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym))
+                                                         (at/Dyn (prov/inferred {:name sym :ns ns-sym})))]))
+                          accessor-summaries)
+                    dict)
        :accessor-summaries accessor-summaries})
     {:dict dict
      :accessor-summaries {}}))

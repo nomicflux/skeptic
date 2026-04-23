@@ -295,28 +295,24 @@
                         (vec (distinct (keep identity child-provs)))))
 
 (def ^:private schema-foldable-sources
-  #{:schema :malli-spec :type-override})
+  #{:schema :malli :type-override})
 
 (defn- schema-named-prov?
   [p]
   (and p (:qualified-sym p) (contains? schema-foldable-sources (:source p))))
 
-(defn- fn-annotation-source?
-  [p]
-  (= :fn-annotation (:source p)))
-
 (defn- node-prov
   [ctx-prov source-form child-provs]
   (or (form-prov source-form ctx-prov)
       (when (schema-named-prov? ctx-prov) ctx-prov)
-      (if (fn-annotation-source? ctx-prov)
-        (composite-node-prov ctx-prov child-provs)
-        ctx-prov)))
+      (when (seq child-provs)
+        (composite-node-prov ctx-prov child-provs))
+      ctx-prov))
 
 (defn- descend-ctx
   [ctx]
   (let [p (:prov ctx)]
-    (if (or (schema-named-prov? p) (fn-annotation-source? p))
+    (if (schema-named-prov? p)
       (assoc ctx :prov (assoc p :qualified-sym nil))
       ctx)))
 

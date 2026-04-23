@@ -33,6 +33,26 @@
   []
   {:result (compute-result) :cache (compute-cache)})
 
+(s/defn visible-add-with-cache-mismatch :- s/Int
+  []
+  (add-with-cache-analogue))
+
+(s/defschema FlowCache {s/Int s/Int})
+(s/def flow-cache-value :- FlowCache {})
+
+(defn cache-id
+  [x]
+  x)
+
+(def inferred-cache (cache-id flow-cache-value))
+(def inferred-cache-vector [(cache-id flow-cache-value)])
+
+(s/defschema Map1 {:a s/Int})
+(s/defschema Map2 {:a s/Int})
+
+(s/def map1-value :- Map1 {:a 1})
+(s/def map2-value :- Map2 {:a 1})
+
 (s/defn add-with-cache-input-probe :- {:result Threal :cache ThrealCache}
   ([]
    {:result (compute-result) :cache (compute-cache)})
