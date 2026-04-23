@@ -7,8 +7,8 @@
 
 (defn desc->type
   ([prov desc] (desc->type prov desc nil))
-  ([prov {:keys [schema]} source-form]
-   (ab/schema->type prov schema source-form)))
+  ([prov {:keys [schema]} form-descriptor]
+   (ab/schema->type prov schema form-descriptor)))
 
 (defn- desc->provenance
   [{:keys [arglists]} ns qualified-sym]
@@ -29,9 +29,9 @@
   (let [declared-var (resolve qualified-sym)
         base-prov (desc->provenance desc ns qualified-sym)
         prov (effective-prov declared-var base-prov)
-        source-form (and ab/*form-refs* declared-var
-                         (.get ^java.util.IdentityHashMap ab/*form-refs* declared-var))]
-    {:dict {qualified-sym (desc->type prov desc source-form)}
+        form-descriptor (and ab/*form-refs* declared-var
+                             (.get ^java.util.IdentityHashMap ab/*form-refs* declared-var))]
+    {:dict {qualified-sym (desc->type prov desc form-descriptor)}
      :provenance {qualified-sym prov}
      :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})
      :errors []}))
