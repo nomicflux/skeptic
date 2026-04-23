@@ -43,6 +43,24 @@
   (testing "result prov is the anchor, not derived from input map provs"
     (let [m1 (at/->MapT other-prov {(ato/exact-value-type other-prov :a) (atst/T s/Int)})
           m2 (at/->MapT other-prov {(ato/exact-value-type other-prov :b) (atst/T s/Str)})
-          result (amoa/merge-types tp [m1 m2])]
+          result (amoa/merge-types tp [m1 m2])
+          result-prov (prov/of result)]
       (is (at/map-type? result))
-      (is (= tp (prov/of result))))))
+      (is (= (:source tp) (:source result-prov)))
+      (is (= (:qualified-sym tp) (:qualified-sym result-prov)))
+      (is (= (:declared-in tp) (:declared-in result-prov))))))
+
+(deftest assoc-type-threads-refs-test
+  (testing "assoc onto map type: refs has 3 entries (base, key, value)"
+    (let [m (at/->MapT tp {})
+          result (amoa/assoc-type m :a (at/->GroundT tp :int 'Int))
+          refs (:refs (prov/of result))]
+      (is (= 3 (count refs))))))
+
+(deftest dissoc-type-threads-refs-test
+  (testing "dissoc from map type: refs has 2 entries (base, removed-key)"
+    (let [m (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :a)
+                           (at/->GroundT tp :int 'Int)})
+          result (amoa/dissoc-type m :a)
+          refs (:refs (prov/of result))]
+      (is (= 2 (count refs))))))

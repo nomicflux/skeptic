@@ -3,7 +3,8 @@
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn invoke-output-type
   [ctx fn-node args output-type]
@@ -55,7 +56,7 @@
     (and (ac/chunk-first-call? fn-node) (= 1 (count args)))
     (or (when-let [elem (coll/seqish-element-type (:type (first args)))]
           (let [prov (ato/derive-prov elem)]
-            (at/->SeqT prov [(ato/normalize-type prov elem)] true)))
+            (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [(ato/normalize-type prov elem)] true)))
         output-type)
     (and (ac/seq-call? fn-node) (= 1 (count args)))
     (shared-call/shared-call-output-type ctx :seq args output-type)

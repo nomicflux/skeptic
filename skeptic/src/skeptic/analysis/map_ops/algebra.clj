@@ -1,7 +1,8 @@
 (ns skeptic.analysis.map-ops.algebra
   (:require [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn- exact-key-for-literal
   [prov key-lit]
@@ -28,9 +29,10 @@
       (at/->MaybeT prov (assoc-type (:inner m-type) key-lit value-type))
 
       (at/map-type? m-type)
-      (at/->MapT prov (assoc (entries-without-key prov (:entries m-type) key-lit)
-                       k
-                       value-type))
+      (at/->MapT (prov/with-refs prov [(prov/of m-type) (prov/of k) (prov/of value-type)])
+                 (assoc (entries-without-key prov (:entries m-type) key-lit)
+                        k
+                        value-type))
 
       :else
       (ato/dyn m-type value-type))))
@@ -44,7 +46,9 @@
       (at/->MaybeT prov (dissoc-type (:inner m-type) key-lit))
 
       (at/map-type? m-type)
-      (at/->MapT prov (entries-without-key prov (:entries m-type) key-lit))
+      (let [removed-key (exact-key-for-literal prov key-lit)]
+        (at/->MapT (prov/with-refs prov [(prov/of m-type) (prov/of removed-key)])
+                   (entries-without-key prov (:entries m-type) key-lit)))
 
       :else
       (ato/dyn m-type))))

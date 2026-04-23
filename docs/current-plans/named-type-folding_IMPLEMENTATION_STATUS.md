@@ -317,3 +317,108 @@ Phase 2b.4.2 — populate `:refs` at literal-construction sites (data.clj, value
 
 ### Pending
 Phase 2b.4.3 — populate `:refs` at collection-op + invoke-output sites.
+
+## Phase 2b.4.3 — Populate `:refs` at collection-op + invoke-output sites — COMPLETE (uncommitted)
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/annotate/coll.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- 15 composite-construction sites wrapped with `prov/with-refs`:
+  - `vector-to-homogeneous-seq-type`: `[(prov/of elem)]`.
+  - `coll-rest-output-type` (3 branches): `(mapv prov/of tail)`, `[(prov/of elem)]`, `[(prov/of elem)]`.
+  - `coll-butlast-output-type`: `(mapv prov/of items)`.
+  - `coll-drop-last-output-type`: `(mapv prov/of kept)`.
+  - `coll-take-prefix-type`: `(mapv prov/of kept)`.
+  - `coll-drop-prefix-type` (2 branches): `[]`, `(mapv prov/of tail)`.
+  - `coll-same-element-seq-type`: `[(prov/of elem)]`.
+  - `concat-output-type` (2 branches): empty-args → `[]` (Dyn synthesized, no constituent ref); non-empty → bound `joined` and `[(prov/of joined)]`.
+  - `into-output-type` (2 branches): vector and seq targets, both `[(prov/of elem)]`.
+  - `lazy-seq-new-type`: `[(prov/of elem)]`.
+
+**`skeptic/src/skeptic/analysis/annotate/invoke_output.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- `chunk-first-call?` branch (line 59): `[(prov/of elem)]`.
+
+### Tests added/modified
+
+**`skeptic/test/skeptic/analysis/annotate/coll_test.clj`** (extended)
+- New `int-t` helper.
+- 12 new deftests asserting `:refs` count and (where applicable) `[]` for empty/synthesized cases:
+  `coll-rest-output-type-vector-threads-refs-test`,
+  `coll-butlast-output-type-threads-refs-test`,
+  `coll-drop-last-output-type-threads-refs-test`,
+  `coll-take-prefix-type-threads-refs-test`,
+  `coll-drop-prefix-type-threads-refs-test`,
+  `coll-same-element-seq-type-threads-refs-test`,
+  `concat-output-type-empty-args-empty-refs-test`,
+  `concat-output-type-non-empty-threads-joined-ref-test`,
+  `into-output-type-vector-target-threads-refs-test`,
+  `into-output-type-seq-target-threads-refs-test`,
+  `vector-to-homogeneous-seq-type-threads-refs-test`.
+- `concat-output-type-container-owns-prov-test` second `testing` block weakened from full-prov `=` to `:source` + `:qualified-sym` equality (the anchor identity it was actually testing); the empty-args block still uses full-prov `=` because both anchor and result have `:refs []`. Reason per `feedback_rep_change_scope`: the original `=` was incidental on a now-populated representation; weakening to source/qualified-sym preserves the intent (anchor identity).
+
+**`skeptic/test/skeptic/analysis/annotate/invoke_output_test.clj`** — NOT created. The chunk-first branch requires going through `ac/chunk-first-call?` AST construction, which exceeds the test's worth here. Coverage exists implicitly via the broader test suite's callers of `invoke-output-type`.
+
+### Verification
+- `lein test` (skeptic): 433 tests, 1944 assertions, **3 failures, 0 errors** — same 3 pre-existing `named-fold-diagnostic-test` fold-pending assertions, removed in Phase 2b.4.4 per plan.
+- `lein test` (lein-skeptic): 0 tests / 0 errors.
+- `clj-kondo --lint src test` (both subprojects): 0 errors, 0 warnings.
+
+### Pending
+Phase 2b.4.4 — populate `:refs` at map-op + algebra sites; update diagnostic test to assert `:refs` chain.
+
+## Phase 2b.4.4 — Populate `:refs` at map-op + algebra + type-substitute sites; diagnostic update — COMPLETE (uncommitted)
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/map_ops.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- `merge-map-types` non-empty branch: `->MapT` prov wrapped with `(mapv prov/of types)` (the constituent map types).
+
+**`skeptic/src/skeptic/analysis/map_ops/algebra.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- `assoc-type` map-type branch: refs = `[(prov/of m-type) (prov/of k) (prov/of value-type)]`.
+- `dissoc-type` map-type branch: bound `removed-key`; refs = `[(prov/of m-type) (prov/of removed-key)]`.
+
+**`skeptic/src/skeptic/analysis/type_algebra.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- `type-substitute` 5 composite-rebuild branches each bind the rebuilt constituents to a local then attach refs via `prov/with-refs`:
+  - Union: `(mapv prov/of members')`.
+  - Map: flattened `[k.prov v.prov ...]`.
+  - Vector: `(mapv prov/of items')`.
+  - Set: `(mapv prov/of members')`.
+  - Seq: `(mapv prov/of items')`.
+
+### Tests added/modified
+
+**`skeptic/test/skeptic/analysis/map_ops_test.clj`** (extended)
+- New `merge-map-types-threads-refs-test`.
+- `merge-map-types-container-owns-prov-test` weakened from full-prov `=` to source/qualified-sym/declared-in field-wise comparison (rep-change fallout per `feedback_rep_change_scope`).
+
+**`skeptic/test/skeptic/analysis/map_ops/algebra_test.clj`** (extended)
+- New `assoc-type-threads-refs-test`, `dissoc-type-threads-refs-test`.
+- `merge-types-container-owns-prov-test` weakened to field-wise comparison (same rep-change fallout).
+
+**`skeptic/test/skeptic/analysis/type_algebra_test.clj`** (NEW)
+- 5 deftests, one per type-substitute composite-rebuild branch (Union/Map/Vector/Set/Seq).
+
+**`skeptic/test/skeptic/analysis/annotate/shared_call_test.clj`** (modified)
+- `shared-call-merge-uses-anchor-prov-test` second `testing` weakened from `(= tp (prov/of result))` to source/qualified-sym/declared-in field-wise — `:merge` now goes through `merge-map-types` which populates `:refs`. Empty-args block unchanged. Outside the agent's stated file scope but justified rep-change fallout.
+
+**`skeptic/test/skeptic/checking/pipeline/named_fold_diagnostic_test.clj`** (modified)
+- New private helper `collect-refs-deep [prov]` walking `:refs` lazily depth-first.
+- `diagnostic-composed-body-loss-point` rewritten:
+  - REMOVED: `:source :schema` and `:qualified-sym = expected-qsym` assertions, render-fold assertion, two `println` debug lines, `rendered` let-binding (deferred to Phase 2b.5 per plan).
+  - ADDED: `(seq (:refs result-prov))` is truthy, and some prov in `(collect-refs-deep result-prov)` has `:qualified-sym = 'skeptic.test-examples.form-refs/produce-inner-set`.
+
+### Verification
+- `lein test` (skeptic): 441 tests, 1957 assertions, **0 failures, 0 errors**.
+- `lein test` (lein-skeptic): 0 tests / 0 errors.
+- `clj-kondo --lint src test` (both subprojects): 0 errors, 0 warnings.
+
+### Phase 2b.4 closes here
+
+Every analyze-pipeline composite-construction site now records its constituent provs in `:refs`. The diagnostic confirms the inferred `:result` VectorT for `fn-with-composed-body` carries a `:refs` chain reaching `produce-inner-set`.
+
+**Remaining open**: smoke fold for the `add-with-cache` actual side. The structural blow-up still appears because the renderer does not yet consult `:refs` for fold decisions. That is Phase 2b.5's scope (separate plan to be drafted).

@@ -66,9 +66,12 @@
   (testing "result prov is the anchor, not derived from input map provs"
     (let [m1 (at/->MapT other-prov {})
           m2 (at/->MapT other-prov {})
-          result (amo/merge-map-types tp [m1 m2])]
+          result (amo/merge-map-types tp [m1 m2])
+          result-prov (prov/of result)]
       (is (at/map-type? result))
-      (is (= tp (prov/of result))))))
+      (is (= (:source tp) (:source result-prov)))
+      (is (= (:qualified-sym tp) (:qualified-sym result-prov)))
+      (is (= (:declared-in tp) (:declared-in result-prov))))))
 
 (deftest semantic-map-query-regression-test
   (let [mtype (ab/schema->type tp {:a s/Int
@@ -78,3 +81,13 @@
     (is (at/type=? (ab/schema->type tp (sb/join s/Int s/Str))
            (amo/map-get-type mtype domain-query)))
     (is (= 2 (count (amo/map-lookup-candidates entries domain-query))))))
+
+(deftest merge-map-types-threads-refs-test
+  (testing "merging two map types: refs has 2 entries (one per constituent map)"
+    (let [m1 (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :a)
+                            (at/->GroundT tp :int 'Int)})
+          m2 (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :b)
+                            (at/->GroundT tp :int 'Int)})
+          result (amo/merge-map-types tp [m1 m2])
+          refs (:refs (prov/of result))]
+      (is (= 2 (count refs))))))

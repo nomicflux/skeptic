@@ -81,6 +81,12 @@
       (is (= expected-qsym (get rendered :result))
           (str "rendered=" rendered)))))
 
+(defn- collect-refs-deep
+  [prov]
+  (lazy-seq
+   (cons prov
+         (mapcat collect-refs-deep (:refs prov)))))
+
 (deftest diagnostic-composed-body-loss-point
   (let [exprs (pipeline/ns-exprs fixture-file)
         {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
@@ -89,16 +95,14 @@
         actual-output (ato/normalize actual-output-raw)
         result-value-type (value-type-for actual-output :result)
         result-prov (some-> result-value-type prov/of)
-        rendered (render/render-type-form actual-output)]
-    (testing "COMPOSED side: prov on the literal-built VectorT for :result"
+        produce-inner-set-sym 'skeptic.test-examples.form-refs/produce-inner-set]
+    (testing "COMPOSED side: inferred VectorT records its constituents in :refs"
       (is (some? result-value-type)
           (str "no value-Type for :result; entries=" (:entries actual-output)))
-      (println "DIAGNOSTIC composed :result prov ->" result-prov)
-      (println "DIAGNOSTIC composed rendered ->" rendered)
-      (is (= :schema (:source result-prov))
-          (str "LOSS POINT: composite VectorT prov source; actual=" result-prov))
-      (is (= expected-qsym (:qualified-sym result-prov))
-          (str "actual prov=" result-prov)))
-    (testing "COMPOSED side: render folds"
-      (is (= expected-qsym (get rendered :result))
-          (str "rendered=" rendered)))))
+      (is (seq (:refs result-prov))
+          (str ":refs is empty; actual prov=" result-prov))
+      (is (some (fn [p]
+                  (= produce-inner-set-sym (:qualified-sym p)))
+                (collect-refs-deep result-prov))
+          (str "no ref reaches produce-inner-set; refs="
+               (mapv :qualified-sym (collect-refs-deep result-prov)))))))

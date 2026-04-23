@@ -3,7 +3,8 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.value :as av])
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov])
   (:import [clojure.lang LazySeq]))
 
 (defn const-long-value
@@ -33,7 +34,7 @@
           elem (if (:homogeneous? type)
                  (first (:items type))
                  (av/join (ato/derive-prov type) (:items type)))]
-      (at/->SeqT (ato/derive-prov type) [(ato/normalize elem)] true))))
+      (at/->SeqT (prov/with-refs (ato/derive-prov type) [(prov/of elem)]) [(ato/normalize elem)] true))))
 
 (defn vector-slot-type
   [vector-type idx]
@@ -109,19 +110,19 @@
     (cond
       (and (at/vector-type? type) (> (count (:items type)) 1))
       (let [tail (mapv ato/normalize (rest (:items type)))]
-        (at/->VectorT prov tail (vec-homogeneous-items? tail)))
+        (at/->VectorT (prov/with-refs prov (mapv prov/of tail)) tail (vec-homogeneous-items? tail)))
 
       (and (at/vector-type? type) (seq (:items type)))
       (let [elem (if (:homogeneous? type)
                    (first (:items type))
                    (av/join prov (:items type)))]
-        (at/->SeqT prov [(ato/normalize elem)] true))
+        (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [(ato/normalize elem)] true))
 
       (at/seq-type? type)
       (let [elem (if (:homogeneous? type)
                    (first (:items type))
                    (av/join prov (:items type)))]
-        (at/->SeqT prov [elem] (:homogeneous? type)))
+        (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [elem] (:homogeneous? type)))
       :else nil)))
 
 (defn coll-butlast-output-type
@@ -130,7 +131,7 @@
              (> (count (:items (ato/normalize type))) 1))
     (let [items (pop (vec (:items (ato/normalize type))))
           items (mapv ato/normalize items)]
-      (at/->VectorT (ato/derive-prov type) items (vec-homogeneous-items? items)))))
+      (at/->VectorT (prov/with-refs (ato/derive-prov type) (mapv prov/of items)) items (vec-homogeneous-items? items)))))
 
 (defn coll-drop-last-output-type
   [type n]
@@ -139,7 +140,7 @@
           count-items (count items)
           kept (subvec items 0 (- count-items (min n count-items)))
           kept (mapv ato/normalize kept)]
-      (at/->VectorT (ato/derive-prov type) kept (vec-homogeneous-items? kept)))))
+      (at/->VectorT (prov/with-refs (ato/derive-prov type) (mapv prov/of kept)) kept (vec-homogeneous-items? kept)))))
 
 (defn coll-take-prefix-type
   [type n]
@@ -147,7 +148,7 @@
     (let [items (vec (:items (ato/normalize type)))
           kept (subvec items 0 (min n (count items)))
           kept (mapv ato/normalize kept)]
-      (at/->VectorT (ato/derive-prov type) kept (vec-homogeneous-items? kept)))))
+      (at/->VectorT (prov/with-refs (ato/derive-prov type) (mapv prov/of kept)) kept (vec-homogeneous-items? kept)))))
 
 (defn coll-drop-prefix-type
   [type n]
@@ -157,21 +158,23 @@
           tail (mapv ato/normalize tail)
           prov (ato/derive-prov type)]
       (if (empty? tail)
-        (at/->VectorT prov [] true)
-        (at/->VectorT prov tail (vec-homogeneous-items? tail))))))
+        (at/->VectorT (prov/with-refs prov []) [] true)
+        (at/->VectorT (prov/with-refs prov (mapv prov/of tail)) tail (vec-homogeneous-items? tail))))))
 
 (defn coll-same-element-seq-type
   [type]
   (when-let [elem (seqish-element-type type)]
-    (at/->SeqT (ato/derive-prov elem) [elem] true)))
+    (at/->SeqT (prov/with-refs (ato/derive-prov elem) [(prov/of elem)]) [elem] true)))
 
 (defn concat-output-type
   [anchor-prov args]
   (let [arg-types (map :type args)
         elems (keep seqish-element-type arg-types)]
     (cond
-      (empty? args) (at/->SeqT anchor-prov [(at/Dyn anchor-prov)] true)
-      (= (count elems) (count args)) (at/->SeqT anchor-prov [(av/join anchor-prov elems)] true)
+      (empty? args) (at/->SeqT (prov/with-refs anchor-prov []) [(at/Dyn anchor-prov)] true)
+      (= (count elems) (count args))
+      (let [joined (av/join anchor-prov elems)]
+        (at/->SeqT (prov/with-refs anchor-prov [(prov/of joined)]) [joined] true))
       :else nil)))
 
 (defn into-output-type
@@ -189,8 +192,8 @@
                  :else nil)]
       (when elem
         (if (at/vector-type? to-type)
-          (at/->VectorT prov [elem] true)
-          (at/->SeqT prov [elem] true))))))
+          (at/->VectorT (prov/with-refs prov [(prov/of elem)]) [elem] true)
+          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [elem] true))))))
 
 (defn invoke-nth-output-type
   [args]
@@ -232,4 +235,4 @@
                     (at/Dyn prov))
                 body-type))
             (at/Dyn prov))]
-      (at/->SeqT prov [elem] true))))
+      (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [elem] true))))

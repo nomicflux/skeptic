@@ -2,7 +2,8 @@
   (:require [clojure.set :as set]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn- check-cast'
   ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
@@ -281,5 +282,6 @@
   (let [types (mapv as-type types)]
     (cond
       (empty? types) (at/Dyn anchor-prov)
-      (every? at/map-type? types) (at/->MapT anchor-prov (apply merge (map :entries types)))
+      (every? at/map-type? types) (at/->MapT (prov/with-refs anchor-prov (mapv prov/of types))
+                                             (apply merge (map :entries types)))
       :else (apply ato/dyn types))))

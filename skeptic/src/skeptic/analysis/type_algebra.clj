@@ -1,6 +1,7 @@
 (ns skeptic.analysis.type-algebra
   (:require [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn type-var-name
   [type]
@@ -106,33 +107,39 @@
       (at/->MaybeT prov (type-substitute (:inner type) binder replacement))
 
       (at/union-type? type)
-      (at/->UnionT prov (set (map #(type-substitute % binder replacement) (:members type))))
+      (let [members' (set (map #(type-substitute % binder replacement) (:members type)))]
+        (at/->UnionT (prov/with-refs prov (mapv prov/of members'))
+                     members'))
 
       (at/intersection-type? type)
       (at/->IntersectionT prov (set (map #(type-substitute % binder replacement) (:members type))))
 
       (at/map-type? type)
-      (at/->MapT prov
-                 (into {}
-                       (map (fn [[k v]]
-                              [(type-substitute k binder replacement)
-                               (type-substitute v binder replacement)]))
-                       (:entries type)))
+      (let [entries' (into {}
+                           (map (fn [[k v]]
+                                  [(type-substitute k binder replacement)
+                                   (type-substitute v binder replacement)]))
+                           (:entries type))
+            refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) entries')]
+        (at/->MapT (prov/with-refs prov refs) entries'))
 
       (at/vector-type? type)
-      (at/->VectorT prov
-                    (mapv #(type-substitute % binder replacement) (:items type))
-                    (:homogeneous? type))
+      (let [items' (mapv #(type-substitute % binder replacement) (:items type))]
+        (at/->VectorT (prov/with-refs prov (mapv prov/of items'))
+                      items'
+                      (:homogeneous? type)))
 
       (at/set-type? type)
-      (at/->SetT prov
-                 (set (map #(type-substitute % binder replacement) (:members type)))
-                 (:homogeneous? type))
+      (let [members' (set (map #(type-substitute % binder replacement) (:members type)))]
+        (at/->SetT (prov/with-refs prov (mapv prov/of members'))
+                   members'
+                   (:homogeneous? type)))
 
       (at/seq-type? type)
-      (at/->SeqT prov
-                 (mapv #(type-substitute % binder replacement) (:items type))
-                 (:homogeneous? type))
+      (let [items' (mapv #(type-substitute % binder replacement) (:items type))]
+        (at/->SeqT (prov/with-refs prov (mapv prov/of items'))
+                   items'
+                   (:homogeneous? type)))
 
       (at/var-type? type)
       (at/->VarT prov (type-substitute (:inner type) binder replacement))
