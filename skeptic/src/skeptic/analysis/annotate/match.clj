@@ -118,11 +118,12 @@
   [type kw]
   (cond
     (at/map-type? type)
-    (at/->MapT (ato/derive-prov type)
-               (into {}
+    (let [kept (into {}
                      (remove (fn [[entry-key _]]
                                (discriminator-entry? entry-key kw)))
-                     (:entries type)))
+                     (:entries type))
+          refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) kept)]
+      (at/->MapT (prov/with-refs (ato/derive-prov type) refs) kept))
 
     (at/union-type? type)
     (ato/union (map #(drop-discriminator-key % kw) (:members type)))
