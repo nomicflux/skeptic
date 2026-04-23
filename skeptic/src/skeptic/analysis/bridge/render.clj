@@ -7,8 +7,7 @@
   #{:schema :malli-spec :type-override})
 
 (def ^:private default-render-opts
-  {:explain-full false
-   :root? true})
+  {:explain-full false})
 
 (def ^:private leaf-type-preds
   [at/dyn-type? at/bottom-type? at/ground-type? at/numeric-dyn-type?
@@ -47,9 +46,7 @@
   [type opts]
   (let [opts (merge default-render-opts opts)
         type (ato/normalize-for-declared-type type)
-        child-opts (assoc opts :root? false)
         fold-hit (and (not (:explain-full opts))
-                      (not (:root? opts))
                       (folded-name type))]
     (if fold-hit
       fold-hit
@@ -60,34 +57,34 @@
         (at/numeric-dyn-type? type) 'Number
         (at/refinement-type? type) (:display-form type)
         (at/adapter-leaf-type? type) (:display-form type)
-        (at/optional-key-type? type) (list 'optional-key (render-type-form* (:inner type) child-opts))
+        (at/optional-key-type? type) (list 'optional-key (render-type-form* (:inner type) opts))
         (at/value-type? type) (let [v (:value type)] (if (nil? v) (symbol "nil") v))
         (at/type-var-type? type) (:name type)
-        (at/forall-type? type) (list 'forall (:binder type) (render-type-form* (:body type) child-opts))
-        (at/sealed-dyn-type? type) (list 'sealed (render-type-form* (:ground type) child-opts))
+        (at/forall-type? type) (list 'forall (:binder type) (render-type-form* (:body type) opts))
+        (at/sealed-dyn-type? type) (list 'sealed (render-type-form* (:ground type) opts))
         (at/inf-cycle-type? type)
         (if-let [ref (:ref type)]
           (list 'InfCycle (at/ref-display-form ref))
           'InfCycle)
-        (at/fn-method-type? type) (list* '=> (render-type-form* (:output type) child-opts) (render-fn-input-form* type child-opts))
+        (at/fn-method-type? type) (list* '=> (render-type-form* (:output type) opts) (render-fn-input-form* type opts))
         (at/fun-type? type)
         (if (= 1 (count (:methods type)))
-          (render-type-form* (first (:methods type)) child-opts)
-          (list* '=>* (map #(render-type-form* % child-opts) (:methods type))))
-        (at/maybe-type? type) (list 'maybe (render-type-form* (:inner type) child-opts))
-        (at/conditional-type? type) (list* 'conditional (conditional-branch-types type child-opts))
-        (at/union-type? type) (list* 'union (map #(render-type-form* % child-opts) (sort-by pr-str (:members type))))
-        (at/intersection-type? type) (list* 'intersection (map #(render-type-form* % child-opts) (sort-by pr-str (:members type))))
+          (render-type-form* (first (:methods type)) opts)
+          (list* '=>* (map #(render-type-form* % opts) (:methods type))))
+        (at/maybe-type? type) (list 'maybe (render-type-form* (:inner type) opts))
+        (at/conditional-type? type) (list* 'conditional (conditional-branch-types type opts))
+        (at/union-type? type) (list* 'union (map #(render-type-form* % opts) (sort-by pr-str (:members type))))
+        (at/intersection-type? type) (list* 'intersection (map #(render-type-form* % opts) (sort-by pr-str (:members type))))
         (at/map-type? type)
         (into {}
               (map (fn [[k v]]
-                     [(render-type-form* k child-opts)
-                      (render-type-form* v child-opts)]))
+                     [(render-type-form* k opts)
+                      (render-type-form* v opts)]))
               (:entries type))
-        (at/vector-type? type) (mapv #(render-type-form* % child-opts) (:items type))
-        (at/set-type? type) (into #{} (map #(render-type-form* % child-opts)) (:members type))
-        (at/seq-type? type) (doall (map #(render-type-form* % child-opts) (:items type)))
-        (at/var-type? type) (list 'var (render-type-form* (:inner type) child-opts))
+        (at/vector-type? type) (mapv #(render-type-form* % opts) (:items type))
+        (at/set-type? type) (into #{} (map #(render-type-form* % opts)) (:members type))
+        (at/seq-type? type) (doall (map #(render-type-form* % opts) (:items type)))
+        (at/var-type? type) (list 'var (render-type-form* (:inner type) opts))
         (at/placeholder-type? type) (at/placeholder-display-form (:ref type))
         :else type))))
 
@@ -126,10 +123,8 @@
   [type opts]
   (let [opts (merge default-render-opts opts)
         type (some-> type ato/normalize-for-declared-type)
-        child-opts (assoc opts :root? false)
         fold-hit (and type
                       (not (:explain-full opts))
-                      (not (:root? opts))
                       (folded-name type))]
     (cond
       (nil? type) nil
@@ -142,36 +137,36 @@
       (at/numeric-dyn-type? type) {:t "numeric-dyn" :name "Number"}
       (at/refinement-type? type) {:t "refinement" :name (name-str (:display-form type))}
       (at/adapter-leaf-type? type) {:t "adapter" :name (name-str (:display-form type))}
-      (at/optional-key-type? type) {:t "optional-key" :inner (type->json-data* (:inner type) child-opts)}
+      (at/optional-key-type? type) {:t "optional-key" :inner (type->json-data* (:inner type) opts)}
       (at/value-type? type) {:t "value" :value (pr-str (:value type))}
       (at/type-var-type? type) {:t "type-var" :name (name-str (:name type))}
       (at/forall-type? type) {:t "forall"
                               :binder (mapv name-str (:binder type))
-                              :body (type->json-data* (:body type) child-opts)}
-      (at/sealed-dyn-type? type) {:t "sealed" :ground (type->json-data* (:ground type) child-opts)}
+                              :body (type->json-data* (:body type) opts)}
+      (at/sealed-dyn-type? type) {:t "sealed" :ground (type->json-data* (:ground type) opts)}
       (at/inf-cycle-type? type) (cond-> {:t "inf-cycle"}
                                   (:ref type) (assoc :ref (pr-str (at/ref-display-form (:ref type)))))
-      (at/fn-method-type? type) (fn-method->json-data* type child-opts)
-      (at/fun-type? type) {:t "fun" :methods (mapv #(fn-method->json-data* % child-opts) (:methods type))}
-      (at/maybe-type? type) {:t "maybe" :inner (type->json-data* (:inner type) child-opts)}
+      (at/fn-method-type? type) (fn-method->json-data* type opts)
+      (at/fun-type? type) {:t "fun" :methods (mapv #(fn-method->json-data* % opts) (:methods type))}
+      (at/maybe-type? type) {:t "maybe" :inner (type->json-data* (:inner type) opts)}
       (at/conditional-type? type) {:t "conditional"
-                                   :branches (mapv (comp #(type->json-data* % child-opts) second) (:branches type))}
+                                   :branches (mapv (comp #(type->json-data* % opts) second) (:branches type))}
       (at/union-type? type) {:t "union"
-                             :members (mapv #(type->json-data* % child-opts)
+                             :members (mapv #(type->json-data* % opts)
                                             (sort-by pr-str (:members type)))}
       (at/intersection-type? type) {:t "intersection"
-                                    :members (mapv #(type->json-data* % child-opts)
+                                    :members (mapv #(type->json-data* % opts)
                                                    (sort-by pr-str (:members type)))}
       (at/map-type? type) {:t "map"
                            :entries (mapv (fn [[k v]]
-                                            {:key (type->json-data* k child-opts)
-                                             :val (type->json-data* v child-opts)})
+                                            {:key (type->json-data* k opts)
+                                             :val (type->json-data* v opts)})
                                           (:entries type))}
-      (at/vector-type? type) {:t "vector" :items (mapv #(type->json-data* % child-opts) (:items type))}
-      (at/set-type? type) {:t "set" :members (mapv #(type->json-data* % child-opts)
+      (at/vector-type? type) {:t "vector" :items (mapv #(type->json-data* % opts) (:items type))}
+      (at/set-type? type) {:t "set" :members (mapv #(type->json-data* % opts)
                                                    (sort-by pr-str (:members type)))}
-      (at/seq-type? type) {:t "seq" :items (mapv #(type->json-data* % child-opts) (:items type))}
-      (at/var-type? type) {:t "var" :inner (type->json-data* (:inner type) child-opts)}
+      (at/seq-type? type) {:t "seq" :items (mapv #(type->json-data* % opts) (:items type))}
+      (at/var-type? type) {:t "var" :inner (type->json-data* (:inner type) opts)}
       (at/placeholder-type? type) {:t "placeholder"
                                    :name (pr-str (at/placeholder-display-form (:ref type)))}
       :else {:t "unknown" :form (pr-str type)})))

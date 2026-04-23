@@ -122,9 +122,11 @@
 
 (defn- child-form-fn
   [source-form]
-  (if (vector? source-form)
-    #(nth source-form % nil)
-    (fn [_i] nil)))
+  (cond
+    (vector? source-form) #(nth source-form % nil)
+    (set? source-form) (let [v (vec source-form)] #(nth v % nil))
+    (seq? source-form) (let [v (vec source-form)] #(nth v % nil))
+    :else (fn [_i] nil)))
 
 (defn- collection-import-type
   [run {:keys [owner-ref prov] :as ctx} schemas source-form fixed-ctor union-ctor]

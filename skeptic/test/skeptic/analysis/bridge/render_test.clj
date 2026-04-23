@@ -139,12 +139,6 @@
     (is (= {:result 'demo/Thing}
            (sut/render-type-form* outer {})))))
 
-(deftest render-type-form*-does-not-fold-root
-  (let [schema-prov (p :schema 'demo/Thing)
-        inferred-prov (p :inferred 'demo/x)
-        t (at/->VectorT schema-prov [(at/->GroundT inferred-prov :int 'Int)] false)]
-    (is (= ['Int] (sut/render-type-form* t {})))))
-
 (deftest render-type-form*-explain-full-disables-folding
   (let [schema-prov (p :schema 'demo/Thing)
         inner (named-vector schema-prov)
