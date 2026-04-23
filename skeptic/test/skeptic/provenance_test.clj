@@ -17,9 +17,9 @@
 
 (deftest merge-provenances-picks-highest-rank
   (let [ps (sut/make-provenance :schema 'a/b 'a nil)
-        pm (sut/make-provenance :malli-spec 'a/b 'a nil)
+        pm (sut/make-provenance :malli 'a/b 'a nil)
         result (sut/merge-provenances ps pm)]
-    (is (= :malli-spec (sut/source result)))
+    (is (= :malli (sut/source result)))
     (is (sut/provenance? result))))
 
 (deftest merge-provenances-rank-order
@@ -30,19 +30,25 @@
 
 (deftest merge-provenances-reduce-three-way
   (let [pn (sut/make-provenance :native 'x/y 'x nil)
-        pm (sut/make-provenance :malli-spec 'x/y 'x nil)
+        pm (sut/make-provenance :malli 'x/y 'x nil)
         ps (sut/make-provenance :schema 'x/y 'x nil)
         result (reduce sut/merge-provenances [pn pm ps])]
     (is (sut/provenance? result))
-    (is (= :malli-spec (sut/source result)))))
+    (is (= :malli (sut/source result)))))
 
 (deftest merge-provenances-reduce-three-way-permuted
   (let [pn (sut/make-provenance :native 'x/y 'x nil)
-        pm (sut/make-provenance :malli-spec 'x/y 'x nil)
+        pm (sut/make-provenance :malli 'x/y 'x nil)
         ps (sut/make-provenance :schema 'x/y 'x nil)
         result (reduce sut/merge-provenances [ps pn pm])]
     (is (sut/provenance? result))
-    (is (= :malli-spec (sut/source result)))))
+    (is (= :malli (sut/source result)))))
+
+(deftest make-provenance-rejects-invalid-source
+  (is (thrown? IllegalArgumentException
+               (sut/make-provenance :not-a-source 'a/b 'a nil)))
+  (is (thrown? IllegalArgumentException
+               (sut/make-provenance :also-not-a-source 'a/b 'a nil))))
 
 (deftest of-reads-prov-field-from-semantic-type
   (let [p (sut/make-provenance :schema 'a/b 'a nil)

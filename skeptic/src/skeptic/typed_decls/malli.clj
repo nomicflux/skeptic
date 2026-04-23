@@ -10,7 +10,7 @@
 
 (defn- desc->provenance
   [_desc ns qualified-sym]
-  (prov/make-provenance :malli-spec qualified-sym ns nil))
+  (prov/make-provenance :malli qualified-sym ns nil))
 
 (defn- empty-result [] {:dict {} :provenance {} :ignore-body #{} :errors []})
 

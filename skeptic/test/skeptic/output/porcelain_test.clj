@@ -18,7 +18,7 @@
 
 (def ^:private example-input-summary
   {:report-kind :input
-   :location {:file "src/foo.clj" :line 42 :column 3 :source :malli-spec}
+   :location {:file "src/foo.clj" :line 42 :column 3 :source :malli}
    :blame-side :term
    :blame-polarity :positive
    :source-expression "(+ 1 :x)"
@@ -54,7 +54,7 @@
     (is (= "src/foo.clj" (get-in parsed [:location :file])))
     (is (= 42 (get-in parsed [:location :line])))
     (is (= 3 (get-in parsed [:location :column])))
-    (is (= "malli-spec" (get-in parsed [:location :source])))
+    (is (= "malli" (get-in parsed [:location :source])))
     (is (= "term" (:blame_side parsed)))
     (is (= "positive" (:blame_polarity parsed)))
     (is (= "ground-mismatch" (:rule parsed)))
@@ -68,7 +68,7 @@
       (is (not (re-find #"\u001b" line))))))
 
 (deftest finding-record-carries-source-for-every-source-kind
-  (doseq [src [:inferred :schema :malli-spec :native :type-override]]
+  (doseq [src [:inferred :schema :malli :native :type-override]]
     (let [summary (assoc example-input-summary
                          :location {:file "f.clj" :line 1 :column 2 :source src})
           [line] (capture-lines

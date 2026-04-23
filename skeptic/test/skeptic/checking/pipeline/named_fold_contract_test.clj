@@ -1,5 +1,6 @@
 (ns skeptic.checking.pipeline.named-fold-contract-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.bridge.render :as render]
             [skeptic.analysis.type-ops :as ato]
@@ -9,9 +10,21 @@
 
 (def fixture-file (File. "test/skeptic/test_examples/named_fold_contract_probe.clj"))
 (def fixture-ns 'skeptic.test-examples.named-fold-contract-probe)
+(def q #(symbol (str fixture-ns) (name %)))
+
+(def producer-names
+  ["compute-result" "compute-cache" "produce-inner-set" "add-with-cache-analogue"
+   "fn-with-call" "fn-with-composed" "fn-with-literal"])
+
+(defn- analysis-env
+  []
+  (let [exprs (pipeline/ns-exprs fixture-file)
+        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
+        analyzed (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)]
+    (assoc analyzed :dict dict)))
 
 (defn- actual-output-type
-  [analyzed fixture-ns target-sym]
+  [{:keys [analyzed]} target-sym]
   (let [target-form (some (fn [a]
                             (let [n (some-> a aapi/unwrap-with-meta)
                                   [sym _] (aapi/analyzed-def-entry fixture-ns n)]
@@ -21,57 +34,71 @@
         method (first (aapi/function-methods init-node))]
     (-> method aapi/method-result-type :output-type ato/normalize)))
 
+(defn- rendered-actual
+  [env sym]
+  (render/render-type-form (actual-output-type env sym)))
+
+(defn- resolved-def-render
+  [env sym]
+  (render/render-type-form (get-in env [:resolved-defs sym :type])))
+
+(defn- public-output-result
+  [target-sym]
+  (some #(when (= target-sym (:enclosing-form %)) %)
+        (:results (pipeline/check-ns fixture-ns fixture-file {}))))
+
+(defn- assert-no-producer-name
+  [rendered]
+  (doseq [producer producer-names]
+    (is (not (str/includes? (pr-str rendered) producer))
+        (str producer " must not appear in rendered actual type"))))
+
 (deftest case-a-add-with-cache-analogue-folds-threal-and-threalcache
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
-        {:keys [analyzed]} (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)
-        actual (actual-output-type analyzed fixture-ns 'skeptic.test-examples.named-fold-contract-probe/add-with-cache-analogue)
-        rendered (render/render-type-form actual)]
+  (let [rendered (rendered-actual (analysis-env) (q 'add-with-cache-analogue))]
     (is (= {:result 'skeptic.test-examples.named-fold-contract-probe/Threal
             :cache  'skeptic.test-examples.named-fold-contract-probe/ThrealCache}
            rendered))))
 
 (deftest case-b-fn-with-call-folds-recursive-named-at-set
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
-        {:keys [analyzed]} (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)
-        actual (actual-output-type analyzed fixture-ns 'skeptic.test-examples.named-fold-contract-probe/fn-with-call)
-        rendered (render/render-type-form actual)]
+  (let [rendered (rendered-actual (analysis-env) (q 'fn-with-call))]
     (is (= {:result #{'skeptic.test-examples.named-fold-contract-probe/RecursiveNamed}}
            rendered))))
 
 (deftest case-c-fn-with-composed-folds-recursive-named-inside-vector
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
-        {:keys [analyzed]} (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)
-        actual (actual-output-type analyzed fixture-ns 'skeptic.test-examples.named-fold-contract-probe/fn-with-composed)
-        rendered (render/render-type-form actual)]
+  (let [rendered (rendered-actual (analysis-env) (q 'fn-with-composed))]
     (is (= {:result ['#{skeptic.test-examples.named-fold-contract-probe/RecursiveNamed}]}
            rendered))))
 
 (deftest case-d-fn-with-literal-renders-int-no-fold
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
-        {:keys [analyzed]} (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)
-        actual (actual-output-type analyzed fixture-ns 'skeptic.test-examples.named-fold-contract-probe/fn-with-literal)
-        rendered (render/render-type-form actual)]
+  (let [rendered (rendered-actual (analysis-env) (q 'fn-with-literal))]
     (is (= {:result [#{'Int}]}
            rendered))))
 
-(deftest no-function-names-leak-across-all-cases
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
-        {:keys [analyzed]} (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)
-        target-syms ['skeptic.test-examples.named-fold-contract-probe/add-with-cache-analogue
-                     'skeptic.test-examples.named-fold-contract-probe/fn-with-call
-                     'skeptic.test-examples.named-fold-contract-probe/fn-with-composed
-                     'skeptic.test-examples.named-fold-contract-probe/fn-with-literal]]
-    (doseq [sym target-syms]
-      (let [rendered-str (pr-str (render/render-type-form (actual-output-type analyzed fixture-ns sym)))]
-        (is (not (.contains rendered-str "compute-result")))
-        (is (not (.contains rendered-str "compute-cache")))
-        (is (not (.contains rendered-str "produce-inner-set")))
-        (is (not (.contains rendered-str "fn-with-call")))
-        (is (not (.contains rendered-str "fn-with-composed")))
-        (is (not (.contains rendered-str "fn-with-literal")))
-        (is (not (.contains rendered-str "add-with-cache-analogue")))))))
+(deftest case-e-identity-preserving-flow-keeps-name
+  (let [rendered (resolved-def-render (analysis-env) (q 'inferred-cache))]
+    (is (= 'skeptic.test-examples.named-fold-contract-probe/FlowCache rendered))))
+
+(deftest case-f-inferred-wrapper-keeps-named-child
+  (let [rendered (resolved-def-render (analysis-env) (q 'inferred-cache-vector))]
+    (is (= ['skeptic.test-examples.named-fold-contract-probe/FlowCache] rendered))))
+
+(deftest case-g-same-structure-different-names-render-distinctly
+  (let [env (analysis-env)]
+    (is (= 'skeptic.test-examples.named-fold-contract-probe/Map1
+           (render/render-type-form (get-in env [:dict (q 'map1-value)]))))
+    (is (= 'skeptic.test-examples.named-fold-contract-probe/Map2
+           (render/render-type-form (get-in env [:dict (q 'map2-value)]))))))
+
+(deftest no-producer-names-leak-across-contract-cases
+  (let [env (analysis-env)]
+    (doseq [sym [(q 'add-with-cache-analogue) (q 'fn-with-call)
+                 (q 'fn-with-composed) (q 'fn-with-literal)]]
+      (assert-no-producer-name (rendered-actual env sym)))))
+
+(deftest public-output-result-folds-add-with-cache-call-output
+  (let [result (public-output-result (q 'visible-add-with-cache-mismatch))
+        rendered (render/render-type-form (:actual-type result))]
+    (is (= {:result 'skeptic.test-examples.named-fold-contract-probe/Threal
+            :cache  'skeptic.test-examples.named-fold-contract-probe/ThrealCache}
+           rendered))
+    (assert-no-producer-name rendered)))

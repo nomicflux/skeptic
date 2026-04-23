@@ -123,14 +123,19 @@
            (sut/type->json-data (at/->VarT tp (at/->GroundT tp :int 'Int)))))))
 
 (deftest folded-name-returns-qualified-sym-for-foldable-source
-  (let [schema-prov (p :schema 'demo/Thing)
-        t (named-vector schema-prov)]
-    (is (= 'demo/Thing (#'sut/folded-name t)))))
+  (doseq [source [:schema :malli :type-override]]
+    (let [t (named-vector (p source 'demo/Thing))]
+      (is (= 'demo/Thing (#'sut/folded-name t))))))
 
 (deftest folded-name-nil-for-non-foldable-source
-  (let [inferred-prov (p :inferred 'demo/x)
-        t (named-vector inferred-prov)]
-    (is (nil? (#'sut/folded-name t)))))
+  (doseq [source [:inferred :native]]
+    (let [t (named-vector (p source 'demo/x))]
+      (is (nil? (#'sut/folded-name t))))))
+
+(deftest render-type-form*-folds-root-foldable-type
+  (let [schema-prov (p :schema 'demo/Thing)
+        type (named-vector schema-prov)]
+    (is (= 'demo/Thing (sut/render-type-form* type {})))))
 
 (deftest render-type-form*-folds-non-root-foldable-subtree
   (let [schema-prov (p :schema 'demo/Thing)

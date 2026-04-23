@@ -2,11 +2,29 @@
 
 (defrecord Provenance [source qualified-sym declared-in var-meta refs])
 
+(def ^:private source-rank-map
+  {:type-override 0
+   :malli 1
+   :schema 2
+   :native 3
+   :inferred 4})
+
+(defn- valid-source?
+  [source]
+  (contains? source-rank-map source))
+
+(defn- assert-source
+  [source]
+  (when-not (valid-source? source)
+    (throw (IllegalArgumentException.
+            (format "Invalid provenance source: %s" (pr-str source)))))
+  source)
+
 (defn make-provenance
   ([source qualified-sym declared-in var-meta]
    (make-provenance source qualified-sym declared-in var-meta []))
   ([source qualified-sym declared-in var-meta refs]
-   (->Provenance source qualified-sym declared-in var-meta (vec refs))))
+   (->Provenance (assert-source source) qualified-sym declared-in var-meta (vec refs))))
 
 (defn with-refs
   "Return prov with :refs replaced by the given constituent provs."
@@ -44,14 +62,6 @@
   (or (:prov t)
       (throw (IllegalArgumentException.
               "prov/of called on value without provenance"))))
-
-(def ^:private source-rank-map
-  {:type-override 0
-   :malli-spec 1
-   :schema 2
-   :fn-annotation 3
-   :native 4
-   :inferred 5})
 
 (defn- source-rank
   [p]

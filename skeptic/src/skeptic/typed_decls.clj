@@ -11,9 +11,8 @@
    (ab/schema->type prov schema form-descriptor)))
 
 (defn- desc->provenance
-  [{:keys [arglists]} ns qualified-sym]
-  (let [source (if (seq arglists) :fn-annotation :schema)]
-    (prov/make-provenance source qualified-sym ns nil)))
+  [_desc ns qualified-sym]
+  (prov/make-provenance :schema qualified-sym ns nil))
 
 (defn- effective-prov
   [declared-var desc-prov]

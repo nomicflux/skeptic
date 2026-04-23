@@ -4,7 +4,7 @@
             [skeptic.provenance :as prov]))
 
 (def foldable-sources
-  #{:schema :malli-spec :type-override})
+  #{:schema :malli :type-override})
 
 (def ^:private default-render-opts
   {:explain-full false})

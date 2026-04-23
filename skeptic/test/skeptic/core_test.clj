@@ -83,7 +83,7 @@
     (is (some #{["Analyzed expression: \t" "(takes-str x)"]} fields))))
 
 (deftest report-fields-render-source-suffix-for-every-source-kind
-  (doseq [src [:inferred :schema :malli-spec :native :type-override]]
+  (doseq [src [:inferred :schema :malli :native :type-override]]
     (let [summary (assoc report-summary
                          :location {:file "f.clj" :line 1 :column 2 :source src})
           fields (text/report-fields summary)

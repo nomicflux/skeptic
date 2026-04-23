@@ -99,19 +99,19 @@
            (T #'DirectRecursiveSchemaRef)))
     (is (at/vector-type? joined-vector))
     (is (:homogeneous? joined-vector))
-    (is (= expected-join (first (:items joined-vector))))
+    (is (at/type=? expected-join (first (:items joined-vector))))
     (is (at/seq-type? joined-seq))
     (is (:homogeneous? joined-seq))
-    (is (= (ato/union-type tp [(T s/Int)
-                               (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
-                               (T s/Str)])
-           (first (:items joined-seq))))
+    (is (at/type=? (ato/union-type tp [(T s/Int)
+                                        (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
+                                        (T s/Str)])
+                   (first (:items joined-seq))))
     (is (at/set-type? joined-set))
     (is (:homogeneous? joined-set))
-    (is (= #{(ato/union-type tp [(T s/Int)
-                                 (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSetRef)
-                                 (T s/Str)])}
-           (:members joined-set)))))
+    (is (at/type=? (ato/union-type tp [(T s/Int)
+                                        (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSetRef)
+                                        (T s/Str)])
+                   (first (:members joined-set))))))
 
 (deftest broad-numeric-schemas-import-to-numeric-dyn-test
   (is (at/type=? (at/NumericDyn tp) (T s/Num)))
@@ -218,11 +218,16 @@
     (is (not= alias-qsym (:qualified-sym (prov/of result))))))
 
 (deftest build-var-provs-excludes-non-schema-vars-test
-  (let [acc (IdentityHashMap.)]
+  (let [test-ns (create-ns 'skeptic.analysis.bridge-test.var-provs)
+        schema-var (intern test-ns 'SchemaVar {:a s/Int})
+        non-schema-var (intern test-ns 'NonSchemaVar 42)
+        acc (IdentityHashMap.)]
+    (alter-meta! schema-var assoc :schema true)
     (#'collect/build-var-provs! acc)
     (doseq [[v _] acc]
       (is (:schema (meta v))))
-    (is (pos? (.size acc)))))
+    (is (contains? (set (keys acc)) schema-var))
+    (is (not (contains? (set (keys acc)) non-schema-var)))))
 
 (defn- entry-val-by-key
   [map-type k]
@@ -248,8 +253,11 @@
 
 (deftest form-prov-non-symbol-form-no-override-test
   (let [result (ab/schema->type tp (s/maybe s/Int)
-                                '(s/maybe skeptic.test-examples.form-refs/MapBody))]
-    (is (= tp (prov/of result)))))
+                                '(s/maybe skeptic.test-examples.form-refs/MapBody))
+        p (prov/of result)]
+    (is (= :inferred (prov/source p)))
+    (is (nil? (:qualified-sym p)))
+    (is (= [tp] (:refs p)))))
 
 (deftest form-prov-non-schema-var-falls-through-test
   (let [result (ab/schema->type tp s/Int 'clojure.core/+)]

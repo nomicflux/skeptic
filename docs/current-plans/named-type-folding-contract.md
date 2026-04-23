@@ -13,6 +13,9 @@ on both the admission side (declared schemas) and the analyze side
 Every Type has a fully-formed prov. No exceptions for any reason. A prov contains both where the type comes from
 (schema, malli, native, inferred) and what it comes from.
 
+Provs are ONLY schema, malli, native, inferred, or type-override. There is no other. The ENTIRE POINT of a prov is to say WHERE THE
+TYPE CAME FROM, and these are the only sources.
+
 If a behavioural example below does not produce its stated result, the
 phase is incomplete regardless of what other tests pass.
 
@@ -88,3 +91,43 @@ Required actual-side render: `{:result [#{RecursiveNamed}]}`.
 ```
 
 Required actual-side render: `{:result [#{Int}]}`.
+
+### Inferred-flow cases (names come through provs on inferred Types)
+
+**Case E — identity-preserving flow through an unannotated fn:**
+
+```clojure
+(s/def x :- ThrealCache)
+
+(defn f
+  [x]
+  x)
+
+(def y (f x))
+```
+
+`y` is an inferred `ThrealCache`. The rendered Type of `y` is
+`ThrealCache`.
+
+**Case F — inferred composite wrapping a named inferred child:**
+
+```clojure
+(def z [(f x)])
+```
+
+`z` is an inferred `[ThrealCache]`. The rendered Type of `z` is
+`[ThrealCache]`.
+
+### Distinctness cases (names are not structures)
+
+**Case G — same structure, different names, must render distinctly:**
+
+```clojure
+(s/defschema Map1 {:a s/Int})
+(s/defschema Map2 {:a s/Int})
+```
+
+`Map1` and `Map2` are completely separate. Anywhere a Type's prov points
+at `Map1`, it renders as `Map1`; anywhere it points at `Map2`, it renders
+as `Map2`. Structural equality between the two never collapses them to a
+single name.
