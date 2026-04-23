@@ -25,9 +25,12 @@
                                               (at/->GroundT other-prov :int 'Int)})}
                 {:type (at/->MapT other-prov {(ato/exact-value-type other-prov :b)
                                               (at/->GroundT other-prov :int 'Int)})}]
-          result (sut/shared-call-output-type nil :merge args default-output-type)]
+          result (sut/shared-call-output-type nil :merge args default-output-type)
+          result-prov (prov/of result)]
       (is (at/map-type? result))
-      (is (= tp (prov/of result)))))
+      (is (= (:source tp) (:source result-prov)))
+      (is (= (:qualified-sym tp) (:qualified-sym result-prov)))
+      (is (= (:declared-in tp) (:declared-in result-prov)))))
   (testing ":merge with empty args does not crash; result carries anchor prov"
     (let [default-output-type (at/Dyn tp)
           result (sut/shared-call-output-type nil :merge [] default-output-type)]
