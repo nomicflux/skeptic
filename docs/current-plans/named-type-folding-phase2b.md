@@ -247,9 +247,10 @@ cd /Users/demouser/Code/skeptic/lein-skeptic && clj-kondo --lint src
 |-------|-------|--------|----------------------|
 | 2b.0 | Form extractors (annotation-form, body-form) | 1 | Phase 2b.0 unit tests assert extracted forms |
 | 2b.1 | Form-refs map + pipeline binding | 1 | Phase 2b.1 unit tests assert map population |
-| 2b.2 | Admission entry-point form-prov override + composite propagation | 1 | Phase 2b.2 admission tests assert nested-position prov; end-to-end smoke on add-with-cache |
+| 2b.2 | Admission entry-point form-prov override + composite propagation | 1 | Phase 2b.2 admission tests assert nested-position prov |
+| 2b.3 | NamedSchema preserves form-prov + end-to-end smoke | 1 | End-to-end smoke on add-with-cache renders fully-qualified outer fold |
 
-Three phases, one agent each (file count fits the PSP rule per phase).
+Four phases. 2b.3 closes the gap discovered when smoking 2b.2 against clj-threals.
 
 ---
 
@@ -561,9 +562,123 @@ Agents: 2
 ### Completion gate (Phase 2b.2)
 1. lein test → 100% pass in skeptic and lein-skeptic.
 2. clj-kondo → 0/0 in both subprojects.
-3. End-to-end smoke on clj-threals operations: declared-return rendering
-   matches the user's stated goal.
-4. Update status doc with end-to-end output capture.
+3. Update status doc with end-to-end output capture.
+4. Commit: `Phase 2b.2 (admission form-prov override) complete`.
+5. STOP for user approval before Phase 2b.3.
+
+NOTE: Phase 2b.2's smoke on clj-threals will show partial folding only —
+recursive Threal references fold (Phase 2 mechanism), but the OUTER slot
+values do NOT fold. Reason: form-prov correctly stamps the qualified prov,
+but `named-import-type` immediately rebuilds prov from the NamedSchema
+wrapper's `:name` field (the local unqualified `'Threal`), throwing away
+form-prov's qualified-sym for every `s/defschema`-declared schema. The
+renderer either rejects the unqualified sym for folding, or folds to a
+name the user can't navigate back to. Phase 2b.3 closes this gap.
+
+---
+
+## Phase 2b.3 — NamedSchema preserves form-prov
+
+**Goal**: When form-prov fired and the schema is a NamedSchema wrapper,
+preserve the form-prov-derived qualified prov instead of letting
+`named-import-type` rebuild a worse local-name prov. End-to-end smoke on
+clj-threals's `add-with-cache` renders
+`{:result clj-threals.threals/Threal :cache clj-threals.operations/ThrealCache}`
+in place of the partial-fold output Phase 2b.2 produced.
+
+### Mechanism
+
+Add ONE cond branch in `import-schema-type*`, ordered BEFORE the existing
+`(sb/named? schema)` branch:
+
+```clojure
+(cond
+  (and hit-prov (sb/named? schema))
+  (run (assoc ctx :schema (sb/de-named schema)))
+
+  (sb/named? schema)
+  (named-import-type run ctx schema)
+  ...)
+```
+
+`hit-prov` is already in scope (computed at the top of `import-schema-type*`
+in Phase 2b.2). When form-prov fired, ctx :prov already holds the qualified
+form-prov-derived prov. Skipping `named-import-type` lets that prov flow
+into the de-named body's composite Type unchanged. The body's Type
+(VectorT/MapT/SetT) carries the qualified prov; renderer folds at non-root
+to the user-navigable qualified-sym.
+
+When form-prov did NOT fire (`hit-prov` is nil), `named-import-type` runs
+as before — preserving its existing behavior for inline `(s/named X 'Foo)`
+without nested-source-form context.
+
+### Behaviour contract additions
+
+For a `s/defn` whose annotation references `s/defschema`-declared values
+via bare-symbol references at nested positions:
+
+```
+(s/defn add-with-cache :- {:result threals/Threal :cache ThrealCache} [...])
+  → :result value Type carries prov(qualified-sym='clj-threals.threals/Threal)
+  → :cache  value Type carries prov(qualified-sym='clj-threals.operations/ThrealCache)
+```
+
+Renderer at non-root folds these to the qualified-syms.
+
+### Files
+- Updated: `skeptic/src/skeptic/analysis/bridge.clj` (one new cond branch)
+- Updated: `skeptic/test/skeptic/analysis/bridge_test.clj` (test that
+  form-prov fired + NamedSchema preserves the qualified-sym, not the
+  NamedSchema's local `:name`)
+
+### Agents: 1
+```
+Agents: 1
+  Agent 1 (kiss-code-generator): files
+    [skeptic/src/skeptic/analysis/bridge.clj,
+     skeptic/test/skeptic/analysis/bridge_test.clj]
+    — One cond branch + one test. Surgical.
+```
+
+### SUBAGENT PRE-FLIGHT — Phase 2b.3 Agent 1
+
+- **Goal**: Add the new cond branch to `import-schema-type*` that preserves
+  form-prov-derived prov for NamedSchema-wrapped schemas. Add a behavior
+  test asserting the OUTER value Type at a map slot carries the
+  qualified-sym (not the NamedSchema's local unqualified `:name`).
+- **Broader context**: Phase 2b.3 of 4 (final). Closes the gap from 2b.2.
+  After this phase, end-to-end smoke on clj-threals `add-with-cache` shows
+  `{:result clj-threals.threals/Threal :cache clj-threals.operations/ThrealCache}`.
+- **Constraints**:
+  - DO NOT modify `named-import-type` itself.
+  - The new cond branch goes BEFORE the existing `(sb/named? schema)`
+    branch in `import-schema-type*`.
+  - `hit-prov` is already a local in `import-schema-type*` from Phase 2b.2.
+- **Deliverables**:
+  1. `bridge.clj`: insert one cond branch:
+     ```
+     (and hit-prov (sb/named? schema))
+     (run (assoc ctx :schema (sb/de-named schema)))
+     ```
+     before the existing `(sb/named? schema)` branch.
+  2. `bridge_test.clj`: add `form-prov-preserves-qualified-sym-through-named-test`
+     using a `s/defschema`-declared value at a map slot value position.
+     Assert that the value-Type's prov has `:qualified-sym` equal to the
+     fully-qualified Var sym (e.g. `'skeptic.test-examples.form-refs/MapBody`)
+     — NOT the NamedSchema wrapper's local name.
+- **Verification**:
+  - lein test → 100% pass.
+  - clj-kondo → 0/0.
+  - Manual smoke: `cd /Users/demouser/Code/clj-threals && lein skeptic -n
+    clj-threals.operations` — `add-with-cache` declared return shows
+    `{:result clj-threals.threals/Threal :cache clj-threals.operations/ThrealCache}`.
+
+### Completion gate (Phase 2b.3)
+1. lein test → 100% pass in skeptic and lein-skeptic.
+2. clj-kondo → 0/0 in both subprojects.
+3. End-to-end smoke on clj-threals: declared-return rendering matches the
+   user's stated end-goal verbatim.
+4. Update status doc with smoke output capture.
 5. Commit: `Phase 2b (nested-annotation form capture) complete`.
 6. STOP — Phase 2b complete. Resume original Phase 3 (porcelain) next.
 

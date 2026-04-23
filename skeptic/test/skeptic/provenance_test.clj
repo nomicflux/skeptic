@@ -57,3 +57,30 @@
         pi (sut/make-provenance :inferred 'a/b 'a nil)]
     (is (= :schema (sut/source (sut/merge-provenances ps pi))))
     (is (= :schema (sut/source (sut/merge-provenances pi ps))))))
+
+(deftest make-provenance-defaults-empty-refs
+  (let [p (sut/make-provenance :schema 'a/b 'a nil)]
+    (is (= [] (:refs p)))))
+
+(deftest make-provenance-five-arity-stores-refs
+  (let [c1 (sut/make-provenance :schema 'x/y 'x nil)
+        c2 (sut/make-provenance :native 'z/w 'z nil)
+        p (sut/make-provenance :inferred nil 'a nil [c1 c2])]
+    (is (= [c1 c2] (:refs p)))))
+
+(deftest with-refs-replaces-refs
+  (let [p (sut/make-provenance :schema 'a/b 'a nil)
+        c1 (sut/make-provenance :native 'x/y 'x nil)
+        c2 (sut/make-provenance :schema 'z/w 'z nil)
+        result (sut/with-refs p [c1 c2])]
+    (is (= [c1 c2] (:refs result)))))
+
+(deftest provs-equal-only-if-refs-match
+  (let [c1 (sut/make-provenance :schema 'x/y 'x nil)
+        p1 (sut/make-provenance :schema 'a/b 'a nil [])
+        p2 (sut/make-provenance :schema 'a/b 'a nil [c1])]
+    (is (not= p1 p2))))
+
+(deftest inferred-sets-empty-refs
+  (let [p (sut/inferred {:name 'x :ns 'y})]
+    (is (= [] (:refs p)))))

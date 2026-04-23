@@ -11,7 +11,9 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]
-            [skeptic.test-helpers :refer [T tp]])
+            [skeptic.test-examples.form-refs]
+            [skeptic.test-helpers :refer [T tp]]
+            [skeptic.typed-decls :as td])
   (:import [java.util IdentityHashMap]))
 
 (declare UnboundSchemaRef
@@ -21,6 +23,8 @@
          RecursiveSetRef)
 
 (def BoundSchemaRef s/Int)
+(def NonSchemaLong 42)
+(def AliasedSchema s/Int)
 (def RecursiveSchemaRef [#'RecursiveSchemaRef])
 (def DirectRecursiveSchemaRef #'DirectRecursiveSchemaRef)
 (def JoinedRecursiveSchemaRef [s/Int #'JoinedRecursiveSchemaRef s/Str])
@@ -219,3 +223,63 @@
     (doseq [[v _] acc]
       (is (:schema (meta v))))
     (is (pos? (.size acc)))))
+
+(defn- entry-val-by-key
+  [map-type k]
+  (some (fn [[kt vt]] (when (= (:value kt) k) vt)) (:entries map-type)))
+
+(deftest form-prov-map-slot-value-position-test
+  (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        result (ab/schema->type tp {:result [s/Int]}
+                                '{:result skeptic.test-examples.form-refs/MapBody})
+        val-type (entry-val-by-key result :result)]
+    (is (some? val-type))
+    (is (= :schema (prov/source (prov/of val-type))))
+    (is (= map-body-qsym (:qualified-sym (prov/of val-type))))))
+
+(deftest form-prov-vector-index-position-test
+  (let [vec-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/VecBody)
+        result (ab/schema->type tp [s/Int]
+                                '[skeptic.test-examples.form-refs/VecBody])
+        child-type (first (:items result))]
+    (is (some? child-type))
+    (is (= :schema (prov/source (prov/of child-type))))
+    (is (= vec-body-qsym (:qualified-sym (prov/of child-type))))))
+
+(deftest form-prov-non-symbol-form-no-override-test
+  (let [result (ab/schema->type tp (s/maybe s/Int)
+                                '(s/maybe skeptic.test-examples.form-refs/MapBody))]
+    (is (= tp (prov/of result)))))
+
+(deftest form-prov-non-schema-var-falls-through-test
+  (let [result (ab/schema->type tp s/Int 'clojure.core/+)]
+    (is (= tp (prov/of result)))))
+
+(deftest form-prov-skips-literal-value-var-test
+  (let [result (ab/schema->type tp s/Int 'skeptic.analysis.bridge-test/NonSchemaLong)]
+    (is (= tp (prov/of result)))))
+
+(deftest form-prov-folds-plain-def-schema-alias-test
+  (let [alias-qsym (sb/qualified-var-symbol #'AliasedSchema)
+        result (ab/schema->type tp s/Int 'skeptic.analysis.bridge-test/AliasedSchema)]
+    (is (= :schema (prov/source (prov/of result))))
+    (is (= alias-qsym (:qualified-sym (prov/of result))))))
+
+(deftest form-prov-nil-source-form-unchanged-test
+  (let [result (ab/schema->type tp s/Int)]
+    (is (= tp (prov/of result)))))
+
+(deftest form-prov-convert-desc-end-to-end-test
+  (let [declared-var #'skeptic.test-examples.form-refs/fn-with-map-ann
+        map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        form-refs (doto (IdentityHashMap.) (.put declared-var '{:result skeptic.test-examples.form-refs/MapBody}))
+        desc {:schema {:result [s/Int]} :arglists nil}
+        result (binding [ab/*form-refs* form-refs]
+                 (td/convert-desc 'skeptic.test-examples.form-refs
+                                  'skeptic.test-examples.form-refs/fn-with-map-ann
+                                  desc))
+        result-type (get (:dict result) 'skeptic.test-examples.form-refs/fn-with-map-ann)
+        val-type (entry-val-by-key result-type :result)]
+    (is (some? val-type))
+    (is (= :schema (prov/source (prov/of val-type))))
+    (is (= map-body-qsym (:qualified-sym (prov/of val-type))))))

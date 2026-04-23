@@ -256,3 +256,29 @@ Phase 2b.1 — form-refs map and pipeline binding. Phase 2b.2 — admission cons
 
 ### Pending
 Phase 2b.2 — admission entry-point form-prov override + composite source-form propagation + end-to-end test.
+
+## Phase 2b.4.1 — Provenance `:refs` field — COMPLETE (uncommitted)
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/provenance.clj`**
+- `Provenance` defrecord gains 5th field `refs` (default `[]`).
+- `make-provenance` now has dual arity: 4-arity defaults `:refs []`; 5-arity takes explicit `refs`. All existing call sites continue to work via the 4-arity default.
+- `with-refs [prov refs] -> Provenance`: new helper that returns prov with `:refs` replaced by `(vec refs)`. Used by Phase 2b.4.2+ at composite construction sites.
+- `inferred` updated to pass `[]` explicitly to make-provenance.
+- `with-ctx`, `set-ctx`, `provenance?`, `source`, `of`, `source-rank-map`, `source-rank`, `merge-provenances` unchanged.
+
+**`skeptic/test/skeptic/provenance_test.clj`**
+- `make-provenance-defaults-empty-refs`: 4-arity → `(:refs p)` is `[]`.
+- `make-provenance-five-arity-stores-refs`: 5-arity stores constituent provs.
+- `with-refs-replaces-refs`: `with-refs` correctly replaces refs.
+- `provs-equal-only-if-refs-match`: equality accounts for `:refs` (defrecord field-wise equality).
+- `inferred-sets-empty-refs`: `inferred` produces `:refs []`.
+
+### Verification
+- 14/14 provenance tests pass (9 existing + 5 new).
+- `clj-kondo --lint src test`: 0 errors, 0 warnings.
+- Pre-existing 3 failures in `named-fold-diagnostic-test` (composed-body / actual-side fold gap) are EXPECTED — that test exposes the gap Phase 2b.4 fixes; assertions are explicitly removed in Phase 2b.4.4 per plan.
+
+### Pending
+Phase 2b.4.2 — populate `:refs` at literal-construction sites (data.clj, value.clj, match.clj).

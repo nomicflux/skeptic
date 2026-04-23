@@ -53,7 +53,7 @@
   (throw (IllegalArgumentException.
           (format "Expected schema value: %s" (pr-str value)))))
 
-(declare admit-schema)
+(declare admit-schema schema-domain?)
 
 (defn- import-result
   ([type]
@@ -118,9 +118,17 @@
   (import-result (build (:type child-result))
                  (:closed-refs child-result)))
 
+(defn- child-form-fn
+  [source-form]
+  (if (vector? source-form)
+    #(nth source-form % nil)
+    (fn [_i] nil)))
+
 (defn- collection-import-type
-  [run {:keys [owner-ref prov] :as ctx} schemas fixed-build homogeneous-build]
-  (let [child-results (mapv #(run (assoc ctx :schema %)) schemas)
+  [run {:keys [owner-ref prov] :as ctx} schemas source-form fixed-build homogeneous-build]
+  (let [child-results (mapv (fn [i s]
+                              (run (assoc ctx :schema s :source-form ((child-form-fn source-form) i))))
+                            (range) schemas)
         child-types (mapv :type child-results)
         closed-refs (merge-closed-refs child-results)
         type (if (and owner-ref (contains? closed-refs owner-ref))
@@ -129,24 +137,24 @@
     (import-result type closed-refs)))
 
 (defn- map-import-type
-  [run {:keys [prov] :as ctx} schema]
-  (let [entry-results (mapv (fn [[k v]]
-                              (let [key-result (run (assoc ctx :schema k))
-                                    value-result (run (assoc ctx :schema v))]
+  [run {:keys [prov] :as ctx} schema source-form]
+  (let [parent-form (when (map? source-form) source-form)
+        entry-results (mapv (fn [[k v]]
+                              (let [k-form (when parent-form (some #(when (= % k) %) (keys parent-form)))
+                                    v-form (when parent-form (get parent-form k))
+                                    key-result (run (assoc ctx :schema k :source-form k-form))
+                                    value-result (run (assoc ctx :schema v :source-form v-form))]
                                 {:entry [(:type key-result) (:type value-result)]
                                  :closed-refs (merge-closed-refs [key-result value-result])}))
                             schema)]
     (import-result
-     (at/->MapT prov
-                (into {}
-                      (map :entry)
-                      entry-results))
+     (at/->MapT prov (into {} (map :entry) entry-results))
      (merge-closed-refs entry-results))))
 
 (defn- function-import-type
-  [run {:keys [prov] :as ctx} schema]
+  [run {:keys [prov] :as ctx} schema source-form]
   (let [{:keys [input-schemas output-schema]} (into {} schema)
-        output-result (run (assoc ctx :schema output-schema))
+        output-result (run (assoc ctx :schema output-schema :source-form source-form))
         method-results (mapv (fn [inputs]
                                (let [input-results (mapv #(run (assoc ctx :schema (fn-input-schema %)))
                                                          inputs)
@@ -209,9 +217,25 @@
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
 
+(defn- form-prov
+  [form]
+  (when (symbol? form)
+    (when-let [v (try (resolve form) (catch Exception _ nil))]
+      (let [m (meta v)]
+        (when (and (not (:macro m)) (bound? v))
+          (let [val @v]
+            (when (and (not (fn? val)) (not (sb/schema-literal? val)) (schema-domain? val))
+              (prov/make-provenance :schema
+                                    (sb/qualified-var-symbol v)
+                                    (some-> v .ns ns-name)
+                                    m))))))))
+
 (defn- import-schema-type*
-  [run {:keys [schema prov] :as ctx}]
-  (let [schema (one-step-schema-node schema)
+  [run {:keys [schema prov source-form] :as ctx}]
+  (let [hit-prov (form-prov source-form)
+        prov (or hit-prov prov)
+        ctx (assoc ctx :prov prov :source-form nil)
+        schema (one-step-schema-node schema)
         scalar-schema (sb/canonical-scalar-schema schema)]
     (cond
       (sb/named? schema)
@@ -256,7 +280,7 @@
       (import-result (primitive-ground-type prov scalar-schema))
 
       (sb/fn-schema? schema)
-      (function-import-type run ctx schema)
+      (function-import-type run ctx schema source-form)
 
       (sb/maybe? schema)
       (unary-child-result (partial at/->MaybeT prov)
@@ -290,31 +314,22 @@
                           (run (assoc ctx :schema (:schema schema))))
 
       (sb/plain-map-schema? schema)
-      (map-import-type run ctx schema)
+      (map-import-type run ctx schema source-form)
 
       (vector? schema)
-      (collection-import-type run
-                              ctx
-                              schema
+      (collection-import-type run ctx schema source-form
                               #(at/->VectorT prov % (= 1 (count %)))
-                              (fn [joined]
-                                (at/->VectorT prov [joined] true)))
+                              (fn [joined] (at/->VectorT prov [joined] true)))
 
       (set? schema)
-      (collection-import-type run
-                              ctx
-                              (vec schema)
+      (collection-import-type run ctx (vec schema) source-form
                               #(at/->SetT prov (into #{} %) (= 1 (count %)))
-                              (fn [joined]
-                                (at/->SetT prov #{joined} true)))
+                              (fn [joined] (at/->SetT prov #{joined} true)))
 
       (seq? schema)
-      (collection-import-type run
-                              ctx
-                              (vec schema)
+      (collection-import-type run ctx (vec schema) nil
                               #(at/->SeqT prov % (= 1 (count %)))
-                              (fn [joined]
-                                (at/->SeqT prov [joined] true)))
+                              (fn [joined] (at/->SeqT prov [joined] true)))
 
       :else
       (adapter-leaf-import-type prov schema))))
@@ -492,15 +507,18 @@
 
 (defn import-schema-type
   "Input must be in the schema domain."
-  [prov schema]
-  (letfn [(run [ctx]
-            (import-schema-type* run ctx))]
-    (:type (run {:schema schema
-                 :active-refs #{}
-                 :owner-ref nil
-                 :prov prov}))))
+  ([prov schema] (import-schema-type prov schema nil))
+  ([prov schema source-form]
+   (letfn [(run [ctx]
+             (import-schema-type* run ctx))]
+     (:type (run {:schema schema
+                  :active-refs #{}
+                  :owner-ref nil
+                  :prov prov
+                  :source-form source-form})))))
 
 (defn schema->type
   "Input must be schema-domain (e.g. from admitted declarations)."
-  [prov schema]
-  (import-schema-type prov (admit-schema schema)))
+  ([prov schema] (schema->type prov schema nil))
+  ([prov schema source-form]
+   (import-schema-type prov (admit-schema schema) source-form)))
