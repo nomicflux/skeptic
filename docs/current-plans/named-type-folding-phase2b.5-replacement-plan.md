@@ -354,11 +354,19 @@ calculation.
 
 Current behavior:
 
-- child nodes recurse with child source forms
+- **vector** source-forms thread per-child forms via `child-form-fn`; **set**
+  and **seq** source-forms do not — `child-form-fn` returned
+  `(fn [_i] nil)` for any non-vector source-form, so member recursions for set
+  and seq literals never saw the member symbol
 - the enclosing `VectorT` or `SetT` is still built with the parent `prov`
 
 Change:
 
+- extend `child-form-fn` to thread per-member forms for set and seq source
+  forms as well, using positional indexing after converting the coll to a
+  vector; this is required for the member recursion in declared annotations
+  like `#{RecursiveNamed}` to receive the symbol `RecursiveNamed` and resolve
+  it to `#'RecursiveNamed`
 - after `child-results` are built, compute the current node prov from the
   current `source-form` and the child provs
 - build both the fixed and homogeneous collection result with that node prov
@@ -466,6 +474,15 @@ files to inspect and edit are:
 The required behavior on that path is narrow: do not re-anchor a selected
 named output node to a caller-level derived prov before rendering.
 
+**Phase 3 execution note:** The post-bridge failure actually observed for
+Cases B and C was **not** on the call-output path — it was a missed piece of
+§3.1 in this plan. `child-form-fn` only threaded per-child source-forms for
+vector literals; set and seq literals lost the member symbol entirely. The
+fix lived in `bridge.clj/child-form-fn` (admission side), not in
+`calls.clj` / `invoke.clj` / `type_ops.clj`. Those three files remained
+unchanged. The "narrow re-anchor" concern for the call-output path never
+materialised for this contract.
+
 ### 5. Replace the renderer semantics in `render.clj`
 
 Current behavior:
@@ -561,3 +578,15 @@ The phase is complete only when all of the following are true:
 - The contract examples are the whole acceptance standard.
 - If any contract example fails, the phase is incomplete.
 - There is no audit step in this plan. Audits are pre-plan work; the plan must carry forward implementation details.
+
+## Deferred (out of Phase 2b.5 scope)
+
+- **Unqualified rendering of locally-declared named types.** The contract doc
+  writes `Threal` / `RecursiveNamed` as shorthand for folded names. The
+  renderer currently emits fully-qualified symbols
+  (`clj-threals.threals/Threal`,
+  `skeptic.test-examples.named-fold-contract-probe/RecursiveNamed`). User
+  confirmed this qualifier mismatch is acceptable for Phase 2b.5 and deferred
+  to a later phase. The contract tests in
+  `skeptic/test/skeptic/checking/pipeline/named_fold_contract_test.clj` assert
+  against the qualified form as a result.
