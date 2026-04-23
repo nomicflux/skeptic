@@ -25,9 +25,18 @@
 
 (s/defschema Threal [#{Threal} #{Threal} #{Threal}])
 (s/defschema ThrealCache {Threal Threal})
+(s/defschema ThrealPairCache {[Threal Threal] Threal})
 
 (s/defn compute-result :- Threal [] [#{} #{} #{}])
 (s/defn compute-cache :- ThrealCache [] {})
+(s/defn compute-pair-cache :- ThrealPairCache [] {})
+
+(s/defn cache-hit-analogue :- {:result Threal :cache ThrealPairCache}
+  [x :- Threal
+   y :- Threal
+   cache :- ThrealPairCache]
+  {:result (or (get cache [x y]) x)
+   :cache cache})
 
 (s/defn add-with-cache-analogue :- {:result Threal :cache ThrealCache}
   []
@@ -36,6 +45,25 @@
 (s/defn visible-add-with-cache-mismatch :- s/Int
   []
   (add-with-cache-analogue))
+
+(s/defn visible-cache-hit-mismatch :- s/Int
+  []
+  (cache-hit-analogue (compute-result) (compute-result) (compute-pair-cache)))
+
+(s/defn grow-pair-cache :- ThrealPairCache
+  [cache :- ThrealPairCache
+   x :- Threal
+   y :- Threal]
+  (assoc cache [x y] x))
+
+(s/defn recur-cache-fold-probe :- s/Int
+  []
+  (loop [cache {}
+         x (compute-result)
+         n 1]
+    (if (zero? n)
+      0
+      (recur (grow-pair-cache cache x x) x (dec n)))))
 
 (s/defschema FlowCache {s/Int s/Int})
 (s/def flow-cache-value :- FlowCache {})

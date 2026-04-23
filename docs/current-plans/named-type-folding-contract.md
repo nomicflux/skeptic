@@ -92,9 +92,35 @@ Required actual-side render: `{:result [#{RecursiveNamed}]}`.
 
 Required actual-side render: `{:result [#{Int}]}`.
 
+**Case E — recursive named root identity:**
+
+```clojure
+(s/defschema Rec [#{Rec}])
+(s/defschema RecCache {[Rec Rec] Rec})
+
+(s/defn make-rec :- Rec [] [#{}])
+(s/defn make-cache :- RecCache [] {})
+
+(s/defn cache-hit :- {:result Rec :cache RecCache}
+  [x :- Rec
+   y :- Rec
+   cache :- RecCache]
+  {:result (or (get cache [x y]) x)
+   :cache cache})
+```
+
+Required actual-side render:
+`{:result Rec :cache RecCache}`.
+
+Forbidden actual-side render:
+`{:result [#{Rec}] :cache {[[#{Rec}] [#{Rec}]] [#{Rec}]}}`.
+
+The root nodes of `Rec` and `RecCache` carry those names. It is not enough
+for only their children or leaves to carry `Rec`.
+
 ### Inferred-flow cases (names come through provs on inferred Types)
 
-**Case E — identity-preserving flow through an unannotated fn:**
+**Case F — identity-preserving flow through an unannotated fn:**
 
 ```clojure
 (s/def x :- ThrealCache)
@@ -109,7 +135,7 @@ Required actual-side render: `{:result [#{Int}]}`.
 `y` is an inferred `ThrealCache`. The rendered Type of `y` is
 `ThrealCache`.
 
-**Case F — inferred composite wrapping a named inferred child:**
+**Case G — inferred composite wrapping a named inferred child:**
 
 ```clojure
 (def z [(f x)])
@@ -120,7 +146,7 @@ Required actual-side render: `{:result [#{Int}]}`.
 
 ### Distinctness cases (names are not structures)
 
-**Case G — same structure, different names, must render distinctly:**
+**Case H — same structure, different names, must render distinctly:**
 
 ```clojure
 (s/defschema Map1 {:a s/Int})
