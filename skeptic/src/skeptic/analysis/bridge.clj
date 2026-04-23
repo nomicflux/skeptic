@@ -53,7 +53,7 @@
   (throw (IllegalArgumentException.
           (format "Expected schema value: %s" (pr-str value)))))
 
-(declare admit-schema schema-domain?)
+(declare admit-schema schema-domain? node-prov composite-node-prov descend-ctx)
 
 (defn- import-result
   ([type]
@@ -113,10 +113,12 @@
                         (= (sb/check-if-schema schema value) sb/plumatic-valid))
                       {:source-schema schema})))
 
-(defn- unary-child-result
-  [build child-result]
-  (import-result (build (:type child-result))
-                 (:closed-refs child-result)))
+(defn- unary-node-result
+  [ctx-prov ctor source-form child-result]
+  (let [child-prov (prov/of (:type child-result))
+        node-p (node-prov ctx-prov source-form [child-prov])]
+    (import-result (ctor node-p (:type child-result))
+                   (:closed-refs child-result))))
 
 (defn- child-form-fn
   [source-form]
@@ -125,30 +127,39 @@
     (fn [_i] nil)))
 
 (defn- collection-import-type
-  [run {:keys [owner-ref prov] :as ctx} schemas source-form fixed-build homogeneous-build]
-  (let [child-results (mapv (fn [i s]
-                              (run (assoc ctx :schema s :source-form ((child-form-fn source-form) i))))
+  [run {:keys [owner-ref prov] :as ctx} schemas source-form fixed-ctor union-ctor]
+  (let [inner-ctx (descend-ctx ctx)
+        child-results (mapv (fn [i s]
+                              (run (assoc inner-ctx :schema s :source-form ((child-form-fn source-form) i))))
                             (range) schemas)
         child-types (mapv :type child-results)
+        child-provs (mapv prov/of child-types)
         closed-refs (merge-closed-refs child-results)
+        node-p (node-prov prov source-form child-provs)
         type (if (and owner-ref (contains? closed-refs owner-ref))
-               (homogeneous-build (ato/union-type prov child-types))
-               (fixed-build child-types))]
+               (let [joined-p (node-prov prov nil child-provs)]
+                 (union-ctor node-p (ato/union-type joined-p child-types)))
+               (fixed-ctor node-p child-types))]
     (import-result type closed-refs)))
 
 (defn- map-import-type
   [run {:keys [prov] :as ctx} schema source-form]
   (let [parent-form (when (map? source-form) source-form)
+        inner-ctx (descend-ctx ctx)
         entry-results (mapv (fn [[k v]]
                               (let [k-form (when parent-form (some #(when (= % k) %) (keys parent-form)))
                                     v-form (when parent-form (get parent-form k))
-                                    key-result (run (assoc ctx :schema k :source-form k-form))
-                                    value-result (run (assoc ctx :schema v :source-form v-form))]
+                                    key-result (run (assoc inner-ctx :schema k :source-form k-form))
+                                    value-result (run (assoc inner-ctx :schema v :source-form v-form))]
                                 {:entry [(:type key-result) (:type value-result)]
                                  :closed-refs (merge-closed-refs [key-result value-result])}))
-                            schema)]
+                            schema)
+        child-provs (mapcat (fn [{:keys [entry]}]
+                              [(prov/of (first entry)) (prov/of (second entry))])
+                            entry-results)
+        node-p (node-prov prov source-form child-provs)]
     (import-result
-     (at/->MapT prov (into {} (map :entry) entry-results))
+     (at/->MapT node-p (into {} (map :entry) entry-results))
      (merge-closed-refs entry-results))))
 
 (defn- input-forms-for-arity
@@ -161,45 +172,56 @@
   [run {:keys [prov] :as ctx} schema descriptor]
   (let [defn? (and (map? descriptor) (= :defn (:kind descriptor)))
         output-form (when defn? (:output-form descriptor))
+        inner-ctx (descend-ctx ctx)
         {:keys [input-schemas output-schema]} (into {} schema)
-        output-result (run (assoc ctx :schema output-schema :source-form output-form))
+        output-result (run (assoc inner-ctx :schema output-schema :source-form output-form))
         method-results (mapv (fn [inputs]
                                (let [input-forms (when defn? (input-forms-for-arity descriptor (count inputs)))
                                      input-results (vec (map-indexed
                                                           (fn [i in]
-                                                            (run (assoc ctx
+                                                            (run (assoc inner-ctx
                                                                         :schema (fn-input-schema in)
                                                                         :source-form (nth input-forms i nil))))
                                                           inputs))
                                      child-results (conj input-results output-result)
+                                     input-provs (mapv (comp prov/of :type) input-results)
+                                     method-p (node-prov prov nil (conj input-provs (prov/of (:type output-result))))
                                      names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
-                                 {:type (at/->FnMethodT prov
+                                 {:type (at/->FnMethodT method-p
                                                         (mapv :type input-results)
                                                         (:type output-result)
                                                         (count inputs)
                                                         false
                                                         names)
                                   :closed-refs (merge-closed-refs child-results)}))
-                             input-schemas)]
+                             input-schemas)
+        method-provs (mapv (comp prov/of :type) method-results)
+        fun-p (node-prov prov nil method-provs)]
     (import-result
-     (at/->FunT prov (mapv :type method-results))
+     (at/->FunT fun-p (mapv :type method-results))
      (merge-closed-refs (conj method-results output-result)))))
 
 (defn- branch-import-type
-  [run ctx schemas build]
-  (let [child-results (mapv #(run (assoc ctx :schema %)) schemas)]
-    (import-result (build (mapv :type child-results))
+  [run {:keys [prov] :as ctx} schemas build]
+  (let [inner-ctx (descend-ctx ctx)
+        child-results (mapv #(run (assoc inner-ctx :schema %)) schemas)
+        child-types (mapv :type child-results)
+        node-p (node-prov prov nil (mapv prov/of child-types))]
+    (import-result (build node-p child-types)
                    (merge-closed-refs child-results))))
 
 (defn- conditional-import-type
   [run {:keys [prov] :as ctx} schema]
-  (let [branch-results (mapv (fn [[pred branch]]
-                               (let [branch-result (run (assoc ctx :schema branch))]
+  (let [inner-ctx (descend-ctx ctx)
+        branch-results (mapv (fn [[pred branch]]
+                               (let [branch-result (run (assoc inner-ctx :schema branch))]
                                  {:branch [pred (:type branch-result)]
                                   :closed-refs (:closed-refs branch-result)}))
-                             (:preds-and-schemas schema))]
+                             (:preds-and-schemas schema))
+        branch-provs (mapv (fn [{:keys [branch]}] (prov/of (second branch))) branch-results)
+        node-p (node-prov prov nil branch-provs)]
     (import-result
-     (at/->ConditionalT prov (mapv :branch branch-results))
+     (at/->ConditionalT node-p (mapv :branch branch-results))
      (merge-closed-refs branch-results))))
 
 (defn- named-import-type
@@ -230,9 +252,20 @@
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
 
-(defn- form-prov
+(defn- inline-named-name
   [form]
-  (when (symbol? form)
+  (when (and (seq? form) (>= (count form) 3))
+    (let [head (first form)]
+      (when (or (= head 's/named) (= head 'schema.core/named))
+        (let [name-form (nth form 2)]
+          (cond
+            (and (seq? name-form) (= 'quote (first name-form))) (second name-form)
+            (symbol? name-form) name-form))))))
+
+(defn- form-prov
+  [form ctx-prov]
+  (cond
+    (symbol? form)
     (when-let [v (try (resolve form) (catch Exception _ nil))]
       (let [m (meta v)]
         (when (and (not (:macro m)) (bound? v))
@@ -241,11 +274,64 @@
               (prov/make-provenance :schema
                                     (sb/qualified-var-symbol v)
                                     (some-> v .ns ns-name)
-                                    m))))))))
+                                    m))))))
+
+    :else
+    (when-let [name-sym (inline-named-name form)]
+      (when (symbol? name-sym)
+        (prov/make-provenance :schema
+                              name-sym
+                              (:declared-in ctx-prov)
+                              (:var-meta ctx-prov))))))
+
+(defn- composite-node-prov
+  [ctx-prov child-provs]
+  (prov/make-provenance (:source ctx-prov)
+                        nil
+                        (:declared-in ctx-prov)
+                        (:var-meta ctx-prov)
+                        (vec (distinct (keep identity child-provs)))))
+
+(def ^:private schema-foldable-sources
+  #{:schema :malli-spec :type-override})
+
+(defn- schema-named-prov?
+  [p]
+  (and p (:qualified-sym p) (contains? schema-foldable-sources (:source p))))
+
+(defn- fn-annotation-source?
+  [p]
+  (= :fn-annotation (:source p)))
+
+(defn- node-prov
+  [ctx-prov source-form child-provs]
+  (or (form-prov source-form ctx-prov)
+      (when (schema-named-prov? ctx-prov) ctx-prov)
+      (if (fn-annotation-source? ctx-prov)
+        (composite-node-prov ctx-prov child-provs)
+        ctx-prov)))
+
+(defn- descend-ctx
+  [ctx]
+  (let [p (:prov ctx)]
+    (if (or (schema-named-prov? p) (fn-annotation-source? p))
+      (assoc ctx :prov (assoc p :qualified-sym nil))
+      ctx)))
+
+(defn- descriptor-source-form
+  [descriptor]
+  (cond
+    (nil? descriptor) nil
+    (and (map? descriptor) (contains? descriptor :kind))
+    (case (:kind descriptor)
+      :def (:schema-form descriptor)
+      :defschema (:schema-form descriptor)
+      :defn descriptor)
+    :else descriptor))
 
 (defn- import-schema-type*
   [run {:keys [schema prov source-form] :as ctx}]
-  (let [hit-prov (form-prov source-form)
+  (let [hit-prov (form-prov source-form prov)
         prov (or hit-prov prov)
         ctx (assoc ctx :prov prov :source-form nil)
         schema (one-step-schema-node schema)
@@ -280,8 +366,8 @@
       (import-result (ato/exact-value-type prov schema))
 
       (s/optional-key? schema)
-      (unary-child-result (partial at/->OptionalKeyT prov)
-                          (run (assoc ctx :schema (:k schema))))
+      (unary-node-result prov at/->OptionalKeyT source-form
+                         (run (assoc (descend-ctx ctx) :schema (:k schema))))
 
       (sb/eq? schema)
       (import-result (ato/exact-value-type prov (sb/de-eq schema)))
@@ -296,53 +382,55 @@
       (function-import-type run ctx schema source-form)
 
       (sb/maybe? schema)
-      (unary-child-result (partial at/->MaybeT prov)
-                          (run (assoc ctx :schema (:schema schema))))
+      (unary-node-result prov at/->MaybeT source-form
+                         (run (assoc (descend-ctx ctx) :schema (:schema schema))))
 
       (sb/enum-schema? schema)
       (import-result (ato/union-type prov (mapv #(ato/exact-value-type prov %) (sb/de-enum schema))))
 
       (sb/join? schema)
-      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
+      (branch-import-type run ctx (:schemas schema) ato/union-type)
 
       (sb/either? schema)
-      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
+      (branch-import-type run ctx (:schemas schema) ato/union-type)
 
       (sb/conditional-schema? schema)
       (conditional-import-type run ctx schema)
 
       (sb/cond-pre? schema)
-      (branch-import-type run ctx (:schemas schema) #(ato/union-type prov %))
+      (branch-import-type run ctx (:schemas schema) ato/union-type)
 
       (sb/both? schema)
-      (branch-import-type run ctx (:schemas schema) #(ato/intersection-type prov %))
+      (branch-import-type run ctx (:schemas schema) ato/intersection-type)
 
       (sb/valued-schema? schema)
-      (let [inner-result (run (assoc ctx :schema (:schema schema)))]
-        (import-result (at/->ValueT prov (:type inner-result) (:value schema))
+      (let [inner-result (run (assoc (descend-ctx ctx) :schema (:schema schema)))
+            child-prov (prov/of (:type inner-result))
+            node-p (node-prov prov source-form [child-prov])]
+        (import-result (at/->ValueT node-p (:type inner-result) (:value schema))
                        (:closed-refs inner-result)))
 
       (sb/variable? schema)
-      (unary-child-result (partial at/->VarT prov)
-                          (run (assoc ctx :schema (:schema schema))))
+      (unary-node-result prov at/->VarT source-form
+                         (run (assoc (descend-ctx ctx) :schema (:schema schema))))
 
       (sb/plain-map-schema? schema)
       (map-import-type run ctx schema source-form)
 
       (vector? schema)
       (collection-import-type run ctx schema source-form
-                              #(at/->VectorT prov % (= 1 (count %)))
-                              (fn [joined] (at/->VectorT prov [joined] true)))
+                              (fn [p ts] (at/->VectorT p ts (= 1 (count ts))))
+                              (fn [p joined] (at/->VectorT p [joined] true)))
 
       (set? schema)
       (collection-import-type run ctx (vec schema) source-form
-                              #(at/->SetT prov (into #{} %) (= 1 (count %)))
-                              (fn [joined] (at/->SetT prov #{joined} true)))
+                              (fn [p ts] (at/->SetT p (into #{} ts) (= 1 (count ts))))
+                              (fn [p joined] (at/->SetT p #{joined} true)))
 
       (seq? schema)
       (collection-import-type run ctx (vec schema) nil
-                              #(at/->SeqT prov % (= 1 (count %)))
-                              (fn [joined] (at/->SeqT prov [joined] true)))
+                              (fn [p ts] (at/->SeqT p ts (= 1 (count ts))))
+                              (fn [p joined] (at/->SeqT p [joined] true)))
 
       :else
       (adapter-leaf-import-type prov schema))))
@@ -533,5 +621,5 @@
 (defn schema->type
   "Input must be schema-domain (e.g. from admitted declarations)."
   ([prov schema] (schema->type prov schema nil))
-  ([prov schema source-form]
-   (import-schema-type prov (admit-schema schema) source-form)))
+  ([prov schema descriptor]
+   (import-schema-type prov (admit-schema schema) (descriptor-source-form descriptor))))
