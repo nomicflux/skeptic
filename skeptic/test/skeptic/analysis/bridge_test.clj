@@ -193,10 +193,10 @@
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'RecR))
         r-qsym (sb/qualified-var-symbol #'RecR)
-        body-type (first (:items result))
-        body-prov (prov/of body-type)]
-    (is (= :schema (prov/source body-prov)))
-    (is (= r-qsym (:qualified-sym body-prov)))))
+        body-type (first (:items result))]
+    (is (= r-qsym (:qualified-sym (prov/of result))))
+    (is (= :schema (prov/source (prov/of body-type))))
+    (is (nil? (:qualified-sym (prov/of body-type))))))
 
 (deftest caller-prov-preserved-when-no-var-provs-test
   (let [result (binding [ab/*var-provs* nil]

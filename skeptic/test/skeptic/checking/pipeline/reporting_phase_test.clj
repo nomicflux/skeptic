@@ -16,8 +16,8 @@
                      results)
         error (first (:errors result))]
     (is (some? result))
-    (is (.contains error "{:name Keyword, :nickname skeptic.static-call-examples/UserDesc}"))
-    (is (.contains error "{:name Str, :nickname skeptic.static-call-examples/UserDesc}"))
+    (is (.contains error "{:name Keyword, :nickname (maybe Str)}"))
+    (is (.contains error "{:name Str, :nickname (maybe Str)}"))
     (is (not (.contains error "\":name : Keyword\"")))))
 
 (deftest output-summary-highlights-path-or-drops-redundant-self-context
