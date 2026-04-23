@@ -154,10 +154,14 @@
         body ((:recurse ctx) (assoc ctx :locals final-locals) (:body node))]
     (assoc node :bindings bindings :body body :type (:type body))))
 
+(defn- loop-recur-nodes
+  [body loop-id]
+  (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
+           (sac/ast-nodes body)))
+
 (defn widen-int-loop-counter-recur-targets
   [ctx targets body loop-id]
-  (let [recurs (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
-                        (sac/ast-nodes body))]
+  (let [recurs (loop-recur-nodes body loop-id)]
     (reduce (fn [acc recur-node]
               (let [exprs (:exprs recur-node)]
                 (if (and (= (count acc) (count exprs)) (pos? (count acc)))
@@ -175,6 +179,54 @@
             targets
             recurs)))
 
+(defn- collection-kind
+  [type]
+  (let [type (ato/normalize type)]
+    (cond
+      (at/map-type? type) :map
+      (at/vector-type? type) :vector
+      (at/set-type? type) :set
+      (at/seq-type? type) :seq)))
+
+(defn- empty-collection-type?
+  [type]
+  (let [type (ato/normalize type)]
+    (case (collection-kind type)
+      :map (empty? (:entries type))
+      :vector (empty? (:items type))
+      :set (empty? (:members type))
+      :seq (empty? (:items type))
+      false)))
+
+(defn- widenable-empty-target?
+  [target actual]
+  (and (empty-collection-type? target)
+       (= (collection-kind target) (collection-kind actual))
+       (not (at/bottom-type? (ato/normalize actual)))))
+
+(defn- widen-empty-target
+  [original current actual]
+  (if (widenable-empty-target? original actual)
+    (if (at/type-equal? current original)
+      (ato/normalize actual)
+      (av/join (ato/derive-prov current actual) [current actual]))
+    current))
+
+(defn widen-empty-collection-recur-targets
+  [targets body loop-id]
+  (reduce (fn [acc recur-node]
+            (let [exprs (:exprs recur-node)]
+              (if (= (count acc) (count exprs))
+                (mapv widen-empty-target targets acc (mapv :type exprs))
+                acc)))
+          targets
+          (loop-recur-nodes body loop-id)))
+
+(defn widen-loop-recur-targets
+  [ctx targets body loop-id]
+  (let [targets (widen-int-loop-counter-recur-targets ctx targets body loop-id)]
+    (widen-empty-collection-recur-targets targets body loop-id)))
+
 (defn loop-one-binding
   [ctx env binding]
   (let [annotated (base/annotate-binding (assoc ctx :locals env) binding)
@@ -187,7 +239,7 @@
 
 (defn annotate-loop-body-with-recur-target-widening
   [ctx node final-locals recur-targets loop-id targets-v0 body-v1]
-  (let [targets-v1 (widen-int-loop-counter-recur-targets ctx targets-v0 body-v1 loop-id)]
+  (let [targets-v1 (widen-loop-recur-targets ctx targets-v0 body-v1 loop-id)]
     (if (= targets-v1 targets-v0)
       body-v1
       ((:recurse ctx)
