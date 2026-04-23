@@ -1,14 +1,21 @@
 (ns skeptic.provenance)
 
-(defrecord Provenance [source qualified-sym declared-in var-meta])
+(defrecord Provenance [source qualified-sym declared-in var-meta refs])
 
 (defn make-provenance
-  [source qualified-sym declared-in var-meta]
-  (->Provenance source qualified-sym declared-in var-meta))
+  ([source qualified-sym declared-in var-meta]
+   (make-provenance source qualified-sym declared-in var-meta []))
+  ([source qualified-sym declared-in var-meta refs]
+   (->Provenance source qualified-sym declared-in var-meta (vec refs))))
+
+(defn with-refs
+  "Return prov with :refs replaced by the given constituent provs."
+  [prov refs]
+  (assoc prov :refs (vec refs)))
 
 (defn inferred
   [{:keys [name ns]}]
-  (make-provenance :inferred name ns nil))
+  (make-provenance :inferred name ns nil []))
 
 (def ^:private ctx-key :skeptic.provenance/ctx-provenance)
 

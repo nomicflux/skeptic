@@ -6,8 +6,9 @@
             [skeptic.schema.collect :as collect]))
 
 (defn desc->type
-  [prov {:keys [schema]}]
-  (ab/schema->type prov schema))
+  ([prov desc] (desc->type prov desc nil))
+  ([prov {:keys [schema]} source-form]
+   (ab/schema->type prov schema source-form)))
 
 (defn- desc->provenance
   [{:keys [arglists]} ns qualified-sym]
@@ -27,8 +28,10 @@
   [ns qualified-sym desc]
   (let [declared-var (resolve qualified-sym)
         base-prov (desc->provenance desc ns qualified-sym)
-        prov (effective-prov declared-var base-prov)]
-    {:dict {qualified-sym (desc->type prov desc)}
+        prov (effective-prov declared-var base-prov)
+        source-form (and ab/*form-refs* declared-var
+                         (.get ^java.util.IdentityHashMap ab/*form-refs* declared-var))]
+    {:dict {qualified-sym (desc->type prov desc source-form)}
      :provenance {qualified-sym prov}
      :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})
      :errors []}))
