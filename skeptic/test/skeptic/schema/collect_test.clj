@@ -122,24 +122,30 @@
   (let [ns-sym 'skeptic.test-examples.annotation-refs
         file (File. "test/skeptic/test_examples/annotation_refs.clj")
         refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        annotated-fn-var (resolve 'skeptic.test-examples.annotation-refs/annotated-fn)]
-    (is (= 'RefSchema (.get refs annotated-fn-var)))))
+        annotated-fn-var (resolve 'skeptic.test-examples.annotation-refs/annotated-fn)
+        descriptor (.get refs annotated-fn-var)]
+    (is (= :defn (:kind descriptor)))
+    (is (= 'RefSchema (:output-form descriptor)))))
 
 (deftest build-form-refs-stores-def-annotation-form
   (require 'skeptic.test-examples.annotation-refs)
   (let [ns-sym 'skeptic.test-examples.annotation-refs
         file (File. "test/skeptic/test_examples/annotation_refs.clj")
         refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        annotated-val-var (resolve 'skeptic.test-examples.annotation-refs/annotated-val)]
-    (is (= 'RefSchema (.get refs annotated-val-var)))))
+        annotated-val-var (resolve 'skeptic.test-examples.annotation-refs/annotated-val)
+        descriptor (.get refs annotated-val-var)]
+    (is (= :def (:kind descriptor)))
+    (is (= 'RefSchema (:schema-form descriptor)))))
 
 (deftest build-form-refs-stores-defschema-body-form
   (require 'skeptic.test-examples.annotation-refs)
   (let [ns-sym 'skeptic.test-examples.annotation-refs
         file (File. "test/skeptic/test_examples/annotation_refs.clj")
         refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)]
-    (is (= 's/Int (.get refs ref-schema-var)))))
+        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)
+        descriptor (.get refs ref-schema-var)]
+    (is (= :defschema (:kind descriptor)))
+    (is (= 's/Int (:schema-form descriptor)))))
 
 (deftest build-form-refs-stores-map-and-vector-literals
   (require 'skeptic.test-examples.form-refs)
@@ -149,9 +155,9 @@
         map-body-var (resolve 'skeptic.test-examples.form-refs/MapBody)
         vec-body-var (resolve 'skeptic.test-examples.form-refs/VecBody)
         fn-with-map-var (resolve 'skeptic.test-examples.form-refs/fn-with-map-ann)]
-    (is (= '{:a s/Int :b s/Str} (.get refs map-body-var)))
-    (is (= '[s/Int] (.get refs vec-body-var)))
-    (is (= '{:result s/Int :cache s/Str} (.get refs fn-with-map-var)))))
+    (is (= '{:a s/Int :b s/Str} (:schema-form (.get refs map-body-var))))
+    (is (= '[s/Int] (:schema-form (.get refs vec-body-var))))
+    (is (= '{:result s/Int :cache s/Str} (:output-form (.get refs fn-with-map-var))))))
 
 (deftest build-form-refs-skips-forms-without-annotation
   (let [ns-sym 'skeptic.test-examples.form-refs

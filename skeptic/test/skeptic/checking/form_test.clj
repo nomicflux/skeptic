@@ -84,25 +84,38 @@
   (is (nil? (cf/extract-def-annotation-symbol '(s/def x)))))
 
 (deftest extract-defn-annotation-form-test
-  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f :- Foo [x] x))))
-  (is (= '{:result Foo :cache Bar} (cf/extract-defn-annotation-form '(s/defn f :- {:result Foo :cache Bar} [] {}))))
-  (is (= '[Foo] (cf/extract-defn-annotation-form '(s/defn f :- [Foo] [] []))))
-  (is (= '(s/maybe Foo) (cf/extract-defn-annotation-form '(s/defn f :- (s/maybe Foo) [] nil))))
-  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f "doc" :- Foo [x] x))))
-  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f {:meta 1} :- Foo [x] x))))
-  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f "doc" {:meta 1} :- Foo [x] x))))
-  (is (= 'Foo (cf/extract-defn-annotation-form '(s/defn f :- Foo ([x] x) ([x y] y)))))
-  (is (nil? (cf/extract-defn-annotation-form '(s/defn f [x] x)))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- Foo [x] x))))
+  (is (= {:kind :defn :output-form '{:result Foo :cache Bar} :arglists {0 {:input-forms []}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- {:result Foo :cache Bar} [] {}))))
+  (is (= {:kind :defn :output-form '[Foo] :arglists {0 {:input-forms []}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- [Foo] [] []))))
+  (is (= {:kind :defn :output-form '(s/maybe Foo) :arglists {0 {:input-forms []}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- (s/maybe Foo) [] nil))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f "doc" :- Foo [x] x))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f {:meta 1} :- Foo [x] x))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f "doc" {:meta 1} :- Foo [x] x))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]} 2 {:input-forms [nil nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- Foo ([x] x) ([x y] y)))))
+  (is (= {:kind :defn :output-form nil :arglists {1 {:input-forms [nil]}}}
+         (cf/extract-defn-annotation-form '(s/defn f [x] x))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {:varargs {:input-forms [nil nil] :count 2}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- Foo [x y & rest] x))))
+  (is (= {:kind :defn :output-form 'Foo :arglists {1 {:input-forms [nil]} :varargs {:input-forms [nil] :count 1}}}
+         (cf/extract-defn-annotation-form '(s/defn f :- Foo ([x] x) ([a & rest] a))))))
 
 (deftest extract-def-annotation-form-test
-  (is (= 'Foo (cf/extract-def-annotation-form '(s/def x :- Foo 42))))
-  (is (= '{:result Foo :cache Bar} (cf/extract-def-annotation-form '(s/def x :- {:result Foo :cache Bar} 42))))
-  (is (= '[Foo] (cf/extract-def-annotation-form '(s/def x :- [Foo] 42))))
-  (is (nil? (cf/extract-def-annotation-form '(s/def x 42)))))
+  (is (= {:kind :def :schema-form 'Foo} (cf/extract-def-annotation-form '(s/def x :- Foo 42))))
+  (is (= {:kind :def :schema-form '{:result Foo :cache Bar}} (cf/extract-def-annotation-form '(s/def x :- {:result Foo :cache Bar} 42))))
+  (is (= {:kind :def :schema-form '[Foo]} (cf/extract-def-annotation-form '(s/def x :- [Foo] 42))))
+  (is (= {:kind :def :schema-form nil} (cf/extract-def-annotation-form '(s/def x 42)))))
 
 (deftest extract-defschema-body-form-test
-  (is (= '{:a Foo} (cf/extract-defschema-body-form '(s/defschema X {:a Foo}))))
-  (is (= '[Foo] (cf/extract-defschema-body-form '(s/defschema X [Foo]))))
-  (is (= '{:a Foo} (cf/extract-defschema-body-form '(schema.core/defschema Y {:a Foo}))))
+  (is (= {:kind :defschema :schema-form '{:a Foo}} (cf/extract-defschema-body-form '(s/defschema X {:a Foo}))))
+  (is (= {:kind :defschema :schema-form '[Foo]} (cf/extract-defschema-body-form '(s/defschema X [Foo]))))
+  (is (= {:kind :defschema :schema-form '{:a Foo}} (cf/extract-defschema-body-form '(schema.core/defschema Y {:a Foo}))))
   (is (nil? (cf/extract-defschema-body-form '(defn f [x] x))))
   (is (nil? (cf/extract-defschema-body-form '(s/def x 42)))))

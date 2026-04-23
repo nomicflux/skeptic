@@ -151,13 +151,26 @@
      (at/->MapT prov (into {} (map :entry) entry-results))
      (merge-closed-refs entry-results))))
 
+(defn- input-forms-for-arity
+  [descriptor n-inputs]
+  (let [arglists (:arglists descriptor)
+        k (if (contains? arglists n-inputs) n-inputs :varargs)]
+    (get-in arglists [k :input-forms])))
+
 (defn- function-import-type
-  [run {:keys [prov] :as ctx} schema source-form]
-  (let [{:keys [input-schemas output-schema]} (into {} schema)
-        output-result (run (assoc ctx :schema output-schema :source-form source-form))
+  [run {:keys [prov] :as ctx} schema descriptor]
+  (let [defn? (and (map? descriptor) (= :defn (:kind descriptor)))
+        output-form (when defn? (:output-form descriptor))
+        {:keys [input-schemas output-schema]} (into {} schema)
+        output-result (run (assoc ctx :schema output-schema :source-form output-form))
         method-results (mapv (fn [inputs]
-                               (let [input-results (mapv #(run (assoc ctx :schema (fn-input-schema %)))
-                                                         inputs)
+                               (let [input-forms (when defn? (input-forms-for-arity descriptor (count inputs)))
+                                     input-results (vec (map-indexed
+                                                          (fn [i in]
+                                                            (run (assoc ctx
+                                                                        :schema (fn-input-schema in)
+                                                                        :source-form (nth input-forms i nil))))
+                                                          inputs))
                                      child-results (conj input-results output-result)
                                      names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
                                  {:type (at/->FnMethodT prov
