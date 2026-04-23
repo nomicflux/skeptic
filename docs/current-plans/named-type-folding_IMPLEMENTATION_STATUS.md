@@ -282,3 +282,38 @@ Phase 2b.2 — admission entry-point form-prov override + composite source-form 
 
 ### Pending
 Phase 2b.4.2 — populate `:refs` at literal-construction sites (data.clj, value.clj, match.clj).
+
+## Phase 2b.4.2 — Populate `:refs` at literal-construction sites — COMPLETE (uncommitted)
+
+### Deliverables landed
+
+**`skeptic/src/skeptic/analysis/annotate/data.clj`**
+- `annotate-vector`: `->VectorT` prov wrapped with `(prov/with-refs (prov/with-ctx ctx) (mapv prov/of item-types))`.
+- `annotate-set`: result of `aapi/normalize-type` post-wrapped with `(prov/with-refs (:prov t) [(prov/of joined)])`.
+- `annotate-map`: same post-wrap pattern; refs flatten the entries map's key/val provs.
+
+**`skeptic/src/skeptic/analysis/value.clj`**
+- Added `[skeptic.provenance :as prov]` require.
+- `map-value-type`: ->MapT prov wrapped with `prov/with-refs` of flattened entry provs.
+- `type-of-value` vector arm: ->VectorT prov wrapped with constituent item-type provs.
+- `homogeneous-seq-type`: constructor's prov wrapped with `[(prov/of element)]`.
+- `type-of-value` set arm: ->SetT prov wrapped with `[(prov/of element)]`.
+
+**`skeptic/src/skeptic/analysis/annotate/match.clj`**
+- `drop-discriminator-key`'s ->MapT branch: prov wrapped with `prov/with-refs` of kept entries' k/v provs.
+
+### Tests added
+
+**`skeptic/test/skeptic/analysis/annotate/data_test.clj`** (created)
+- `annotate-vector-threads-refs-test`, `annotate-set-threads-refs-test`, `annotate-map-threads-refs-test`.
+
+**`skeptic/test/skeptic/analysis/value_test.clj`** (extended)
+- `type-of-value-vector-arm-threads-refs-test`, `type-of-value-seq-arm-threads-refs-test`, `type-of-value-set-arm-threads-refs-test`, `map-value-type-threads-refs-test`.
+- Pre-existing `type-of-value-collections-test` rewritten: `=` → `at/type=?` at the vector and nested-map equality assertions, since the new `:refs` populates make full structural equality differ but type structure is unchanged. Reason per `feedback_rep_change_scope`: representational changes own their fallout.
+
+### Verification
+- `lein test`: 422 tests, 1928 assertions, **3 failures, 0 errors** — the 3 failures are the pre-existing `named-fold-diagnostic-test` composed-body / actual-side fold-pending assertions, removed in Phase 2b.4.4 per plan.
+- `clj-kondo --lint src test`: 0 errors, 0 warnings.
+
+### Pending
+Phase 2b.4.3 — populate `:refs` at collection-op + invoke-output sites.

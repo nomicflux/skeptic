@@ -3,7 +3,8 @@
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
 
 (defn class->type
   [prov klass]
@@ -39,16 +40,18 @@
 
 (defn homogeneous-seq-type
   [prov constructor values]
-  (constructor prov [(collection-element-type prov values)] true))
+  (let [element (collection-element-type prov values)]
+    (constructor (prov/with-refs prov [(prov/of element)]) [element] true)))
 
 (defn map-value-type
   [prov m]
-  (at/->MapT prov
-             (into {}
-                   (map (fn [[k v]]
-                          [(exact-runtime-value-type prov k)
-                           (exact-runtime-value-type prov v)]))
-                   m)))
+  (let [entries (into {}
+                      (map (fn [[k v]]
+                             [(exact-runtime-value-type prov k)
+                              (exact-runtime-value-type prov v)]))
+                      m)
+        refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) entries)]
+    (at/->MapT (prov/with-refs prov refs) entries)))
 
 (defn type-of-value
   [prov value]
@@ -59,9 +62,13 @@
         (keyword? value)
         (symbol? value)
         (boolean? value)) (class->type prov (class value))
-    (vector? value) (at/->VectorT prov (mapv #(type-of-value prov %) value) (= 1 (count value)))
+    (vector? value) (let [item-types (mapv #(type-of-value prov %) value)]
+                      (at/->VectorT (prov/with-refs prov (mapv prov/of item-types))
+                                    item-types
+                                    (= 1 (count value))))
     (or (list? value) (seq? value)) (homogeneous-seq-type prov at/->SeqT value)
-    (set? value) (at/->SetT prov #{(collection-element-type prov value)} true)
+    (set? value) (let [element (collection-element-type prov value)]
+                   (at/->SetT (prov/with-refs prov [(prov/of element)]) #{element} true))
     (map? value) (map-value-type prov value)
     (class? value) (class->type prov java.lang.Class)
     :else (class->type prov (class value))))
