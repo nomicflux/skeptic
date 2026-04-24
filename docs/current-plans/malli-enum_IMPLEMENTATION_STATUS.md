@@ -34,3 +34,13 @@
 Initial Phase 2 plan proposed a bad fixture `enum-output-bad [_x] :not-an-enum-member` — body inferred as `GroundT(Kw)`, declared output `[:enum :ok :bad]` → `UnionT(ValueT(Kw,:ok),ValueT(Kw,:bad))`. The pipeline emitted 0 results on this. Per `test/skeptic/inconsistence/report_test.clj:369`, Schema's `check-cast GroundT target=enum-of-same-ground` is asserted OK — consistent with the compatibility calculus in `docs/blame-for-all.md`. This is not a gap in the Malli bridge; it is the documented cast semantics shared with Schema.
 
 The fixture was re-shaped to the direction Schema catches (line 378: `check-cast enum target=narrower-ground` NOT OK): `enum-input-flows-to-string` has source=enum-union, target=`:string`, detected via source-union failure on every keyword-valued member.
+
+## Phase 3 — Reference doc update (complete)
+
+- Edited `skeptic/docs/malli-reference.md`:
+  - Added `[:enum & values]` bullet to the handled forms in the conversion-runner list, mirroring the Schema-side behavior at `src/skeptic/analysis/bridge.clj:386-387`.
+  - Removed `:enum` from the stubbed-now list and extended the "outside" clause to include `:enum`.
+- `lein test`: 471 / 2084 / 0 / 0.
+- `clj-kondo --lint src test`: 0 / 0.
+
+Remaining Malli stubs unchanged: `:map`, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, refs, refinement leaves, `:->`, `:function`, `:catn`, repetition operators.
