@@ -1,6 +1,5 @@
 (ns skeptic.typed-decls
   (:require [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]))
@@ -14,20 +13,10 @@
   [_desc ns qualified-sym]
   (prov/make-provenance :schema qualified-sym ns nil))
 
-(defn- effective-prov
-  [declared-var desc-prov]
-  (if-let [annotation-var (and ab/*annotation-refs* (.get ab/*annotation-refs* declared-var))]
-    (prov/make-provenance :schema
-                          (sb/qualified-var-symbol annotation-var)
-                          (some-> annotation-var .ns ns-name)
-                          (meta annotation-var))
-    desc-prov))
-
 (defn convert-desc
   [ns qualified-sym desc]
   (let [declared-var (resolve qualified-sym)
-        base-prov (desc->provenance desc ns qualified-sym)
-        prov (effective-prov declared-var base-prov)
+        prov (desc->provenance desc ns qualified-sym)
         form-descriptor (and ab/*form-refs* declared-var
                              (.get ^java.util.IdentityHashMap ab/*form-refs* declared-var))]
     {:dict {qualified-sym (desc->type prov desc form-descriptor)}
