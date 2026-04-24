@@ -306,6 +306,18 @@
            :else-origin (ao/node-origin else-node)})
         (ao/opaque-origin joined-type))))
 
+(defn- branch-truth
+  [conjuncts assumptions]
+  (when (= 1 (count conjuncts))
+    (ao/assumption-truth (first conjuncts) assumptions)))
+
+(defn- joined-branch-type
+  [ctx truth then-node else-node]
+  (case truth
+    :true (:type then-node)
+    :false (:type else-node)
+    (av/type-join* (prov/with-ctx ctx) [(:type then-node) (:type else-node)])))
+
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
   (let [test-node ((:recurse ctx) ctx (:test node))
@@ -320,9 +332,10 @@
                                          :assumptions (:else-assumptions envs))
                    (:else node))
         narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
+        truth (branch-truth conjuncts assumptions)
         joined-type (if narrow?
                       (:type then-node)
-                      (av/type-join* (prov/with-ctx ctx) [(:type then-node) (:type else-node)]))
+                      (joined-branch-type ctx truth then-node else-node))
         origin (if narrow?
                  (ao/node-origin then-node)
                  (branch-origin conjuncts then-node else-node joined-type))]

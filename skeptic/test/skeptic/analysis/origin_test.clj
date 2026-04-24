@@ -113,6 +113,22 @@
                         (= :some? (:pred %)))
                   parts)))))
 
+(deftest equality-test-assumptions
+  (testing "local equals literal"
+    (let [root (atst/analyze-form atst/analysis-dict '(= x :a)
+                                  {:locals {'x (atst/T (s/enum :a :b))}})
+          assumption (ao/test->assumption tp root)]
+      (is (= :value-equality (:kind assumption)))
+      (is (= 'x (get-in assumption [:root :sym])))
+      (is (= [:a] (:values assumption)))))
+  (testing "literal equals local"
+    (let [root (atst/analyze-form atst/analysis-dict '(= :a x)
+                                  {:locals {'x (atst/T (s/enum :a :b))}})
+          assumption (ao/test->assumption tp root)]
+      (is (= :value-equality (:kind assumption)))
+      (is (= 'x (get-in assumption [:root :sym])))
+      (is (= [:a] (:values assumption))))))
+
 (deftest let-shadow-nil-check-root-origin-some-to-lambda-shape-test
   (testing "shadowed let + param alias: nil? on shadow name still gets :root so outer else refines unary -"
     (let [root (atst/analyze-form atst/typed-test-examples-dict

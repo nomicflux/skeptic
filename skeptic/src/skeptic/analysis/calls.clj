@@ -138,11 +138,21 @@
 (defn- resolved-call-sym
   [fn-node]
   (or (var->sym (aapi/node-var fn-node))
+      (some-> (aapi/binding-init fn-node) resolved-call-sym)
       (aapi/node-form fn-node)))
 
 (defn not-call?
   [fn-node]
   (contains? #{'clojure.core/not 'not} (resolved-call-sym fn-node)))
+
+(defn equality-call?
+  [fn-node]
+  (contains? #{'clojure.core/= '=} (resolved-call-sym fn-node)))
+
+(defn static-equality-call?
+  [node]
+  (and (= Util (aapi/node-class node))
+       (= 'equiv (aapi/node-method node))))
 
 (defn- class-literal-node?
   [node]

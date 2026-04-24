@@ -3,6 +3,7 @@
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
+            [skeptic.analysis.sum-types :as sums]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
@@ -198,6 +199,19 @@
      :polarity false}
     :else nil))
 
+(defn- exhaustive-values?
+  [disc-root values]
+  (and disc-root
+       (seq values)
+       (sums/exhausted-by-values? (:type disc-root) values)))
+
+(defn- case-joined-type
+  [anchor-prov branch-types default-node exhaustive?]
+  (av/type-join* anchor-prov
+                 (if exhaustive?
+                   branch-types
+                   (conj branch-types (:type default-node)))))
+
 (defn annotate-case
   [{:keys [locals assumptions] :as ctx} node]
   (let [anchor-prov (prov/with-ctx ctx)
@@ -227,7 +241,8 @@
                              :assumptions (:then-assumptions envs))
                       (:default node))
         branch-types (mapv (comp :type :then) annotated-thens)
-        joined (av/type-join* (prov/with-ctx ctx) (conj branch-types (:type default-node)))]
+        exhaustive? (exhaustive-values? disc-root all-values)
+        joined (case-joined-type (prov/with-ctx ctx) branch-types default-node exhaustive?)]
     (assoc node
            :test test-node
            :tests (vec (take n tests))

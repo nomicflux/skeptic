@@ -175,9 +175,44 @@
       (recur "not-int")
       x)))
 
+
 (s/defn cond-three-branch-join :- (s/cond-pre s/Int s/Str s/Keyword)
   [x :- s/Int]
   (cond
     (pos? x) 1
     (neg? x) "negative"
     :else :zero))
+
+(s/defn cond-boolean-exhaustive-output-success :- (s/enum "a" "b")
+  [a :- s/Int]
+  (cond
+    (pos? a) "a"
+    (not (pos? a)) "b"))
+
+(s/def sum-type-exhaustive-map :- {:a s/Int}
+  {:a 1})
+
+(s/defn cond-get-union-predicate-exhaustive-output-success :- (s/enum "a" "b")
+  []
+  (let [n (get sum-type-exhaustive-map :a "fallback")]
+    (cond
+      (string? n) "a"
+      (int? n) "b")))
+
+(s/defn cond-enum-equality-exhaustive-output-success :- (s/enum "a" "b")
+  [x :- (s/enum :a :b)]
+  (cond
+    (= x :a) "a"
+    (= x :b) "b"))
+
+(s/defn case-enum-exhaustive-output-success :- (s/enum "a" "b")
+  [x :- (s/enum :a :b)]
+  (case x
+    :a "a"
+    :b "b"))
+
+(s/defn condp-enum-equality-exhaustive-output-success :- (s/enum "a" "b")
+  [x :- (s/enum :a :b)]
+  (condp = x
+    :a "a"
+    :b "b"))

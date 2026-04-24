@@ -3,6 +3,7 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.narrowing :as an]
+            [skeptic.analysis.sum-types :as sums]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -39,6 +40,7 @@
 (defn- invertible-assumption?
   [assumption]
   (contains? #{:type-predicate
+               :boolean-proposition
                :contains-key
                :blank-check
                :value-equality
@@ -57,6 +59,7 @@
        (= (:polarity left) (:polarity right))
        (case (:kind left)
          :truthy-local true
+         :boolean-proposition (= (:expr left) (:expr right))
          :blank-check true
          :contains-key (= (:key left) (:key right))
          :type-predicate (and (= (:pred left) (:pred right))
@@ -79,6 +82,7 @@
        (= (get-in a [:root :sym]) (get-in b [:root :sym]))
        (case (:kind a)
          :truthy-local true
+         :boolean-proposition (= (:expr a) (:expr b))
          :blank-check true
          :contains-key (= (:key a) (:key b))
          :type-predicate (and (= (:pred a) (:pred b))
@@ -147,6 +151,8 @@
     (cond
       (and (not (at/bottom-type? pos)) (at/bottom-type? neg)) :always
       (and (at/bottom-type? pos) (not (at/bottom-type? neg))) :never
+      (sums/exhausted-by-types? base [pos]) :always
+      (sums/exhausted-by-types? base [neg]) :never
       :else :unknown)))
 
 (defn- value-in-values-classification
@@ -280,6 +286,27 @@
      :key key
      :polarity true}))
 
+(defn- equality-value-assumption
+  [ctx left right]
+  (let [[target literal] (cond
+                           (and (aapi/local-node? left) (ac/literal-map-key? right)) [left right]
+                           (and (aapi/local-node? right) (ac/literal-map-key? left)) [right left])]
+    (when-let [root (and target (local-root-origin ctx target))]
+      {:kind :value-equality
+       :root root
+       :values [(ac/literal-node-value literal)]
+       :polarity true})))
+
+(defn- boolean-proposition-assumption
+  [test-node]
+  (let [type (aapi/node-type test-node)]
+    (when (and type
+               (sums/exhausted-by-values? type [true false])
+               (not (aapi/local-node? test-node)))
+      {:kind :boolean-proposition
+       :expr (aapi/node-form test-node)
+       :polarity true})))
+
 (defn test->assumption
   [ctx test-node]
   (cond
@@ -308,6 +335,16 @@
         (some-> (first args)
                 (->> (test->assumption ctx))
                 invert-assumption)))
+
+    (and (= :invoke (aapi/node-op test-node))
+         (ac/equality-call? (aapi/call-fn-node test-node)))
+    (let [[left right] (aapi/call-args test-node)]
+      (equality-value-assumption ctx left right))
+
+    (and (= :static-call (aapi/node-op test-node))
+         (ac/static-equality-call? test-node))
+    (let [[left right] (aapi/call-args test-node)]
+      (equality-value-assumption ctx left right))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/type-predicate-call? (aapi/call-fn-node test-node) (aapi/call-args test-node)))
@@ -368,7 +405,7 @@
     (test->assumption ctx (aapi/then-node test-node))
 
     :else
-    nil))
+    (boolean-proposition-assumption test-node)))
 
 (defn local-binding-init-assumption
   [ctx test-node locals]
