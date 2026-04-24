@@ -264,6 +264,14 @@
         (= schema java.math.BigInteger))
     s/Int
 
+    (or (= schema java.lang.Double)
+        (= schema Double/TYPE))
+    java.lang.Double
+
+    (or (= schema java.lang.Float)
+        (= schema Float/TYPE))
+    java.lang.Float
+
     (= schema :string)
     s/Str
 

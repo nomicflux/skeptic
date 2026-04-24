@@ -115,6 +115,10 @@
   [x :- java.lang.Double]
   (inc x))
 
+(s/defn div-double-num-success :- s/Num
+  []
+  (/ 10.0 3.0))
+
 (s/defn process-map
   [m :- {:route s/Str :record {:id s/Uuid :name s/Str}}]
   m)

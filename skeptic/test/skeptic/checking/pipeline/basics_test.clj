@@ -104,7 +104,8 @@
 (deftest numeric-inc-checks
   (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/inc-int-success)))
   (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/inc-num-success)))
-  (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/inc-double-success))))
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/inc-double-success)))
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/div-double-num-success))))
 
 (deftest regex-return-declaration-and-checking
   (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics)
