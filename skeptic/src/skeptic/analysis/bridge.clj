@@ -128,6 +128,11 @@
     (seq? source-form) (let [v (vec source-form)] #(nth v % nil))
     :else (fn [_i] nil)))
 
+(defn- conditional-branch-source-forms
+  [source-form]
+  (when (seq? source-form)
+    (mapv second (partition 2 (rest source-form)))))
+
 (defn- collection-import-type
   [run {:keys [owner-ref prov] :as ctx} schemas source-form fixed-ctor union-ctor]
   (let [inner-ctx (descend-ctx ctx)
@@ -213,12 +218,16 @@
                    (merge-closed-refs child-results))))
 
 (defn- conditional-import-type
-  [run {:keys [prov] :as ctx} schema]
+  [run {:keys [prov] :as ctx} schema source-form]
   (let [inner-ctx (descend-ctx ctx)
-        branch-results (mapv (fn [[pred branch]]
-                               (let [branch-result (run (assoc inner-ctx :schema branch))]
+        branch-forms (conditional-branch-source-forms source-form)
+        branch-results (mapv (fn [i [pred branch]]
+                               (let [branch-result (run (assoc inner-ctx
+                                                               :schema branch
+                                                               :source-form (nth branch-forms i nil)))]
                                  {:branch [pred (:type branch-result)]
                                   :closed-refs (:closed-refs branch-result)}))
+                             (range)
                              (:preds-and-schemas schema))
         branch-provs (mapv (fn [{:keys [branch]}] (prov/of (second branch))) branch-results)
         node-p (node-prov prov nil branch-provs)]
@@ -393,7 +402,7 @@
       (branch-import-type run ctx (:schemas schema) ato/union-type)
 
       (sb/conditional-schema? schema)
-      (conditional-import-type run ctx schema)
+      (conditional-import-type run ctx schema source-form)
 
       (sb/cond-pre? schema)
       (branch-import-type run ctx (:schemas schema) ato/union-type)

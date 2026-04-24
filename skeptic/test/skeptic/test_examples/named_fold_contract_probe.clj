@@ -65,6 +65,22 @@
       0
       (recur (grow-pair-cache cache x x) x (dec n)))))
 
+(def IntBranch s/Int)
+(def StrBranch s/Str)
+
+(s/defn produce-conditional
+  :- (s/conditional integer? IntBranch string? StrBranch)
+  [x :- (s/conditional integer? IntBranch string? StrBranch)]
+  x)
+
+(s/defn conditional-branch-render :- {:result s/Any}
+  [x :- (s/conditional integer? IntBranch string? StrBranch)]
+  {:result (produce-conditional x)})
+
+(s/defn visible-conditional-branch-mismatch :- s/Int
+  []
+  {:result (produce-conditional 1)})
+
 (s/defschema FlowCache {s/Int s/Int})
 (s/def flow-cache-value :- FlowCache {})
 

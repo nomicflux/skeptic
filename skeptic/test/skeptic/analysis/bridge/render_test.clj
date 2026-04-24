@@ -13,6 +13,10 @@
   [prov]
   (at/->GroundT prov :int 'Int))
 
+(defn- ground-str
+  [prov]
+  (at/->GroundT prov :str 'Str))
+
 (defn- kw-key
   [prov k]
   (at/->ValueT prov (at/->GroundT prov :keyword 'Keyword) k))
@@ -136,6 +140,28 @@
   (let [schema-prov (p :schema 'demo/Thing)
         type (named-vector schema-prov)]
     (is (= 'demo/Thing (sut/render-type-form* type {})))))
+
+(deftest render-type-form*-folds-user-schema-ground-alias
+  (let [schema-prov (p :schema 'demo/IntBranch)
+        type (ground-int schema-prov)]
+    (is (= 'demo/IntBranch (sut/render-type-form* type {})))))
+
+(deftest render-type-form*-does-not-fold-core-schema-ground
+  (let [schema-prov (p :schema 'schema.core/Int)
+        type (ground-int schema-prov)]
+    (is (= 'Int (sut/render-type-form* type {})))))
+
+(deftest render-type-form*-folds-conditional-leaf-branches
+  (let [int-branch (ground-int (p :schema 'demo/IntBranch))
+        str-branch (ground-str (p :schema 'demo/StrBranch))
+        conditional (at/->ConditionalT tp [[integer? int-branch]
+                                           [string? str-branch]])]
+    (is (= '(conditional demo/IntBranch demo/StrBranch)
+           (sut/render-type-form* conditional {})))
+    (is (= {:t "conditional"
+            :branches [{:t "named" :name "demo/IntBranch" :source "schema"}
+                       {:t "named" :name "demo/StrBranch" :source "schema"}]}
+           (sut/type->json-data* conditional {})))))
 
 (deftest render-type-form*-folds-non-root-foldable-subtree
   (let [schema-prov (p :schema 'demo/Thing)

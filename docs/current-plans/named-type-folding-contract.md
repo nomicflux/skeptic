@@ -121,8 +121,8 @@ for only their children or leaves to carry `Rec`.
 **Case F — conditional schema branches keep their names:**
 
 ```clojure
-(s/defschema IntBranch s/Int)
-(s/defschema StrBranch s/Str)
+(def IntBranch s/Int)
+(def StrBranch s/Str)
 
 (s/defn produce-conditional
   :- (s/conditional integer? IntBranch string? StrBranch)
