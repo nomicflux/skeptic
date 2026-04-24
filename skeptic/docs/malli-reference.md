@@ -145,6 +145,7 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
     - `[:maybe X]` → `MaybeT` over the converted inner.
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
+    - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
     - Anything else → `Dyn`.
 
@@ -156,7 +157,7 @@ Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = T
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or`. `[:map ...]`, refs, `:enum`, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` all convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` all convert to `Dyn`.
 - Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
 - Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
