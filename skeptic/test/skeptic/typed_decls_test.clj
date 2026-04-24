@@ -2,11 +2,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.typed-decls :as sut])
-  (:import [java.util IdentityHashMap]))
+            [skeptic.typed-decls :as sut]))
 
 (def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
 
@@ -54,35 +52,19 @@
     (testing "distinct types produce IntersectionT"
       (is (at/intersection-type? (get (:dict merged) 'split))))))
 
-(def ^:private test-declared-var s/Int)
-(def ^:private test-annotation-var s/Str)
-
-(defn- annotation-refs-map [declared annotation]
-  (doto (IdentityHashMap.) (.put declared annotation)))
-
 (defn- desc-for [v] {:schema @v})
 
-(defn- run-convert [refs sym]
+(def test-declared-var s/Int)
+
+(defn- run-convert [sym]
   (let [desc (desc-for (resolve sym))
-        result (binding [ab/*annotation-refs* refs]
-                 (sut/convert-desc *ns* sym desc))]
+        result (sut/convert-desc *ns* sym desc)]
     (get (:provenance result) sym)))
 
-(deftest effective-prov-with-annotation-entry-uses-annotation-var
-  (let [refs (annotation-refs-map #'test-declared-var #'test-annotation-var)
-        p (run-convert refs 'skeptic.typed-decls-test/test-declared-var)]
-    (is (= :schema (:source p)))
-    (is (= (sb/qualified-var-symbol #'test-annotation-var) (:qualified-sym p)))))
-
-(deftest effective-prov-without-annotation-entry-uses-declared-sym
-  (let [p (run-convert nil 'skeptic.typed-decls-test/test-declared-var)]
+(deftest convert-desc-uses-declared-symbol-provenance
+  (let [p (run-convert 'skeptic.typed-decls-test/test-declared-var)]
     (is (= :schema (:source p)))
     (is (= 'skeptic.typed-decls-test/test-declared-var (:qualified-sym p)))))
-
-(deftest effective-prov-annotation-var-without-schema-meta-uses-annotation-qualified-sym
-  (let [refs (annotation-refs-map #'test-declared-var #'test-annotation-var)
-        p (run-convert refs 'skeptic.typed-decls-test/test-declared-var)]
-    (is (= (sb/qualified-var-symbol #'test-annotation-var) (:qualified-sym p)))))
 
 (deftest typed-ns-results-omit-bad-declarations-and-keep-errors
   (require 'skeptic.best-effort-examples)

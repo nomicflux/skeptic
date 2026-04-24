@@ -89,34 +89,6 @@
     (is (= 'skeptic.best-effort-examples/invalid-schema-decl
            (:blame (first errors))))))
 
-(deftest build-annotation-refs-populates-defn-and-def-entries
-  (require 'skeptic.test-examples.annotation-refs)
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        file (File. "test/skeptic/test_examples/annotation_refs.clj")
-        refs (sut/build-annotation-refs! (java.util.IdentityHashMap.) ns-sym file)
-        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)
-        annotated-fn-var (resolve 'skeptic.test-examples.annotation-refs/annotated-fn)
-        annotated-val-var (resolve 'skeptic.test-examples.annotation-refs/annotated-val)]
-    (is (= ref-schema-var (.get refs annotated-fn-var)))
-    (is (= ref-schema-var (.get refs annotated-val-var)))
-    (is (= 2 (.size refs)))))
-
-(deftest build-annotation-refs-skips-unannotated-forms
-  (require 'skeptic.test-examples.annotation-refs)
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        file (File. "test/skeptic/test_examples/annotation_refs.clj")
-        refs (sut/build-annotation-refs! (java.util.IdentityHashMap.) ns-sym file)
-        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)]
-    (is (nil? (.get refs ref-schema-var)))))
-
-(deftest build-annotation-refs-skips-unresolvable-annotation
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        tmp (java.io.File/createTempFile "annotation-refs-test" ".clj")]
-    (spit tmp "(ns skeptic.test-examples.annotation-refs (:require [schema.core :as s])) (s/def orphan :- NoSuchVar 99)")
-    (let [refs (sut/build-annotation-refs! (java.util.IdentityHashMap.) ns-sym tmp)]
-      (is (zero? (.size refs))))
-    (.delete tmp)))
-
 (deftest build-form-refs-stores-defn-annotation-form
   (require 'skeptic.test-examples.annotation-refs)
   (let [ns-sym 'skeptic.test-examples.annotation-refs

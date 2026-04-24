@@ -37,8 +37,8 @@
     (is (= :schema (prov/source p)))
     (is (= 'skeptic.test-examples.named-fold-contract-probe/MyInt (:qualified-sym p)))))
 
-(deftest q-anchors-to-schema-int-prov
+(deftest q-keeps-declared-var-prov-for-core-schema-int
   (let [{:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
         p (declared-prov dict 'skeptic.test-examples.named-fold-contract-probe/q)]
     (is (= :schema (prov/source p)))
-    (is (= 'schema.core/Int (:qualified-sym p)))))
+    (is (= 'skeptic.test-examples.named-fold-contract-probe/q (:qualified-sym p)))))

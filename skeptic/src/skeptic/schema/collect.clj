@@ -264,11 +264,6 @@
   [opts ns]
   (:entries (ns-schema-results opts ns)))
 
-(defn- annotation-sym-for-form
-  [form]
-  (or (cf/extract-def-annotation-symbol form)
-      (cf/extract-defn-annotation-symbol form)))
-
 (defn- declared-name-sym
   [form]
   (when (seq? form) (second form)))
@@ -277,25 +272,6 @@
   [ns-sym sym]
   (binding [*ns* (the-ns ns-sym)]
     (ns-resolve (the-ns ns-sym) sym)))
-
-(defn- put-annotation-entry!
-  [^java.util.IdentityHashMap acc ns-sym form]
-  (when-let [ann-sym (annotation-sym-for-form form)]
-    (when-let [decl-sym (declared-name-sym form)]
-      (when-let [decl-var (resolve-in-ns ns-sym decl-sym)]
-        (when-let [ann-var (resolve-in-ns ns-sym ann-sym)]
-          (.put acc decl-var ann-var))))))
-
-(defn build-annotation-refs!
-  [^java.util.IdentityHashMap acc ns-sym source-file]
-  (try
-    (with-open [reader (file/pushback-reader source-file)]
-      (->> (repeatedly #(file/try-read reader))
-           (take-while some?)
-           (remove file/is-ns-block?)
-           (run! #(put-annotation-entry! acc ns-sym %))))
-    (catch Exception _))
-  acc)
 
 (defn- extract-form-for
   [form]
