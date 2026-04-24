@@ -17,6 +17,7 @@
 
 (defn ns-malli-spec-results
   [_opts ns]
+  (require ns)
   (binding [*ns* (the-ns ns)]
     (reduce (fn [{:keys [entries errors] :as acc} v]
               (if-let [qualified-sym (sb/qualified-var-symbol v)]
