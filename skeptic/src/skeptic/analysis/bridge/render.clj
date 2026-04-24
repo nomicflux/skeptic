@@ -9,20 +9,23 @@
 (def ^:private default-render-opts
   {:explain-full false})
 
-(def ^:private leaf-type-preds
-  [at/dyn-type? at/bottom-type? at/ground-type? at/numeric-dyn-type?
-   at/refinement-type? at/adapter-leaf-type? at/value-type? at/type-var-type?])
-
-(defn- leaf-type?
-  [t]
-  (boolean (some #(% t) leaf-type-preds)))
+(def ^:private core-schema-leaf-syms
+  '#{schema.core/Int
+     schema.core/Str
+     schema.core/Keyword
+     schema.core/Symbol
+     schema.core/Bool
+     schema.core/Num
+     schema.core/Any})
 
 (defn- folded-name
   [t]
-  (when-not (leaf-type? t)
-    (let [p (prov/of t)]
-      (when (contains? foldable-sources (prov/source p))
-        (:qualified-sym p)))))
+  (let [p (prov/of t)
+        sym (:qualified-sym p)]
+    (when (and sym
+               (contains? foldable-sources (prov/source p))
+               (not (contains? core-schema-leaf-syms sym)))
+      sym)))
 
 (declare render-type-form*)
 

@@ -36,7 +36,7 @@
   [ctx dict ns-sym name params param-type-overrides]
   (mapv (fn [param spec]
           (if-let [type (get param-type-overrides (:form param))]
-            (assoc spec :type (aapi/normalize-type ctx type))
+            (assoc spec :type (aapi/normalize-type-for-declared-type ctx type))
             spec))
         params
         (arg-type-specs ctx dict ns-sym name params)))

@@ -1,6 +1,7 @@
 (ns skeptic.checking.pipeline.basics-test
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.checking.pipeline.support :as ps]
@@ -9,6 +10,10 @@
             [skeptic.typed-decls :as typed-decls]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+
+(defn- named-schema-type
+  [sym schema]
+  (ab/schema->type (prov/make-provenance :schema sym 'skeptic.test nil) schema))
 
 (deftest annotated-input-ground-type-mismatch
   (are [sym errors] (= (set (partition 2 errors))
@@ -92,7 +97,7 @@
              {:expr 'sample-bad-constrained-output-fn
               :arg 'x}
              (ps/T s/Str)
-             (ps/T basics/PosInt))]]
+             (named-schema-type 'skeptic.test-examples.basics/PosInt basics/PosInt))]]
          (ps/result-errors
           (ps/check-fixture 'skeptic.test-examples.basics/sample-bad-constrained-output-fn)))))
 

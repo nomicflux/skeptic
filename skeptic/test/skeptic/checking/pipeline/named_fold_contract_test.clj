@@ -15,6 +15,7 @@
 (def producer-names
   ["compute-result" "compute-cache" "produce-inner-set" "add-with-cache-analogue"
    "compute-pair-cache" "cache-hit-analogue" "grow-pair-cache"
+   "produce-conditional" "conditional-branch-render"
    "fn-with-call" "fn-with-composed" "fn-with-literal"])
 
 (defn- analysis-env
@@ -75,15 +76,15 @@
     (is (= {:result [#{'Int}]}
            rendered))))
 
-(deftest case-f-identity-preserving-flow-keeps-name
+(deftest case-g-identity-preserving-flow-keeps-name
   (let [rendered (resolved-def-render (analysis-env) (q 'inferred-cache))]
     (is (= 'skeptic.test-examples.named-fold-contract-probe/FlowCache rendered))))
 
-(deftest case-g-inferred-wrapper-keeps-named-child
+(deftest case-h-inferred-wrapper-keeps-named-child
   (let [rendered (resolved-def-render (analysis-env) (q 'inferred-cache-vector))]
     (is (= ['skeptic.test-examples.named-fold-contract-probe/FlowCache] rendered))))
 
-(deftest case-h-same-structure-different-names-render-distinctly
+(deftest case-i-same-structure-different-names-render-distinctly
   (let [env (analysis-env)]
     (is (= 'skeptic.test-examples.named-fold-contract-probe/Map1
            (render/render-type-form (get-in env [:dict (q 'map1-value)]))))
@@ -110,6 +111,15 @@
     (is (= {:result 'skeptic.test-examples.named-fold-contract-probe/Threal
             :cache  'skeptic.test-examples.named-fold-contract-probe/ThrealPairCache}
            rendered))
+    (assert-no-producer-name rendered)))
+
+(deftest case-f-conditional-branches-keep-names
+  (let [result (public-output-result (q 'visible-conditional-branch-mismatch))
+        rendered (render/render-type-form (:actual-type result))]
+    (is (= {:result (list 'conditional (q 'IntBranch) (q 'StrBranch))}
+           rendered))
+    (is (not= {:result '(union Int Str)} rendered))
+    (is (not= {:result '(conditional Int Str)} rendered))
     (assert-no-producer-name rendered)))
 
 (deftest empty-cache-recur-target-widens-to-named-cache

@@ -105,6 +105,32 @@
     (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
     :else (invalid-normalize-type-input value)))
 
+(defn normalize-type-preserving-conditionals
+  [prov value]
+  (cond
+    (at/conditional-type? value)
+    (at/->ConditionalT
+     (prov/of value)
+     (mapv (fn [[pred typ]]
+             [pred (normalize-type-preserving-conditionals (prov/of typ) typ)])
+           (:branches value)))
+
+    (at/semantic-type-value? value) value
+    (nil? value) (at/->MaybeT prov (at/Dyn prov))
+    (sb/schema-literal? value) (exact-value-type prov value)
+    (s/optional-key? value)
+    (at/->OptionalKeyT prov (normalize-type-preserving-conditionals prov (:k value)))
+    (and (map? value) (not (record? value)))
+    (at/->MapT prov (into {}
+                          (map (fn [[k v]]
+                                 [(normalize-type-preserving-conditionals prov k)
+                                  (normalize-type-preserving-conditionals prov v)]))
+                          value))
+    (vector? value) (at/->VectorT prov (mapv #(normalize-type-preserving-conditionals prov %) value) (= 1 (count value)))
+    (set? value) (at/->SetT prov (into #{} (map #(normalize-type-preserving-conditionals prov %)) value) (= 1 (count value)))
+    (seq? value) (at/->SeqT prov (mapv #(normalize-type-preserving-conditionals prov %) value) (= 1 (count value)))
+    :else (invalid-normalize-type-input value)))
+
 (defn normalize-intersection-members
   [prov members]
   (->> members
@@ -120,13 +146,9 @@
   (union-type-with-normalize normalize-type prov members))
 
 (defn normalize-type-for-declared-type
-  "Preserves top-level ConditionalT (with normalized branch types) so schema-declared
-  conditional params keep predicates for case narrowing. Else same as normalize-type."
+  "Normalize while preserving ConditionalT structure recursively."
   [prov value]
-  (if (at/conditional-type? value)
-    (at/->ConditionalT prov (mapv (fn [[pred typ]] [pred (normalize-type prov typ)])
-                                  (:branches value)))
-    (normalize-type prov value)))
+  (normalize-type-preserving-conditionals prov value))
 
 (defn intersection-type
   [prov members]

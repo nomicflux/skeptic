@@ -271,10 +271,10 @@
   [{:keys [recur-targets] :as ctx} node]
   (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
         targets (some-> (:loop-id node) recur-targets)
-        actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
+        actual-argtypes (mapv #(aapi/normalize-type-for-declared-type ctx (:type %)) exprs)]
     (cond-> (assoc node :exprs exprs :type (aapi/bottom ctx))
       (and (seq targets) (= (count targets) (count exprs)))
-      (assoc :expected-argtypes (mapv #(aapi/normalize-type ctx %) targets)
+      (assoc :expected-argtypes (mapv #(aapi/normalize-type-for-declared-type ctx %) targets)
              :actual-argtypes actual-argtypes))))
 
 (defn- truthy-literal?
