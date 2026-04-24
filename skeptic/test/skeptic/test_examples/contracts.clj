@@ -430,6 +430,10 @@
   [f :- (s/=> s/Int s/Int)]
   f)
 
+(s/defn outer-fn
+  [f :- (s/=> s/Any s/Str)]
+  (outer-fn (fn [] nil)))
+
 (s/defn if-nullable-guard-success :- s/Str
   [x :- (s/maybe s/Str)]
   (if (not (nil? x))

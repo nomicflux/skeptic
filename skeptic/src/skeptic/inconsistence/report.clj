@@ -244,17 +244,31 @@
 (defn display-cast
   ([report]
    (display-cast report {}))
-  ([{:keys [rule actual-type expected-type cast-summary]} opts]
-   (when-not (= :exception (:report-kind cast-summary))
-     (let [rule (or (:rule cast-summary) rule)
-           actual-type (or (:actual-type cast-summary) actual-type)
-           expected-type (or (:expected-type cast-summary) expected-type)]
-       {:rule rule
-        :rule-text (some-> rule name)
-        :actual-type actual-type
-        :expected-type expected-type
-        :actual-type-text (disp/describe-type-block actual-type opts)
-        :expected-type-text (disp/describe-type-block expected-type opts)}))))
+  ([{:keys [report-kind rule actual-type expected-type cast-summary cast-diagnostics]} opts]
+   (when-not (= :exception report-kind)
+     (let [primary (first cast-diagnostics)
+           rule (or (:rule cast-summary) rule (:rule primary))
+           actual-type (or (:actual-type cast-summary) actual-type (:actual-type primary))
+           expected-type (or (:expected-type cast-summary) expected-type (:expected-type primary))]
+       (when (or actual-type expected-type)
+         (when (nil? actual-type)
+           (throw (ex-info "Report cast display missing actual type"
+                           {:missing-field :actual-type
+                            :rule rule
+                            :cast-summary cast-summary
+                            :cast-diagnostics cast-diagnostics})))
+         (when (nil? expected-type)
+           (throw (ex-info "Report cast display missing expected type"
+                           {:missing-field :expected-type
+                            :rule rule
+                            :cast-summary cast-summary
+                            :cast-diagnostics cast-diagnostics})))
+         {:rule rule
+          :rule-text (some-> rule name)
+          :actual-type actual-type
+          :expected-type expected-type
+          :actual-type-text (disp/describe-type-block actual-type opts)
+          :expected-type-text (disp/describe-type-block expected-type opts)})))))
 
 (defn report-summary
   ([report]
@@ -282,7 +296,8 @@
           (or (if (= :output (:report-kind report))
                 (let [root-sum (:cast-summary report)
                       selected (or (primary-actionable-output-leaf report) root-sum)
-                      base (display-cast (assoc report :cast-summary selected) opts)]
+                      display-source (merge root-sum selected)
+                      base (display-cast (assoc report :cast-summary display-source) opts)]
                   (if (and base root-sum)
                     (let [et (:expected-type root-sum)]
                       (merge base

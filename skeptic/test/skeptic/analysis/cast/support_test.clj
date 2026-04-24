@@ -28,6 +28,35 @@
     (is (= plain (sut/optional-key-inner plain)))
     (is (= [{:kind :map-key :key :name}] (:path result)))))
 
+(deftest cast-results-reject-missing-types-test
+  (let [capture (fn [f]
+                  (try
+                    (f)
+                    (catch clojure.lang.ExceptionInfo e
+                      e)))
+        source-ex (capture #(sut/cast-fail nil
+                                           (T s/Str)
+                                           :leaf-overlap
+                                           :positive
+                                           :leaf-mismatch))
+        target-ex (capture #(sut/cast-fail (T s/Keyword)
+                                           nil
+                                           :leaf-overlap
+                                           :positive
+                                           :leaf-mismatch))]
+    (is (instance? clojure.lang.ExceptionInfo source-ex))
+    (is (= {:rule :leaf-overlap
+            :reason :leaf-mismatch
+            :missing-field :source-type}
+           (select-keys (ex-data source-ex) [:rule :reason :missing-field])))
+    (is (contains? (ex-data source-ex) :cast-result-inputs))
+    (is (instance? clojure.lang.ExceptionInfo target-ex))
+    (is (= {:rule :leaf-overlap
+            :reason :leaf-mismatch
+            :missing-field :target-type}
+           (select-keys (ex-data target-ex) [:rule :reason :missing-field])))
+    (is (contains? (ex-data target-ex) :cast-result-inputs))))
+
 (deftest leaf-diagnostics-test
   (let [result (cast/check-cast (T {:user {:name s/Keyword}})
                                 (T {:user {:name s/Str}}))

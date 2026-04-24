@@ -55,7 +55,7 @@
                    target-method
                    opts
                    (method-children run-child source-method target-method opts))
-    (missing-method source-type nil target-method opts)))
+    (missing-method source-type target-method target-method opts)))
 
 (defn check-function-cast
   [run-child source-type target-type opts]
