@@ -45,6 +45,17 @@
   [type opts]
   (mapv (comp #(render-type-form* % opts) second) (:branches type)))
 
+(defn- render-refinement-form
+  [type opts]
+  (let [display (:display-form type)]
+    (if (and (seq? display)
+             (= 'constrained (first display))
+             (= 3 (count display)))
+      (list 'constrained
+            (render-type-form* (:base type) opts)
+            (nth display 2))
+      display)))
+
 (defn render-type-form*
   [type opts]
   (let [opts (merge default-render-opts opts)
@@ -58,7 +69,7 @@
         (at/bottom-type? type) 'Bottom
         (at/ground-type? type) (:display-form type)
         (at/numeric-dyn-type? type) 'Number
-        (at/refinement-type? type) (:display-form type)
+        (at/refinement-type? type) (render-refinement-form type opts)
         (at/adapter-leaf-type? type) (:display-form type)
         (at/optional-key-type? type) (list 'optional-key (render-type-form* (:inner type) opts))
         (at/value-type? type) (let [v (:value type)] (if (nil? v) (symbol "nil") v))

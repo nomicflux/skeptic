@@ -81,6 +81,46 @@
   []
   {:result (produce-conditional 1)})
 
+(s/defn produce-either :- (s/either IntBranch StrBranch)
+  [x :- (s/either IntBranch StrBranch)]
+  x)
+
+(s/defn produce-cond-pre :- (s/cond-pre IntBranch StrBranch)
+  [x :- (s/cond-pre IntBranch StrBranch)]
+  x)
+
+(s/defn produce-both :- (s/both IntBranch StrBranch)
+  [x :- (s/both IntBranch StrBranch)]
+  x)
+
+(s/defn produce-maybe :- (s/maybe IntBranch)
+  [x :- (s/maybe IntBranch)]
+  x)
+
+(s/defn produce-constrained :- (s/constrained IntBranch pos?)
+  [x :- (s/constrained IntBranch pos?)]
+  x)
+
+(s/defn visible-either-branch-mismatch :- s/Int
+  []
+  {:result (produce-either 1)})
+
+(s/defn visible-cond-pre-branch-mismatch :- s/Int
+  []
+  {:result (produce-cond-pre 1)})
+
+(s/defn visible-both-branch-mismatch :- s/Int
+  []
+  {:result (produce-both 1)})
+
+(s/defn visible-maybe-branch-mismatch :- s/Int
+  []
+  {:result (produce-maybe 1)})
+
+(s/defn visible-constrained-branch-mismatch :- s/Int
+  []
+  {:result (produce-constrained 1)})
+
 (s/defschema FlowCache {s/Int s/Int})
 (s/def flow-cache-value :- FlowCache {})
 

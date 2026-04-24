@@ -16,6 +16,7 @@
   ["compute-result" "compute-cache" "produce-inner-set" "add-with-cache-analogue"
    "compute-pair-cache" "cache-hit-analogue" "grow-pair-cache"
    "produce-conditional" "conditional-branch-render"
+   "produce-either" "produce-cond-pre" "produce-both" "produce-maybe" "produce-constrained"
    "fn-with-call" "fn-with-composed" "fn-with-literal"])
 
 (defn- analysis-env
@@ -54,6 +55,13 @@
   (doseq [producer producer-names]
     (is (not (str/includes? (pr-str rendered) producer))
         (str producer " must not appear in rendered actual type"))))
+
+(defn- assert-public-render
+  [sym expected]
+  (let [result (public-output-result (q sym))
+        rendered (render/render-type-form (:actual-type result))]
+    (is (= expected rendered))
+    (assert-no-producer-name rendered)))
 
 (deftest case-a-add-with-cache-analogue-folds-threal-and-threalcache
   (let [rendered (rendered-actual (analysis-env) (q 'add-with-cache-analogue))]
@@ -121,6 +129,20 @@
     (is (not= {:result '(union Int Str)} rendered))
     (is (not= {:result '(conditional Int Str)} rendered))
     (assert-no-producer-name rendered)))
+
+(deftest adjacent-branch-combinators-keep-names
+  (assert-public-render 'visible-either-branch-mismatch
+                        {:result (list 'union (q 'IntBranch) (q 'StrBranch))})
+  (assert-public-render 'visible-cond-pre-branch-mismatch
+                        {:result (list 'union (q 'IntBranch) (q 'StrBranch))})
+  (assert-public-render 'visible-both-branch-mismatch
+                        {:result (list 'intersection (q 'IntBranch) (q 'StrBranch))}))
+
+(deftest adjacent-unary-combinators-keep-names
+  (assert-public-render 'visible-maybe-branch-mismatch
+                        {:result (list 'maybe (q 'IntBranch))})
+  (assert-public-render 'visible-constrained-branch-mismatch
+                        {:result (list 'constrained (q 'IntBranch) 'pos?)}))
 
 (deftest empty-cache-recur-target-widens-to-named-cache
   (let [result (public-output-result (q 'recur-cache-fold-probe))]
