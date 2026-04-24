@@ -152,6 +152,16 @@
   ;; Do not create a type for pprint to pass
   (clojure.pprint/pprint msg))
 
+(s/defn takes-str :- s/Str
+  [x :- s/Str]
+  x)
+
+(s/defn let-bound-when-truthy-narrows-success
+  [k1 k2]
+  (let [x (when k1 k2)]
+    (when (and (some? k1) x)
+      (takes-str x))))
+
 (s/defn eq-nil-return-success :- Hooks
   []
   {:on-complete (fn [_] (opaque-logging-fn "complete"))

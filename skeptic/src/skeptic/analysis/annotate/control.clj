@@ -123,7 +123,7 @@
         init (:init annotated)
         base-entry (binding-base-entry ctx annotated)
         base-origin (:origin base-entry)
-        preserve-structured-origin? (= :map-key-lookup (:kind base-origin))
+        preserve-structured-origin? (and base-origin (not= :root (:kind base-origin)))
         branch-test-sym (get-in base-origin [:test :root :sym])
         binding-sym (:form binding)
         narrowing-alias-sym (narrowing-alias-root-sym ctx init base-origin)
