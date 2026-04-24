@@ -1,5 +1,6 @@
 (ns skeptic.typed-decls.malli-test
   (:require [clojure.test :refer [deftest is testing]]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as scollect]
@@ -22,6 +23,19 @@
   (let [t (tdm/desc->type tp {:name 'foo/baz :malli-spec :int})]
     (is (= Int t))
     (is (not (at/fun-type? t)))))
+
+(deftest desc->type-enum-returns-union-of-exact-values
+  (let [t (tdm/desc->type tp {:name 'foo/e :malli-spec [:enum :a :b]})
+        expected (ato/union-type tp [(ato/exact-value-type tp :a)
+                                     (ato/exact-value-type tp :b)])]
+    (is (at/type=? expected t))))
+
+(deftest desc->type-enum-in-=>-output
+  (let [t (tdm/desc->type tp {:name 'foo/f :malli-spec [:=> [:cat :int] [:enum :ok :bad]]})
+        expected (ato/union-type tp [(ato/exact-value-type tp :ok)
+                                     (ato/exact-value-type tp :bad)])]
+    (is (at/fun-type? t))
+    (is (at/type=? expected (at/fn-method-output (first (at/fun-methods t)))))))
 
 (deftest typed-ns-malli-results-entries
   (let [{:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli)]
