@@ -252,12 +252,18 @@
     (is (= vec-body-qsym (:qualified-sym (prov/of child-type))))))
 
 (deftest form-prov-non-symbol-form-no-override-test
-  (let [result (ab/schema->type tp (s/maybe s/Int)
+  (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        result (ab/schema->type tp (s/maybe s/Int)
                                 '(s/maybe skeptic.test-examples.form-refs/MapBody))
         p (prov/of result)]
     (is (= :inferred (prov/source p)))
     (is (nil? (:qualified-sym p)))
-    (is (= [tp] (:refs p)))))
+    (is (= map-body-qsym (-> p :refs first :qualified-sym)))))
+
+(deftest form-prov-class-symbol-falls-through-test
+  (let [result (ab/schema->type tp String 'String)]
+    (is (= tp (prov/of result)))
+    (is (= 'String (abr/render-type-form result)))))
 
 (deftest form-prov-non-schema-var-falls-through-test
   (let [result (ab/schema->type tp s/Int 'clojure.core/+)]
@@ -272,6 +278,20 @@
         result (ab/schema->type tp s/Int 'skeptic.analysis.bridge-test/AliasedSchema)]
     (is (= :schema (prov/source (prov/of result))))
     (is (= alias-qsym (:qualified-sym (prov/of result))))))
+
+(deftest form-prov-wrapper-children-keep-source-forms-test
+  (let [alias-qsym (sb/qualified-var-symbol #'AliasedSchema)]
+    (is (= (list 'optional-key alias-qsym)
+           (abr/render-type-form
+            (ab/schema->type tp
+                             (s/optional-key s/Int)
+                             '(s/optional-key skeptic.analysis.bridge-test/AliasedSchema)))))
+    (is (= (list 'var alias-qsym)
+           (abr/render-type-form
+            (ab/schema->type tp
+                             (sb/variable s/Int)
+                             '(skeptic.analysis.schema-base/variable
+                               skeptic.analysis.bridge-test/AliasedSchema)))))))
 
 (deftest form-prov-nil-source-form-unchanged-test
   (let [result (ab/schema->type tp s/Int)]

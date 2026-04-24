@@ -35,18 +35,28 @@
       true
       :else false)))
 
+(defn- explicit-class-source-form
+  [schema source-form]
+  (when (symbol? source-form)
+    (let [resolved (try (resolve source-form) (catch Exception _ nil))]
+      (when (and (class? resolved) (= schema resolved))
+        (symbol (.getSimpleName ^Class resolved))))))
+
 (defn primitive-ground-type
-  [prov schema]
-  (let [schema (sb/canonical-scalar-schema schema)]
-    (cond
-      (= schema s/Int) (at/->GroundT prov :int 'Int)
-      (= schema s/Str) (at/->GroundT prov :str 'Str)
-      (= schema s/Keyword) (at/->GroundT prov :keyword 'Keyword)
-      (= schema s/Symbol) (at/->GroundT prov :symbol 'Symbol)
-      (= schema s/Bool) (at/->GroundT prov :bool 'Bool)
-      (and (class? schema)
-           (not (broad-dynamic-schema? schema)))
-      (at/->GroundT prov {:class schema} (abc/schema-explain schema)))))
+  ([prov schema]
+   (primitive-ground-type prov schema nil))
+  ([prov schema source-form]
+   (let [schema-form (explicit-class-source-form schema source-form)
+        schema (sb/canonical-scalar-schema schema)]
+     (cond
+       (= schema s/Int) (at/->GroundT prov :int (or schema-form 'Int))
+       (= schema s/Str) (at/->GroundT prov :str (or schema-form 'Str))
+       (= schema s/Keyword) (at/->GroundT prov :keyword (or schema-form 'Keyword))
+       (= schema s/Symbol) (at/->GroundT prov :symbol (or schema-form 'Symbol))
+       (= schema s/Bool) (at/->GroundT prov :bool (or schema-form 'Bool))
+       (and (class? schema)
+            (not (broad-dynamic-schema? schema)))
+       (at/->GroundT prov {:class schema} (abc/schema-explain schema))))))
 
 (defn- invalid-schema-input
   [value]
@@ -90,9 +100,16 @@
     :else
     one))
 
+(defn- unary-source-form
+  [source-form]
+  (when (seq? source-form)
+    (second source-form)))
+
 (defn- refinement-import-type
-  [run {:keys [prov] :as ctx} schema]
-  (let [base-result (run (assoc ctx :schema (sb/de-constrained schema)))]
+  [run {:keys [prov] :as ctx} schema source-form]
+  (let [base-result (run (assoc ctx
+                                :schema (sb/de-constrained schema)
+                                :source-form (unary-source-form source-form)))]
     (import-result
      (at/->RefinementT prov
                        (:type base-result)
@@ -125,7 +142,7 @@
   (cond
     (vector? source-form) #(nth source-form % nil)
     (set? source-form) (let [v (vec source-form)] #(nth v % nil))
-    (seq? source-form) (let [v (vec source-form)] #(nth v % nil))
+    (seq? source-form) (let [v (vec (rest source-form))] #(nth v % nil))
     :else (fn [_i] nil)))
 
 (defn- conditional-branch-source-forms
@@ -209,9 +226,15 @@
      (merge-closed-refs (conj method-results output-result)))))
 
 (defn- branch-import-type
-  [run {:keys [prov] :as ctx} schemas build]
+  [run {:keys [prov] :as ctx} schemas source-form build]
   (let [inner-ctx (descend-ctx ctx)
-        child-results (mapv #(run (assoc inner-ctx :schema %)) schemas)
+        child-form (child-form-fn source-form)
+        child-results (mapv (fn [i schema]
+                              (run (assoc inner-ctx
+                                          :schema schema
+                                          :source-form (child-form i))))
+                            (range)
+                            schemas)
         child-types (mapv :type child-results)
         node-p (node-prov prov nil (mapv prov/of child-types))]
     (import-result (build node-p child-types)
@@ -278,14 +301,15 @@
   (cond
     (symbol? form)
     (when-let [v (try (resolve form) (catch Exception _ nil))]
-      (let [m (meta v)]
-        (when (and (not (:macro m)) (bound? v))
-          (let [val @v]
-            (when (and (not (fn? val)) (not (sb/schema-literal? val)) (schema-domain? val))
-              (prov/make-provenance :schema
-                                    (sb/qualified-var-symbol v)
-                                    (some-> v .ns ns-name)
-                                    m))))))
+      (when (instance? clojure.lang.Var v)
+        (let [m (meta v)]
+          (when (and (not (:macro m)) (bound? v))
+            (let [val @v]
+              (when (and (not (fn? val)) (not (sb/schema-literal? val)) (schema-domain? val))
+                (prov/make-provenance :schema
+                                      (sb/qualified-var-symbol v)
+                                      (some-> v .ns ns-name)
+                                      m)))))))
 
     :else
     (when-let [name-sym (inline-named-name form)]
@@ -374,44 +398,50 @@
 
       (s/optional-key? schema)
       (unary-node-result prov at/->OptionalKeyT source-form
-                         (run (assoc (descend-ctx ctx) :schema (:k schema))))
+                         (run (assoc (descend-ctx ctx)
+                                     :schema (:k schema)
+                                     :source-form (unary-source-form source-form))))
 
       (sb/eq? schema)
       (import-result (ato/exact-value-type prov (sb/de-eq schema)))
 
       (sb/constrained? schema)
-      (refinement-import-type run ctx schema)
+      (refinement-import-type run ctx schema source-form)
 
       (primitive-ground-schema? scalar-schema)
-      (import-result (primitive-ground-type prov scalar-schema))
+      (import-result (primitive-ground-type prov schema source-form))
 
       (sb/fn-schema? schema)
       (function-import-type run ctx schema source-form)
 
       (sb/maybe? schema)
       (unary-node-result prov at/->MaybeT source-form
-                         (run (assoc (descend-ctx ctx) :schema (:schema schema))))
+                         (run (assoc (descend-ctx ctx)
+                                     :schema (:schema schema)
+                                     :source-form (unary-source-form source-form))))
 
       (sb/enum-schema? schema)
       (import-result (ato/union-type prov (mapv #(ato/exact-value-type prov %) (sb/de-enum schema))))
 
       (sb/join? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) source-form ato/union-type)
 
       (sb/either? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) source-form ato/union-type)
 
       (sb/conditional-schema? schema)
       (conditional-import-type run ctx schema source-form)
 
       (sb/cond-pre? schema)
-      (branch-import-type run ctx (:schemas schema) ato/union-type)
+      (branch-import-type run ctx (:schemas schema) source-form ato/union-type)
 
       (sb/both? schema)
-      (branch-import-type run ctx (:schemas schema) ato/intersection-type)
+      (branch-import-type run ctx (:schemas schema) source-form ato/intersection-type)
 
       (sb/valued-schema? schema)
-      (let [inner-result (run (assoc (descend-ctx ctx) :schema (:schema schema)))
+      (let [inner-result (run (assoc (descend-ctx ctx)
+                                     :schema (:schema schema)
+                                     :source-form (unary-source-form source-form)))
             child-prov (prov/of (:type inner-result))
             node-p (node-prov prov source-form [child-prov])]
         (import-result (at/->ValueT node-p (:type inner-result) (:value schema))
@@ -419,7 +449,9 @@
 
       (sb/variable? schema)
       (unary-node-result prov at/->VarT source-form
-                         (run (assoc (descend-ctx ctx) :schema (:schema schema))))
+                         (run (assoc (descend-ctx ctx)
+                                     :schema (:schema schema)
+                                     :source-form (unary-source-form source-form))))
 
       (sb/plain-map-schema? schema)
       (map-import-type run ctx schema source-form)
