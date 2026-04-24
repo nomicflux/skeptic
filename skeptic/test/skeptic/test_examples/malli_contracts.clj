@@ -25,3 +25,9 @@
 
 (defn ^{:malli/schema [:=> [:cat :int] :int]} map-dyn-caller
   [n] (get map-schema-dyn-var :x n))
+
+(defn ^{:malli/schema [:=> [:cat :int] [:enum :ok :bad]]} enum-output-success
+  [_x] :ok)
+
+(defn ^{:malli/schema [:=> [:cat [:enum :ok :bad]] :string]} enum-input-flows-to-string
+  [x] x)
