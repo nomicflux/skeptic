@@ -118,9 +118,35 @@ Forbidden actual-side render:
 The root nodes of `Rec` and `RecCache` carry those names. It is not enough
 for only their children or leaves to carry `Rec`.
 
+**Case F — conditional schema branches keep their names:**
+
+```clojure
+(s/defschema IntBranch s/Int)
+(s/defschema StrBranch s/Str)
+
+(s/defn produce-conditional
+  :- (s/conditional integer? IntBranch string? StrBranch)
+  [x :- (s/conditional integer? IntBranch string? StrBranch)]
+  x)
+
+(s/defn conditional-branch-render :- {:result s/Any}
+  [x :- (s/conditional integer? IntBranch string? StrBranch)]
+  {:result (produce-conditional x)})
+```
+
+Required actual-side render:
+`{:result (conditional IntBranch StrBranch)}`.
+
+Forbidden actual-side render:
+`{:result (conditional Int Str)}`.
+
+The conditional node is not a reason to deresolve named branch schemas into
+their underlying shapes. Each branch Type carries the branch schema prov and
+renders from that prov.
+
 ### Inferred-flow cases (names come through provs on inferred Types)
 
-**Case F — identity-preserving flow through an unannotated fn:**
+**Case G — identity-preserving flow through an unannotated fn:**
 
 ```clojure
 (s/def x :- ThrealCache)
@@ -135,7 +161,7 @@ for only their children or leaves to carry `Rec`.
 `y` is an inferred `ThrealCache`. The rendered Type of `y` is
 `ThrealCache`.
 
-**Case G — inferred composite wrapping a named inferred child:**
+**Case H — inferred composite wrapping a named inferred child:**
 
 ```clojure
 (def z [(f x)])
@@ -146,7 +172,7 @@ for only their children or leaves to carry `Rec`.
 
 ### Distinctness cases (names are not structures)
 
-**Case H — same structure, different names, must render distinctly:**
+**Case I — same structure, different names, must render distinctly:**
 
 ```clojure
 (s/defschema Map1 {:a s/Int})
