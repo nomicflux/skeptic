@@ -44,3 +44,9 @@ The fixture was re-shaped to the direction Schema catches (line 378: `check-cast
 - `clj-kondo --lint src test`: 0 / 0.
 
 Remaining Malli stubs unchanged: `:map`, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, refs, refinement leaves, `:->`, `:function`, `:catn`, repetition operators.
+
+## Phase 3 addendum — ns-load bug fix
+
+- Edited `skeptic/src/skeptic/malli_spec/collect.clj` `ns-malli-spec-results`: added `(require ns)` before `(the-ns ns)`. Without this, calling the fn on a not-yet-loaded ns threw `No namespace ... found`, surfaced when the three-ns smoke selector ran `skeptic.typed-decls.malli-test/typed-ns-malli-results-entries` in isolation.
+- Smoke: `lein test :only skeptic.analysis.malli-spec.bridge-enum-test skeptic.checking.pipeline.malli-enum-test skeptic.typed-decls.malli-test` — 12 / 25 / 0 / 0.
+- Full: 471 / 2084 / 0 / 0. Lint clean.
