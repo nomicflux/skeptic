@@ -48,6 +48,14 @@
 (deftest cond-three-branch-join-output
   (is (= [] (ps/check-fixture 'skeptic.test-examples.control-flow/cond-three-branch-join))))
 
+(deftest sum-type-exhaustive-branches
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.control-flow/cond-boolean-exhaustive-output-success
+    'skeptic.test-examples.control-flow/cond-get-union-predicate-exhaustive-output-success
+    'skeptic.test-examples.control-flow/cond-enum-equality-exhaustive-output-success
+    'skeptic.test-examples.control-flow/case-enum-exhaustive-output-success
+    'skeptic.test-examples.control-flow/condp-enum-equality-exhaustive-output-success))
+
 (deftest failing-functions
   (are [sym errors] (= (set (partition 2 errors))
                        (ps/result-pairs (ps/check-fixture sym)))
