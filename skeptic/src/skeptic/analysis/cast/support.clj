@@ -8,17 +8,29 @@
   [type]
   (some-> type ato/normalize :ground ata/type-var-name))
 
+(defn- missing-type-field
+  [source-type target-type]
+  (cond
+    (nil? source-type) :source-type
+    (nil? target-type) :target-type))
+
 (defn cast-result
-  [{:keys [ok? source-type target-type rule polarity reason children details]}]
-  (cond-> {:ok? ok?
-           :blame-side (if ok? :none (abr/polarity->side polarity))
-           :blame-polarity (if ok? :none polarity)
-           :rule rule
-           :source-type source-type
-           :target-type target-type
-           :children (vec children)
-           :reason reason}
-    (map? details) (merge details)))
+  [{:keys [ok? source-type target-type rule polarity reason children details] :as inputs}]
+  (if-let [missing-field (missing-type-field source-type target-type)]
+    (throw (ex-info "Cast result missing semantic type"
+                    {:rule rule
+                     :reason reason
+                     :missing-field missing-field
+                     :cast-result-inputs inputs}))
+    (cond-> {:ok? ok?
+             :blame-side (if ok? :none (abr/polarity->side polarity))
+             :blame-polarity (if ok? :none polarity)
+             :rule rule
+             :source-type source-type
+             :target-type target-type
+             :children (vec children)
+             :reason reason}
+      (map? details) (merge details))))
 
 (defn cast-ok
   ([source-type target-type rule]

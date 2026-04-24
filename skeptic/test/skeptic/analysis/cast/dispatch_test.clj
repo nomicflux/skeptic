@@ -3,6 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
+            [skeptic.analysis.cast.result :as cast-result]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
@@ -41,6 +42,15 @@
     (is (= :negative (:blame-polarity domain-child)))
     (is (= :function (:rule range-failure)))
     (is (= :positive (:blame-polarity range-child)))))
+
+(deftest function-arity-diagnostic-preserves-target-method-test
+  (let [source (T (s/=> s/Any))
+        target (T (s/=> s/Any s/Str))
+        [leaf] (cast-result/leaf-diagnostics (sut/check-cast source target))]
+    (is (= :function-arity (:rule leaf)))
+    (is (= :arity-mismatch (:reason leaf)))
+    (is (some? (:expected-type leaf)))
+    (is (at/fn-method-type? (:expected-type leaf)))))
 
 (deftest maybe-to-eq-nil-cast-test
   (let [ok (sut/check-cast (T (s/maybe s/Any)) (T (s/eq nil)))

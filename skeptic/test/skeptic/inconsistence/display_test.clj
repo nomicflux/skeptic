@@ -44,6 +44,14 @@
   (is (= 'Str (sut/user-schema-form s/Str)))
   (is (= :kw (sut/user-raw-form :kw))))
 
+(deftest nil-type-display-throws-test
+  (is (thrown? clojure.lang.ExceptionInfo
+               (sut/user-type-form nil)))
+  (is (thrown? clojure.lang.ExceptionInfo
+               (sut/describe-type nil)))
+  (is (thrown? clojure.lang.ExceptionInfo
+               (sut/describe-type-block nil))))
+
 (deftest describe-display-helpers-test
   (is (= "Int" (sut/describe-type (ab/schema->type tp s/Int))))
   (is (string? (sut/describe-type-block (ab/schema->type tp s/Int))))

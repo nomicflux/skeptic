@@ -96,7 +96,9 @@
    (user-type-form type {}))
   ([type opts]
    (if (nil? type)
-     'Unknown
+     (throw (ex-info "Missing semantic type for display"
+                     {:missing-field :type
+                      :value nil}))
      (abr/render-type-form* type opts))))
 
 (defn user-schema-form

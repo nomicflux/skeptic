@@ -98,6 +98,15 @@
     'skeptic.test-examples.contracts/if-nullable-guard-success
     'skeptic.test-examples.contracts/cond->-guard-success))
 
+(deftest higher-order-function-contract-rejects-unknown-callback
+  (let [results (ps/check-fixture 'skeptic.test-examples.contracts/outer-fn)
+        result (first results)]
+    (is (= 1 (count results)))
+    (is (= '(outer-fn (fn [] nil)) (:blame result)))
+    (is (seq (:errors result)))
+    (is (not (re-find #"Unknown" (pr-str results)))
+        (pr-str results))))
+
 (deftest destructured-local-narrowing-branches
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/if-blank-guard-optional-keys-branches-success
