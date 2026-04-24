@@ -86,6 +86,18 @@
   (when-not (str/blank? x)
     (takes-non-nil-str x)))
 
+(s/defn when-and-seq-truthy-any-success :- s/Any
+  [{:keys [t xs]} :- {s/Keyword s/Any}]
+  (let [x (when (seq xs) (first xs))]
+    (when (and (= t "a") x)
+      (takes-non-nil-str x))))
+
+(s/defn when-and-count-truthy-any-success :- s/Any
+  [{:keys [t xs]} :- {s/Keyword s/Any}]
+  (let [x (when (= (count xs) 1) (first xs))]
+    (when (and (= t "a") x)
+      (takes-non-nil-str x))))
+
 (s/defn or-fallback-destructured-success :- {:a s/Str}
   [{:keys [x]} :- {:x (s/maybe s/Str)}]
   {:a (or x "fallback")})

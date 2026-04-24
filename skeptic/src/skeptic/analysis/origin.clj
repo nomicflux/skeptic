@@ -426,8 +426,11 @@
       (if (and (aapi/if-node? body)
                (aapi/local-node? (aapi/node-test body))
                (= sym (aapi/node-form (aapi/node-test body))))
-        (vec (concat (when-some [a (test->assumption ctx init)] [a])
-                     (and-chain-assumptions ctx (aapi/then-node body))))
+        (let [then (aapi/then-node body)
+              tail (if (aapi/local-node? then)
+                     (when-some [a (test->assumption ctx then)] [a])
+                     (and-chain-assumptions ctx then))]
+          (vec (concat (when-some [a (test->assumption ctx init)] [a]) tail)))
         (and-chain-assumptions ctx body)))
     (case (aapi/node-op node)
       :if (when-some [a (test->assumption ctx (aapi/node-test node))] [a])
