@@ -10,6 +10,16 @@
 (deftest when-not-blank-maybe-str
   (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/when-not-blank-maybe-str-success))))
 
+(deftest when-and-seq-truthy-any
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-and-seq-truthy-any-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest when-and-count-truthy-any
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-and-count-truthy-any-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
 (deftest presents-str
   (is (= [] (ps/check-fixture 'skeptic.test-examples.nullability/presents-str))))
 
