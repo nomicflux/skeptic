@@ -251,3 +251,34 @@ None. All deliverables completed as specified.
 ## Phase 3 Summary
 
 Declaration canonicalization is now simplified: `build-annotated-schema-desc!` calls canonicalize-schema once at entry, then dispatches to specialized helpers for class vs. fn schemas. No second-pass `canonicalize-entry` call. Single-pass, modular, <20-line functions. All tests pass.
+
+---
+
+# Phase 4: Drop `schema-display-form` from declaration `:name` — COMPLETE
+
+## Changes Made
+
+### File: `skeptic/src/skeptic/schema/collect.clj`
+
+In `class-schema-desc`, simplified the `:name` expression:
+- **Before:** `:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))`
+- **After:** `:name (str ns "/" name)`
+
+Removes the transitive re-localization triggered by `schema-display-form` → `schema-explain` → `schema?` for class/set/vector schemas.
+
+## Test Results
+
+```
+lein test
+Ran 506 tests containing 2363 assertions.
+0 failures, 0 errors.
+
+clj-kondo --lint src test
+linting took 1753ms, errors: 0, warnings: 0
+```
+
+No `:name` assertions exist in `collect_test.clj`, so the simplification is safe.
+
+## Deviation from Plan
+
+None.
