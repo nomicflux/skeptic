@@ -461,3 +461,34 @@
   (if (some? a)
     a
     "fallback"))
+
+(s/defschema NestedConditionalBase {:k s/Str})
+(s/defschema NestedConditionalA (assoc NestedConditionalBase :k (s/eq "a")))
+(s/defschema NestedConditionalB (assoc NestedConditionalBase :k (s/eq "b")))
+
+(s/defn nested-conditional-classify :- s/Keyword
+  [{:keys [k]} :- NestedConditionalBase]
+  (case k
+    "a" :a
+    "b" :b
+    :unclassified))
+
+(s/defschema NestedConditionalIn
+  (let [is? (fn [v] (comp #{v} nested-conditional-classify))]
+    (s/conditional
+     (is? :a) NestedConditionalA
+     (is? :b) NestedConditionalB
+     'SupportedType)))
+
+(s/defschema NestedConditionalX {:x NestedConditionalIn})
+(s/defschema NestedConditionalY {:x NestedConditionalB})
+
+(s/defn nested-conditional-f :- [[s/Str]]
+  [_ :- NestedConditionalY]
+  [])
+
+(s/defn nested-conditional-repro :- s/Any
+  [{{:keys [k]} :x :as x} :- NestedConditionalX]
+  (cond->> x
+    (= k "b") (nested-conditional-f)
+    (= k "a") ((constantly []))))
