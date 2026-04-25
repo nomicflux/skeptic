@@ -67,3 +67,31 @@
   (let [prov (ato/derive-prov sum-type)
         covered (map #(ato/exact-value-type prov %) values)]
     (exhausted-by-types? sum-type covered)))
+
+(defn- formula-atoms
+  [formula]
+  (case (:kind formula)
+    :atom [(:expr formula)]
+    (:conjunction :disjunction) (mapcat formula-atoms (:parts formula))))
+
+(defn- formula-satisfied-by?
+  [formula valuation]
+  (case (:kind formula)
+    :atom (let [v (boolean (get valuation (:expr formula)))]
+            (if (:polarity formula) v (not v)))
+    :conjunction (every? #(formula-satisfied-by? % valuation) (:parts formula))
+    :disjunction (boolean (some #(formula-satisfied-by? % valuation) (:parts formula)))))
+
+(defn- all-valuations
+  [atoms]
+  (let [n (count atoms)]
+    (for [i (range (bit-shift-left 1 n))]
+      (into {} (map-indexed (fn [j a] [a (bit-test i j)]) atoms)))))
+
+(defn formulas-cover?
+  [formulas]
+  (let [atoms (vec (distinct (mapcat formula-atoms formulas)))]
+    (if (> (count atoms) 12)
+      false
+      (every? (fn [val] (some #(formula-satisfied-by? % val) formulas))
+              (all-valuations atoms)))))

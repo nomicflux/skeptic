@@ -28,3 +28,33 @@
   (let [union (ato/union-type tp [(atst/T s/Str) (at/Dyn tp)])]
     (is (not (sut/sum-type? union)))
     (is (not (sut/exhausted-by-types? union [(atst/T s/Str) (at/Dyn tp)])))))
+
+(defn- atom* [expr polarity] {:kind :atom :expr expr :polarity polarity})
+(defn- and* [& parts] {:kind :conjunction :parts (vec parts)})
+(defn- or* [& parts] {:kind :disjunction :parts (vec parts)})
+
+(deftest formulas-cover-bool-tautology
+  (is (sut/formulas-cover? [(atom* 'P true) (atom* 'P false)]))
+  (is (not (sut/formulas-cover? [(atom* 'P true)]))))
+
+(deftest formulas-cover-pair-product
+  (is (sut/formulas-cover?
+       [(and* (atom* 'P true)  (atom* 'Q true))
+        (and* (atom* 'P true)  (atom* 'Q false))
+        (and* (atom* 'P false) (atom* 'Q true))
+        (and* (atom* 'P false) (atom* 'Q false))])))
+
+(deftest formulas-cover-pair-three-of-four
+  (is (not (sut/formulas-cover?
+            [(and* (atom* 'P true)  (atom* 'Q true))
+             (and* (atom* 'P true)  (atom* 'Q false))
+             (and* (atom* 'P false) (atom* 'Q true))]))))
+
+(deftest formulas-cover-disjunction-of-negations
+  (is (sut/formulas-cover?
+       [(and* (atom* 'P true) (atom* 'Q true))
+        (or*  (atom* 'P false) (atom* 'Q false))])))
+
+(deftest formulas-cover-cap
+  (let [atoms (mapv #(atom* (symbol (str "A" %)) true) (range 13))]
+    (is (not (sut/formulas-cover? [{:kind :conjunction :parts atoms}])))))

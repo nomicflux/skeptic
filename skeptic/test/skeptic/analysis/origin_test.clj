@@ -103,17 +103,24 @@
                                             'skeptic.examples/nested-maybe-multi-step-f))))))
 
 (deftest region-conjuncts-and-shape-two-some-test
-  (testing "let+if and-shape collects each some? conjunct on the truthy side"
+  (testing "let+if and-shape collects each some? conjunct on the truthy side and emits a disjunction of negations on the falsy side"
     (let [root (atst/analyze-form atst/analysis-dict '(and (some? x) (some? y))
                                   {:locals {'x (atst/T (s/maybe s/Int))
                                             'y (atst/T (s/maybe s/Str))}})
           {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
-      (is (empty? else-conjuncts))
       (is (= 2 (count then-conjuncts)))
       (is (every? #(and (= :type-predicate (:kind %))
                         (= :some? (:pred %))
                         (true? (:polarity %)))
-                  then-conjuncts)))))
+                  then-conjuncts))
+      (is (= 1 (count else-conjuncts)))
+      (let [d (first else-conjuncts)]
+        (is (= :disjunction (:kind d)))
+        (is (= 2 (count (:parts d))))
+        (is (every? #(and (= :type-predicate (:kind %))
+                          (= :some? (:pred %))
+                          (false? (:polarity %)))
+                    (:parts d)))))))
 
 (deftest equality-test-assumptions
   (testing "local equals literal"
@@ -193,3 +200,45 @@
       (is (= :map-key-lookup (:kind (aapi/node-origin lookup))))
       (is (at/type=? (atst/T s/Str)
                      (ao/origin-type (aapi/node-origin lookup) [pair-assumption]))))))
+
+(defn- bp [expr polarity] {:kind :boolean-proposition :expr expr :polarity polarity})
+(defn- disj* [& parts] {:kind :disjunction :parts (vec parts)})
+(defn- conj* [& parts] {:kind :conjunction :parts (vec parts)})
+
+(deftest assumption-truth-disjunction-arm
+  (let [p     (bp '(pos? x) true)
+        q     (bp '(pos? y) true)
+        not-p (assoc p :polarity false)
+        not-q (assoc q :polarity false)
+        d     (disj* p q)]
+    (is (= :true (ao/assumption-truth d [p])))
+    (is (= :false (ao/assumption-truth d [not-p not-q])))
+    (is (= :unknown (ao/assumption-truth d [])))))
+
+(deftest region-conjuncts-and-shape-emits-disjunction
+  (let [root (atst/analyze-form atst/analysis-dict '(and (pos? x) (pos? y))
+                                {:locals {'x (atst/T s/Int) 'y (atst/T s/Int)}})
+        {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
+    (is (= 2 (count then-conjuncts)))
+    (is (every? #(and (= :boolean-proposition (:kind %))
+                      (true? (:polarity %)))
+                then-conjuncts))
+    (is (= 1 (count else-conjuncts)))
+    (let [d (first else-conjuncts)]
+      (is (= :disjunction (:kind d)))
+      (is (= 2 (count (:parts d))))
+      (is (every? #(and (= :boolean-proposition (:kind %))
+                        (false? (:polarity %)))
+                  (:parts d))))))
+
+(deftest assumption-truth-truth-table-fallback
+  (let [p     (bp '(pos? x) true)
+        q     (bp '(pos? y) true)
+        not-p (assoc p :polarity false)
+        not-q (assoc q :polarity false)
+        d1    (disj* not-p not-q)
+        d2    (disj* not-p q)
+        d3    (disj* p not-q)
+        query (conj* not-p not-q)]
+    (is (= :true (ao/assumption-truth query [d1 d2 d3])))
+    (is (= :unknown (ao/assumption-truth query [d1 d2])))))
