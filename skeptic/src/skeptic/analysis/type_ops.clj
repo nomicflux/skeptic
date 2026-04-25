@@ -70,7 +70,7 @@
                 maybe-bases (maybe-bases-without-dyn plain-members maybe-bases)]
             {:nil-bearing? (boolean nil-bearing?)
              :has-nil-value? (boolean (some nil-value-type? nil-bearing-members))
-             :members (at/dedup-types (into (set plain-members) maybe-bases))})))))
+             :members (at/dedup-types (concat plain-members maybe-bases))})))))
 
 (defn- union-type-with-normalize
   [norm-fn prov members]
