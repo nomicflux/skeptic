@@ -13,6 +13,7 @@ This document is source-derived from the current annotate subtree:
 - `src/skeptic/analysis/annotate/invoke_output.clj`
 - `src/skeptic/analysis/annotate/jvm.clj`
 - `src/skeptic/analysis/annotate/map_path.clj`
+- `src/skeptic/analysis/annotate/map_projection.clj`
 - `src/skeptic/analysis/annotate/match.clj`
 - `src/skeptic/analysis/annotate/numeric.clj`
 - `src/skeptic/analysis/annotate/shared_call.clj`
@@ -25,15 +26,22 @@ The rebuilt annotate subtree is centered on one explicit recursive runner in
 
 Entry flow:
 
-1. `annotate-form-loop` merges `analysis.native-fns/native-fn-dict` into the
-   incoming declaration dictionary.
-2. `analyze-form` runs `clojure.tools.analyzer.jvm/analyze` with synthetic
+1. `checking.pipeline/namespace-dict` builds the incoming declaration
+   dictionary by merging Schema, MalliSpec, and native function entries.
+2. `checking.pipeline/analyze-source-expr` passes that dictionary to
+   `annotate-form-loop` with namespace, source-file, and accessor-summary
+   options.
+3. `annotate-form-loop` analyzes and annotates the supplied form with the
+   supplied dictionary and options; it does not add native entries itself.
+4. `analyze-form` runs `clojure.tools.analyzer.jvm/analyze` with synthetic
    binding nodes seeded for incoming locals.
-3. `annotate-ast` normalizes locals and seeds the annotation context:
-   `:dict`, `:locals`, `:assumptions`, `:recur-targets`, `:name`, and `:ns`.
-4. `annotate-node` installs itself as `:recurse`, wraps the node in
+5. `annotate-ast` seeds the annotation context:
+   `:dict`, `:locals`, `:assumptions`, `:recur-targets`, `:name`, `:ns`, and
+   `:accessor-summaries`.
+6. `annotate-node` installs itself as `:recurse`, wraps the node in
    `bridge.localize/with-error-context`, dispatches by analyzer `:op`, and
-   strips derived display fields from the result.
+   strips derived display fields from the result after applying any
+   expression-level `:skeptic/type` override.
 
 The design rule is now:
 
@@ -45,9 +53,10 @@ The design rule is now:
 
 ```mermaid
 flowchart TD
+  ND["pipeline/namespace-dict"] --> AFL["annotate-form-loop"]
+  ASE["pipeline/analyze-source-expr"] --> AFL
   AFL["annotate-form-loop"] --> AF["analyze-form"]
   AFL --> AAST["annotate-ast"]
-  AFL --> NF["native-fns/native-fn-dict"]
   AAST --> AN["annotate-node"]
 
   AN --> AB["annotate.base"]
@@ -60,6 +69,7 @@ flowchart TD
 
   AI --> AFN
   AI --> AIO["annotate.invoke-output"]
+  AI --> AMPJ["annotate.map-projection"]
   AI --> NUM["annotate.numeric"]
   AI --> MAPOPS["analysis.map-ops"]
   AI --> CALLS["analysis.calls"]
@@ -69,6 +79,7 @@ flowchart TD
 
   AJ --> ASC
   AJ --> ACOLL
+  AJ --> AMPJ
   AJ --> NUM
   AJ --> NFS["native-fns/static-call-native-info"]
 
@@ -80,7 +91,9 @@ flowchart TD
 
   ACTL --> AB
   ACTL --> ORIGIN["analysis.origin"]
+  ACTL --> NARROW["analysis.narrowing"]
   AM --> ORIGIN
+  AM --> SUMS["analysis.sum-types"]
   AM --> ASTN["analysis.ast-children"]
   ACOLL --> ASTN
 ```
@@ -109,13 +122,17 @@ flowchart TD
 - Static-call refinement flow:
   `jvm/annotate-static-call` loads native signatures, applies shared map and
   collection specialization first, then numeric narrowing.
+- Map-projection origin flow:
+  keyword invokes and static `get` attach `:map-key-lookup` origins through
+  `map_projection`, which follows local aliases back to a projection root.
 - Map-shape flow:
   `shared_call` delegates literal-key assoc and dissoc rewriting to
   `map_path`.
 - Tree-rescan flow:
   `control/widen-int-loop-counter-recur-targets`,
-  `coll/for-body-element-type`, and `match/case-kw-root-info` rescan typed
-  subtrees through `analysis.ast-children/ast-nodes`.
+  `control/widen-empty-collection-recur-targets`, `coll/for-body-element-type`,
+  and `match/case-kw-root-info` rescan typed subtrees through
+  `analysis.ast-children/ast-nodes`.
 
 ## Namespace Map
 
@@ -125,10 +142,15 @@ flowchart TD
 - `node-error-context`: builds the `with-error-context` payload for one node.
 - `annotate-generic`: annotates children structurally and assigns `Dyn`.
 - `annotate-dispatch`: ordered `:op` dispatcher for the whole subtree.
+- `eval-skeptic-type`: evaluates a `:skeptic/type` metadata form in the target
+  namespace.
+- `resolve-skeptic-type`: validates that the metadata value is Schema-domain
+  and converts it with `schema->type` using type-override provenance.
+- `apply-type-override`: applies a resolved metadata override with
+  `annotate.api/with-type`.
 - `annotate-node`: the recursive runner. Installs itself in `ctx`, wraps error
-  context, delegates to `annotate-dispatch`, and strips derived fields.
-- `normalize-locals`: normalizes incoming local entries with
-  `analysis.normalize/normalize-entry`.
+  context, delegates to `annotate-dispatch`, applies metadata type overrides,
+  and strips derived fields.
 - `annotate-ast`: seeds the annotation context and starts annotation at the
   root.
 - `target-ns`: resolves or creates the namespace used for analysis.
@@ -141,7 +163,10 @@ flowchart TD
 
 This namespace is the public accessor boundary for production code.
 
-- `def-node-getters`: macro that defines the simple field accessors.
+- type/provenance constructors and combinators:
+  `dyn`, `bottom`, `numeric-dyn`, `normalize-type`,
+  `normalize-type-for-declared-type`, `union-type`, `intersection-type`,
+  `exact-value-type`, `de-maybe-type`, and `unknown-type?`.
 - node accessors:
   `node-op`, `node-form`, `node-type`, `node-output-type`, `node-fn-type`,
   `node-origin`, `node-var`, `node-name`, `node-class`, `node-method`,
@@ -150,6 +175,7 @@ This namespace is the public accessor boundary for production code.
   `node-keyword`, `node-arglists`, `node-arglist`, `call-fn-node`,
   `call-args`, `recur-args`, `call-actual-argtypes`,
   `call-expected-argtypes`, and `binding-init`.
+- `with-type`: public setter for node `:type` used by metadata overrides.
 - `node-location`: source-location helper.
 - `node-info`: compact call/type metadata projection used internally by
   annotation helpers.
@@ -166,7 +192,8 @@ This namespace is the public accessor boundary for production code.
   and `call-refs`.
 - function/def helpers:
   `function-methods`, `method-body`, `def-init-node`, `then-node`,
-  `else-node`, `arglist-types`, `analyzed-def-entry`, `method-result-type`,
+  `else-node`, `arglist-types`, `node-arg-names-at-arity`, `node-fun-type`,
+  `node-method-output`, `analyzed-def-entry`, `method-result-type`,
   `resolved-def-entry`, and `resolved-def-output-type`.
 - branch helpers:
   `branch-origin-kind` and `branch-test-assumption`.
@@ -216,15 +243,20 @@ This namespace owns test-only projections and synthetic fixtures.
   provenance, stores `:binding-init`, and annotates the body with the extended
   local env.
 - loop helpers:
-  `widen-int-loop-counter-recur-targets`, `loop-one-binding`, and
+  `widen-int-loop-counter-recur-targets`,
+  `widen-empty-collection-recur-targets`, `widen-loop-recur-targets`,
+  `loop-one-binding`, and
   `annotate-loop-body-with-recur-target-widening`.
-- `annotate-loop`: loop binding annotation plus two-pass recur-target widening.
+- `annotate-loop`: loop binding annotation plus two-pass recur-target widening
+  for numeric counters and empty collection accumulators.
 - `annotate-recur`: annotates recur operands and records expected and actual
   arg types with `BottomType`.
 - branch helpers:
-  `truthy-literal?`, `nil-const-node?`, and `branch-origin`.
+  `truthy-literal?`, `statically-truthy?`, `nil-const-node?`,
+  `branch-origin`, `branch-truth`, and `joined-branch-type`.
 - `annotate-if`: derives branch-local envs from `analysis.origin`, annotates
-  both branches, and records branch origin metadata.
+  both branches, drops unreachable branch output when assumptions prove the
+  branch truth, and records branch origin metadata.
 
 ### `skeptic.analysis.annotate.data`
 
@@ -289,14 +321,15 @@ This namespace owns test-only projections and synthetic fixtures.
   metadata.
 - `annotate-invoke`: ordinary invoke annotation path.
 - `annotate-keyword-invoke`: dedicated analyzer `:keyword-invoke` path using
-  `analysis.map-ops/map-get-type`.
+  `analysis.map-ops/map-get-type` and `map_projection/map-key-lookup-origin`.
 
 ### `skeptic.analysis.annotate.invoke_output`
 
 - `invoke-output-type`: ordered invoke-only output refinement chain.
-  Shared map and collection operations delegate to `shared_call`;
-  collection selectors and transformers delegate to `coll`;
-  everything else falls back to the default call output type.
+  Unary identity accessor summaries return the single argument type directly;
+  shared map and collection operations delegate to `shared_call`; collection
+  selectors and transformers delegate to `coll`; everything else falls back to
+  the default call output type.
 
 ### `skeptic.analysis.annotate.jvm`
 
@@ -306,7 +339,8 @@ This namespace owns test-only projections and synthetic fixtures.
   share refinement logic with ordinary invoke.
 - `static-native-output-type`: numeric-native narrowing or `Dyn` fallback.
 - `annotate-static-call`: full static-call path with native info, expected arg
-  types, shared specialization, and numeric narrowing.
+  types, shared specialization, numeric narrowing, and map-key lookup origins
+  for static `get`.
 
 ### `skeptic.analysis.annotate.shared_call`
 
@@ -320,6 +354,15 @@ This namespace owns test-only projections and synthetic fixtures.
 
 - `reduce-assoc-pairs`: applies literal keyword assoc pairs to a map type.
 - `reduce-dissoc-keys`: applies literal keyword dissoc keys to a map type.
+
+### `skeptic.analysis.annotate.map_projection`
+
+- `projection-root-local`: follows a local target and any prior local aliases
+  back to the projection root, stopping on cycles.
+- `projection-root-origin`: returns an existing root origin for that projection
+  root or synthesizes one from the root local and type.
+- `map-key-lookup-origin`: builds the `:map-key-lookup` origin used by keyword
+  invoke and static `get` nodes.
 
 ### `skeptic.analysis.annotate.match`
 
@@ -335,10 +378,15 @@ This namespace owns test-only projections and synthetic fixtures.
   `case-conditional-branches-from-type`,
   `case-conditional-narrow-for-lits`, and
   `case-conditional-default-narrow`.
+- discriminator helpers:
+  `discriminator-entry?` and `drop-discriminator-key`.
 - branch builders:
   `annotate-case-one-then` and `default-assumption`.
+- exhaustive join helpers:
+  `exhaustive-values?` and `case-joined-type`.
 - `annotate-case`: annotates the case test, arms, and default branch under the
-  correct local assumptions, then joins the branch types.
+  correct local assumptions, then joins branch types while excluding default
+  output when explicit literals exhaust the closed sum discriminant type.
 
 ### `skeptic.analysis.annotate.numeric`
 
@@ -383,7 +431,7 @@ annotate-shaped fixtures only through:
 - Call families:
   `invoke`, `invoke_output`, `jvm`, `shared_call`
 - Collection and map helpers:
-  `coll`, `map_path`, `numeric`
+  `coll`, `map_path`, `map_projection`, `numeric`
 - Pattern and branch narrowing:
   `match`
 - Access boundaries:

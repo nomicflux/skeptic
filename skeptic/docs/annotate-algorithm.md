@@ -32,14 +32,14 @@ The pass needs four categories of input:
 - a declaration dictionary that describes known vars and functions
 - a source form to analyze
 - an optional lexical environment for incoming locals
-- optional context such as namespace, source file, assumptions, and the current named definition
+- optional context such as namespace, source file, assumptions, accessor summaries, and the current named definition
 
 Before annotation starts:
 
-- native function descriptions are added to the declaration dictionary
+- the checker pipeline has already built the declaration dictionary, including Schema, MalliSpec, and native function entries
 - the source form is analyzed into a tools.analyzer JVM AST
-- incoming local entries are normalized
 - assumptions are stored as an ordered sequence
+- accessor summaries from previously analyzed definitions are available when supplied
 - the recur-target table starts empty
 
 ### Core Traversal
@@ -56,11 +56,26 @@ For every node:
 
 Unknown or unsupported forms remain traversable. If no specialized rule applies, children are still annotated and the node falls back to dynamic type.
 
+After a node's ordinary annotation rule runs, expression metadata may override
+the inferred type:
+
+- `:skeptic/type` is read from the metadata of the node form
+- the metadata form is evaluated in the target namespace
+- the evaluated value must still be in the Schema domain
+- the schema value is converted with `schema->type` using type-override provenance
+- the node type is replaced through the annotate API setter
+
+Invalid override values raise an annotation-time exception instead of silently
+falling back to dynamic type.
+
 ### Constants, Vars, And Locals
 
 Literal constants are typed from their runtime value.
 
 Var-like references are looked up in the declaration dictionary. If lookup fails, they become dynamic.
+
+When the pipeline has inferred a unary accessor summary for a referenced var,
+the var node carries that summary for later call and `case` refinement.
 
 Local references read the current lexical environment entry and then apply the active assumptions to that entry. If the local is unknown, it becomes dynamic.
 
@@ -92,6 +107,10 @@ For each binding:
 
 Ordinary local bindings also preserve a fresh root origin for the bound name when that is safe. In particular, this root is kept when the binding does not conflict with an earlier branch-test symbol, or when the initializer is an `if` whose test is a nil-check on the same binding name. That rule keeps refinement attached to shadowed locals in common nil-check patterns.
 
+The root-preservation rule also keeps a fresh root for narrowing-preserving
+aliases such as `when`-style forms that return either a rooted local or a nilish
+branch. This lets later tests refine the alias under its own binding name.
+
 When the binding's initializer resolves to a map-key projection (for example `{:keys [a]}` destructuring), the preserved projection origin additionally records the binding name so that name-keyed refinements — predicate, nil, blank, or value-equality assumptions about the local itself — apply to the projected slot in addition to any refinements of the outer map.
 
 The body is then annotated in the extended environment, and the whole binding form takes the body type.
@@ -104,14 +123,25 @@ The test is then converted into branch-local assumptions. Those assumptions may 
 
 - type predicates
 - nil checks
+- equality checks between a local and a literal, including static equality calls
+- `contains?` checks with literal keyword keys, including static calls
+- keyword invokes on locals
+- blank checks
+- boolean propositions whose inferred type is exhausted by true and false
+- negated tests through `not`
 - conjunctions of test facts
+- let and if expansion shapes that expose the effective test expression
 - previously preserved origins on locals
 
 The then and else branches are annotated under separate local environments derived from those assumptions.
 
-Normally the result type is the join of both branch types. There is one narrower special case:
+Normally the result type is the join of both branch types. There are narrower
+cases:
 
+- if the active assumptions prove the test true, the result keeps the then-branch type directly
+- if the active assumptions prove the test false, the result keeps the else-branch type directly
 - if the test is a literal truthy value and the else branch is the literal `nil`, the result keeps the then-branch type directly
+- if the test's inferred type is statically truthy and the else branch is the literal `nil`, the result keeps the then-branch type directly
 
 Conditionals also attach branch-origin information so later reporting can explain where the refinement came from.
 
@@ -126,7 +156,15 @@ After all loop bindings are annotated:
 
 The loop body is then annotated once under those recur targets.
 
-After the first body pass, every recur site targeting that loop is inspected. If a target was inferred as exact integer but a recur operand is a JVM numeric helper result typed only as `Number`, that recur target is widened from integer to `Number`. This widening is deliberately narrow: it only handles integer loop counters flowing through JVM numeric helpers and does not perform arbitrary joins.
+After the first body pass, every recur site targeting that loop is inspected.
+Two narrow widening rules may update the recur targets:
+
+- if an initial target is exact integer and a recur operand is `NumericDyn` or a
+  provably non-`Int` numeric type, the target is widened to the normalized
+  actual operand type
+- if an initial target is an empty map, vector, set, or sequence and the recur
+  operand has the same collection kind, the target is widened to the actual
+  collection type; multiple widening operands are joined
 
 If widening happened, the body is annotated a second time under the widened recur targets. The purpose of the second pass is to propagate the widened recur-target types back through the recur sites.
 
@@ -191,9 +229,15 @@ After callee and arguments are ready:
 - actual argument types are taken from the annotated arguments
 - expected argument types, callable type, and default output type come from callable metadata on the callee
 - the default output type is then refined by special collection and map operations
+- unary identity accessor summaries can return the single argument type directly
 - numeric narrowing may further replace that output for integral arithmetic
 
 The final node records the annotated callee, annotated arguments, actual argument types, expected argument types, callable type, and result type.
+
+Keyword invocation is handled as its own call form. It annotates the target and
+keyword node, computes the map lookup type, records actual and expected argument
+types, and attaches a map-key lookup origin when the target can be traced back
+to a projection root.
 
 #### JVM instance calls
 
@@ -217,6 +261,9 @@ Static-call result selection is ordered:
 2. otherwise apply native numeric narrowing
 3. otherwise fall back to dynamic
 
+Static map lookup also attaches a map-key lookup origin when its target can be
+traced back to a projection root.
+
 ### Shared Collection And Map Specialization
 
 Some operations are treated the same whether they appear as ordinary invocations or as JVM static calls.
@@ -239,6 +286,12 @@ Their behavior is:
 - map update specializes only when the key is a literal keyword; otherwise it preserves the caller-supplied default output type instead of erasing to dynamic
 - containment checks always return the boolean ground type
 - one-argument sequence conversion preserves an existing sequence type, converts vectors to homogeneous sequences, and otherwise returns dynamic
+
+Map-key lookup origins are canonicalized through the map-projection helper. That
+helper follows local aliases back to the projection root, reuses an existing
+root origin when one exists, and otherwise synthesizes a root for the local
+target. Later origin refinement can then re-read the projected slot under the
+current assumptions.
 
 ### Invocation-Only Collection Refinement
 
@@ -301,21 +354,22 @@ Then derive a branch root for narrowing:
 - use the rooted local origin when available
 - otherwise synthesize a fresh root for a local discriminant
 
-When the discriminant is a keyword lookup on a local map-like value, case analysis can also narrow conditional map types by matching each branch literal against the conditional predicate branches associated with that keyword.
+When the discriminant is a keyword lookup on a local map-like value, case analysis can also narrow conditional map types by matching each branch literal against the conditional predicate branches associated with that keyword. The keyword lookup may come from keyword invocation, ordinary `get`, static `get`, or a unary map-accessor summary on the callee.
 
 For each explicit case arm:
 
 - collect the arm's literal test values
 - derive a positive assumption for those literals
+- for conditional map narrowing, derive the branch type by selecting matching conditional branches and dropping the discriminator key
 - build branch-local environments from that assumption
 - annotate the arm body under the narrowed environment
 
 The default arm gets the complement:
 
 - for ordinary literal matching, exclude all explicit literal values
-- for conditional map matching, keep only the conditional branches not matched by any explicit arm
+- for conditional map matching, keep only the conditional branches not matched by any explicit arm and drop the discriminator key
 
-The result type is the join of all explicit-arm types and the default-arm type. The result also keeps an opaque origin tagged with that joined type.
+The result type is normally the join of all explicit-arm types and the default-arm type. If the explicit literal values exhaust the discriminant's closed sum type, the default branch is treated as unreachable and is excluded from the join. The result also keeps an opaque origin tagged with that joined type.
 
 ### Numeric Narrowing
 
@@ -399,6 +453,7 @@ Inputs:
   - `:ns`
   - `:assumptions`
   - `:source-file`
+  - `:accessor-summaries`
 
 Output:
 
@@ -414,6 +469,17 @@ This namespace is the production accessor boundary for annotated output. The rew
 
 Observed externally used helper groups:
 
+- type constructors and combinators
+  - `dyn`
+  - `bottom`
+  - `numeric-dyn`
+  - `normalize-type`
+  - `normalize-type-for-declared-type`
+  - `union-type`
+  - `intersection-type`
+  - `exact-value-type`
+  - `de-maybe-type`
+  - `unknown-type?`
 - node identity and classification
   - `node-location`
   - `node-info`
@@ -423,11 +489,13 @@ Observed externally used helper groups:
   - `node-output-type`
   - `node-fn-type`
   - `node-origin`
+  - `node-value`
   - `node-name`
   - `node-class`
   - `node-method`
   - `node-tag`
   - `node-var`
+  - `node-raw-forms`
   - `node-target`
   - `node-keyword`
   - `local-node?`
@@ -437,6 +505,7 @@ Observed externally used helper groups:
   - `call-node?`
   - `invoke-ops`
 - tree navigation and node search
+  - `node-children`
   - `annotated-nodes`
   - `find-node`
   - `unwrap-with-meta`
@@ -451,14 +520,19 @@ Observed externally used helper groups:
   - `binding-init`
   - `local-resolution-path`
   - `local-vars-context`
+  - `call-refs`
   - `synthetic-binding-node`
 - function and definition helpers
   - `node-arglists`
+  - `node-arg-names-at-arity`
+  - `node-fun-type`
+  - `node-method-output`
   - `function-methods`
   - `method-body`
   - `def-init-node`
   - `analyzed-def-entry`
   - `method-result-type`
+  - `resolved-def-entry`
   - `resolved-def-output-type`
 - branch and refinement helpers
   - `node-test`
@@ -469,6 +543,12 @@ Observed externally used helper groups:
   - `else-node`
   - `branch-origin-kind`
   - `branch-test-assumption`
+- metadata and compatibility helpers
+  - `with-type`
+  - `typed-call-metadata-only?`
+  - `strip-derived-types`
+  - `def-node?`
+  - `def-value-node`
 
 Observed external production consumers:
 
@@ -516,7 +596,10 @@ Observed external test consumers:
 These are still direct test targets, but only from tests inside the annotate subtree itself:
 
 - `skeptic.analysis.annotate.coll`
+- `skeptic.analysis.annotate.data`
+- `skeptic.analysis.annotate.match`
 - `skeptic.analysis.annotate.numeric`
+- `skeptic.analysis.annotate.shared-call`
 
 ## Behavioral Test Record
 
@@ -525,7 +608,10 @@ This section records the behavioral coverage that currently exists for the annot
 Excluded from this record:
 
 - `skeptic/test/skeptic/analysis/annotate/coll_test.clj`
+- `skeptic/test/skeptic/analysis/annotate/data_test.clj`
+- `skeptic/test/skeptic/analysis/annotate/match_test.clj`
 - `skeptic/test/skeptic/analysis/annotate/numeric_test.clj`
+- `skeptic/test/skeptic/analysis/annotate/shared_call_test.clj`
 - unit-only constructor and predicate tests in `skeptic/test/skeptic/analysis/origin_test.clj` and `skeptic/test/skeptic/analysis/calls_test.clj`
 
 ### Behavioral Tests Inside `test/skeptic/analysis/annotate`
@@ -592,6 +678,32 @@ Recorded behavior:
 - map-literal key typing at the raw-value boundary for literal keys such as UUIDs and regexes
 - non-literal map keys use inferred semantic key types instead of exact runtime literal typing
 
+#### `data_test.clj`
+
+Recorded helper-level behavior:
+
+- vector, set, and map annotation thread child provenances into result refs
+
+#### `shared_call_test.clj`
+
+Recorded helper-level behavior:
+
+- shared `contains?` and `merge` use the default-output anchor provenance, including empty merge inputs
+
+#### `match_test.clj`
+
+Recorded helper-level behavior:
+
+- conditional case narrowing returns bottom with anchor provenance when no branch matches
+- conditional case default narrowing returns bottom with anchor provenance when all branches are matched
+
+#### `coll_test.clj` and `numeric_test.clj`
+
+Recorded helper-level behavior:
+
+- collection helper outputs preserve container-owned provenance and child refs across vector, seq, concat, into, and prefix/suffix operations
+- numeric helper outputs preserve anchor provenance and distinguish integer, `NumericDyn`, and fine non-`Int` numeric results
+
 ### Additional Non-Unit Tests Outside The Annotate Subtree That Exercise Annotation
 
 #### `origin_test.clj`
@@ -602,6 +714,9 @@ Recorded behavior:
 - nil-bearing joins canonicalize to maybe-typed results in analyzed source definitions
 - conjunction-style tests contribute multiple assumptions
 - shadowed local bindings preserve root-origin information strongly enough for later unary numeric operations to see refined argument types
+- negated assumptions invert branch assumptions
+- narrowing-preserving aliases keep their own root for later refinement
+- guarded map-key lookups carry map-key lookup origins that refine under later branch assumptions
 
 #### `calls_test.clj`
 
@@ -616,3 +731,18 @@ Recorded behavior:
 - rebuilt maps preserve semantic map typing after field extraction
 - a resolved static map lookup can feed its refined result type into a parent call's argument typing
 - invocation through a local function value preserves both the local call's result type and its callable metadata
+
+#### `checking/pipeline/fixture_flags_test.clj`
+
+Recorded behavior:
+
+- expression-level `:skeptic/type` metadata overrides can pin or intentionally mismatch a downstream expression type
+- configured type overrides merge into the typed namespace dictionary before annotation
+
+#### `checking/pipeline/control_flow_test.clj`
+
+Recorded behavior:
+
+- loop recur widening handles vector and map accumulators
+- `for` expansion produces expected sequence output and mismatch behavior
+- exhaustive closed-sum branches through booleans, conjunctions, map lookup predicates, equality, `case`, and `condp` do not include unreachable branch output in successful fixtures
