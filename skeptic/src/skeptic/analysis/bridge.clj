@@ -1,6 +1,7 @@
 (ns skeptic.analysis.bridge
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -483,6 +484,13 @@
                               (fn [p ts] (at/->SeqT p ts (= 1 (count ts))))
                               (fn [p joined] (at/->SeqT p [joined] true)))
 
+      (sb/pred? schema)
+      (let [pred-sym (sb/de-pred schema)
+            qualified (predicates/resolve-predicate-symbol pred-sym)]
+        (if qualified
+          (import-result (predicates/witness-type qualified prov))
+          (adapter-leaf-import-type prov schema)))
+
       :else
       (adapter-leaf-import-type prov schema))))
 
@@ -637,6 +645,9 @@
           (run {:schema item
                 :active-refs active-refs}))
         schema)
+
+      (sb/pred? schema)
+      schema
 
       :else
       schema)))

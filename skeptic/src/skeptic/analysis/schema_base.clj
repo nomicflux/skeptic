@@ -1,6 +1,6 @@
 (ns skeptic.analysis.schema-base
   (:require [schema.core :as s])
-  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema]))
+  (:import [schema.core Both CondPre ConditionalSchema Constrained Either EnumSchema EqSchema FnSchema Maybe NamedSchema Predicate]))
 
 (defn- tagged-map?
   [value tag-key tag]
@@ -55,6 +55,10 @@
   [s]
   (instance? EqSchema s))
 
+(defn pred?
+  [s]
+  (instance? Predicate s))
+
 (defn enum-schema?
   [s]
   (instance? EnumSchema s))
@@ -86,6 +90,12 @@
   (cond-> s
     (eq? s)
     :v))
+
+(defn de-pred
+  [s]
+  (cond-> s
+    (pred? s)
+    :pred-name))
 
 (defn de-enum
   [s]

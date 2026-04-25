@@ -5,7 +5,8 @@
     minus argc 1 or 2; isPos/isNeg argc 1 -> bool.
   - Invoke (native-fn-dict): (+) (+ x) (*) (* x); str; format; even? odd?; inc when not inlined.
   - Literal (+ 1 2 3) never yields top-level :invoke; test 3-arg + with ((resolve '+) 1 2 3)."
-  (:require [skeptic.analysis.types :as at]
+  (:require [skeptic.analysis.predicates :as predicates]
+            [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov])
   (:import [clojure.lang Numbers]))
 
@@ -89,13 +90,14 @@
     (at/->FunT p [method])))
 
 (def native-fn-dict
-  {'clojure.core/+ (plus-star-type-for 'clojure.core/+)
-   'clojure.core/* (plus-star-type-for 'clojure.core/*)
-   'clojure.core/inc (inc-type-for 'clojure.core/inc)
-   'clojure.core/str (str-type-for 'clojure.core/str)
-   'clojure.core/format (format-type-for 'clojure.core/format)
-   'clojure.core/even? (int-pred-type-for 'clojure.core/even?)
-   'clojure.core/odd? (int-pred-type-for 'clojure.core/odd?)})
+  (into {'clojure.core/+ (plus-star-type-for 'clojure.core/+)
+         'clojure.core/* (plus-star-type-for 'clojure.core/*)
+         'clojure.core/inc (inc-type-for 'clojure.core/inc)
+         'clojure.core/str (str-type-for 'clojure.core/str)
+         'clojure.core/format (format-type-for 'clojure.core/format)
+         'clojure.core/even? (int-pred-type-for 'clojure.core/even?)
+         'clojure.core/odd? (int-pred-type-for 'clojure.core/odd?)}
+        (predicates/predicate-fn-entries)))
 
 (def native-fn-provenance
   (into {} (map (fn [sym] [sym (native-prov sym)])) (keys native-fn-dict)))
