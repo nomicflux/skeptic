@@ -51,6 +51,8 @@
 (deftest sum-type-exhaustive-branches
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.control-flow/cond-boolean-exhaustive-output-success
+    'skeptic.test-examples.control-flow/cond-boolean-pair-exhaustive-output-success
+    'skeptic.test-examples.control-flow/cond-boolean-triple-exhaustive-output-success
     'skeptic.test-examples.control-flow/cond-get-union-predicate-exhaustive-output-success
     'skeptic.test-examples.control-flow/cond-enum-equality-exhaustive-output-success
     'skeptic.test-examples.control-flow/case-enum-exhaustive-output-success

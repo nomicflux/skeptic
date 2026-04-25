@@ -70,3 +70,13 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-or-nil-blank-destructured-narrows-success)]
     (is (empty? (ps/result-errors results))
         (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest if-or-nil-blank-optional-key-narrows
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-or-nil-blank-optional-key-narrows-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest if-or-nil-blank-direct-param-narrows
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-or-nil-blank-direct-param-narrows-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))

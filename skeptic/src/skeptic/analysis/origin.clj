@@ -52,6 +52,11 @@
   (when (invertible-assumption? assumption)
     (opposite-polarity assumption)))
 
+(defn- negate-conjunct-list
+  [conjuncts]
+  (when (every? invertible-assumption? conjuncts)
+    {:kind :disjunction :parts (mapv invert-assumption conjuncts)}))
+
 (defn same-assumption?
   [left right]
   (and (= (:kind left) (:kind right))
@@ -67,6 +72,9 @@
          :value-equality (= (:values left) (:values right))
          :conditional-branch (at/type-equal? (:narrowed-type left) (:narrowed-type right))
          :conjunction (and (= :conjunction (:kind right))
+                           (= (count (:parts left)) (count (:parts right)))
+                           (every? true? (map same-assumption? (:parts left) (:parts right))))
+         :disjunction (and (= :disjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
                            (every? true? (map same-assumption? (:parts left) (:parts right))))
          false)))
@@ -90,6 +98,9 @@
          :value-equality (= (:values a) (:values b))
          :conditional-branch (at/type-equal? (:narrowed-type a) (:narrowed-type b))
          :conjunction (and (= :conjunction (:kind b))
+                           (= (count (:parts a)) (count (:parts b)))
+                           (every? true? (map same-assumption-proposition? (:parts a) (:parts b))))
+         :disjunction (and (= :disjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
                            (every? true? (map same-assumption-proposition? (:parts a) (:parts b))))
          false)))
@@ -173,6 +184,42 @@
       (at/bottom-type? pos) :always
       :else :unknown)))
 
+(defn- atom-key
+  [a]
+  (case (:kind a)
+    :boolean-proposition {:kind :boolean-proposition
+                          :root-sym (get-in a [:root :sym])
+                          :disc (:expr a)}
+    :type-predicate {:kind :type-predicate
+                     :root-sym (get-in a [:root :sym])
+                     :disc {:pred (:pred a) :class (:class a)}}
+    :value-equality {:kind :value-equality
+                     :root-sym (get-in a [:root :sym])
+                     :disc (:values a)}))
+
+(defn- assumption->formula
+  [assumption]
+  (case (:kind assumption)
+    (:boolean-proposition :type-predicate :value-equality)
+    {:kind :atom :expr (atom-key assumption) :polarity (:polarity assumption)}
+
+    :conjunction
+    {:kind :conjunction :parts (vec (keep assumption->formula (:parts assumption)))}
+
+    :disjunction
+    (let [parts (mapv assumption->formula (:parts assumption))]
+      (when (every? some? parts)
+        {:kind :disjunction :parts parts}))
+
+    nil))
+
+(defn- negate-formula
+  [f]
+  (case (:kind f)
+    :atom (update f :polarity not)
+    :conjunction {:kind :disjunction :parts (mapv negate-formula (:parts f))}
+    :disjunction {:kind :conjunction :parts (mapv negate-formula (:parts f))}))
+
 (defn assumption-truth
   [assumption assumptions]
   (cond
@@ -224,7 +271,18 @@
               (some #{:false} ts) :false
               :else :unknown))
 
-      :unknown)))
+      :disjunction
+      (let [ts (mapv #(assumption-truth % assumptions) (:parts assumption))]
+        (cond (some #{:true} ts) :true
+              (every? #{:false} ts) :false
+              :else :unknown))
+
+      (let [q  (assumption->formula assumption)
+            cs (keep assumption->formula assumptions)]
+        (cond
+          (and q (sums/formulas-cover? (cons q (mapv negate-formula cs)))) :true
+          (and q (sums/formulas-cover? (cons (negate-formula q) (mapv negate-formula cs)))) :false
+          :else :unknown)))))
 
 (defn origin-type
   [origin assumptions]
@@ -439,8 +497,8 @@
    true in each region (truthy/falsy) of node, derived structurally from
    let+if shapes. No and/or vocabulary: the only signal is which branch of
    an `if` carries the test-local. Truth tables:
-     (if g g y) — false-region: ¬g ∧ ¬y (conjunction); true-region: disjunction (no narrowing)
-     (if g y g) — true-region:  g ∧ y  (conjunction); false-region: disjunction
+     (if g g y) — false-region: ¬g ∧ ¬y (conjunction); true-region: ¬g ∨ ¬y (disjunction)
+     (if g y g) — true-region:  g ∧ y  (conjunction); false-region: ¬g ∨ ¬y (disjunction)
    `alias-map` maps let-bound syms to their init expressions so when a
    let-bound local appears as the if-test we narrow on the underlying expression."
   ([ctx node locals] (region-conjuncts ctx node locals {}))
@@ -462,18 +520,22 @@
          (same-local? t a)
          (let [t-eff (effective-test-node t alias-map)
                t-r   (region-conjuncts ctx t-eff locals alias-map)
-               b-r   (region-conjuncts ctx b     locals alias-map)]
-           {:then-conjuncts []
-            :else-conjuncts (vec (concat (:else-conjuncts t-r)
-                                         (:else-conjuncts b-r)))})
+               b-r   (region-conjuncts ctx b     locals alias-map)
+               else-conjuncts (vec (concat (:else-conjuncts t-r)
+                                           (:else-conjuncts b-r)))
+               then-disjunction (negate-conjunct-list else-conjuncts)]
+           {:then-conjuncts (if then-disjunction [then-disjunction] [])
+            :else-conjuncts else-conjuncts})
 
          (same-local? t b)
          (let [t-eff (effective-test-node t alias-map)
                t-r   (region-conjuncts ctx t-eff locals alias-map)
-               a-r   (region-conjuncts ctx a     locals alias-map)]
-           {:then-conjuncts (vec (concat (:then-conjuncts t-r)
-                                         (:then-conjuncts a-r)))
-            :else-conjuncts []})
+               a-r   (region-conjuncts ctx a     locals alias-map)
+               then-conjuncts (vec (concat (:then-conjuncts t-r)
+                                           (:then-conjuncts a-r)))
+               else-disjunction (negate-conjunct-list then-conjuncts)]
+           {:then-conjuncts then-conjuncts
+            :else-conjuncts (if else-disjunction [else-disjunction] [])})
 
          :else
          (leaf-region-conjuncts ctx (effective-test-node t alias-map) locals)))

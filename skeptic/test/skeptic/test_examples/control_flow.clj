@@ -189,6 +189,27 @@
     (pos? a) "a"
     (not (pos? a)) "b"))
 
+(s/defn cond-boolean-pair-exhaustive-output-success :- s/Int
+  [x :- s/Int
+   y :- s/Int]
+  (cond
+    (and (pos? x) (pos? y)) 1
+    (and (pos? x) (not (pos? y))) 2
+    (and (not (pos? x)) (pos? y)) 3
+    (and (not (pos? x)) (not (pos? y))) 4))
+
+(s/defn cond-boolean-triple-exhaustive-output-success :- s/Int
+  [x :- s/Int, y :- s/Int, z :- s/Int]
+  (cond
+    (and (pos? x) (pos? y) (pos? z))                   1
+    (and (pos? x) (pos? y) (not (pos? z)))             2
+    (and (pos? x) (not (pos? y)) (pos? z))             3
+    (and (pos? x) (not (pos? y)) (not (pos? z)))       4
+    (and (not (pos? x)) (pos? y) (pos? z))             5
+    (and (not (pos? x)) (pos? y) (not (pos? z)))       6
+    (and (not (pos? x)) (not (pos? y)) (pos? z))       7
+    (and (not (pos? x)) (not (pos? y)) (not (pos? z))) 8))
+
 (s/def sum-type-exhaustive-map :- {:a s/Int}
   {:a 1})
 

@@ -308,8 +308,12 @@
 
 (defn- branch-truth
   [then-conjuncts assumptions]
-  (when (= 1 (count then-conjuncts))
-    (ao/assumption-truth (first then-conjuncts) assumptions)))
+  (cond
+    (= 1 (count then-conjuncts))
+    (ao/assumption-truth (first then-conjuncts) assumptions)
+
+    (seq then-conjuncts)
+    (ao/assumption-truth {:kind :conjunction :parts (vec then-conjuncts)} assumptions)))
 
 (defn- joined-branch-type
   [ctx truth then-node else-node]

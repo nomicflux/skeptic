@@ -130,6 +130,7 @@ The test is then converted into branch-local assumptions. Those assumptions may 
 - boolean propositions whose inferred type is exhausted by true and false
 - negated tests through `not`
 - conjunctions of test facts
+- disjunctions of test facts, recorded as the structural negation of a conjunction-of-atoms when an and-shape's else-branch or an or-shape's then-branch needs narrowing
 - let and if expansion shapes that expose the effective test expression
 - previously preserved origins on locals
 
@@ -712,7 +713,7 @@ Recorded behavior:
 
 - `or` and `if` expansions produce branch-local refinement and joined result types
 - nil-bearing joins canonicalize to maybe-typed results in analyzed source definitions
-- conjunction-style tests contribute multiple assumptions
+- conjunction-style tests contribute multiple assumptions; the falsy-region of an and-shape and the truthy-region of an or-shape contribute a disjunction of negated atoms
 - shadowed local bindings preserve root-origin information strongly enough for later unary numeric operations to see refined argument types
 - negated assumptions invert branch assumptions
 - narrowing-preserving aliases keep their own root for later refinement
@@ -746,3 +747,4 @@ Recorded behavior:
 - loop recur widening handles vector and map accumulators
 - `for` expansion produces expected sequence output and mismatch behavior
 - exhaustive closed-sum branches through booleans, conjunctions, map lookup predicates, equality, `case`, and `condp` do not include unreachable branch output in successful fixtures
+- products of finite-sum tests (e.g. `cond` chains of `(and ...)` over `Bool^N` for small `N`) exhaust through the truth-table primitive and likewise drop the unreachable nil tail

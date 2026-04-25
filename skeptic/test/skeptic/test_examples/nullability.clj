@@ -116,6 +116,16 @@
   [{:keys [a b]} :- Strs]
   {:a (if (or (nil? a) (str/blank? a)) (str "a-" b) a)})
 
+(s/defschema OptStrs {(s/optional-key :a) s/Str :b s/Str})
+
+(s/defn if-or-nil-blank-optional-key-narrows-success :- {:a s/Str}
+  [{:keys [a b]} :- OptStrs]
+  {:a (if (or (nil? a) (str/blank? a)) (str "a-" b) a)})
+
+(s/defn if-or-nil-blank-direct-param-narrows-success :- {:k s/Str}
+  [a :- (s/maybe s/Str)]
+  {:k (if (or (nil? a) (str/blank? a)) "u" a)})
+
 (s/defn or-only-nil-alternative-failure :- {:a s/Str}
   [{:keys [x]} :- {:x (s/maybe s/Str)}]
   {:a (or x nil)})
