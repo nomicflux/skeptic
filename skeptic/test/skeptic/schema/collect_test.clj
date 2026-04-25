@@ -42,6 +42,32 @@
     (is (= s/Keyword (:output keyword-desc)))
     (is (= s/Int (get-in keyword-desc [:arglists 1 :schema 0 :schema])))))
 
+(deftest collect-schemas-builds-canonical-slots-without-second-pass
+  (let [class-desc (sut/collect-schemas {:schema String
+                                         :ns 'skeptic.schema.collect
+                                         :name 'class-fn
+                                         :arglists '([])})
+        vec-desc   (sut/collect-schemas {:schema [s/Int]
+                                         :ns 'skeptic.schema.collect
+                                         :name 'vec-fn
+                                         :arglists '([])})
+        set-desc   (sut/collect-schemas {:schema #{s/Int}
+                                         :ns 'skeptic.schema.collect
+                                         :name 'set-fn
+                                         :arglists '([])})
+        fn-desc    (sut/collect-schemas {:schema (s/=> s/Int s/Str)
+                                         :ns 'skeptic.schema.collect
+                                         :name 'fn-fn
+                                         :arglists '([x])})]
+    (is (= java.lang.String (:schema class-desc)))
+    (is (= java.lang.String (:output class-desc)))
+    (is (= [s/Int] (:schema vec-desc)))
+    (is (= [s/Int] (:output vec-desc)))
+    (is (= #{s/Int} (:schema set-desc)))
+    (is (= #{s/Int} (:output set-desc)))
+    (is (= s/Int (:output fn-desc)))
+    (is (= s/Str (get-in fn-desc [:arglists 1 :schema 0 :schema])))))
+
 (deftest ns-schemas-canonicalizes-known-public-schemas
   (require 'skeptic.schema.collect)
   (let [schemas (sut/ns-schemas {} 'skeptic.schema.collect)]

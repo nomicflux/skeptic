@@ -139,39 +139,50 @@
         (catch IllegalArgumentException e
           (throw (invalid-schema-annotation ns name slot value e)))))))
 
+(defn- annotated-arg-entry
+  [inputs args next]
+  (let [input (get inputs next)
+        arg (get args next)]
+    (cond-> {:arglist arg}
+      (= next :varargs)
+      (assoc :count (:count arg)
+             :arglist (:args arg)
+             :schema (some-> (get inputs (:count arg))
+                             normalize-vararg-input-schemas))
+
+      (not (nil? input))
+      (assoc :schema input))))
+
+(defn- annotated-args-map
+  [input-schemas arglists]
+  (let [inputs (count-map input-schemas)
+        args (arg-map arglists)]
+    (reduce (fn [acc next]
+              (assoc acc next (annotated-arg-entry inputs args next)))
+            {}
+            (keys args))))
+
+(defn- fn-schema-desc
+  [schema ns name arglists]
+  (let [{:keys [input-schemas output-schema]} (into {} schema)]
+    {:name (str ns "/" name)
+     :schema schema
+     :output (or output-schema schema)
+     :arglists (annotated-args-map input-schemas arglists)}))
+
+(defn- class-schema-desc
+  [schema ns name]
+  {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
+   :schema schema
+   :output schema
+   :arglists {}})
+
 (defn- build-annotated-schema-desc!
   [{:keys [schema ns name arglists]}]
   (let [schema (abc/canonicalize-schema schema)
-        desc (->> (if (or (class? schema) (set? schema) (vector? schema))
-                    {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
-                     :schema schema
-                     :output schema
-                     :arglists {}}
-                    (let [{:keys [input-schemas output-schema]} (into {} schema)
-                          inputs (count-map input-schemas)
-                          args (arg-map arglists)
-                          annotated-args (reduce
-                                          (fn [acc next]
-                                            (let [input (get inputs next)
-                                                  arg (get args next)]
-                                              (assoc acc
-                                                     next
-                                                     (cond-> {:arglist arg}
-                                                       (= next :varargs)
-                                                       (assoc :count (:count arg)
-                                                              :arglist (:args arg)
-                                                              :schema (some-> (get inputs (:count arg))
-                                                                              normalize-vararg-input-schemas))
-
-                                                       (not (nil? input))
-                                                       (assoc :schema input)))))
-                                          {}
-                                          (keys args))]
-                      {:name (str ns "/" name)
-                       :schema schema
-                       :output (or output-schema schema)
-                       :arglists annotated-args}))
-                  abc/canonicalize-entry)]
+        desc (if (or (class? schema) (set? schema) (vector? schema))
+               (class-schema-desc schema ns name)
+               (fn-schema-desc schema ns name arglists))]
     (assert-admitted-schema-slots! ns name desc)
     desc))
 
