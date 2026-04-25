@@ -19,11 +19,29 @@ The rewrite must preserve that tree-shaped result model, because reporting code 
 
 Before any comparison:
 
-- Normalize the source type.
-- Normalize the target type.
+- Normalize the source type with `type-ops/normalize-for-declared-type`.
+- Normalize the target type with `type-ops/normalize-for-declared-type`.
+- Preserve `ConditionalT` structure during that normalization rather than reducing
+  it to a plain union.
 - Use positive blame polarity unless a caller explicitly requests another polarity.
 
 Function parameter checking flips polarity, but everything else keeps the current polarity.
+
+### Annotate-To-Cast Handoff
+
+The annotation pass does not call the cast engine directly.
+
+Annotation remains first-order: it attaches node types and call metadata such as
+`:actual-argtypes`, `:expected-argtypes`, `:output-type`, and `:fn-type`.
+
+The checking pipeline consumes that metadata:
+
+- `match-s-exprs` casts call and recur actual argument types to expected argument
+  types through `skeptic.inconsistence.report/cast-report`.
+- `def-output-results` casts inferred method output types to declared output
+  types through `skeptic.inconsistence.report/output-cast-report`.
+- The report layer runs `skeptic.analysis.cast/check-cast` and projects the
+  resulting tree into summaries and leaf diagnostics.
 
 ### Decision Order
 
@@ -36,16 +54,17 @@ The cast relation is order-sensitive. The rewrite must preserve this precedence:
 5. If the target is dynamic, succeed immediately.
 6. If either side is a union, use union casting.
 7. If either side is an intersection, use intersection casting.
-8. If either side is nullable, use nullable casting.
-9. If either side is a transparent wrapper such as an optional map key or a var wrapper, unwrap one layer and continue.
-10. If both sides are functions, use function casting.
-11. If both sides are maps, use map casting.
-12. If both sides are vectors, use vector casting.
-13. If both sides are sequences, use sequence casting.
-14. If the source is a sequence and the target is a vector, use sequence-to-vector casting.
-15. If the source is a vector and the target is a sequence, use vector-to-sequence casting.
-16. If both sides are sets, use set casting.
-17. Otherwise use leaf casting.
+8. If either side is conditional, use conditional casting.
+9. If either side is nullable, use nullable casting.
+10. If either side is a transparent wrapper such as an optional map key or a var wrapper, unwrap one layer and continue.
+11. If both sides are functions, use function casting.
+12. If both sides are maps, use map casting.
+13. If both sides are vectors, use vector casting.
+14. If both sides are sequences, use sequence casting.
+15. If the source is a sequence and the target is a vector, use sequence-to-vector casting.
+16. If the source is a vector and the target is a sequence, use vector-to-sequence casting.
+17. If both sides are sets, use set casting.
+18. Otherwise use leaf casting.
 
 ### Quantified Types
 
@@ -170,6 +189,29 @@ If the source is an intersection and the target is not:
 
 - Cast every source member to the target.
 - Every source member must succeed.
+
+### Conditional Types
+
+Conditional casting is currently union-like, but it preserves the `ConditionalT`
+branch structure until dispatch.
+
+#### Source conditional
+
+If the source is conditional:
+
+- Cast every conditional branch type to the full target.
+- Every branch must succeed.
+- The aggregate rule reported today is `:source-union`.
+
+#### Target conditional
+
+If the target is conditional and the source is not:
+
+- Cast the source to every conditional branch type.
+- If any branch succeeds, the conditional cast succeeds.
+- If no branch succeeds, it fails with the same no-branch shape used by target
+  unions.
+- The aggregate rule reported today is `:target-union`.
 
 ### Nullable Types
 
@@ -316,7 +358,8 @@ Leaf casting handles everything that is not structural after the earlier rules h
 #### Residual dynamic values
 
 - Dynamic source succeeds against any remaining target.
-- Placeholder source also succeeds against any remaining target.
+- Placeholder source succeeds against any remaining target.
+- Infinite-cycle source succeeds against any remaining target.
 
 This is the residual dynamic case that remains after the stricter abstract-variable rules.
 
@@ -405,7 +448,6 @@ Outputs:
   - `:actual-key`
   - `:target-method`
   - `:source-key-domain`
-  - `:cast-state`
 
 The rewrite must keep the function name, both arities, default polarity behavior, and the result-tree shape.
 
@@ -431,9 +473,47 @@ Output:
 
 The current function does not normalize the input itself. External callers currently pass semantic type values.
 
+### `skeptic.analysis.cast.support/with-cast-path`
+
+Callers outside the subtree:
+
+- `skeptic.analysis.value-check`
+
+Arity:
+
+- `(with-cast-path result segment)`
+
+Inputs:
+
+- `result`: a cast-result map
+- `segment`: a visible path segment such as `{:kind :map-key :key k}`
+
+Output:
+
+- returns the cast-result map with `segment` appended to `:path` when `segment`
+  is present
+
+### `skeptic.analysis.cast.result`
+
+Callers outside the subtree:
+
+- `skeptic.inconsistence.report`
+- `skeptic.analysis.map-ops` via `requiring-resolve`
+- `skeptic.analysis.value-check` via `requiring-resolve`
+- `skeptic.analysis.schema.cast`
+
+Live public functions:
+
+- `ok?`: boolean projection over `:ok?`
+- `root-summary`: root-level report summary containing success, rule, blame, actual, and expected type data
+- `leaf-diagnostics`: flattened failure diagnostics with accumulated visible paths
+- `primary-diagnostic`: first failure diagnostic, falling back to the root on success or root-only results
+
 ## Record Of Non-Unit Tests That Exercise The Cast Subtree
 
-This section excludes `skeptic/test/skeptic/analysis/cast_test.clj`, which is the direct unit-test file for the current implementation. Everything below is outside that pure subtree unit coverage.
+This section excludes direct unit coverage under `skeptic/test/skeptic/analysis/cast/`
+except where those tests pin cast/report boundary behavior that downstream
+annotation and checking rely on.
 
 ### Direct Or Near-Direct Boundary Coverage
 
@@ -444,21 +524,32 @@ This section excludes `skeptic/test/skeptic/analysis/cast_test.clj`, which is th
 
 #### `skeptic/test/skeptic/analysis/annotate/integration_test.clj`
 
-- `case-conditional-narrowing-through-destructured-keyword-local-test`
+- `annotate-form-loop-integration-test`
+  - verifies ordinary annotated calls carry actual and expected argument types
+  - verifies annotation stays first-order and introduces no quantified, abstract-variable, or sealed-dynamic types
+- `integration-preserves-local-invocation`
   - verifies a narrowed argument type produced by analysis is cast-compatible with the callee’s expected type
+
+#### `skeptic/test/skeptic/analysis/annotate/typed_flow_test.clj`
+
+- `typed-flow-through-let-and-if-test`
+  - verifies type information flows through local binding and conditional annotation
+- `typed-function-flow-test`
+  - verifies functions compute parameter specs, arglists, and output types consumed by checking
+
+#### `skeptic/test/skeptic/analysis/annotate/match_test.clj`
+
+- `case-conditional-narrow-for-lits-empty-picks-uses-anchor-test`
+  - verifies failed conditional case branch picking produces bottom with the anchor provenance
+- `case-conditional-default-narrow-empty-default-uses-anchor-test`
+  - verifies exhausted conditional defaults produce bottom with the anchor provenance
 
 #### `skeptic/test/skeptic/analysis/annotate/structural_test.clj`
 
-- `structural-analysis-test`
-  - loop body vector literal is castable to declared homogeneous vector type
-  - loop body map literal is castable to declared nested map type
-- `native-core-numbers-and-dict-smoke-test`
-  - adversarial `even?` argument check rejects `Str` where `Int` is expected
-- `numbers-dec-narrows-for-constrained-local-test`
-  - narrowed integer result remains castable to a constrained integer target
-- `native-seq-concat-and-tuple-adversarial-test`
-  - tuple-first result is castable to `Int`
-  - the same value is not castable to `Str`
+- `structural-throw-try-and-loop-test`
+  - loop bodies and recur sites carry the expected result and bottom types
+- `structural-literal-collections-test`
+  - literal vectors, maps, and sets preserve the collection shapes later checked by casts
 
 ### External Consumers That Depend On Cast Semantics
 
@@ -496,8 +587,6 @@ These tests constrain exact-key handling, optional-key handling, and tuple/homog
   - output mismatch reports render canonical actual and expected map types
 - `nested-output-cast-report-includes-summary-and-path-details-test`
   - nested map mismatches produce visible map-key paths
-- `output-summary-prefers-leaf-mismatch-over-source-union-headline`
-  - output summaries prioritize actionable leaf mismatches over a top-level source-union headline
 - `output-summary-declared-type-shows-full-conditional-union`
   - output summaries retain the full target union in declared-type text
 - `output-report-summary-uses-root-expected-type-metadata`
@@ -535,28 +624,31 @@ These tests constrain exact-key handling, optional-key handling, and tuple/homog
   - mixed enums cast to each covered base type but not uncovered ones
   - enum-to-base and base-to-enum directionality is preserved
 
+#### `skeptic/test/skeptic/analysis/cast/result_test.clj`
+
+- `leaf-diagnostics-projects-failed-source-conditional-at-aggregate-level`
+  - source conditional failures project at the aggregate source-union level
+- `conditional-types-work-under-maybe-cast-test`
+  - conditional types still cast correctly when nested under maybe
+
 ### End-To-End Pipeline Coverage
 
 The pipeline tests exercise casts through full analysis, checking, blame selection, and report assembly. They are not unit tests of casting, but they constrain the behavior that a rewrite must preserve.
 
 #### General success/failure flow
 
-`skeptic/test/skeptic/checking/pipeline_test.clj`
+`skeptic/test/skeptic/checking/pipeline/basics_test.clj`
 
-- `working-functions`
-  - broad success smoke coverage across ordinary calls, maps, vectors, loops, `for`, narrowing, maybe types, map formatting, multi-step helpers, field threading, and function chains
-- `new-failing-function`
-  - explicit bad annotation failure
+- `annotated-input-ground-type-mismatch`
+  - ground input mismatches are reported from annotated call metadata
 - `failing-functions`
-  - nil-vs-non-nil mismatches
-  - ground mismatches
-  - recur mismatches
-  - multi-arity function mismatches
-  - bad parametric-function mismatch
+  - nil, ground, recur, multi-arity, and parametric-function mismatches remain reported
 - `fn-chain-type-errors`
   - helper-return mismatch is reported at the caller boundary
 
 #### Loop, sequence, vector, and map shape coverage
+
+`skeptic/test/skeptic/checking/pipeline/control_flow_test.clj`
 
 - `loop-return-matches-declared-vector-and-map-schemas`
   - loop outputs satisfy declared vector and nested map schemas
@@ -570,16 +662,37 @@ The pipeline tests exercise casts through full analysis, checking, blame selecti
   - mixed branch result fails against pure string sequence target
 - `for-even-str-odd-int-declared-cond-pre-seq-succeeds`
   - the same mixed branches succeed when the target is the matching conditional union
+- `sum-type-exhaustive-branches`
+  - closed-sum exhaustive branches avoid joining unreachable defaults before output casting
+
+`skeptic/test/skeptic/checking/pipeline/collections_test.clj`
+
 - `abcde-maps-output-type-errors`
   - nested vector-of-map output mismatch is preserved structurally
+- `nested-call-mismatch-renders-field-paths`
+  - input mismatch paths for nested map fields are preserved
+- `vector-call-mismatch-renders-index-paths`
+  - input mismatch paths for vector indexes are preserved
 - `vector-literal-tuples-derive-homogeneous-views-at-check-boundary`
-  - a triple literal can satisfy homogeneous and exact triple targets
-  - the same triple fails against pair and quad targets with vector arity mismatch
+  - vector literal tuple and homogeneous views remain distinguished at the cast boundary
+- `printer-path-renders-only-user-facing-data`
+  - path rendering remains user-facing rather than UI-internal
 
 #### Input/output reporting, paths, and metadata
 
+`skeptic/test/skeptic/checking/pipeline/check_ns_phase_test.clj`
+
 - `static-call-examples-check-ns`
   - end-to-end output mismatch messages for map rebuilds and nested helper calls
+- `symbol-output-annotation-regression`
+  - symbol-based output annotations still feed the same output-cast path
+- `collect-annotations-output-annotation-regression`
+  - collected output annotations still feed the same output-cast path
+- `examples-maybe-multi-step-check-ns`
+  - flat and nested maybe failures are preserved, and matching maybe successes remain accepted
+
+`skeptic/test/skeptic/checking/pipeline/reporting_phase_test.clj`
+
 - `output-mismatch-renders-canonical-map-types`
   - end-to-end canonical map rendering in output mismatches
 - `output-summary-highlights-path-or-drops-redundant-self-context`
@@ -588,61 +701,52 @@ The pipeline tests exercise casts through full analysis, checking, blame selecti
   - end-to-end nested map output mismatch produces `[:user :name]`
 - `check-results-carry-cast-metadata`
   - reports retain cast rule, actual/expected types, root cast result, leaf cast results, blame side, blame polarity, location, and focus sources
+
+`skeptic/test/skeptic/checking/pipeline/resolution_test.clj`
+
 - `resolved-helper-failures-use-final-reduced-types`
   - mismatches are reported on the final reduced helper type, not an intermediate shape
 - `check-s-expr-uses-resolved-helper-types`
   - the same reduced-helper behavior is preserved in single-expression checking
-- `nested-call-mismatch-renders-field-paths`
-  - input mismatch paths for nested map fields are preserved
-- `vector-call-mismatch-renders-index-paths`
-  - input mismatch paths for vector indexes are preserved
-- `printer-path-renders-only-user-facing-data`
-  - path rendering remains user-facing rather than UI-internal
-- `call-mismatch-reports-affected-input-and-location`
-  - input mismatch reports preserve focus, source expression, and source location
+- `resolution-path-resolutions`
+  - checked-call analysis preserves resolution context while executing cast compatibility checks
+- `shadow-provenance-uses-param-binding`
+  - shadowed locals preserve context while executing cast compatibility checks
 - `call-mismatch-summary-uses-single-focused-input`
   - focused single-argument summaries use the argument rather than the whole call
-- `output-keyword-failure-includes-source-location`
-  - output mismatches preserve source location
 
 #### Wrapper and annotation boundary coverage
+
+`skeptic/test/skeptic/checking/pipeline/basics_test.clj`
 
 - `annotated-wrapper-regression`
   - annotated wrapper forms still surface the right blame expression
 - `checking-annotated-wrapper-regression`
   - annotated input/output wrappers and constrained outputs still check correctly
-- `symbol-output-annotation-regression`
-  - symbol-based output annotations still feed the same output-cast path
-- `collect-annotations-output-annotation-regression`
-  - collected output annotations still feed the same output-cast path
 
 #### Maybe, union, intersection, and conditional-contract coverage
 
-- `examples-maybe-multi-step-check-ns`
-  - flat and nested maybe failures are preserved
-  - matching maybe successes remain accepted
+`skeptic/test/skeptic/checking/pipeline/nullability_test.clj`
+
+- `when-not-blank-maybe-str`
+  - maybe-string narrowing through `when-not-blank` remains accepted
+
+`skeptic/test/skeptic/checking/pipeline/contracts_test.clj`
+
 - `checking-conditional-input-contracts`
   - conditional/either/if-style input unions accept the covered branches and reject uncovered ones
-  - intersection-like input contracts preserve the stricter branch behavior
 - `checking-conditional-output-contracts`
   - the same conditional and intersection behavior holds on output checking
 - `conditional-contract-contains-key-refinement`
-  - `contains?`-style refinement can narrow to exact map shapes
-  - optional broad-key presence does not over-refine
+  - `contains?`-style refinement can narrow to exact map shapes without over-refining optional broad-key presence
 - `conditional-contract-cond-thread-output-construction`
   - conditional construction of map outputs preserves the accepted joined result
 - `nested-conditional-contract-cond-thread`
   - nested conditional map construction preserves outer and inner branch routing
 - `handles-ab-case-routing`
   - case routing across `:a`, `:b`, and combined `:ab` shapes remains accepted
+
+`skeptic/test/skeptic/checking/pipeline/control_flow_test.clj`
+
 - `cond-three-branch-join-output`
   - three-branch joins preserve the resulting union output
-- `when-not-blank-maybe-str`
-  - maybe-string narrowing through `when-not-blank` remains accepted
-
-#### Coverage That Executes Cast But Does Not Pin Down A Specific Rule
-
-- `resolution-path-resolutions`
-- `shadow-provenance-uses-param-binding`
-
-These tests pass through checked-call analysis that necessarily performs cast compatibility checks, but they do not assert cast-specific rules beyond “the checked call remains accepted.”
