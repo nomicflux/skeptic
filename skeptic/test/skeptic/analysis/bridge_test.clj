@@ -172,7 +172,14 @@
 (deftest canonicalize-schema-resolves-vars-inside-plumatic-wrappers-test
   (is (= (s/maybe s/Int)    (abc/canonicalize-schema (s/maybe #'BoundSchemaRef))))
   (is (= (s/cond-pre s/Int) (abc/canonicalize-schema (s/cond-pre #'BoundSchemaRef))))
-  (is (= (s/either s/Int)   (abc/canonicalize-schema (s/either #'BoundSchemaRef)))))
+  (is (= (s/either s/Int)   (abc/canonicalize-schema (s/either #'BoundSchemaRef))))
+  (is (= (s/both s/Int)     (abc/canonicalize-schema (s/both #'BoundSchemaRef))))
+  (is (= (s/constrained s/Int even? 'even)
+         (abc/canonicalize-schema (s/constrained #'BoundSchemaRef even? 'even))))
+  (is (= (s/conditional even? s/Int)
+         (abc/canonicalize-schema (s/conditional even? #'BoundSchemaRef))))
+  (is (= {(s/optional-key s/Int) s/Any}
+         (abc/canonicalize-schema {(s/optional-key #'BoundSchemaRef) s/Any}))))
 
 (s/defschema NestedRefA [#{s/Int}])
 (s/defschema NestedRefB {:inner #'NestedRefA})

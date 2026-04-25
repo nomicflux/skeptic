@@ -58,7 +58,16 @@
         fn-desc    (sut/collect-schemas {:schema (s/=> s/Int s/Str)
                                          :ns 'skeptic.schema.collect
                                          :name 'fn-fn
-                                         :arglists '([x])})]
+                                         :arglists '([x])})
+        varargs-desc (sut/collect-schemas
+                      {:schema (s/make-fn-schema s/Int [[(s/one s/Str 'x) s/Bool]])
+                       :ns 'skeptic.schema.collect
+                       :name 'varargs-fn
+                       :arglists '([x & ys])})]
+    (is (= "skeptic.schema.collect/class-fn" (:name class-desc)))
+    (is (= "skeptic.schema.collect/vec-fn"   (:name vec-desc)))
+    (is (= "skeptic.schema.collect/set-fn"   (:name set-desc)))
+    (is (= "skeptic.schema.collect/fn-fn"    (:name fn-desc)))
     (is (= java.lang.String (:schema class-desc)))
     (is (= java.lang.String (:output class-desc)))
     (is (= [s/Int] (:schema vec-desc)))
@@ -66,7 +75,10 @@
     (is (= #{s/Int} (:schema set-desc)))
     (is (= #{s/Int} (:output set-desc)))
     (is (= s/Int (:output fn-desc)))
-    (is (= s/Str (get-in fn-desc [:arglists 1 :schema 0 :schema])))))
+    (is (= s/Str (get-in fn-desc [:arglists 1 :schema 0 :schema])))
+    (is (= 2 (get-in varargs-desc [:arglists :varargs :count])))
+    (is (= '[x [ys]] (get-in varargs-desc [:arglists :varargs :arglist])))
+    (is (= s/Bool (get-in varargs-desc [:arglists :varargs :schema 1 :schema])))))
 
 (deftest ns-schemas-canonicalizes-known-public-schemas
   (require 'skeptic.schema.collect)

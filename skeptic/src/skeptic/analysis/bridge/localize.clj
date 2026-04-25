@@ -44,7 +44,6 @@
     (sb/variable (localize-value* (:schema value) seen-vars))
     :else value))
 
-
 (defn- localize-raw-collection
   [value seen-vars]
   (cond
