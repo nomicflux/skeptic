@@ -161,3 +161,93 @@ None. All deliverables completed as specified.
 ## Ready for Phase 3
 
 Localization is now boundary-only: one pass at `canonicalize-schema`, plus narrowly at extraction sites where a Plumatic record may hide an un-localized Var. No redundant passes. Phase 3 will remove the trailing `abc/canonicalize-entry` from `build-annotated-schema-desc!` to eliminate the second declaration canonicalization pass.
+
+---
+
+# Phase 3: Decompose `build-annotated-schema-desc!` helpers — COMPLETE
+
+## Changes Made
+
+### File: `skeptic/src/skeptic/schema/collect.clj`
+
+1. **Added four private helper functions** (inserted before `build-annotated-schema-desc!`, L142–176):
+
+   - **`annotated-arg-entry`** (L142–152, 11 lines): Builds a single arg entry from inputs and args maps. Handles varargs specially (extracts count, args, and schema via `normalize-vararg-input-schemas`) and non-nil input cases.
+   
+   - **`annotated-args-map`** (L154–161, 8 lines): Reduces over arg keys to build the full arglists map. Calls `annotated-arg-entry` for each key.
+   
+   - **`fn-schema-desc`** (L163–170, 8 lines): Builds the descriptor for fn-like schemas. Extracts `:input-schemas` and `:output-schema` from the schema dict, calls `annotated-args-map`, and returns the complete descriptor map.
+   
+   - **`class-schema-desc`** (L172–176, 5 lines): Builds the descriptor for class/set/vector schemas. Uses `abc/schema-display-form` for name and returns a descriptor with empty arglists.
+
+2. **Replaced `build-annotated-schema-desc!` body** (L178–184, 7 lines):
+   - **Before:** Large nested `let` with reduce closure, piped through `abc/canonicalize-entry`.
+   - **After:** Simple conditional dispatching to `class-schema-desc` or `fn-schema-desc`, then assertion check.
+   - **Removed:** The trailing `abc/canonicalize-entry` pipe (line 174 in original).
+   - **Kept:** `assert-admitted-schema-slots!` call in the same position (after building desc).
+
+3. **Did NOT delete** `abc/canonicalize-entry` from `canonicalize.clj` — only this one caller removed.
+
+### File: `skeptic/test/skeptic/schema/collect_test.clj`
+
+1. **Added new regression test:** `collect-schemas-builds-canonical-slots-without-second-pass` (after L43).
+   - Tests class schema: `String` → verifies `:schema` and `:output` are `java.lang.String`.
+   - Tests vector schema: `[s/Int]` → verifies `:schema` and `:output` are `[s/Int]`.
+   - Tests set schema: `#{s/Int}` → verifies `:schema` and `:output` are `#{s/Int}`.
+   - Tests fn schema: `(s/=> s/Int s/Str)` → verifies `:output` is `s/Int` and arglist entry schema is `s/Str`.
+   - Confirms canonical slot building happens in a single pass (no second-pass canonicalization).
+
+## Test Results
+
+### Targeted Tests
+```
+lein test :only skeptic.schema.collect-test
+Ran 14 tests containing 40 assertions.
+0 failures, 0 errors.
+```
+
+All existing tests pass:
+- `collect-schemas-canonicalizes-schema-representations` — canonicalization of symbolic schemas still works.
+- `ns-schemas-canonicalizes-known-public-schemas` — public schema collection unchanged.
+- `collect-schemas-rejects-invalid-schema-annotations-early` — admission checks still enforce boundaries.
+- `collect-schemas-admits-regex-and-rejects-semantic-type-nested-args` — regex and semantic-type filtering intact.
+
+New test `collect-schemas-builds-canonical-slots-without-second-pass` passes.
+
+### Full Test Suite
+```
+lein test
+Ran 506 tests containing 2363 assertions.
+0 failures, 0 errors.
+```
+
+All 506 tests pass without regression (added 1 new test, total count increased from 505).
+
+### Lint Results
+```
+clj-kondo --lint src/skeptic/schema/collect.clj test/skeptic/schema/collect_test.clj
+linting took 267ms, errors: 0, warnings: 0
+```
+
+Zero errors and warnings on both files.
+
+## Verification Against Plan
+
+1. ✓ **Helper decomposition:** Four new private helpers extracted (`annotated-arg-entry`, `annotated-args-map`, `fn-schema-desc`, `class-schema-desc`).
+2. ✓ **`abc/canonicalize-entry` removal:** The trailing pipe is gone from `build-annotated-schema-desc!` (line 174 in original).
+3. ✓ **Single-pass canonicalization:** Helpers build canonical slots directly; no second pass.
+4. ✓ **`assert-admitted-schema-slots!` placement:** Called inside `build-annotated-schema-desc!` after building the desc, exactly as specified.
+5. ✓ **`abc/canonicalize-entry` not deleted:** Function remains in `canonicalize.clj` (no callers deleted, only this one removed).
+6. ✓ **Function sizes <20 lines:** All helpers are 5–11 lines; `build-annotated-schema-desc!` is 7 lines.
+7. ✓ **No dead code:** Old nested logic removed entirely; no obsolete code paths remain.
+8. ✓ **No future-proofing:** Only necessary decomposition; no new parameters or abstractions.
+9. ✓ **New test added:** Regression test verifies single-pass behavior and canonical slot format.
+10. ✓ **Full test suite green:** 506 tests, 100% pass.
+
+## Deviation from Plan
+
+None. All deliverables completed as specified.
+
+## Phase 3 Summary
+
+Declaration canonicalization is now simplified: `build-annotated-schema-desc!` calls canonicalize-schema once at entry, then dispatches to specialized helpers for class vs. fn schemas. No second-pass `canonicalize-entry` call. Single-pass, modular, <20-line functions. All tests pass.
