@@ -97,8 +97,8 @@ Source namespace families:
   `skeptic.output` selects a printer based on opts.
   `skeptic.output.text` renders the human-readable, ANSI-coloured report that `lein skeptic` has always produced.
   `skeptic.output.porcelain` renders newline-delimited JSON (one object per finding) for `lein skeptic -p`.
-- `skeptic.file`, `skeptic.source`, `skeptic.colours`, `skeptic.utils`, `skeptic.type-vars`:
-  General support namespaces for file reading, source lookup, terminal formatting, schema-desc merging, and simple type-var values.
+- `skeptic.file`, `skeptic.source`, `skeptic.colours`, `skeptic.type-vars`:
+  General support namespaces for file reading, source lookup, terminal formatting, and simple type-var values.
 - `skeptic.examples`, `skeptic.static-call-examples`:
   Example/demo namespaces used for exercising analysis behavior.
 - `skeptic.analysis`, `skeptic.checking`, `skeptic.core-fns`:
