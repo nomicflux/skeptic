@@ -1,7 +1,6 @@
 (ns skeptic.analysis.bridge.localize
   (:require [skeptic.analysis.schema-base :as sb]
-            [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]))
+            [skeptic.analysis.types :as at]))
 
 (def ^:dynamic *error-context*
   nil)
@@ -45,78 +44,6 @@
     (sb/variable (localize-value* (:schema value) seen-vars))
     :else value))
 
-(defn- localize-semantic-type
-  [value seen-vars]
-  (let [p (prov/of value)]
-    (case (at/semantic-tag value)
-      :skeptic.analysis.types/dyn-type (at/Dyn p)
-      :skeptic.analysis.types/bottom-type (at/BottomType p)
-      :skeptic.analysis.types/ground-type
-      (at/->GroundT p (:ground value) (:display-form value))
-      :skeptic.analysis.types/numeric-dyn-type
-      (at/NumericDyn p)
-      :skeptic.analysis.types/refinement-type
-      (at/->RefinementT p
-                        (localize-value* (:base value) seen-vars)
-                        (:display-form value)
-                        (:accepts? value)
-                        (localize-value* (:adapter-data value) seen-vars))
-      :skeptic.analysis.types/adapter-leaf-type
-      (at/->AdapterLeafT p
-                         (:adapter value)
-                         (:display-form value)
-                         (:accepts? value)
-                         (localize-value* (:adapter-data value) seen-vars))
-      :skeptic.analysis.types/optional-key-type
-      (at/->OptionalKeyT p (localize-value* (:inner value) seen-vars))
-      :skeptic.analysis.types/fn-method-type
-      (at/->FnMethodT p
-                      (localize-value* (:inputs value) seen-vars)
-                      (localize-value* (:output value) seen-vars)
-                      (:min-arity value)
-                      (:variadic? value)
-                      (:names value))
-      :skeptic.analysis.types/fun-type
-      (at/->FunT p (localize-value* (:methods value) seen-vars))
-      :skeptic.analysis.types/maybe-type
-      (at/->MaybeT p (localize-value* (:inner value) seen-vars))
-      :skeptic.analysis.types/union-type
-      (at/->UnionT p (localize-value* (:members value) seen-vars))
-      :skeptic.analysis.types/intersection-type
-      (at/->IntersectionT p (localize-value* (:members value) seen-vars))
-      :skeptic.analysis.types/map-type
-      (at/->MapT p (localize-value* (:entries value) seen-vars))
-      :skeptic.analysis.types/vector-type
-      (at/->VectorT p
-                    (localize-value* (:items value) seen-vars)
-                    (:homogeneous? value))
-      :skeptic.analysis.types/set-type
-      (at/->SetT p
-                 (localize-value* (:members value) seen-vars)
-                 (:homogeneous? value))
-      :skeptic.analysis.types/seq-type
-      (at/->SeqT p
-                 (localize-value* (:items value) seen-vars)
-                 (:homogeneous? value))
-      :skeptic.analysis.types/var-type
-      (at/->VarT p (localize-value* (:inner value) seen-vars))
-      :skeptic.analysis.types/placeholder-type
-      (at/->PlaceholderT p (localize-value* (:ref value) seen-vars))
-      :skeptic.analysis.types/value-type
-      (at/->ValueT p
-                   (localize-value* (:inner value) seen-vars)
-                   (localize-value* (:value value) seen-vars))
-      :skeptic.analysis.types/type-var-type
-      (at/->TypeVarT p (:name value))
-      :skeptic.analysis.types/forall-type
-      (at/->ForallT p
-                    (:binder value)
-                    (localize-value* (:body value) seen-vars))
-      :skeptic.analysis.types/sealed-dyn-type
-      (at/->SealedDynT p (localize-value* (:ground value) seen-vars))
-      :skeptic.analysis.types/inf-cycle-type
-      (at/->InfCycleT p (some-> (:ref value) (localize-value* seen-vars)))
-      value)))
 
 (defn- localize-raw-collection
   [value seen-vars]
@@ -146,7 +73,7 @@
         (sb/variable? value))
     (localize-schema-base-value value seen-vars)
     (at/semantic-type-value? value)
-    (localize-semantic-type value seen-vars)
+    value
     (or (vector? value)
         (set? value)
         (and (map? value) (not (record? value)))

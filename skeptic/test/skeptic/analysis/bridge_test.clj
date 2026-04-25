@@ -160,6 +160,15 @@
             :output-type sealed}
            stripped))))
 
+(deftest localize-value-preserves-semantic-types-and-does-not-walk-payload-test
+  (let [realized? (atom false)
+        lazy-payload (map (fn [x] (reset! realized? true) x) [1 2 3])
+        leaf (at/->AdapterLeafT tp :schema 'Display (constantly true) lazy-payload)
+        value (at/->ValueT tp (at/Dyn tp) lazy-payload)]
+    (is (identical? leaf (abl/localize-value leaf)))
+    (is (identical? value (abl/localize-value value)))
+    (is (false? @realized?))))
+
 (s/defschema NestedRefA [#{s/Int}])
 (s/defschema NestedRefB {:inner #'NestedRefA})
 (s/defschema RecR [#{(s/recursive #'RecR)}])
