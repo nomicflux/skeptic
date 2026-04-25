@@ -46,6 +46,30 @@ The fixture is well-formed and analysis completes. The test fails at the call si
 
 ## Phase 2
 
+### 2A — Path-shaped projection origins
+
+**Deviation from plan:** `local-root-origin` was left unchanged. The plan described adding a `:map-key-lookup` pass-through there, but audit showed all consumers of `local-root-origin` need only `:root`-kind output; chain-extension is fully handled inside `map-key-lookup-origin` by reading `node-origin` on the target and conjoining to `:path` when it is already `:map-key-lookup`.
+
+`origin.clj` — `origin-type` `:map-key-lookup` case now folds `(reduce amo/map-get-type root-type (:path origin))`.
+
+`annotate/map_projection.clj` — `map-key-lookup-origin` reads `aapi/node-origin` on the target; if already `:map-key-lookup`, conjoins the new key-query onto `:path`; otherwise calls `projection-root-origin` and starts a fresh 1-element path.
+
+### 2B — Call-site verification and tests
+
+**invoke.clj / jvm.clj:** No edits required. Neither file reads `:key-query`; both call `map-key-lookup-origin` with a key-query arg and do not inspect the returned origin shape.
+
+**`:key-query` grep:** Zero hits across `src/` and `test/`.
+
+**New tests in `test/skeptic/analysis/origin_test.clj`:**
+
+- `chained-keyword-invoke-yields-path-origin` — analyzes `(:k (:x x))`, finds the outer `:keyword-invoke` node, asserts origin is `:map-key-lookup` with `:root` sym `x` and 2-element path `[:x :k]`.
+- `destructured-projection-binding-origin` — analyzes `(let [{:keys [k]} (:x x)] k)`, finds the `k` local with `:static-call` binding-init, asserts origin is `:map-key-lookup` with 1-element path `[:k]` and that `origin-type` resolves to `s/Str`.
+- `origin-type-folds-path` — builds a `:map-key-lookup` origin manually with a 2-element path `[:x :k]` against `{:x {:k s/Str}}`, asserts `origin-type` returns `s/Str`.
+
+**Full suite result:** 507+ tests, 1 failure — `nested-conditional-destructured-discriminator-narrowing` (Phase 1 target, still RED as expected).
+
+**clj-kondo:** 0 errors, 0 warnings.
+
 ## Phase 3
 
 ## Phase 4
