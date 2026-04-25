@@ -4,6 +4,7 @@ This document is source-derived from:
 
 - `src/skeptic/analysis/cast.clj`
 - `src/skeptic/analysis/cast/support.clj`
+- `src/skeptic/analysis/cast/result.clj`
 - `src/skeptic/analysis/cast/quantified.clj`
 - `src/skeptic/analysis/cast/branch.clj`
 - `src/skeptic/analysis/cast/function.clj`
@@ -15,7 +16,8 @@ It describes the current rewritten subtree, not the deleted `cast.kernel` layout
 ## Governing Path
 
 The rebuilt cast subtree is organized around one public entrypoint, one private
-recursive runner, and six non-recursive rule/helper namespaces:
+recursive runner, six non-recursive dispatch helper namespaces, and one result
+projection namespace:
 
 1. `skeptic.analysis.cast/check-cast` normalizes the two semantic types, sets
    default polarity, and hands work to the private runner.
@@ -23,15 +25,17 @@ recursive runner, and six non-recursive rule/helper namespaces:
    subtree. It owns dispatch order and all recursive descent.
 3. `skeptic.analysis.cast.support/*` owns cast-result construction, path
    helpers, seal accounting, arity helpers, and cast-aware type tests.
-4. `skeptic.analysis.cast.quantified/*` owns `forall`, abstract type variable,
+4. `skeptic.analysis.cast.result/*` owns result projections used by reporting
+   and by boundary wrappers that only need success or diagnostics.
+5. `skeptic.analysis.cast.quantified/*` owns `forall`, abstract type variable,
    sealed dynamic, and scope-exit behavior.
-5. `skeptic.analysis.cast.branch/*` owns unions, intersections, nullable types,
-   and transparent wrappers.
-6. `skeptic.analysis.cast.function/*` owns function-method matching and
+6. `skeptic.analysis.cast.branch/*` owns unions, intersections, conditional
+   types, nullable types, and transparent wrappers.
+7. `skeptic.analysis.cast.function/*` owns function-method matching and
    contravariant domain checks.
-7. `skeptic.analysis.cast.collection/*` owns vectors, seqs, cross-casts, sets,
+8. `skeptic.analysis.cast.collection/*` owns vectors, seqs, cross-casts, sets,
    and the leaf fallback.
-8. `skeptic.analysis.cast.map/*` owns the map coverage algorithm and delegates
+9. `skeptic.analysis.cast.map/*` owns the map coverage algorithm and delegates
    key-domain reasoning to `skeptic.analysis.map-ops`.
 
 ## Interconnection Map
@@ -47,6 +51,8 @@ flowchart TD
   RC --> F["cast.function"]
   RC --> C["cast.collection"]
   RC --> M["cast.map"]
+  COMP["cast/compatible?"] --> CC
+  COMP --> R["cast.result"]
 
   Q --> SUP
   Q --> TA["analysis.type-algebra"]
@@ -67,14 +73,19 @@ flowchart TD
   SUP --> BR2["bridge.render polarity->side"]
   SUP --> TA
   SUP --> TO
+
+  REP["inconsistence.report"] --> R
+  SC["analysis.schema.cast"] --> R
+  MO2["analysis.map-ops"] --> R
+  VC2["analysis.value-check"] --> R
 ```
 
 ### Main function-to-function flows
 
 - Public entrypoint path:
   `check-cast` normalizes `source-type` and `target-type` with
-  `type-ops/normalize-type`, injects default `:polarity :positive`, and calls
-  the private `run-cast`.
+  `type-ops/normalize-for-declared-type`, injects default
+  `:polarity :positive`, and calls the private `run-cast`.
 - Recursive runner path:
   `run-cast -> dispatch-cast`.
   `dispatch-cast` is the central ordered dispatcher. It creates `child-run`
@@ -98,6 +109,11 @@ flowchart TD
   `branch/check-intersection-cast`.
   These helpers build indexed child requests and aggregate them through
   `support/aggregate-children`.
+- Conditional path:
+  `dispatch-cast -> branch/check-conditional-cast`.
+  Source conditionals are checked like source unions and target conditionals are
+  checked like target unions, reusing `:source-union` and `:target-union` result
+  rules.
 - Nullable/wrapper path:
   `dispatch-cast -> branch/check-maybe-cast` or
   `branch/check-wrapper-cast`.
@@ -125,6 +141,10 @@ flowchart TD
   `analysis.map-ops` and `analysis.value-check` via `requiring-resolve
   'skeptic.analysis.cast/check-cast`, and directly uses
   `cast.support/optional-key-inner` and `cast.support/with-cast-path`.
+- Result projection path:
+  `inconsistence.report`, `analysis.schema.cast`, `analysis.map-ops`, and
+  `analysis.value-check` consume `cast.result` helpers to collapse full result
+  trees into booleans, root summaries, leaf diagnostics, and primary diagnostics.
 
 ### Utility entrypoints not on the main `check-cast` path
 
@@ -145,16 +165,17 @@ dynamic type tests.
 5. dynamic target
 6. union
 7. intersection
-8. nullable
-9. transparent wrapper
-10. function
-11. map
-12. vector
-13. seq
-14. seq-to-vector
-15. vector-to-seq
-16. set
-17. leaf fallback
+8. conditional
+9. nullable
+10. transparent wrapper
+11. function
+12. map
+13. vector
+14. seq
+15. seq-to-vector
+16. vector-to-seq
+17. set
+18. leaf fallback
 
 This ordering is implemented directly in `cast.clj`, so it is the subtree’s
 governing control flow rather than a secondary convention.
@@ -173,8 +194,6 @@ governing control flow rather than a secondary convention.
 
 ### `skeptic.analysis.cast.support`
 
-- `ensure-cast-state`, `cast-state`, `details-with-state`: Normalize and attach
-  the optional `:cast-state` payload in result details.
 - `sealed-ground-name`: Pulls a type-variable-style name out of a sealed
   dynamic ground.
 - `cast-result`, `cast-ok`, `cast-fail`: Construct the cast-result tree shape
@@ -182,7 +201,6 @@ governing control flow rather than a secondary convention.
 - `with-cast-path`: Appends one visible path segment to a result tree. This is
   used both internally and by `analysis.value-check`.
 - `all-ok?`, `aggregate-children`: Shared success/failure aggregation helpers.
-- `cast-result-tree?`: Distinguishes a result tree from a plain semantic type.
 - `semantic-type-children`, `contains-sealed-ground?`: Walk semantic types
   looking for sealed values tied to a binder.
 - `rule-seal-delta`, `seal-balance`, `leaked-sealed-type`: Walk result trees
@@ -196,6 +214,16 @@ governing control flow rather than a secondary convention.
   map-key logic elsewhere in the tree.
 - `check-type-test`: Implements the sealed-value tamper rule for dynamic type
   tests and returns `:matches?` metadata for non-sealed checks.
+
+### `skeptic.analysis.cast.result`
+
+- `ok?`: Boolean projection over a result tree.
+- `root-summary`: Extracts root-level success, rule, blame, actual type, and
+  expected type metadata.
+- `leaf-diagnostics`: Flattens failing result trees and accumulates visible
+  paths.
+- `primary-diagnostic`: Returns the first leaf diagnostic, or the root projection
+  when there is no failure leaf.
 
 ### `skeptic.analysis.cast.quantified`
 
@@ -226,6 +254,9 @@ governing control flow rather than a secondary convention.
 - `target-intersection-result`, `source-intersection-result`: Implement the two
   intersection directions.
 - `check-intersection-cast`: Ordered intersection dispatcher.
+- `source-conditional-result`, `target-conditional-result`: Implement
+  conditional-type casts using union-like branch aggregation.
+- `check-conditional-cast`: Ordered conditional dispatcher.
 - `maybe-child`, `check-maybe-cast`: Handle `MaybeT` on either side, including
   exact `nil` to maybe-target success.
 - `unwrap-wrapper`, `check-wrapper-cast`: Strip one `OptionalKeyT` or `VarT`
@@ -263,8 +294,8 @@ governing control flow rather than a secondary convention.
 - `check-vector-to-seq-cast`: Vector/seq cross-cast rule.
 - `check-set-cast`: Cardinality-sensitive set rule.
 - `check-leaf-cast`: Final fallback for exact values, target exact values,
-  residual dynamic and placeholders, leaf overlap, and function-vs-adapter-leaf
-  checks.
+  residual dynamic, placeholders, infinite-cycle types, leaf overlap, and
+  function-vs-adapter-leaf checks.
 
 ### `skeptic.analysis.cast.map`
 
@@ -292,12 +323,13 @@ governing control flow rather than a secondary convention.
 
 ## External Boundaries And Consumers
 
-The cast subtree currently exposes three live interfaces that code outside the
+The cast subtree currently exposes four live interfaces that code outside the
 subtree depends on:
 
 - `skeptic.analysis.cast/check-cast`
 - `skeptic.analysis.cast.support/optional-key-inner`
 - `skeptic.analysis.cast.support/with-cast-path`
+- `skeptic.analysis.cast.result/{ok?, root-summary, leaf-diagnostics, primary-diagnostic}`
 
 Source-derived consumer paths:
 
@@ -307,15 +339,20 @@ Source-derived consumer paths:
   `optional-key-inner` for exact-key extraction, and uses `with-cast-path` to
   attach visible map-key paths.
 - `analysis.schema.cast` is the schema-boundary adapter over `check-cast`.
-- `inconsistence.report` calls `check-cast` directly to build reporting trees.
+- `analysis.schema.cast`, `analysis.map-ops`, and `analysis.value-check` use
+  `cast.result/ok?` when they only need compatibility.
+- `inconsistence.report` calls `check-cast` directly to build reporting trees,
+  then uses `cast.result/root-summary`, `leaf-diagnostics`, and
+  `primary-diagnostic` for report metadata.
 
 ## Shape Summary
 
 - Public entrypoint: `check-cast`
 - Recursive owner: `run-cast`
-- Generic result/state/path helpers: `support.clj`
+- Generic result and path helpers: `support.clj`
+- Result projections: `result.clj`
 - Quantified and abstract rules: `quantified.clj`
-- Union/intersection/nullable/wrapper rules: `branch.clj`
+- Union/intersection/conditional/nullable/wrapper rules: `branch.clj`
 - Function rules: `function.clj`
 - Collection and leaf rules: `collection.clj`
 - Map coverage algorithm: `map.clj`
@@ -328,3 +365,5 @@ The main design pattern in the rewritten subtree is:
 4. `run-child` is the only bridge back into recursion.
 5. `support/*` helpers construct and aggregate result trees with blame metadata
    and visible paths.
+6. `result/*` helpers project result trees for reporting and compatibility
+   checks outside the cast subtree.
