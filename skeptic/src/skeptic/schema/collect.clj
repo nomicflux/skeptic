@@ -172,7 +172,7 @@
 
 (defn- class-schema-desc
   [schema ns name]
-  {:name (or (some-> schema abc/schema-display-form pr-str) (str ns "/" name))
+  {:name (str ns "/" name)
    :schema schema
    :output schema
    :arglists {}})
