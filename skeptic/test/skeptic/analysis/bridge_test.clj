@@ -169,6 +169,11 @@
     (is (identical? value (abl/localize-value value)))
     (is (false? @realized?))))
 
+(deftest canonicalize-schema-resolves-vars-inside-plumatic-wrappers-test
+  (is (= (s/maybe s/Int)    (abc/canonicalize-schema (s/maybe #'BoundSchemaRef))))
+  (is (= (s/cond-pre s/Int) (abc/canonicalize-schema (s/cond-pre #'BoundSchemaRef))))
+  (is (= (s/either s/Int)   (abc/canonicalize-schema (s/either #'BoundSchemaRef)))))
+
 (s/defschema NestedRefA [#{s/Int}])
 (s/defschema NestedRefB {:inner #'NestedRefA})
 (s/defschema RecR [#{(s/recursive #'RecR)}])
