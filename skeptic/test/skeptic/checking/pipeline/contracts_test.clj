@@ -111,3 +111,7 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/if-blank-guard-optional-keys-branches-success
     'skeptic.test-examples.contracts/if-some-guard-destructured-success))
+
+(deftest nested-conditional-destructured-discriminator-narrowing
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/nested-conditional-repro))
