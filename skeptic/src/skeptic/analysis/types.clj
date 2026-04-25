@@ -313,12 +313,10 @@
 
     :else t))
 
-(declare type=? type-hash)
-
 (defn- ordered-type=?
-  [a b]
+  [same? a b]
   (and (= (count a) (count b))
-       (every? true? (map type=? a b))))
+       (every? true? (map same? a b))))
 
 (defn- take-matching
   [pred xs]
@@ -331,17 +329,17 @@
           (recur (conj prefix candidate) (next xs)))))))
 
 (defn- unordered-type=?
-  [a b]
+  [same? a b]
   (and (= (count a) (count b))
        (loop [remaining (seq b)
               xs (seq a)]
          (if-not xs
            true
-           (when-let [[_ remaining] (take-matching #(type=? (first xs) %) remaining)]
+           (when-let [[_ remaining] (take-matching #(same? (first xs) %) remaining)]
              (recur (seq remaining) (next xs)))))))
 
 (defn- map-type=?
-  [a b]
+  [same? a b]
   (and (= (count a) (count b))
        (loop [remaining (seq b)
               entries (seq a)]
@@ -350,23 +348,23 @@
            (let [[ak av] (first entries)]
              (when-let [[_ remaining]
                         (take-matching (fn [[bk bv]]
-                                         (and (type=? ak bk)
-                                              (type=? av bv)))
+                                         (and (same? ak bk)
+                                              (same? av bv)))
                                        remaining)]
                (recur (seq remaining) (next entries))))))))
 
 (defn- branch-type=?
-  [a b]
+  [same? a b]
   (and (= (first a) (first b))
-       (type=? (second a) (second b))))
+       (same? (second a) (second b))))
 
 (defn- ordered-branch-type=?
-  [a b]
+  [same? a b]
   (and (= (count a) (count b))
-       (every? true? (map branch-type=? a b))))
+       (every? true? (map #(branch-type=? same? %1 %2) a b))))
 
 (defn- semantic-type=?
-  [a b]
+  [same? a b]
   (and (= (semantic-tag a) (semantic-tag b))
        (cond
          (or (dyn-type? a)
@@ -379,56 +377,56 @@
               (= (:display-form a) (:display-form b)))
 
          (refinement-type? a)
-         (and (type=? (:base a) (:base b))
+         (and (same? (:base a) (:base b))
               (= (:display-form a) (:display-form b))
               (= (:accepts? a) (:accepts? b))
-              (type=? (:adapter-data a) (:adapter-data b)))
+              (same? (:adapter-data a) (:adapter-data b)))
 
          (adapter-leaf-type? a)
          (and (= (:adapter a) (:adapter b))
               (= (:display-form a) (:display-form b))
               (= (:accepts? a) (:accepts? b))
-              (type=? (:adapter-data a) (:adapter-data b)))
+              (same? (:adapter-data a) (:adapter-data b)))
 
          (optional-key-type? a)
-         (type=? (:inner a) (:inner b))
+         (same? (:inner a) (:inner b))
 
          (fn-method-type? a)
-         (and (ordered-type=? (:inputs a) (:inputs b))
-              (type=? (:output a) (:output b))
+         (and (ordered-type=? same? (:inputs a) (:inputs b))
+              (same? (:output a) (:output b))
               (= (:min-arity a) (:min-arity b))
               (= (:variadic? a) (:variadic? b))
               (= (:names a) (:names b)))
 
          (fun-type? a)
-         (ordered-type=? (:methods a) (:methods b))
+         (ordered-type=? same? (:methods a) (:methods b))
 
          (maybe-type? a)
-         (type=? (:inner a) (:inner b))
+         (same? (:inner a) (:inner b))
 
          (union-type? a)
-         (unordered-type=? (:members a) (:members b))
+         (unordered-type=? same? (:members a) (:members b))
 
          (intersection-type? a)
-         (unordered-type=? (:members a) (:members b))
+         (unordered-type=? same? (:members a) (:members b))
 
          (map-type? a)
-         (map-type=? (:entries a) (:entries b))
+         (map-type=? same? (:entries a) (:entries b))
 
          (vector-type? a)
-         (and (ordered-type=? (:items a) (:items b))
+         (and (ordered-type=? same? (:items a) (:items b))
               (= (:homogeneous? a) (:homogeneous? b)))
 
          (set-type? a)
-         (and (unordered-type=? (:members a) (:members b))
+         (and (unordered-type=? same? (:members a) (:members b))
               (= (:homogeneous? a) (:homogeneous? b)))
 
          (seq-type? a)
-         (and (ordered-type=? (:items a) (:items b))
+         (and (ordered-type=? same? (:items a) (:items b))
               (= (:homogeneous? a) (:homogeneous? b)))
 
          (var-type? a)
-         (type=? (:inner a) (:inner b))
+         (same? (:inner a) (:inner b))
 
          (placeholder-type? a)
          (= (:ref a) (:ref b))
@@ -437,7 +435,7 @@
          (= (:ref a) (:ref b))
 
          (value-type? a)
-         (and (type=? (:inner a) (:inner b))
+         (and (same? (:inner a) (:inner b))
               (= (:value a) (:value b)))
 
          (type-var-type? a)
@@ -445,160 +443,168 @@
 
          (forall-type? a)
          (and (= (:binder a) (:binder b))
-              (type=? (:body a) (:body b)))
+              (same? (:body a) (:body b)))
 
          (sealed-dyn-type? a)
-         (type=? (:ground a) (:ground b))
+         (same? (:ground a) (:ground b))
 
          (conditional-type? a)
-         (ordered-branch-type=? (:branches a) (:branches b))
+         (ordered-branch-type=? same? (:branches a) (:branches b))
 
          :else
          (= a b))))
 
 (defn type=?
   [a b]
-  (cond
-    (identical? a b) true
-    (and (semantic-type-value? a)
-         (semantic-type-value? b)) (semantic-type=? a b)
-    (or (semantic-type-value? a)
-        (semantic-type-value? b)) false
-    (and (map? a) (map? b)) (map-type=? a b)
-    (and (sequential? a) (sequential? b)) (ordered-type=? a b)
-    (and (set? a) (set? b)) (unordered-type=? a b)
-    :else (= a b)))
+  (letfn [(same? [a b]
+            (cond
+              (identical? a b) true
+              (and (semantic-type-value? a)
+                   (semantic-type-value? b)) (semantic-type=? same? a b)
+              (or (semantic-type-value? a)
+                  (semantic-type-value? b)) false
+              (and (map? a) (map? b)) (map-type=? same? a b)
+              (and (sequential? a) (sequential? b)) (ordered-type=? same? a b)
+              (and (set? a) (set? b)) (unordered-type=? same? a b)
+              :else (= a b)))]
+    (same? a b)))
 
 (defn- combine-hash
   [seed value]
   (unchecked-add-int (unchecked-multiply-int 31 seed) (int value)))
 
 (defn- ordered-type-hash
-  [xs]
-  (reduce combine-hash 1 (map type-hash xs)))
+  [type-hash-fn xs]
+  (reduce combine-hash 1 (map type-hash-fn xs)))
 
 (defn- unordered-type-hash
-  [xs]
-  (reduce unchecked-add-int 0 (map type-hash xs)))
+  [type-hash-fn xs]
+  (reduce unchecked-add-int 0 (map type-hash-fn xs)))
 
 (defn- map-type-hash
-  [m]
+  [type-hash-fn m]
   (reduce unchecked-add-int
           0
           (map (fn [[k v]]
-                 (combine-hash (type-hash k) (type-hash v)))
+                 (combine-hash (type-hash-fn k) (type-hash-fn v)))
                m)))
 
 (defn- branch-type-hash
-  [[pred typ]]
-  (combine-hash (hash pred) (type-hash typ)))
+  [type-hash-fn [pred typ]]
+  (combine-hash (hash pred) (type-hash-fn typ)))
 
 (defn- type-hash
   [x]
-  (cond
-    (semantic-type-value? x)
-    (let [tag-hash (hash (semantic-tag x))]
-      (cond
-        (or (dyn-type? x)
-            (bottom-type? x)
-            (numeric-dyn-type? x))
-        tag-hash
+  (letfn [(hash-type [x]
+            (cond
+              (semantic-type-value? x)
+              (let [tag-hash (hash (semantic-tag x))]
+                (cond
+                  (or (dyn-type? x)
+                      (bottom-type? x)
+                      (numeric-dyn-type? x))
+                  tag-hash
 
-        (ground-type? x)
-        (-> tag-hash
-            (combine-hash (hash (:ground x)))
-            (combine-hash (hash (:display-form x))))
+                  (ground-type? x)
+                  (-> tag-hash
+                      (combine-hash (hash (:ground x)))
+                      (combine-hash (hash (:display-form x))))
 
-        (refinement-type? x)
-        (-> tag-hash
-            (combine-hash (type-hash (:base x)))
-            (combine-hash (hash (:display-form x)))
-            (combine-hash (hash (:accepts? x)))
-            (combine-hash (type-hash (:adapter-data x))))
+                  (refinement-type? x)
+                  (-> tag-hash
+                      (combine-hash (hash-type (:base x)))
+                      (combine-hash (hash (:display-form x)))
+                      (combine-hash (hash (:accepts? x)))
+                      (combine-hash (hash-type (:adapter-data x))))
 
-        (adapter-leaf-type? x)
-        (-> tag-hash
-            (combine-hash (hash (:adapter x)))
-            (combine-hash (hash (:display-form x)))
-            (combine-hash (hash (:accepts? x)))
-            (combine-hash (type-hash (:adapter-data x))))
+                  (adapter-leaf-type? x)
+                  (-> tag-hash
+                      (combine-hash (hash (:adapter x)))
+                      (combine-hash (hash (:display-form x)))
+                      (combine-hash (hash (:accepts? x)))
+                      (combine-hash (hash-type (:adapter-data x))))
 
-        (optional-key-type? x)
-        (combine-hash tag-hash (type-hash (:inner x)))
+                  (optional-key-type? x)
+                  (combine-hash tag-hash (hash-type (:inner x)))
 
-        (fn-method-type? x)
-        (-> tag-hash
-            (combine-hash (ordered-type-hash (:inputs x)))
-            (combine-hash (type-hash (:output x)))
-            (combine-hash (hash (:min-arity x)))
-            (combine-hash (hash (:variadic? x)))
-            (combine-hash (hash (:names x))))
+                  (fn-method-type? x)
+                  (-> tag-hash
+                      (combine-hash (ordered-type-hash hash-type (:inputs x)))
+                      (combine-hash (hash-type (:output x)))
+                      (combine-hash (hash (:min-arity x)))
+                      (combine-hash (hash (:variadic? x)))
+                      (combine-hash (hash (:names x))))
 
-        (fun-type? x)
-        (combine-hash tag-hash (ordered-type-hash (:methods x)))
+                  (fun-type? x)
+                  (combine-hash tag-hash (ordered-type-hash hash-type (:methods x)))
 
-        (maybe-type? x)
-        (combine-hash tag-hash (type-hash (:inner x)))
+                  (maybe-type? x)
+                  (combine-hash tag-hash (hash-type (:inner x)))
 
-        (union-type? x)
-        (combine-hash tag-hash (unordered-type-hash (:members x)))
+                  (union-type? x)
+                  (combine-hash tag-hash (unordered-type-hash hash-type (:members x)))
 
-        (intersection-type? x)
-        (combine-hash tag-hash (unordered-type-hash (:members x)))
+                  (intersection-type? x)
+                  (combine-hash tag-hash (unordered-type-hash hash-type (:members x)))
 
-        (map-type? x)
-        (combine-hash tag-hash (map-type-hash (:entries x)))
+                  (map-type? x)
+                  (combine-hash tag-hash (map-type-hash hash-type (:entries x)))
 
-        (vector-type? x)
-        (-> tag-hash
-            (combine-hash (ordered-type-hash (:items x)))
-            (combine-hash (hash (:homogeneous? x))))
+                  (vector-type? x)
+                  (-> tag-hash
+                      (combine-hash (ordered-type-hash hash-type (:items x)))
+                      (combine-hash (hash (:homogeneous? x))))
 
-        (set-type? x)
-        (-> tag-hash
-            (combine-hash (unordered-type-hash (:members x)))
-            (combine-hash (hash (:homogeneous? x))))
+                  (set-type? x)
+                  (-> tag-hash
+                      (combine-hash (unordered-type-hash hash-type (:members x)))
+                      (combine-hash (hash (:homogeneous? x))))
 
-        (seq-type? x)
-        (-> tag-hash
-            (combine-hash (ordered-type-hash (:items x)))
-            (combine-hash (hash (:homogeneous? x))))
+                  (seq-type? x)
+                  (-> tag-hash
+                      (combine-hash (ordered-type-hash hash-type (:items x)))
+                      (combine-hash (hash (:homogeneous? x))))
 
-        (var-type? x)
-        (combine-hash tag-hash (type-hash (:inner x)))
+                  (var-type? x)
+                  (combine-hash tag-hash (hash-type (:inner x)))
 
-        (placeholder-type? x)
-        (combine-hash tag-hash (hash (:ref x)))
+                  (placeholder-type? x)
+                  (combine-hash tag-hash (hash (:ref x)))
 
-        (inf-cycle-type? x)
-        (combine-hash tag-hash (hash (:ref x)))
+                  (inf-cycle-type? x)
+                  (combine-hash tag-hash (hash (:ref x)))
 
-        (value-type? x)
-        (-> tag-hash
-            (combine-hash (type-hash (:inner x)))
-            (combine-hash (hash (:value x))))
+                  (value-type? x)
+                  (-> tag-hash
+                      (combine-hash (hash-type (:inner x)))
+                      (combine-hash (hash (:value x))))
 
-        (type-var-type? x)
-        (combine-hash tag-hash (hash (:name x)))
+                  (type-var-type? x)
+                  (combine-hash tag-hash (hash (:name x)))
 
-        (forall-type? x)
-        (-> tag-hash
-            (combine-hash (hash (:binder x)))
-            (combine-hash (type-hash (:body x))))
+                  (forall-type? x)
+                  (-> tag-hash
+                      (combine-hash (hash (:binder x)))
+                      (combine-hash (hash-type (:body x))))
 
-        (sealed-dyn-type? x)
-        (combine-hash tag-hash (type-hash (:ground x)))
+                  (sealed-dyn-type? x)
+                  (combine-hash tag-hash (hash-type (:ground x)))
 
-        (conditional-type? x)
-        (combine-hash tag-hash (reduce combine-hash 1 (map branch-type-hash (:branches x))))
+                  (conditional-type? x)
+                  (combine-hash tag-hash
+                                (reduce combine-hash
+                                        1
+                                        (map #(branch-type-hash hash-type %)
+                                             (:branches x))))
 
-        :else
-        (hash x)))
+                  :else
+                  (hash x)))
 
-    (map? x) (combine-hash (hash :map) (map-type-hash x))
-    (sequential? x) (combine-hash (hash :sequential) (ordered-type-hash x))
-    (set? x) (combine-hash (hash :set) (unordered-type-hash x))
-    :else (hash x)))
+              (map? x) (combine-hash (hash :map) (map-type-hash hash-type x))
+              (sequential? x) (combine-hash (hash :sequential) (ordered-type-hash hash-type x))
+              (set? x) (combine-hash (hash :set) (unordered-type-hash hash-type x))
+              :else (hash x)))]
+    (hash-type x)))
 
 (defn- dedup-bucket
   [bucket t]
