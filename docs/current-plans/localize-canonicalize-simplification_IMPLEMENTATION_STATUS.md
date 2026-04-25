@@ -282,3 +282,47 @@ No `:name` assertions exist in `collect_test.clj`, so the simplification is safe
 ## Deviation from Plan
 
 None.
+
+---
+
+# Post-review fixes — COMPLETE (commit `5eacc5b`)
+
+Findings from `/skeptic-review` of `3145eab..f57f4bf` resolved:
+
+## Dead code removed
+
+- `skeptic/src/skeptic/analysis/bridge/canonicalize.clj` — deleted `canonicalize-entry` and `canonicalize-entry-fn-schema` (zero callers anywhere after Phase 3).
+- `skeptic/src/skeptic/utils.clj` — deleted entirely. `combine-descs` and `merge-descs` had zero callers; the namespace was orphaned.
+- `skeptic/AGENTS.md` — namespace map updated to drop `skeptic.utils` from the support-namespace bullet.
+
+## `canonicalize-schema*` length
+
+Refactored from ~61 lines to a ~24-line dispatcher using the recursive-runner pattern from AGENTS.md. Nine small private helpers (`recur-localized`, `canonicalize-maybe`, `-constrained`, `-either`, `-conditional`, `-cond-pre`, `-both`, `-map`, `-map-entry`) take `canonicalize-schema*` as an explicit `recur-fn` argument; no `declare` needed. Dispatch order, behavior, and external API are unchanged.
+
+## Phase 4 `:name` coverage
+
+Investigated downstream consumers: `SchemaDesc.:name` was only read by `skeptic.utils/combine-descs`, which is now deleted and had no callers. Conclusion: the Phase 4 `:name` change is genuinely internal — no user-visible impact, no `CHANGELOG.md` entry needed.
+
+`collect-schemas-builds-canonical-slots-without-second-pass` extended with four `:name` assertions plus a varargs case (`varargs-fn`) that exercises `annotated-arg-entry`'s varargs branch.
+
+## Phase 2 wrapper coverage
+
+`canonicalize-schema-resolves-vars-inside-plumatic-wrappers-test` extended from 3 to 7 wrapper sites: now covers `s/maybe`, `s/cond-pre`, `s/either`, `s/both`, `s/constrained`, `s/conditional`, and the optional-key inner key. Every extraction-site `abl/localize-value` call introduced in Phase 2 is now load-bearing under test.
+
+## Cosmetic
+
+`localize.clj` — removed double blank line between `localize-schema-base-value` and `localize-raw-collection`.
+
+## Verification
+
+```
+lein test          → 506 tests / 2372 assertions / 0 failures / 0 errors
+clj-kondo --lint   → 0 errors / 0 warnings
+```
+
+## Docs reviewed and not changed
+
+- `CHANGELOG.md` — no entry; `:name` change has no readers (see above).
+- `README.md` — not relevant; no user-facing surface touched.
+- `docs/annotate-function-map.md` / `docs/cast-function-map.md` / `docs/annotate-algorithm.md` / `docs/cast-algorithm.md` — not touched; diff is bridge/canonicalize-only and does not affect annotate or cast behavior.
+- `docs/blame-for-all.md` — not touched; no interaction with sealing, generalize/instantiate, `nu`-binders, or quantified-type machinery.
