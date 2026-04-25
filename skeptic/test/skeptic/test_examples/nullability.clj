@@ -110,6 +110,12 @@
   [{:keys [x]} :- {:x (s/maybe s/Str)}]
   {:a (or x "fallback" nil)})
 
+(s/defschema Strs {:a (s/maybe s/Str) :b s/Str})
+
+(s/defn if-or-nil-blank-destructured-narrows-success :- {:a s/Str}
+  [{:keys [a b]} :- Strs]
+  {:a (if (or (nil? a) (str/blank? a)) (str "a-" b) a)})
+
 (s/defn or-only-nil-alternative-failure :- {:a s/Str}
   [{:keys [x]} :- {:x (s/maybe s/Str)}]
   {:a (or x nil)})

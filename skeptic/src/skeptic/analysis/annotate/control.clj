@@ -293,12 +293,12 @@
   (and (= :const (:op node)) (nil? (:val node))))
 
 (defn- branch-origin
-  [conjuncts then-node else-node joined-type]
-  (let [test (when (= 1 (count conjuncts))
-               (first conjuncts))
+  [then-conjuncts then-node else-node joined-type]
+  (let [test (when (= 1 (count then-conjuncts))
+               (first then-conjuncts))
         test (or test
-                 (when (seq conjuncts)
-                   {:kind :conjunction :parts conjuncts}))]
+                 (when (seq then-conjuncts)
+                   {:kind :conjunction :parts then-conjuncts}))]
     (or (when test
           {:kind :branch
            :test test
@@ -307,9 +307,9 @@
         (ao/opaque-origin joined-type))))
 
 (defn- branch-truth
-  [conjuncts assumptions]
-  (when (= 1 (count conjuncts))
-    (ao/assumption-truth (first conjuncts) assumptions)))
+  [then-conjuncts assumptions]
+  (when (= 1 (count then-conjuncts))
+    (ao/assumption-truth (first then-conjuncts) assumptions)))
 
 (defn- joined-branch-type
   [ctx truth then-node else-node]
@@ -321,8 +321,9 @@
 (defn annotate-if
   [{:keys [locals assumptions] :as ctx} node]
   (let [test-node ((:recurse ctx) ctx (:test node))
-        conjuncts (ao/if-test-conjuncts ctx test-node locals)
-        envs (ao/branch-local-envs ctx locals assumptions conjuncts)
+        regions (ao/if-test-conjuncts ctx test-node locals)
+        then-conjuncts (:then-conjuncts regions)
+        envs (ao/branch-local-envs ctx locals assumptions regions)
         then-node ((:recurse ctx) (assoc ctx
                                          :locals (:then-locals envs)
                                          :assumptions (:then-assumptions envs))
@@ -332,13 +333,13 @@
                                          :assumptions (:else-assumptions envs))
                    (:else node))
         narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
-        truth (branch-truth conjuncts assumptions)
+        truth (branch-truth then-conjuncts assumptions)
         joined-type (if narrow?
                       (:type then-node)
                       (joined-branch-type ctx truth then-node else-node))
         origin (if narrow?
                  (ao/node-origin then-node)
-                 (branch-origin conjuncts then-node else-node joined-type))]
+                 (branch-origin then-conjuncts then-node else-node joined-type))]
     (assoc node
            :test test-node
            :then then-node

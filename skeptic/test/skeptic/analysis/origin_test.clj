@@ -102,16 +102,18 @@
              (aapi/resolved-def-output-type (:resolved-defs example-res)
                                             'skeptic.examples/nested-maybe-multi-step-f))))))
 
-(deftest and-chain-assumptions-two-some-test
-  (testing "expanded and collects each some? conjunct from macro shape"
+(deftest region-conjuncts-and-shape-two-some-test
+  (testing "let+if and-shape collects each some? conjunct on the truthy side"
     (let [root (atst/analyze-form atst/analysis-dict '(and (some? x) (some? y))
                                   {:locals {'x (atst/T (s/maybe s/Int))
                                             'y (atst/T (s/maybe s/Str))}})
-          parts (ao/and-chain-assumptions tp root)]
-      (is (= 2 (count parts)))
+          {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
+      (is (empty? else-conjuncts))
+      (is (= 2 (count then-conjuncts)))
       (is (every? #(and (= :type-predicate (:kind %))
-                        (= :some? (:pred %)))
-                  parts)))))
+                        (= :some? (:pred %))
+                        (true? (:polarity %)))
+                  then-conjuncts)))))
 
 (deftest equality-test-assumptions
   (testing "local equals literal"
