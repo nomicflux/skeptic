@@ -47,7 +47,7 @@
                :conditional-branch}
              (:kind assumption)))
 
-(defn- invert-assumption
+(defn invert-assumption
   [assumption]
   (when (invertible-assumption? assumption)
     (opposite-polarity assumption)))
@@ -413,37 +413,77 @@
       (when-let [init (aapi/binding-init entry)]
         (test->assumption ctx init)))))
 
-(defn and-chain-assumptions
-  "Assumptions for `clojure.core/and` expansion: (let [g e1] (if g e2' g))."
-  [ctx node]
-  (if (and (aapi/let-node? node)
-           (= 1 (count (aapi/node-bindings node))))
-    (let [b (first (aapi/node-bindings node))
-          sym (aapi/node-form b)
-          init (aapi/node-init b)
-          body (aapi/node-body node)]
-      (if (and (aapi/if-node? body)
-               (aapi/local-node? (aapi/node-test body))
-               (= sym (aapi/node-form (aapi/node-test body))))
-        (let [then (aapi/then-node body)
-              tail (if (aapi/local-node? then)
-                     (when-some [a (test->assumption ctx then)] [a])
-                     (and-chain-assumptions ctx then))]
-          (vec (concat (when-some [a (test->assumption ctx init)] [a]) tail)))
-        (and-chain-assumptions ctx body)))
-    (case (aapi/node-op node)
-      :if (when-some [a (test->assumption ctx (aapi/node-test node))] [a])
-      :let (and-chain-assumptions ctx (aapi/node-body node))
-      :local []
-      (when-some [a (test->assumption ctx node)] [a]))))
+(defn- leaf-region-conjuncts
+  [ctx node locals]
+  (let [primary (test->assumption ctx node)
+        init-a  (when locals (local-binding-init-assumption ctx node locals))
+        then    (filterv some? [primary init-a])
+        else    (filterv some? (map invert-assumption then))]
+    {:then-conjuncts then
+     :else-conjuncts else}))
+
+(defn- effective-test-node
+  [test-node alias-map]
+  (or (when (aapi/local-node? test-node)
+        (get alias-map (aapi/node-form test-node)))
+      test-node))
+
+(defn- same-local?
+  [a b]
+  (and (aapi/local-node? a)
+       (aapi/local-node? b)
+       (= (aapi/node-form a) (aapi/node-form b))))
+
+(defn region-conjuncts
+  "Return {:then-conjuncts [...] :else-conjuncts [...]} of conjuncts known
+   true in each region (truthy/falsy) of node, derived structurally from
+   let+if shapes. No and/or vocabulary: the only signal is which branch of
+   an `if` carries the test-local. Truth tables:
+     (if g g y) — false-region: ¬g ∧ ¬y (conjunction); true-region: disjunction (no narrowing)
+     (if g y g) — true-region:  g ∧ y  (conjunction); false-region: disjunction
+   `alias-map` maps let-bound syms to their init expressions so when a
+   let-bound local appears as the if-test we narrow on the underlying expression."
+  ([ctx node locals] (region-conjuncts ctx node locals {}))
+  ([ctx node locals alias-map]
+   (cond
+     (and (aapi/let-node? node)
+          (= 1 (count (aapi/node-bindings node))))
+     (let [b    (first (aapi/node-bindings node))
+           sym  (aapi/node-form b)
+           init (aapi/node-init b)
+           body (aapi/node-body node)]
+       (region-conjuncts ctx body locals (assoc alias-map sym init)))
+
+     (aapi/if-node? node)
+     (let [t (aapi/node-test node)
+           a (aapi/then-node node)
+           b (aapi/else-node node)]
+       (cond
+         (same-local? t a)
+         (let [t-eff (effective-test-node t alias-map)
+               t-r   (region-conjuncts ctx t-eff locals alias-map)
+               b-r   (region-conjuncts ctx b     locals alias-map)]
+           {:then-conjuncts []
+            :else-conjuncts (vec (concat (:else-conjuncts t-r)
+                                         (:else-conjuncts b-r)))})
+
+         (same-local? t b)
+         (let [t-eff (effective-test-node t alias-map)
+               t-r   (region-conjuncts ctx t-eff locals alias-map)
+               a-r   (region-conjuncts ctx a     locals alias-map)]
+           {:then-conjuncts (vec (concat (:then-conjuncts t-r)
+                                         (:then-conjuncts a-r)))
+            :else-conjuncts []})
+
+         :else
+         (leaf-region-conjuncts ctx (effective-test-node t alias-map) locals)))
+
+     :else
+     (leaf-region-conjuncts ctx node locals))))
 
 (defn if-test-conjuncts
   [ctx test-node locals]
-  (let [chain (and-chain-assumptions ctx test-node)]
-    (if (seq chain)
-      chain
-      (vec (concat (when-some [a (test->assumption ctx test-node)] [a])
-                   (when-some [a (local-binding-init-assumption ctx test-node locals)] [a]))))))
+  (region-conjuncts ctx test-node locals))
 
 (defn- refine-local-entry
   [ctx sym entry assumptions]
@@ -460,13 +500,9 @@
         locals))
 
 (defn branch-local-envs
-  [ctx locals assumptions conjuncts]
-  (let [conjuncts (vec conjuncts)
-        then-assumptions (into (vec assumptions) conjuncts)
-        else-assumptions (if (= 1 (count conjuncts))
-                           (let [opp (opposite-polarity (first conjuncts))]
-                             (cond-> (vec assumptions) opp (conj opp)))
-                           (vec assumptions))]
+  [ctx locals assumptions {:keys [then-conjuncts else-conjuncts]}]
+  (let [then-assumptions (into (vec assumptions) then-conjuncts)
+        else-assumptions (into (vec assumptions) else-conjuncts)]
     {:then-locals (refine-locals-for-assumption ctx locals then-assumptions)
      :then-assumptions then-assumptions
      :else-locals (refine-locals-for-assumption ctx locals else-assumptions)

@@ -173,7 +173,10 @@
                       :values lits
                       :polarity true}
                      :else nil)
-        envs (ao/branch-local-envs ctx locals assumptions (if assumption [assumption] []))
+        envs (ao/branch-local-envs ctx locals assumptions
+                                    (if assumption
+                                      {:then-conjuncts [assumption] :else-conjuncts []}
+                                      {:then-conjuncts [] :else-conjuncts []}))
         then-body (:then (nth thens i))
         annotated ((:recurse ctx)
                    (assoc ctx
@@ -234,7 +237,10 @@
                                  disc-root use-conditional? cond-branches kw-root-info))
                               (range n))
         assumption (default-assumption anchor-prov use-conditional? disc-root cond-branches kw-root-info all-values)
-        envs (ao/branch-local-envs ctx locals assumptions (if assumption [assumption] []))
+        envs (ao/branch-local-envs ctx locals assumptions
+                                    (if assumption
+                                      {:then-conjuncts [assumption] :else-conjuncts []}
+                                      {:then-conjuncts [] :else-conjuncts []}))
         default-node ((:recurse ctx)
                       (assoc ctx
                              :locals (:then-locals envs)

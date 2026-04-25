@@ -65,3 +65,8 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/or-nil-then-nullable-failure)]
     (is (seq (ps/result-errors results))
         "expected checker errors because (or x nil x) can still be nil")))
+
+(deftest if-or-nil-blank-destructured-narrows
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-or-nil-blank-destructured-narrows-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
