@@ -48,7 +48,12 @@
 
 (defn map-key-lookup-origin
   [ctx target-node key-query]
-  (when-let [root (projection-root-origin ctx target-node)]
-    {:kind :map-key-lookup
-     :root root
-     :key-query key-query}))
+  (let [target-origin (aapi/node-origin target-node)]
+    (if (= :map-key-lookup (:kind target-origin))
+      {:kind :map-key-lookup
+       :root (:root target-origin)
+       :path (conj (:path target-origin) key-query)}
+      (when-let [root (projection-root-origin ctx target-node)]
+        {:kind :map-key-lookup
+         :root root
+         :path [key-query]}))))

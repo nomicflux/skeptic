@@ -3,6 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.examples]
+            [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
@@ -242,3 +243,39 @@
         query (conj* not-p not-q)]
     (is (= :true (ao/assumption-truth query [d1 d2 d3])))
     (is (= :unknown (ao/assumption-truth query [d1 d2])))))
+
+(deftest chained-keyword-invoke-yields-path-origin
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(:k (:x x))
+                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+        outer (aapi/find-node root #(= :keyword-invoke (aapi/node-op %)))
+        origin (aapi/node-origin outer)]
+    (is (= :map-key-lookup (:kind origin)))
+    (is (= :root (:kind (:root origin))))
+    (is (= 'x (:sym (:root origin))))
+    (is (= 2 (count (:path origin))))
+    (is (= :x (:value (first (:path origin)))))
+    (is (= :k (:value (second (:path origin)))))))
+
+(deftest destructured-projection-binding-origin
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(let [{:keys [k]} (:x x)] k)
+                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+        k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
+                                           (= 'k (aapi/node-form %))
+                                           (= :static-call (aapi/node-op (:binding-init %)))))
+        origin (aapi/node-origin k-local)]
+    (is (= :map-key-lookup (:kind origin)))
+    (is (= :root (:kind (:root origin))))
+    (is (= 1 (count (:path origin))))
+    (is (= :k (:value (first (:path origin)))))
+    (is (at/type=? (atst/T s/Str) (ao/origin-type origin [])))))
+
+(deftest origin-type-folds-path
+  (let [map-type (atst/T {:x {:k s/Str}})
+        root (ao/root-origin 'x map-type)
+        kq-x (amo/exact-key-query tp :x)
+        kq-k (amo/exact-key-query tp :k)
+        origin {:kind :map-key-lookup :root root :path [kq-x kq-k]}
+        result (ao/origin-type origin [])]
+    (is (at/type=? (atst/T s/Str) result))))
