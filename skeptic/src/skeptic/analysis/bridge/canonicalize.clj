@@ -191,39 +191,38 @@
 
 (defn canonicalize-schema*
   [schema {:keys [constrained->base?]}]
-  (let [schema (abl/localize-value schema)]
-    (cond
+  (cond
     (nil? schema) nil
     (sb/placeholder-schema? schema) schema
     (sb/bottom-schema? schema) sb/Bottom
     (sb/fn-schema? schema) (canonicalize-fn-schema schema)
     (instance? One schema) (canonicalize-one schema)
-    (sb/maybe? schema) (s/maybe (canonicalize-schema* (:schema schema)
+    (sb/maybe? schema) (s/maybe (canonicalize-schema* (abl/localize-value (:schema schema))
                                                    {:constrained->base? constrained->base?}))
     (sb/constrained? schema) (if constrained->base?
-                           (canonicalize-schema* (sb/de-constrained schema)
+                           (canonicalize-schema* (abl/localize-value (sb/de-constrained schema))
                                                  {:constrained->base? true})
-                           (s/constrained (canonicalize-schema* (sb/de-constrained schema)
+                           (s/constrained (canonicalize-schema* (abl/localize-value (sb/de-constrained schema))
                                                                 {:constrained->base? false})
                                           (:postcondition schema)
                                           (:post-name schema)))
     (sb/either? schema) (apply s/either
-                            (map #(canonicalize-schema* %
+                            (map #(canonicalize-schema* (abl/localize-value %)
                                                         {:constrained->base? constrained->base?})
                                  (:schemas schema)))
     (sb/conditional-schema? schema) (let [branches (mapcat (fn [[pred branch]]
-                                                          [pred (canonicalize-schema* branch
+                                                          [pred (canonicalize-schema* (abl/localize-value branch)
                                                                                      {:constrained->base? constrained->base?})])
                                                         (:preds-and-schemas schema))
                                        args (cond-> (vec branches)
                                               (:error-symbol schema) (conj (:error-symbol schema)))]
                                    (apply s/conditional args))
     (sb/cond-pre? schema) (apply s/cond-pre
-                              (map #(canonicalize-schema* %
+                              (map #(canonicalize-schema* (abl/localize-value %)
                                                           {:constrained->base? constrained->base?})
                                    (:schemas schema)))
     (sb/both? schema) (apply s/both
-                          (map #(canonicalize-schema* %
+                          (map #(canonicalize-schema* (abl/localize-value %)
                                                       {:constrained->base? constrained->base?})
                                (:schemas schema)))
     (sb/join? schema) (schema-join
@@ -242,7 +241,7 @@
     (map? schema) (into {}
                        (map (fn [[k v]]
                               [(if (s/optional-key? k)
-                                 (s/optional-key (canonicalize-schema* (:k k)
+                                 (s/optional-key (canonicalize-schema* (abl/localize-value (:k k))
                                                                        {:constrained->base? constrained->base?}))
                                  (canonicalize-schema* k {:constrained->base? constrained->base?}))
                                (canonicalize-schema* v {:constrained->base? constrained->base?})]))
@@ -250,7 +249,7 @@
     (vector? schema) (mapv #(canonicalize-schema* % {:constrained->base? constrained->base?}) schema)
     (set? schema) (into #{} (map #(canonicalize-schema* % {:constrained->base? constrained->base?})) schema)
     (seq? schema) (doall (map #(canonicalize-schema* % {:constrained->base? constrained->base?}) schema))
-    :else (sb/canonical-scalar-schema schema))))
+    :else (sb/canonical-scalar-schema schema)))
 
 (defn canonicalize-schema
   [schema]
