@@ -1,5 +1,6 @@
 (ns skeptic.analysis.malli-spec.bridge
   (:require [malli.core :as m]
+            [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
@@ -33,6 +34,8 @@
     (= leaf :keyword) (at/->GroundT prov :keyword 'Keyword)
     (= leaf :boolean) (at/->GroundT prov :bool 'Bool)
     (= leaf :any) (at/Dyn prov)
+    (and (symbol? leaf) (predicates/predicate? leaf))
+    (predicates/witness-type (predicates/resolve-predicate-symbol leaf) prov)
     :else (at/Dyn prov)))
 
 (defn- function-shape?

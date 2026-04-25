@@ -147,6 +147,7 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
+    - Bare predicate symbols registered in `skeptic.analysis.predicates` (e.g. `string?`, `int?`, `keyword?`, `pos?`, `nil?`) route through that registry's `witness-type`, mirroring the Schema `(s/pred f)` rule. Predicate symbols outside the registry → `Dyn`.
     - Anything else → `Dyn`.
 
 ### Direct dict admission flow
