@@ -134,27 +134,46 @@
 
     :else type))
 
-(defn case-conditional-narrow-for-lits
-  [anchor-prov branches kw lits]
+(defn narrow-conditional-by-discriminator
+  "Pick branches of `branches` whose pred matches each literal in `lits`
+   against discriminator key `kw`. Returns a union of selected branch
+   types. With opts {:drop-discriminator? true}, drops the discriminator
+   key from each picked branch."
+  [anchor-prov branches kw lits {:keys [drop-discriminator?]}]
   (let [pick (fn [lit]
                (some (fn [[pred branch-type]]
                        (when (case-predicate-matches-lit? pred kw lit)
-                         (drop-discriminator-key branch-type kw)))
+                         (if drop-discriminator?
+                           (drop-discriminator-key branch-type kw)
+                           branch-type)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
 
-(defn case-conditional-default-narrow
-  [anchor-prov branches kw all-lits]
+(defn narrow-conditional-default
+  "Default-branch counterpart: returns the union of branch types whose
+   preds did NOT match any of `lits`. With {:drop-discriminator? true},
+   drops the discriminator key from each picked branch."
+  [anchor-prov branches kw lits {:keys [drop-discriminator?]}]
   (let [matched? (fn [[pred _]]
-                   (some #(case-predicate-matches-lit? pred kw %) all-lits))
+                   (some #(case-predicate-matches-lit? pred kw %) lits))
         default-types (into [] (comp (remove matched?)
                                      (map second)
-                                     (map #(drop-discriminator-key % kw)))
+                                     (map #(if drop-discriminator?
+                                             (drop-discriminator-key % kw)
+                                             %)))
                             branches)]
     (if (empty? default-types)
       (at/BottomType anchor-prov)
       (ato/union default-types))))
+
+(defn case-conditional-narrow-for-lits
+  [anchor-prov branches kw lits]
+  (narrow-conditional-by-discriminator anchor-prov branches kw lits {:drop-discriminator? true}))
+
+(defn case-conditional-default-narrow
+  [anchor-prov branches kw all-lits]
+  (narrow-conditional-default anchor-prov branches kw all-lits {:drop-discriminator? true}))
 
 (defn annotate-case-one-then
   [anchor-prov ctx locals assumptions i tests thens disc-root use-conditional? cond-branches kw-root-info]
