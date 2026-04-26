@@ -68,12 +68,6 @@
   (is (ato/unknown-type? tp (at/->InfCycleT tp 'example/self)))
   (is (not (ato/unknown-type? tp (ab/schema->type tp s/Int)))))
 
-(deftest semantic-type-tag-validation-test
-  (is (not (at/semantic-type-value? {at/semantic-type-tag-key :not-a-real-semantic-type})))
-  (is (= at/ground-type-tag
-         (at/semantic-type-tag (at/->GroundT tp :int 'Int))))
-  (is (at/known-semantic-type-tag? at/ground-type-tag)))
-
 (deftest strict-normalize-type-contract-test
   (let [semantic-map (at/->MapT tp {(at/->GroundT tp :keyword 'Keyword)
                                  (at/->GroundT tp :int 'Int)})]

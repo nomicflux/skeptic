@@ -9,7 +9,6 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]))
 
-
 (defn root-origin
   [sym type]
   {:kind :root
@@ -20,10 +19,6 @@
   [type]
   {:kind :opaque
    :type (ato/normalize type)})
-
-(defn type-origin
-  [sym t]
-  (root-origin sym t))
 
 (defn node-origin
   [node]
