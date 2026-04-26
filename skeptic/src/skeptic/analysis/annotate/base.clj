@@ -34,7 +34,7 @@
 (defn- local-origin-for-entry
   [ctx sym entry t]
   (if (at/semantic-type-value? entry)
-    (ao/root-origin sym (aapi/normalize-type-for-declared-type ctx t))
+    (ao/root-origin sym (aapi/normalize-type ctx t))
     (:origin entry)))
 
 (defn annotate-local

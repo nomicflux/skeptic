@@ -42,3 +42,20 @@
           result (sut/type-substitute ut 'X (int-t tp))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
+
+(deftest type-free-vars-on-conditional-test
+  (let [tv-x (at/->TypeVarT tp 'X)
+        tv-y (at/->TypeVarT tp 'Y)
+        cond-type (at/->ConditionalT tp [[:integer? tv-x nil] [:string? tv-y nil]])]
+    (is (= #{'X 'Y} (sut/type-free-vars cond-type)))))
+
+(deftest type-substitute-on-conditional-test
+  (let [tv-x (at/->TypeVarT tp 'X)
+        int-t' (int-t tp)
+        cond-type (at/->ConditionalT tp [[:integer? tv-x nil] [:string? tv-x nil]])
+        substituted (sut/type-substitute cond-type 'X int-t')]
+    (is (at/conditional-type? substituted))
+    (is (= 2 (count (:branches substituted))))
+    (is (at/type=? int-t' (second (first (:branches substituted)))))
+    (is (at/type=? int-t' (second (second (:branches substituted)))))
+    (is (= :integer? (first (first (:branches substituted)))))))

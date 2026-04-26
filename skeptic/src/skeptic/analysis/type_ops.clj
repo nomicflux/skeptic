@@ -41,7 +41,10 @@
 
 (defn- nil-bearing-member?
   [t]
-  (or (at/maybe-type? t) (nil-value-type? t)))
+  (or (at/maybe-type? t)
+      (nil-value-type? t)
+      (and (at/conditional-type? t)
+           (some nil-bearing-member? (map second (:branches t))))))
 
 (defn- maybe-bases-without-dyn
   [plain-members maybe-bases]
@@ -87,9 +90,6 @@
 (defn normalize-type
   [prov value]
   (cond
-    (at/conditional-type? value)
-    (union-type-with-normalize normalize-type prov (map second (:branches value)))
-
     (at/semantic-type-value? value) value
     (nil? value) (at/->MaybeT prov (at/Dyn prov))
     (sb/schema-literal? value) (exact-value-type prov value)
@@ -105,32 +105,6 @@
     (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
     :else (invalid-normalize-type-input value)))
 
-(defn normalize-type-preserving-conditionals
-  [prov value]
-  (cond
-    (at/conditional-type? value)
-    (at/->ConditionalT
-     (prov/of value)
-     (mapv (fn [[pred typ slot3]]
-             [pred (normalize-type-preserving-conditionals (prov/of typ) typ) slot3])
-           (:branches value)))
-
-    (at/semantic-type-value? value) value
-    (nil? value) (at/->MaybeT prov (at/Dyn prov))
-    (sb/schema-literal? value) (exact-value-type prov value)
-    (s/optional-key? value)
-    (at/->OptionalKeyT prov (normalize-type-preserving-conditionals prov (:k value)))
-    (and (map? value) (not (record? value)))
-    (at/->MapT prov (into {}
-                          (map (fn [[k v]]
-                                 [(normalize-type-preserving-conditionals prov k)
-                                  (normalize-type-preserving-conditionals prov v)]))
-                          value))
-    (vector? value) (at/->VectorT prov (mapv #(normalize-type-preserving-conditionals prov %) value) (= 1 (count value)))
-    (set? value) (at/->SetT prov (into #{} (map #(normalize-type-preserving-conditionals prov %)) value) (= 1 (count value)))
-    (seq? value) (at/->SeqT prov (mapv #(normalize-type-preserving-conditionals prov %) value) (= 1 (count value)))
-    :else (invalid-normalize-type-input value)))
-
 (defn normalize-intersection-members
   [prov members]
   (->> members
@@ -144,11 +118,6 @@
 (defn union-type
   [prov members]
   (union-type-with-normalize normalize-type prov members))
-
-(defn normalize-type-for-declared-type
-  "Normalize while preserving ConditionalT structure recursively."
-  [prov value]
-  (normalize-type-preserving-conditionals prov value))
 
 (defn intersection-type
   [prov members]
@@ -167,10 +136,17 @@
 
       (at/union-type? type)
       (union-type prov (map (fn [member]
-                              (if (at/maybe-type? member)
-                                (:inner member)
-                                member))
+                              (cond
+                                (at/maybe-type? member) (:inner member)
+                                (at/conditional-type? member) (de-maybe-type prov member)
+                                :else member))
                             (:members type)))
+
+      (at/conditional-type? type)
+      (at/->ConditionalT (prov/of type)
+                         (mapv (fn [[pred typ slot3]]
+                                 [pred (de-maybe-type prov typ) slot3])
+                               (:branches type)))
 
       :else
       type)))
@@ -184,17 +160,13 @@
       (at/inf-cycle-type? type) true
       (at/maybe-type? type) (unknown-type? prov (:inner type))
       (at/union-type? type) (some #(unknown-type? prov %) (:members type))
+      (at/conditional-type? type) (some #(unknown-type? prov %) (map second (:branches type)))
       :else false)))
 
 (defn normalize
   "Convenience: derives prov from the typed input."
   [value]
   (normalize-type (derive-prov value) value))
-
-(defn normalize-for-declared-type
-  "Convenience: derives prov from the typed input."
-  [value]
-  (normalize-type-for-declared-type (derive-prov value) value))
 
 (defn union
   "Convenience: derives prov from members."

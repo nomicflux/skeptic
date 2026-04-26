@@ -93,6 +93,7 @@
       (at/fun-type? type) (:methods type)
       (at/maybe-type? type) [(:inner type)]
       (or (at/union-type? type) (at/intersection-type? type)) (:members type)
+      (at/conditional-type? type) (mapv second (:branches type))
       (at/map-type? type) (mapcat identity (:entries type))
       (or (at/vector-type? type) (at/seq-type? type)) (:items type)
       (at/set-type? type) (:members type)

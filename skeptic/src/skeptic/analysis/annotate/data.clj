@@ -22,7 +22,7 @@
 (defn annotate-vector
   [ctx node]
   (let [items (mapv #((:recurse ctx) ctx %) (:items node))
-        item-types (mapv #(aapi/normalize-type-for-declared-type ctx (or (:type %) (aapi/dyn ctx))) items)]
+        item-types (mapv #(aapi/normalize-type ctx (or (:type %) (aapi/dyn ctx))) items)]
     (assoc node
            :items items
            :type (at/->VectorT (prov/with-refs (prov/with-ctx ctx) (mapv prov/of item-types))
@@ -35,7 +35,7 @@
         joined (if (seq items)
                  (av/type-join* (prov/with-ctx ctx) (map :type items))
                  (aapi/dyn ctx))
-        t (aapi/normalize-type-for-declared-type ctx #{joined})]
+        t (aapi/normalize-type ctx #{joined})]
     (assoc node :items items :type (assoc t :prov (prov/with-refs (:prov t) [(prov/of joined)])))))
 
 (defn annotate-map
@@ -47,7 +47,7 @@
                              [(ac/map-literal-key-type ctx key-node) (:type val-node)]))
                       (map vector keys vals))
         refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) entries)
-        t (aapi/normalize-type-for-declared-type ctx entries)]
+        t (aapi/normalize-type ctx entries)]
     (assoc node :keys keys :vals vals :type (assoc t :prov (prov/with-refs (:prov t) refs)))))
 
 (defn annotate-new

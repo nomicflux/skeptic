@@ -13,10 +13,6 @@
   [ctx value]
   (ato/normalize-type (prov/with-ctx ctx) value))
 
-(defn normalize-type-for-declared-type
-  [ctx value]
-  (ato/normalize-type-for-declared-type (prov/with-ctx ctx) value))
-
 (defn union-type
   [ctx members]
   (ato/union-type (prov/with-ctx ctx) members))

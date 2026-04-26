@@ -65,6 +65,14 @@
           (= #{:never} classifications) :never
           :else :unknown))
 
+      (at/conditional-type? type)
+      (let [classifications (set (map #(contains-key-type-classification % key)
+                                      (map second (:branches type))))]
+        (cond
+          (= #{:always} classifications) :always
+          (= #{:never} classifications) :never
+          :else :unknown))
+
       (at/map-type? type)
       (map-contains-key-classification type key)
 
@@ -74,9 +82,10 @@
 (defn refine-type-by-contains-key
   [type key polarity]
   (let [type (as-type type)
-        branches (if (at/union-type? type)
-                   (:members type)
-                   #{type})
+        branches (cond
+                   (at/union-type? type) (:members type)
+                   (at/conditional-type? type) (map second (:branches type))
+                   :else #{type})
         kept (->> branches
                   (keep (fn [branch]
                           (let [classification (contains-key-type-classification branch key)]
@@ -263,6 +272,12 @@
 
       (at/union-type? type)
       (some #(value-satisfies-type? value %) (:members type))
+
+      (at/conditional-type? type)
+      (some (fn [[pred branch-t _]]
+              (and (try (pred value) (catch Exception _ false))
+                   (value-satisfies-type? value branch-t)))
+            (:branches type))
 
       (at/intersection-type? type)
       (every? #(value-satisfies-type? value %) (:members type))
