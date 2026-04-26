@@ -19,6 +19,44 @@
             [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
 
+(defn- discriminant-projection-path
+  [discriminant param-sym]
+  (let [origin (:origin discriminant)]
+    (when (and (= :map-key-lookup (:kind origin))
+               (= param-sym (:sym (:root origin))))
+      (:path origin))))
+
+(defn- case-test-literal-nodes
+  [t]
+  (cond
+    (#{:const :quote} (:op t)) [t]
+    (= :case-test (:op t)) [(:test t)]
+    :else (let [raw (or (:tests t) (:test t))]
+            (when raw (if (vector? raw) raw [raw])))))
+
+(defn- case-pairs+default
+  [case-node]
+  (let [tests (:tests case-node)
+        thens (:thens case-node)
+        n (min (count tests) (count thens))
+        pairs (into {}
+                    (mapcat (fn [i]
+                              (let [lits (mapv ac/literal-node-value
+                                               (case-test-literal-nodes (nth tests i)))
+                                    then-form (:form (:then (nth thens i)))]
+                                (map (fn [lit] [lit then-form]) lits))))
+                    (range n))]
+    [pairs (:form (:default case-node))]))
+
+(defn- body-as-classifier-case-node
+  [body]
+  (let [body (aapi/unwrap-with-meta body)]
+    (case (:op body)
+      :case body
+      :let (body-as-classifier-case-node (:body body))
+      :do (body-as-classifier-case-node (:ret body))
+      nil)))
+
 (defn analyzed-def-entry
   [ns-sym analyzed]
   (letfn [(literal-keyword [node]
@@ -63,7 +101,14 @@
                     {:kind :unary-map-accessor
                      :kw kw}))
 
-                :else nil)))
+                :else
+                (when-let [case-node (body-as-classifier-case-node body)]
+                  (when-let [path (discriminant-projection-path (:test case-node) param-sym)]
+                    (let [[pairs default] (case-pairs+default case-node)]
+                      {:kind :unary-map-classifier
+                       :path path
+                       :cases pairs
+                       :default default}))))))
           (def-accessor-summary [node]
             (when (= :fn (aapi/node-op node))
               (let [methods (aapi/function-methods node)]

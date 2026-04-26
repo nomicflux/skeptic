@@ -179,4 +179,43 @@ New tests in `test/skeptic/analysis/origin_test.clj`:
 
 ## Phase 5
 
+### 5A — Classifier accessor-summary recognizer
+
+Replaced `case-discriminant-expr` and the multi-branch
+`case-discriminant-projection-path` (pipeline.clj) with a single helper
+`discriminant-projection-path` that reads `(:origin discriminant)`
+directly. Root origins carry `:sym` (not `:form`); the prior helper
+had a `:form`/`:sym` field bug. Because `annotate-local`
+(`base.clj:40-52`) propagates the binding entry's origin to every
+`:local` reference site, no env-walking and no `:binding-init`
+recovery are needed.
+
+`predicate_descriptor.clj` reduced to a namespace shell. Phase 5B
+fills its body.
+
+Six inline unit tests added in `accessor_summary_test.clj` using
+`atst/analyze-form` + `pipeline/analyzed-def-entry`:
+direct-keyword-invoke, static-get, destructured (Phase 2X
+inheritance), plain-get-via-inline, different-classifier-name, and
+non-classifier-still-recognized-as-accessor.
+
+The `plain-get-classifier-via-inline` deftest replaces the originally
+planned "not-supported" assertion: `clojure.core/get` is inlined to
+`clojure.lang.RT/get` (a `:static-call`), which `annotate-static-call`
+treats identically to direct static-get — so plain `(get m :k)` is
+recognized correctly. The plan's documented gap does not exist.
+
+One follow-on edit in `jvm.clj`: the static-get origin attachment
+gate widened from `(= 2 (count args))` to `(<= 2 (count args) 3)`
+so the 3-arg form `(get x :k default)` also chains origins. The
+default-value arg does not change the projection's provenance
+(`origin` describes "this value came from looking up :k in x");
+type semantics flow through unrelated code paths. This made
+`static-get-with-default-yields-path-origin` (which had been failing)
+pass, with no other test affected.
+
+Test count: 524 → 530 (six new). Full suite: 530 tests, 2445
+assertions, 0 failures, 0 errors. clj-kondo: 0 errors, 0 warnings.
+Phase 1 deftest still GREEN.
+
 ## Phase 6
