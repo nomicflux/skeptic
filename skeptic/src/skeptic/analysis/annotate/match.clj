@@ -149,6 +149,18 @@
      (pred (path->test-map path lit))
      (catch Exception _ false))))
 
+(defn- descriptor-applies?
+  [descriptor path]
+  (and descriptor
+       (= (mapv path-elem-key (:path descriptor))
+          (mapv path-elem-key path))))
+
+(defn- pred-matches-lit?
+  [pred descriptor path lit]
+  (if (descriptor-applies? descriptor path)
+    (contains? (set (:values descriptor)) lit)
+    (path-predicate-matches-lit? pred path lit)))
+
 (defn narrow-conditional-by-discriminator
   "Pick branches of `branches` whose pred matches each literal in `lits`
    against discriminator `path` (non-empty vector of key-queries). Returns
@@ -157,8 +169,8 @@
   [anchor-prov branches path lits {:keys [drop-discriminator?]}]
   (let [top-kw (path-elem-key (first path))
         pick (fn [lit]
-               (some (fn [[pred branch-type]]
-                       (when (path-predicate-matches-lit? pred path lit)
+               (some (fn [[pred branch-type descriptor]]
+                       (when (pred-matches-lit? pred descriptor path lit)
                          (if drop-discriminator?
                            (drop-discriminator-key branch-type top-kw)
                            branch-type)))
@@ -172,8 +184,8 @@
    drops the top-level discriminator key from each picked branch."
   [anchor-prov branches path lits {:keys [drop-discriminator?]}]
   (let [top-kw (path-elem-key (first path))
-        matched? (fn [[pred _]]
-                   (some #(path-predicate-matches-lit? pred path %) lits))
+        matched? (fn [[pred _ descriptor]]
+                   (some #(pred-matches-lit? pred descriptor path %) lits))
         default-types (into [] (comp (remove matched?)
                                      (map second)
                                      (map #(if drop-discriminator?
