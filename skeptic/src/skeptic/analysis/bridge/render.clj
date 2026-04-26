@@ -59,7 +59,7 @@
 (defn render-type-form*
   [type opts]
   (let [opts (merge default-render-opts opts)
-        type (ato/normalize-for-declared-type type)
+        type (ato/normalize type)
         fold-hit (and (not (:explain-full opts))
                       (folded-name type))]
     (if fold-hit
@@ -136,7 +136,7 @@
   "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
   [type opts]
   (let [opts (merge default-render-opts opts)
-        type (some-> type ato/normalize-for-declared-type)
+        type (some-> type ato/normalize)
         fold-hit (and type
                       (not (:explain-full opts))
                       (folded-name type))]

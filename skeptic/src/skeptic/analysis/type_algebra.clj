@@ -39,6 +39,9 @@
       (at/intersection-type? type)
       (into #{} (mapcat type-free-vars (:members type)))
 
+      (at/conditional-type? type)
+      (into #{} (mapcat type-free-vars (map second (:branches type))))
+
       (at/map-type? type)
       (reduce (fn [acc [k v]]
                 (into acc (concat (type-free-vars k)
@@ -113,6 +116,12 @@
 
       (at/intersection-type? type)
       (at/->IntersectionT prov (set (map #(type-substitute % binder replacement) (:members type))))
+
+      (at/conditional-type? type)
+      (at/->ConditionalT prov
+                         (mapv (fn [[pred branch-t pred-form]]
+                                 [pred (type-substitute branch-t binder replacement) pred-form])
+                               (:branches type)))
 
       (at/map-type? type)
       (let [entries' (into {}

@@ -45,8 +45,8 @@
          :fn fn-node
          :args args
          :actual-argtypes (mapv :type args)
-         :expected-argtypes (mapv #(aapi/normalize-type-for-declared-type ctx %) expected-argtypes)
-         :type (aapi/normalize-type-for-declared-type ctx output-type)
+         :expected-argtypes (mapv #(aapi/normalize-type ctx %) expected-argtypes)
+         :type (aapi/normalize-type ctx output-type)
          :fn-type (aapi/normalize-type ctx fn-type)))
 
 (defn annotate-invoke

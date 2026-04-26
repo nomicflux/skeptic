@@ -44,6 +44,7 @@
       (at/value-type? type) [type]
       (at/maybe-type? type) (maybe-alternatives type)
       (at/union-type? type) (union-alternatives type)
+      (at/conditional-type? type) (union-alternatives (assoc type :members (mapv second (:branches type))))
       :else (bool-alternatives type))))
 
 (defn sum-type?

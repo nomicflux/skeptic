@@ -381,8 +381,8 @@
   ([ctx expected actual]
    (cast-report ctx expected actual {}))
   ([ctx expected actual opts]
-   (let [expected-type (ato/normalize-for-declared-type expected)
-         actual-type (ato/normalize-for-declared-type actual)
+   (let [expected-type (ato/normalize expected)
+         actual-type (ato/normalize actual)
          source (prov/source (prov/of actual-type))
          raw (acast/check-cast actual-type expected-type)]
      (if (:ok? raw)
@@ -408,8 +408,8 @@
   ([ctx expected actual]
    (output-cast-report ctx expected actual {}))
   ([ctx expected actual opts]
-   (let [expected-type (ato/normalize-for-declared-type expected)
-         actual-type (ato/normalize-for-declared-type actual)
+   (let [expected-type (ato/normalize expected)
+         actual-type (ato/normalize actual)
          source (prov/source (prov/of actual-type))
          raw (acast/check-cast actual-type expected-type)]
      (if (:ok? raw)

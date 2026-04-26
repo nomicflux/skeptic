@@ -58,3 +58,14 @@
 (deftest formulas-cover-cap
   (let [atoms (mapv #(atom* (symbol (str "A" %)) true) (range 13))]
     (is (not (sut/formulas-cover? [{:kind :conjunction :parts atoms}])))))
+
+(deftest sum-alternatives-on-conditional-test
+  (let [k1 (ato/exact-value-type tp :a)
+        k2 (ato/exact-value-type tp :b)
+        cond-type (at/->ConditionalT tp [[:keyword? k1 nil] [:keyword? k2 nil]])
+        alts (sut/sum-alternatives cond-type)]
+    (is (= 2 (count alts)))
+    (is (some #(at/type=? k1 %) alts))
+    (is (some #(at/type=? k2 %) alts))
+    (is (sut/exhausted-by-values? cond-type [:a :b]))
+    (is (not (sut/exhausted-by-values? cond-type [:a])))))

@@ -76,3 +76,52 @@
   (is (thrown-with-msg? IllegalArgumentException
                         #"normalize-type only accepts canonical semantic types or internal type-like values"
                         (ato/normalize-type tp s/Int))))
+
+(deftest normalize-type-preserves-conditional-test
+  (let [pred1 :map?
+        pred2 :vector?
+        cond-type (at/->ConditionalT tp [[pred1 (ab/schema->type tp s/Int) nil]
+                                         [pred2 (ab/schema->type tp s/Str) nil]])]
+    (is (at/conditional-type? (ato/normalize-type tp cond-type)))
+    (is (at/type=? cond-type (ato/normalize-type tp cond-type)))))
+
+(deftest de-maybe-type-on-conditional-test
+  (let [pred1 :map?
+        pred2 :vector?
+        int-t (ab/schema->type tp s/Int)
+        str-t (ab/schema->type tp s/Str)
+        cond-type (at/->ConditionalT tp [[pred1 (at/->MaybeT tp int-t) nil]
+                                         [pred2 str-t nil]])
+        result (ato/de-maybe-type tp cond-type)]
+    (is (at/conditional-type? result))
+    (is (= 2 (count (:branches result))))
+    (is (at/type=? int-t (second (first (:branches result)))))
+    (is (at/type=? str-t (second (second (:branches result)))))))
+
+(deftest de-maybe-type-on-maybe-conditional-test
+  (let [pred1 :map?
+        int-t (ab/schema->type tp s/Int)
+        cond-type (at/->ConditionalT tp [[pred1 int-t nil]])
+        wrapped (at/->MaybeT tp cond-type)
+        result (ato/de-maybe-type tp wrapped)]
+    (is (at/conditional-type? result))
+    (is (at/type=? cond-type result))))
+
+(deftest unknown-type-on-conditional-test
+  (let [pred1 :map?
+        pred2 :vector?
+        int-t (ab/schema->type tp s/Int)
+        str-t (ab/schema->type tp s/Str)
+        all-concrete (at/->ConditionalT tp [[pred1 int-t nil] [pred2 str-t nil]])
+        with-dyn (at/->ConditionalT tp [[pred1 int-t nil] [pred2 (at/Dyn tp) nil]])]
+    (is (not (ato/unknown-type? tp all-concrete)))
+    (is (ato/unknown-type? tp with-dyn))))
+
+(deftest union-with-conditional-member-preserves-nilability-test
+  (let [pred1 :map?
+        pred2 :vector?
+        int-t (ab/schema->type tp s/Int)
+        cond-with-maybe (at/->ConditionalT tp [[pred1 (at/->MaybeT tp int-t) nil]
+                                               [pred2 int-t nil]])
+        result (ato/union [cond-with-maybe int-t])]
+    (is (at/maybe-type? result))))

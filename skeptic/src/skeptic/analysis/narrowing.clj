@@ -177,6 +177,11 @@
       (combine-parts (ato/derive-prov type)
                      (map #(partition-type-for-predicate* % pred-info polarity) (:members type)))
 
+      (at/conditional-type? type)
+      (combine-parts (ato/derive-prov type)
+                     (map #(partition-type-for-predicate* % pred-info polarity)
+                          (map second (:branches type))))
+
       (at/maybe-type? type)
       (partition-maybe (:inner type) pred-info polarity)
 
@@ -193,7 +198,7 @@
   (and (at/value-type? t)
        (false? (:value t))))
 
-(defn- can-be-falsy-type?
+(defn can-be-falsy-type?
   [t]
   (let [t (ato/normalize t)]
     (cond
@@ -201,6 +206,7 @@
       (at/maybe-type? t) true
       (at/bottom-type? t) false
       (at/union-type? t) (boolean (some can-be-falsy-type? (:members t)))
+      (at/conditional-type? t) (boolean (some can-be-falsy-type? (map second (:branches t))))
       (at/value-type? t) (let [v (:value t)] (or (nil? v) (false? v)))
       (at/ground-type? t) (= :bool (:ground t))
       :else false)))
@@ -217,6 +223,12 @@
       (cond
         (at/union-type? t)
         (let [members (vec (remove false-bool-value-type? (:members t)))]
+          (if (empty? members)
+            (ato/bottom t)
+            (ato/union members)))
+
+        (at/conditional-type? t)
+        (let [members (vec (remove false-bool-value-type? (map second (:branches t))))]
           (if (empty? members)
             (ato/bottom t)
             (ato/union members)))
@@ -248,6 +260,11 @@
     (combine-parts (ato/derive-prov t)
                    (map #(partition-values-leaf % values polarity) (:members t)))
 
+    (at/conditional-type? t)
+    (combine-parts (ato/derive-prov t)
+                   (map #(partition-values-leaf % values polarity)
+                        (map second (:branches t))))
+
     :else
     (if polarity (ato/bottom t) t)))
 
@@ -264,6 +281,10 @@
       (at/union-type? type)
       (combine-parts (ato/derive-prov type)
                      (map #(partition-type-for-values % values polarity) (:members type)))
+      (at/conditional-type? type)
+      (combine-parts (ato/derive-prov type)
+                     (map #(partition-type-for-values % values polarity)
+                          (map second (:branches type))))
       (at/maybe-type? type)
       (at/->MaybeT (ato/derive-prov type) (partition-type-for-values (:inner type) values polarity))
       :else (partition-values-leaf type values polarity))))

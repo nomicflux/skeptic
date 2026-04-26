@@ -13,7 +13,7 @@
   [sym type]
   {:kind :root
    :sym sym
-   :type (ato/normalize-for-declared-type type)})
+   :type (ato/normalize type)})
 
 (defn opaque-origin
   [type]
@@ -310,10 +310,10 @@
   [ctx sym entry]
   (cond
     (at/semantic-type-value? entry)
-    [(ato/normalize-for-declared-type entry) (root-origin sym (ato/normalize-for-declared-type entry))]
+    [(ato/normalize entry) (root-origin sym (ato/normalize entry))]
 
     (map? entry)
-    (let [t (ato/normalize-for-declared-type (or (:type entry) (aapi/dyn ctx)))
+    (let [t (ato/normalize (or (:type entry) (aapi/dyn ctx)))
           origin (or (:origin entry) (root-origin sym t))]
       [t origin])
 
@@ -325,7 +325,7 @@
   [ctx sym entry assumptions]
   (let [[t origin] (local-type-and-origin ctx sym entry)
         refined (or (some-> origin (origin-type assumptions)) t)]
-    (ato/normalize-for-declared-type refined)))
+    (ato/normalize refined)))
 
 (defn local-root-origin
   [ctx node]

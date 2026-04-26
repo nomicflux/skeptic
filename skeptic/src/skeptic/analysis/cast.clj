@@ -85,8 +85,8 @@
   ([source-type target-type]
    (check-cast source-type target-type {}))
   ([source-type target-type {:keys [polarity] :or {polarity :positive} :as opts}]
-   (let [source-type (ato/normalize-for-declared-type source-type)
-         target-type (ato/normalize-for-declared-type target-type)
+   (let [source-type (ato/normalize source-type)
+         target-type (ato/normalize target-type)
          opts (assoc opts :polarity polarity)]
      (run-cast source-type target-type opts))))
 
