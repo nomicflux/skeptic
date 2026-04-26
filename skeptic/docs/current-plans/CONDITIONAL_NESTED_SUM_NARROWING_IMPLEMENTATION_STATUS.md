@@ -251,4 +251,122 @@ Test count: 530 → 537 (seven new: 6 in predicate-descriptor-test, 1 in
 types-test). Full suite: 537 tests, 2457 assertions, 0 failures, 0
 errors. clj-kondo: 0 errors, 0 warnings. Phase 1 deftest still GREEN.
 
+## Phase 5C
+
+Descriptor consultation lands in
+`src/skeptic/analysis/annotate/match.clj`. Two new private helpers:
+`descriptor-applies?` (path equality between descriptor and query) and
+`pred-matches-lit?` (when a descriptor with matching path is present,
+membership-test against `:values` and bypass the runtime predicate;
+otherwise fall back to `path-predicate-matches-lit?`). Both
+`narrow-conditional-by-discriminator` and `narrow-conditional-default`
+destructure each branch as `[pred branch-type descriptor]` and dispatch
+through `pred-matches-lit?`.
+
+Integration fixture appended to `test/skeptic/test_examples/contracts.clj`:
+`NestedConditionalInTopPred` uses `(comp #{:b} nested-conditional-classify)`
+as the recognized predicate shape; `NestedConditionalXTop` and
+`nested-conditional-repro-top` mirror the Phase 1 repro but route through
+the descriptor path.
+
+New deftest `nested-conditional-classifier-descriptor-narrowing` in
+`test/skeptic/checking/pipeline/contracts_test.clj` runs the fixture
+against `ps/check-fixture` — empty result list = no inconsistencies.
+
+Descriptor-bypass unit test added in `match_test.clj`
+(`descriptor-path-bypasses-runtime-probe`): pred is `(constantly false)`,
+descriptors are populated with matching values; the helper still selects
+the correct branch type, proving the descriptor short-circuit fires
+before the runtime probe.
+
+Test count: 537 → 539 (one match-test, one pipeline-test). Full suite:
+539 tests, 2459 assertions, 0 failures, 0 errors. clj-kondo: 0 errors,
+0 warnings. Phase 1 deftest still GREEN (its preds are `(is? :b)`
+lambdas — descriptor absent, runtime probe still satisfies it).
+
 ## Phase 6
+
+End-to-end verification sweep. No code edits.
+
+### Verification commands and outcomes
+
+```
+lein test :only skeptic.checking.pipeline.contracts-test/nested-conditional-destructured-discriminator-narrowing
+  → 1 test, 1 assertion, 0 failures
+lein test :only skeptic.checking.pipeline.contracts-test/nested-conditional-classifier-descriptor-narrowing
+  → 1 test, 1 assertion, 0 failures
+lein test (focused) origin / annotate.match / map-ops / predicate-descriptor / types / accessor-summary / pipeline.contracts
+  → 72 tests, 302 assertions, 0 failures
+lein test (whole suite)
+  → 539 tests, 2459 assertions, 0 failures, 0 errors
+clj-kondo --lint .
+  → linting took 2033ms, errors: 0, warnings: 0
+lein with-profile +skeptic-plugin skeptic
+  → No inconsistencies found
+```
+
+The plan included a pre-emptive `mkdir target/trampolines` + TMPDIR
+override copied from the input doc. Both were dropped: writing into
+Leiningen's managed `target/` is wrong, and the plugin gate runs cleanly
+with no temp-dir override at all.
+
+### Fixtures and deftests added across phases
+
+Fixtures (in `test/skeptic/test_examples/contracts.clj`):
+- `nested-conditional-repro` (Phase 1) — destructured-discriminator narrowing via `(is? :b)` lambda preds (runtime-probe path).
+- `nested-conditional-repro-top` (Phase 5C) — same shape with `(comp #{:b} nested-conditional-classify)` preds (descriptor path).
+
+Pipeline deftests (in `test/skeptic/checking/pipeline/contracts_test.clj`):
+- `nested-conditional-destructured-discriminator-narrowing` (Phase 1)
+- `nested-conditional-classifier-descriptor-narrowing` (Phase 5C)
+
+Unit-test files added or substantially extended:
+- `test/skeptic/analysis/origin_test.clj` (Phases 2 / 2X / 4)
+- `test/skeptic/analysis/annotate/match_test.clj` (Phases 3 / 4 / 5C)
+- `test/skeptic/analysis/map_ops_test.clj` (Phase 4)
+- `test/skeptic/analysis/predicate_descriptor_test.clj` (Phase 5B, new file)
+- `test/skeptic/analysis/types_test.clj` (Phase 5B)
+- `test/skeptic/checking/pipeline/accessor_summary_test.clj` (Phase 5A, new file)
+
+### Design summary
+
+The end-state composition is four landed mechanisms working in series:
+
+1. **Path-shaped projection origins** (Phase 2 + 2X). Every `(:k v)`,
+   `(get v :k)`, and destructured projection-binding accumulates a
+   `:map-key-lookup` origin carrying the original `:root` and a vector
+   `:path` of key-queries from root toward leaf. Destructure-emitted
+   seq-coercion `:if` shims are recognized so per-level gensym rebinds
+   preserve the chain.
+2. **Path-equality assumptions** (Phase 4). When the equality target of
+   `(= local lit)` carries a `:map-key-lookup` origin,
+   `equality-value-assumption` produces a `:path-value-equality`
+   assumption rooted at that projection's root, with the projection's
+   path. `apply-assumption-to-root-type` calls
+   `refine-map-path-by-values`, which reduces over the path through
+   map / union / maybe / conditional shapes and refines the appropriate
+   slot.
+3. **Preserving conditional-branch selection** (Phase 3 + 4 generalization).
+   `narrow-conditional-by-discriminator` and `narrow-conditional-default`
+   accept a key-query path (not just a top-level kw) and an explicit
+   `{:drop-discriminator? bool}` option. Direct-`case` payload narrowing
+   continues to drop the discriminator via thin wrappers; nested-path
+   refinement keeps it.
+4. **Classifier descriptors** (Phase 5A + 5B + 5C). `accessor-summary-from-body`
+   recognizes `(s/defn classify [m] (case ... ))` shaped functions and
+   produces a `:unary-map-classifier` summary with `:path` and `:cases`.
+   The bridge captures the literal pred form per ConditionalT branch;
+   a post-pass enriches each branch's slot 3 with a static descriptor
+   `{:path ... :values ...}` resolved against the accessor summaries
+   when the pred is `(comp #{lits} classifier-sym)`. At narrowing time,
+   `pred-matches-lit?` consults the descriptor first and falls back to
+   the runtime predicate only when the descriptor is absent or its path
+   does not apply.
+
+The repro succeeds because (1) gives the destructured `k` an
+`:map-key-lookup` origin with path `[:x :k]` rooted at `x`; (2) turns
+`(= k "b")` into a `:path-value-equality` assumption that refines `x`
+at slot `[:x :k]`; (3) and (4) make sure the conditional inside `:x` of
+the input schema is narrowed to the `:b`-branch type without losing the
+`:k` key, producing a refined `x` compatible with the `nested-conditional-f`
+parameter type.
