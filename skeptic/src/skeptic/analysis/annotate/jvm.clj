@@ -52,7 +52,7 @@
         type (or (shared-static-output-type ctx node args default-output-type)
                  (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
         origin (when (and (ac/static-get-call? node)
-                          (= 2 (count args)))
+                          (<= 2 (count args) 3))
                  (map-projection/map-key-lookup-origin ctx (first args)
                                                        (ac/get-key-query ctx (second args))))]
     (cond-> (assoc node
