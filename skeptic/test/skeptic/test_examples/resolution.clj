@@ -107,3 +107,10 @@
   (if x
     x
     (mutual-recursive-left x)))
+
+(defn sample-bigdecimal-method-value-fn
+  []
+  (let [a (BigDecimal. "1")
+        b (BigDecimal. "2")
+        x (BigDecimal/.equals a b)]
+    x))

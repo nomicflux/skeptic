@@ -14,10 +14,10 @@
   :dependencies [[prismatic/schema           "1.1.12"]
                  [prismatic/plumbing         "0.6.0"]
                  [metosin/malli              "0.20.1"]
-                 [org.clojure/clojure        "1.11.1"]
+                 [org.clojure/clojure        "1.12.0"]
                  [org.clojure/data.json      "2.5.1"]
-                 [org.clojure/tools.analyzer "1.1.1"]
-                 [org.clojure/tools.analyzer.jvm "1.2.3"]
+                 [org.clojure/tools.analyzer "1.2.2"]
+                 [org.clojure/tools.analyzer.jvm "1.4.0-beta1"]
                  [commons-io                 "2.11.0"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}
