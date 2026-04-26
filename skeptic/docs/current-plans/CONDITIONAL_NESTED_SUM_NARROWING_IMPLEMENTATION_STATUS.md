@@ -218,4 +218,37 @@ Test count: 524 → 530 (six new). Full suite: 530 tests, 2445
 assertions, 0 failures, 0 errors. clj-kondo: 0 errors, 0 warnings.
 Phase 1 deftest still GREEN.
 
+## Phase 5B
+
+Bridge now captures the pred-form per conditional branch. In
+`conditional-branch-sources`, each `(partition 2 (rest form))` pair
+becomes `{:pred-form pred :schema-source (build branch)}` instead of
+just the built branch. In `conditional-import-type`, the branch-results
+comprehension reads `:schema-source` for the recursive run and attaches
+`:pred-form` as slot 3, producing 3-tuple ConditionalT branches
+`[pred type pred-form]`.
+
+`strip-runtime-closures` in `types.clj` updated to destructure
+`[_ typ slot3]` and re-emit `[nil (strip-runtime-closures typ) slot3]`,
+preserving slot 3 unchanged. `normalize-type-preserving-conditionals`
+in `type_ops.clj` similarly updated to preserve slot 3 when
+reconstructing ConditionalT branches.
+
+New post-pass `enrich-conditional-descriptors` (in `pipeline.clj`)
+walks every type in the dict after `preanalyzed-ns-dict` and replaces
+slot 3 in ConditionalT branches with a resolved descriptor via
+`predicate-form->descriptor`. The walker recurses into all type
+wrappers mirroring the shape of `strip-runtime-closures`.
+
+`predicate-form->descriptor` (new file
+`src/skeptic/analysis/predicate_descriptor.clj`) recognizes
+`(comp #{<lits>} <classifier-sym>)`, qualifies the classifier symbol
+against `ns-sym`, resolves it in `accessor-summaries`, and returns
+`{:path ... :values [...]}` when the summary is a
+`:unary-map-classifier`, else `nil`.
+
+Test count: 530 → 537 (seven new: 6 in predicate-descriptor-test, 1 in
+types-test). Full suite: 537 tests, 2457 assertions, 0 failures, 0
+errors. clj-kondo: 0 errors, 0 warnings. Phase 1 deftest still GREEN.
+
 ## Phase 6

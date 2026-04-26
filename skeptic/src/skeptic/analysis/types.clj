@@ -290,7 +290,7 @@
     (sealed-dyn-type? t) (update t :ground strip-runtime-closures)
 
     (conditional-type? t)
-    (update t :branches (fn [bs] (mapv (fn [[_ typ]] [nil (strip-runtime-closures typ)]) bs)))
+    (update t :branches (fn [bs] (mapv (fn [[_ typ slot3]] [nil (strip-runtime-closures typ) slot3]) bs)))
 
     (union-type? t) (update t :members #(mapv strip-runtime-closures %))
     (intersection-type? t) (update t :members #(mapv strip-runtime-closures %))
