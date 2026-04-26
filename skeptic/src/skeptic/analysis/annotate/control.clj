@@ -100,14 +100,40 @@
 
 (defn binding-alias-origin
   [init]
-  (and (= :local (:op init))
-       (= :root (:kind (ao/node-origin init)))
-       (ao/root-origin (:form init) (:type init))))
+  (when (and (= :local (:op init))
+             (= :root (:kind (ao/node-origin init))))
+    (let [upstream (ao/node-origin init)]
+      (ao/root-origin (:sym upstream) (:type init)))))
+
+(defn- seq-test-inner-local
+  [test-node]
+  (let [args (or (:args test-node) [])]
+    (when (and (= 1 (count args))
+               (= :local (:op (first args)))
+               (contains? #{:invoke :static-call} (:op test-node)))
+      (first args))))
+
+(defn- destructure-shim?
+  [binding]
+  (let [init (:init binding)]
+    (when (= :if (:op init))
+      (let [inner (seq-test-inner-local (:test init))
+            else (:else init)]
+        (and inner
+             (= :local (:op else))
+             (= (:form inner) (:form else))
+             (= (:form binding) (:form inner)))))))
+
+(defn- shim-prior-origin
+  [env binding]
+  (let [inner-sym (:form (:else (:init binding)))]
+    (:origin (get env inner-sym))))
 
 (defn binding-env-entry
-  [annotated {:keys [base-entry fallback-origin track-fn-binding?]}]
+  [env annotated {:keys [base-entry fallback-origin track-fn-binding?]}]
   (let [init (:init annotated)
         origin (or (binding-alias-origin init)
+                   (when (destructure-shim? annotated) (shim-prior-origin env annotated))
                    fallback-origin
                    (:origin base-entry))]
     (cond-> (assoc base-entry :origin origin)
@@ -138,7 +164,7 @@
                          (assoc :binding-sym binding-sym))]
     [annotated
      (assoc env binding-sym
-            (binding-env-entry annotated
+            (binding-env-entry env annotated
                                {:base-entry base-entry
                                 :fallback-origin binding-origin
                                 :track-fn-binding? true}))]))
@@ -233,7 +259,7 @@
         base-entry (binding-base-entry ctx annotated)]
     [annotated
      (assoc env (:form binding)
-            (binding-env-entry annotated
+            (binding-env-entry env annotated
                                {:base-entry base-entry
                                 :fallback-origin (:origin base-entry)}))]))
 

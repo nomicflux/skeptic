@@ -267,9 +267,38 @@
         origin (aapi/node-origin k-local)]
     (is (= :map-key-lookup (:kind origin)))
     (is (= :root (:kind (:root origin))))
-    (is (= 1 (count (:path origin))))
-    (is (= :k (:value (first (:path origin)))))
+    (is (= 'x (:sym (:root origin))))
+    (is (= 2 (count (:path origin))))
+    (is (= :x (:value (first (:path origin)))))
+    (is (= :k (:value (second (:path origin)))))
     (is (at/type=? (atst/T s/Str) (ao/origin-type origin [])))))
+
+(deftest destructure-as-alias-preserves-root-origin
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(let [{{:keys [k]} :x :as x} input] x)
+                                {:locals {'input (atst/T {:x {:k s/Str}})}})
+        x-local (aapi/find-node root #(and (= :local (aapi/node-op %))
+                                           (= 'x (aapi/node-form %))
+                                           (nil? (:init %))))
+        origin (aapi/node-origin x-local)]
+    (is (= :root (:kind origin)))
+    (is (= 'input (:sym origin)))))
+
+(deftest nested-destructure-double-shim-yields-full-path
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(let [{{{:keys [k]} :inner} :x :as x} input] k)
+                                {:locals {'input (atst/T {:x {:inner {:k s/Str}}})}})
+        k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
+                                           (= 'k (aapi/node-form %))
+                                           (= :static-call (aapi/node-op (:binding-init %)))))
+        origin (aapi/node-origin k-local)]
+    (is (= :map-key-lookup (:kind origin)))
+    (is (= :root (:kind (:root origin))))
+    (is (= 'input (:sym (:root origin))))
+    (is (= 3 (count (:path origin))))
+    (is (= :x (:value (first (:path origin)))))
+    (is (= :inner (:value (second (:path origin)))))
+    (is (= :k (:value (nth (:path origin) 2))))))
 
 (deftest origin-type-folds-path
   (let [map-type (atst/T {:x {:k s/Str}})
@@ -279,3 +308,19 @@
         origin {:kind :map-key-lookup :root root :path [kq-x kq-k]}
         result (ao/origin-type origin [])]
     (is (at/type=? (atst/T s/Str) result))))
+
+(deftest static-get-with-default-yields-path-origin
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(let [g (clojure.core/get x :x nil)
+                                       k (clojure.core/get g :k nil)]
+                                   k)
+                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+        k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
+                                           (= 'k (aapi/node-form %))))
+        origin (aapi/node-origin k-local)]
+    (is (= :map-key-lookup (:kind origin)))
+    (is (= :root (:kind (:root origin))))
+    (is (= 'x (:sym (:root origin))))
+    (is (= 2 (count (:path origin))))
+    (is (= :x (:value (first (:path origin)))))
+    (is (= :k (:value (second (:path origin)))))))
