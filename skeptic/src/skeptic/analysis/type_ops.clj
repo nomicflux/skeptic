@@ -111,8 +111,8 @@
     (at/conditional-type? value)
     (at/->ConditionalT
      (prov/of value)
-     (mapv (fn [[pred typ]]
-             [pred (normalize-type-preserving-conditionals (prov/of typ) typ)])
+     (mapv (fn [[pred typ slot3]]
+             [pred (normalize-type-preserving-conditionals (prov/of typ) typ) slot3])
            (:branches value)))
 
     (at/semantic-type-value? value) value

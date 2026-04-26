@@ -16,8 +16,46 @@
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.typed-decls.malli :as typed-decls.malli])
+            [skeptic.typed-decls.malli :as typed-decls.malli]
+            [skeptic.analysis.predicate-descriptor :as pd])
   (:import [java.io File]))
+
+(defn- enrich-conditional-type
+  [t ns-sym accessor-summaries]
+  (let [walk #(enrich-conditional-type % ns-sym accessor-summaries)]
+    (cond
+      (not (at/semantic-type-value? t)) t
+
+      (at/conditional-type? t)
+      (update t :branches
+              (fn [bs] (mapv (fn [[pred typ slot3]]
+                               [pred (walk typ)
+                                (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
+                             bs)))
+
+      (at/maybe-type? t) (update t :inner walk)
+      (at/optional-key-type? t) (update t :inner walk)
+      (at/var-type? t) (update t :inner walk)
+      (at/value-type? t) (update t :inner walk)
+      (at/forall-type? t) (update t :body walk)
+      (at/sealed-dyn-type? t) (update t :ground walk)
+      (at/union-type? t) (update t :members #(mapv walk %))
+      (at/intersection-type? t) (update t :members #(mapv walk %))
+      (at/vector-type? t) (update t :items #(mapv walk %))
+      (at/seq-type? t) (update t :items #(mapv walk %))
+      (at/set-type? t) (update t :members #(into #{} (map walk) %))
+      (at/fn-method-type? t) (-> t (update :inputs #(mapv walk %))
+                                 (update :output walk))
+      (at/fun-type? t) (update t :methods #(mapv walk %))
+      (at/map-type? t) (update t :entries
+                               #(into {} (map (fn [[k v]] [(walk k) (walk v)])) %))
+      :else t)))
+
+(defn- enrich-conditional-descriptors
+  [dict ns-sym accessor-summaries]
+  (reduce-kv (fn [m k t] (assoc m k (enrich-conditional-type t ns-sym accessor-summaries)))
+             {}
+             dict))
 
 (defn- discriminant-projection-path
   [discriminant param-sym]
@@ -478,6 +516,7 @@
     (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)
           source-form (find-source-form s-expr source-file check-def)
           {:keys [dict accessor-summaries]} (preanalyzed-ns-dict dict ns source-file)
+          dict (enrich-conditional-descriptors dict ns accessor-summaries)
           {:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form] {:accessor-summaries accessor-summaries})]
       (vec (check-resolved-form dict
                                 ignore-body

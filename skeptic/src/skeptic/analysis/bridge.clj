@@ -149,7 +149,10 @@
                       (symbol? name-form) name-form))))))
           (conditional-branch-sources [form]
             (when (seq? form)
-              (mapv (comp build second) (partition 2 (rest form)))))]
+              (mapv (fn [[pred branch]]
+                      {:pred-form pred
+                       :schema-source (build branch)})
+                    (partition 2 (rest form)))))]
     (build form)))
 
 (defn- descriptor-source
@@ -303,10 +306,11 @@
   [run {:keys [prov] :as ctx} schema source]
   (let [inner-ctx (descend-ctx ctx)
         branch-results (mapv (fn [i [pred branch]]
-                               (let [branch-result (run (assoc inner-ctx
+                               (let [branch-source (get-in source [:conditional-branches i])
+                                     branch-result (run (assoc inner-ctx
                                                                :schema branch
-                                                               :source (get-in source [:conditional-branches i])))]
-                                 {:branch [pred (:type branch-result)]
+                                                               :source (:schema-source branch-source)))]
+                                 {:branch [pred (:type branch-result) (:pred-form branch-source)]
                                   :closed-refs (:closed-refs branch-result)}))
                              (range)
                              (:preds-and-schemas schema))
