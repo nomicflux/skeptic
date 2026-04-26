@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.calls :as ac]
             [skeptic.examples]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.origin :as ao]
@@ -324,3 +325,50 @@
     (is (= 2 (count (:path origin))))
     (is (= :x (:value (first (:path origin)))))
     (is (= :k (:value (second (:path origin)))))))
+
+(deftest equality-value-assumption-path-shape
+  (let [root (atst/analyze-form atst/analysis-dict
+                                '(let [{:keys [k]} (:x x)] (= k "b"))
+                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+        eq-node (aapi/find-node root #(or (and (= :invoke (aapi/node-op %))
+                                              (some-> (aapi/call-fn-node %) ac/equality-call?))
+                                         (and (= :static-call (aapi/node-op %))
+                                              (ac/static-equality-call? %))))
+        assumption (ao/test->assumption tp eq-node)]
+    (is (= :path-value-equality (:kind assumption)))
+    (is (= 'x (get-in assumption [:root :sym])))
+    (is (= 2 (count (:path assumption))))
+    (is (= :x (:value (first (:path assumption)))))
+    (is (= :k (:value (second (:path assumption)))))
+    (is (= ["b"] (:values assumption)))
+    (is (true? (:polarity assumption)))))
+
+(deftest apply-path-value-equality-refines-root
+  (let [root-type (atst/T {:x {:k s/Str}})
+        kq-x (amo/exact-key-query tp :x)
+        kq-k (amo/exact-key-query tp :k)
+        assumption {:kind :path-value-equality
+                    :root (ao/root-origin 'x root-type)
+                    :path [kq-x kq-k]
+                    :values ["b"]
+                    :polarity true}
+        refined (ao/apply-assumption-to-root-type root-type assumption)
+        inner-k (amo/map-get-type (amo/map-get-type refined kq-x) kq-k)]
+    (is (at/type=? (atst/T (s/eq "b")) inner-k))))
+
+(deftest branch-local-envs-refines-x-via-nested-equality
+  (let [root-type (atst/T {:x {:k s/Str}})
+        kq-x (amo/exact-key-query tp :x)
+        kq-k (amo/exact-key-query tp :k)
+        assumption {:kind :path-value-equality
+                    :root (ao/root-origin 'input root-type)
+                    :path [kq-x kq-k]
+                    :values ["b"]
+                    :polarity true}
+        x-origin {:kind :map-key-lookup
+                  :root (ao/root-origin 'input root-type)
+                  :path [kq-x]}
+        x-type (ao/origin-type x-origin [assumption])
+        inner-k (amo/map-get-type x-type kq-k)]
+    (is (at/type=? (atst/T (s/eq "b")) inner-k))
+    (is (at/type=? (atst/T {:k (s/eq "b")}) x-type))))

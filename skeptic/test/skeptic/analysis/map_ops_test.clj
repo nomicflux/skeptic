@@ -91,3 +91,41 @@
           result (amo/merge-map-types tp [m1 m2])
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
+
+(deftest refine-map-path-by-values-map-shape
+  (let [root (ab/schema->type tp {:x {:k s/Str}})
+        path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
+        result (amo/refine-map-path-by-values root path ["b"] true)]
+    (is (at/map-type? result))
+    (let [x-val (amo/map-get-type result (amo/exact-key-query tp :x :x))
+          k-val (amo/map-get-type x-val (amo/exact-key-query tp :k :k))]
+      (is (at/value-type? k-val))
+      (is (= "b" (:value k-val))))))
+
+(deftest refine-map-path-by-values-union-shape
+  (let [branch-a (ab/schema->type tp {:x {:k (s/eq "a")}})
+        branch-b (ab/schema->type tp {:x {:k (s/eq "b")}})
+        union-root (at/->UnionT tp [branch-a branch-b])
+        path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
+        result (amo/refine-map-path-by-values union-root path ["b"] true)]
+    (is (not (at/bottom-type? result)))))
+
+(deftest refine-map-path-by-values-maybe-shape
+  (let [inner (ab/schema->type tp {:x {:k s/Str}})
+        root (at/->MaybeT tp inner)
+        path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
+        result (amo/refine-map-path-by-values root path ["b"] true)]
+    (is (not (at/bottom-type? result)))
+    (is (at/maybe-type? result))))
+
+(deftest refine-map-path-by-values-conditional-shape
+  (let [path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
+        branch-a-type (ab/schema->type tp {:x {:k (s/eq "a")} :disc "a"})
+        branch-b-type (ab/schema->type tp {:x {:k (s/eq "b")} :disc "b"})
+        pred-a (fn [m] (= (get-in m [:x :k]) "a"))
+        pred-b (fn [m] (= (get-in m [:x :k]) "b"))
+        cond-type (at/->ConditionalT tp [[pred-a branch-a-type] [pred-b branch-b-type]])
+        result (amo/refine-map-path-by-values cond-type path ["b"] true)]
+    (is (not (at/bottom-type? result)))
+    (is (at/map-type? result))
+    (is (= "b" (:value (amo/map-get-type result (amo/exact-key-query tp :disc :disc)))))))

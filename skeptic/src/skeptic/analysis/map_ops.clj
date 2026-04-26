@@ -9,6 +9,12 @@
   ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
   ([a b opts] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b opts)))
 
+(defn- narrow-conditional-by-discriminator'
+  [anchor-prov branches path values opts]
+  ((requiring-resolve 'skeptic.analysis.annotate.match/narrow-conditional-by-discriminator)
+   anchor-prov branches path values opts))
+
+
 (defn- cast-ok?'
   [a b]
   ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' a b)))
@@ -285,3 +291,96 @@
       (every? at/map-type? types) (at/->MapT (prov/with-refs anchor-prov (mapv prov/of types))
                                              (apply merge (map :entries types)))
       :else (apply ato/dyn types))))
+
+(declare refine-map-path-by-values)
+
+(defn- update-entry-by-exact-value
+  [entries exact-value new-value]
+  (into {} (map (fn [[k v]]
+                  (let [inner (if (at/optional-key-type? k) (:inner k) k)]
+                    [k (if (and (at/value-type? inner) (= (:value inner) exact-value))
+                         new-value v)])))
+        entries))
+
+(defn- narrow-value-to-literals
+  [prov val-type values polarity]
+  (let [matching (filter #(value-satisfies-type?' % val-type) values)]
+    (if polarity
+      (if (empty? matching)
+        (at/BottomType prov)
+        (ato/union (map #(ato/exact-value-type prov %) matching)))
+      (if (= (count matching) (count values))
+        (at/BottomType prov)
+        val-type))))
+
+(defn- refine-map-leaf
+  [root-type key-query values polarity]
+  (let [prov (ato/derive-prov root-type)
+        candidates (map-lookup-candidates (:entries root-type) key-query)
+        val-type (candidate-value-type candidates)]
+    (if (nil? val-type)
+      root-type
+      (let [narrowed (narrow-value-to-literals prov val-type values polarity)]
+        (if (at/bottom-type? narrowed)
+          (at/BottomType prov)
+          (at/->MapT prov (update-entry-by-exact-value (:entries root-type)
+                                                       (:exact-value (first candidates))
+                                                       narrowed)))))))
+
+(defn- refine-map-inner
+  [root-type key-query rest-path values polarity]
+  (let [candidates (map-lookup-candidates (:entries root-type) key-query)]
+    (if (empty? candidates)
+      root-type
+      (let [candidate (first candidates)
+            inner-type (:value candidate)
+            refined-inner (refine-map-path-by-values inner-type rest-path values polarity)]
+        (if (at/bottom-type? refined-inner)
+          (at/BottomType (ato/derive-prov root-type))
+          (at/->MapT (ato/derive-prov root-type)
+                     (update-entry-by-exact-value
+                      (:entries root-type) (:exact-value candidate) refined-inner)))))))
+
+(defn- refine-map-path-map
+  [root-type path values polarity]
+  (let [key-query (first path)
+        rest-path (rest path)]
+    (if (seq rest-path)
+      (refine-map-inner root-type key-query rest-path values polarity)
+      (refine-map-leaf root-type key-query values polarity))))
+
+(defn- refine-map-path-union
+  [root-type path values polarity]
+  (let [refined (keep (fn [member]
+                        (let [r (refine-map-path-by-values member path values polarity)]
+                          (when-not (at/bottom-type? r) r)))
+                      (:members root-type))]
+    (if (empty? refined)
+      (at/BottomType (ato/derive-prov root-type))
+      (ato/union refined))))
+
+(defn- refine-map-path-maybe
+  [root-type path values polarity]
+  (let [refined-inner (refine-map-path-by-values (:inner root-type) path values polarity)]
+    (if (at/bottom-type? refined-inner)
+      (at/BottomType (ato/derive-prov root-type))
+      (at/->MaybeT (ato/derive-prov root-type) refined-inner))))
+
+(defn- refine-map-path-conditional
+  [root-type path values]
+  (narrow-conditional-by-discriminator'
+   (prov/of root-type) (:branches root-type) path values {:drop-discriminator? false}))
+
+(defn refine-map-path-by-values
+  "Refine `root-type` by asserting that the value at the nested path
+   `path` (non-empty vector of key-queries) equals one of `values`.
+   `polarity` true selects matching values; false selects non-matching.
+   Returns the refined type."
+  [root-type path values polarity]
+  (let [root-type (as-type root-type)]
+    (cond
+      (at/map-type? root-type)     (refine-map-path-map root-type path values polarity)
+      (at/union-type? root-type)   (refine-map-path-union root-type path values polarity)
+      (at/maybe-type? root-type)   (refine-map-path-maybe root-type path values polarity)
+      (at/conditional-type? root-type) (refine-map-path-conditional root-type path values)
+      :else root-type)))
