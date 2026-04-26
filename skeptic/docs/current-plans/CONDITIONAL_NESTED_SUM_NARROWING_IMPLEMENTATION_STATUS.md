@@ -139,6 +139,44 @@ The fixture is well-formed and analysis completes. The test fails at the call si
 
 ## Phase 4
 
+### 4A — `map_ops.clj` and `match.clj` (landed with Phase 4 commit)
+
+**`src/skeptic/analysis/map_ops.clj`** — added helpers:
+- `as-type` (coerces to type value)
+- `refine-map-path-map`, `refine-map-path-union`, `refine-map-path-maybe`, `refine-map-path-conditional` (decomposed refinement cases)
+- `refine-map-path-by-values` (public; forward-declared, mutually recursive via `requiring-resolve`)
+
+**`src/skeptic/analysis/annotate/match.clj`** — `narrow-conditional-by-discriminator` and `narrow-conditional-default` parameter changed `kw → path` (vector of key-queries). New private helpers: `path-elem-key`, `path->test-map`, `path-predicate-matches-lit?`. Case wrappers updated to wrap `kw-query` in `[kw-query]`.
+
+New tests in `map_ops_test.clj` (4) and `match_test.clj` (3 updated + 1 new).
+
+### 4B — `origin.clj` (same commit)
+
+**`src/skeptic/analysis/origin.clj`** edits:
+- `invertible-assumption?` — added `:path-value-equality` to invertible set.
+- `same-assumption?` — added `:path-value-equality` case comparing `:path` and `:values`.
+- `same-assumption-proposition?` — same `:path-value-equality` case.
+- `apply-assumption-to-root-type` — added `:path-value-equality` case delegating to `amo/refine-map-path-by-values`.
+- `path-value-equality-assumption` (new private helper, 8 lines) — detects `:map-key-lookup` origin and produces `:path-value-equality` assumption.
+- `equality-value-assumption` — rewired to call `path-value-equality-assumption` first; falls back to `:value-equality` via `local-root-origin`.
+
+New tests in `test/skeptic/analysis/origin_test.clj`:
+- `equality-value-assumption-path-shape` — verifies that `(= k "b")` where `k` is a destructured projection-local produces a `:path-value-equality` assumption with root `x`, path `[:x :k]`, values `["b"]`.
+- `apply-path-value-equality-refines-root` — manually builds a `:path-value-equality` assumption, calls `apply-assumption-to-root-type`, asserts `[:x :k]` slot narrows to `(s/eq "b")`.
+- `branch-local-envs-refines-x-via-nested-equality` — verifies that `origin-type` with a `:path-value-equality` assumption on `input` refines `x`'s type at path `[:x :k]` to `(s/eq "b")`.
+
+### Phase 1 deftest result
+
+`skeptic.checking.pipeline.contracts-test/nested-conditional-destructured-discriminator-narrowing` — **PASSES** (constraint-4 milestone GREEN).
+
+### Full-suite result
+
+524 tests, 2430 assertions, 0 failures, 0 errors.
+
+### clj-kondo
+
+0 errors, 0 warnings.
+
 ## Phase 5
 
 ## Phase 6

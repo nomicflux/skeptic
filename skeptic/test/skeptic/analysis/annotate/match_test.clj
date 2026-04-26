@@ -26,7 +26,7 @@
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly true)
           branches [[pred map-type]]
-          result (sut/narrow-conditional-by-discriminator tp branches :k [:a] {:drop-discriminator? true})]
+          result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a] {:drop-discriminator? true})]
       (is (not (at/bottom-type? result)))
       (is (not (contains? (:entries result) (ato/exact-value-type tp :k)))))))
 
@@ -36,7 +36,7 @@
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly true)
           branches [[pred map-type]]
-          result (sut/narrow-conditional-by-discriminator tp branches :k [:a] {:drop-discriminator? false})]
+          result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a] {:drop-discriminator? false})]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
 
@@ -46,6 +46,21 @@
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly false)
           branches [[pred map-type]]
-          result (sut/narrow-conditional-default tp branches :k [:a] {:drop-discriminator? false})]
+          result (sut/narrow-conditional-default tp branches [:k] [:a] {:drop-discriminator? false})]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
+
+(deftest narrow-conditional-by-discriminator-multi-step-path
+  (testing "2-element path: pred probes (get-in m [:x :k]), selects branch b only"
+    (let [map-type-a (at/->MapT tp {(ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)
+                                     (ato/exact-value-type tp :disc) (at/->GroundT tp :str 'String)})
+          map-type-b (at/->MapT tp {(ato/exact-value-type tp :x) (at/->GroundT tp :int 'Int)
+                                     (ato/exact-value-type tp :disc) (at/->GroundT tp :str 'String)})
+          pred-a (fn [m] (= (get-in m [:x :k]) "a"))
+          pred-b (fn [m] (= (get-in m [:x :k]) "b"))
+          branches [[pred-a map-type-a] [pred-b map-type-b]]
+          path [:x :k]
+          result (sut/narrow-conditional-by-discriminator tp branches path ["b"] {:drop-discriminator? false})]
+      (is (not (at/bottom-type? result)))
+      (is (at/map-type? result))
+      (is (contains? (:entries result) (ato/exact-value-type tp :disc))))))

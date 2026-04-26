@@ -44,6 +44,7 @@
                :contains-key
                :blank-check
                :value-equality
+               :path-value-equality
                :conditional-branch}
              (:kind assumption)))
 
@@ -70,6 +71,8 @@
          :type-predicate (and (= (:pred left) (:pred right))
                               (= (:class left) (:class right)))
          :value-equality (= (:values left) (:values right))
+         :path-value-equality (and (= (:path left) (:path right))
+                                   (= (:values left) (:values right)))
          :conditional-branch (at/type-equal? (:narrowed-type left) (:narrowed-type right))
          :conjunction (and (= :conjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
@@ -96,6 +99,8 @@
          :type-predicate (and (= (:pred a) (:pred b))
                               (= (:class a) (:class b)))
          :value-equality (= (:values a) (:values b))
+         :path-value-equality (and (= (:path a) (:path b))
+                                   (= (:values a) (:values b)))
          :conditional-branch (at/type-equal? (:narrowed-type a) (:narrowed-type b))
          :conjunction (and (= :conjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
@@ -134,6 +139,9 @@
 
       :value-equality
       (an/partition-type-for-values type (:values assumption) (:polarity assumption))
+
+      :path-value-equality
+      (amo/refine-map-path-by-values type (:path assumption) (:values assumption) (:polarity assumption))
 
       :conditional-branch
       (:narrowed-type assumption)
@@ -344,16 +352,28 @@
      :key key
      :polarity true}))
 
+(defn- path-value-equality-assumption
+  [target literal]
+  (let [origin (aapi/node-origin target)]
+    (when (= :map-key-lookup (:kind origin))
+      {:kind :path-value-equality
+       :root (:root origin)
+       :path (:path origin)
+       :values [(ac/literal-node-value literal)]
+       :polarity true})))
+
 (defn- equality-value-assumption
   [ctx left right]
   (let [[target literal] (cond
                            (and (aapi/local-node? left) (ac/literal-map-key? right)) [left right]
                            (and (aapi/local-node? right) (ac/literal-map-key? left)) [right left])]
-    (when-let [root (and target (local-root-origin ctx target))]
-      {:kind :value-equality
-       :root root
-       :values [(ac/literal-node-value literal)]
-       :polarity true})))
+    (when target
+      (or (path-value-equality-assumption target literal)
+          (when-let [root (local-root-origin ctx target)]
+            {:kind :value-equality
+             :root root
+             :values [(ac/literal-node-value literal)]
+             :polarity true})))))
 
 (defn- boolean-proposition-assumption
   [test-node]

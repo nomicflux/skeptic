@@ -134,17 +134,33 @@
 
     :else type))
 
+(defn- path-elem-key
+  [elem]
+  (if (map? elem) (:value elem) elem))
+
+(defn- path->test-map
+  [path lit]
+  (assoc-in {} (mapv path-elem-key path) lit))
+
+(defn- path-predicate-matches-lit?
+  [pred path lit]
+  (boolean
+   (try
+     (pred (path->test-map path lit))
+     (catch Exception _ false))))
+
 (defn narrow-conditional-by-discriminator
   "Pick branches of `branches` whose pred matches each literal in `lits`
-   against discriminator key `kw`. Returns a union of selected branch
-   types. With opts {:drop-discriminator? true}, drops the discriminator
-   key from each picked branch."
-  [anchor-prov branches kw lits {:keys [drop-discriminator?]}]
-  (let [pick (fn [lit]
+   against discriminator `path` (non-empty vector of key-queries). Returns
+   a union of selected branch types. With opts {:drop-discriminator? true},
+   drops the top-level discriminator key from each picked branch."
+  [anchor-prov branches path lits {:keys [drop-discriminator?]}]
+  (let [top-kw (path-elem-key (first path))
+        pick (fn [lit]
                (some (fn [[pred branch-type]]
-                       (when (case-predicate-matches-lit? pred kw lit)
+                       (when (path-predicate-matches-lit? pred path lit)
                          (if drop-discriminator?
-                           (drop-discriminator-key branch-type kw)
+                           (drop-discriminator-key branch-type top-kw)
                            branch-type)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
@@ -153,14 +169,15 @@
 (defn narrow-conditional-default
   "Default-branch counterpart: returns the union of branch types whose
    preds did NOT match any of `lits`. With {:drop-discriminator? true},
-   drops the discriminator key from each picked branch."
-  [anchor-prov branches kw lits {:keys [drop-discriminator?]}]
-  (let [matched? (fn [[pred _]]
-                   (some #(case-predicate-matches-lit? pred kw %) lits))
+   drops the top-level discriminator key from each picked branch."
+  [anchor-prov branches path lits {:keys [drop-discriminator?]}]
+  (let [top-kw (path-elem-key (first path))
+        matched? (fn [[pred _]]
+                   (some #(path-predicate-matches-lit? pred path %) lits))
         default-types (into [] (comp (remove matched?)
                                      (map second)
                                      (map #(if drop-discriminator?
-                                             (drop-discriminator-key % kw)
+                                             (drop-discriminator-key % top-kw)
                                              %)))
                             branches)]
     (if (empty? default-types)
@@ -168,12 +185,12 @@
       (ato/union default-types))))
 
 (defn case-conditional-narrow-for-lits
-  [anchor-prov branches kw lits]
-  (narrow-conditional-by-discriminator anchor-prov branches kw lits {:drop-discriminator? true}))
+  [anchor-prov branches kw-query lits]
+  (narrow-conditional-by-discriminator anchor-prov branches [kw-query] lits {:drop-discriminator? true}))
 
 (defn case-conditional-default-narrow
-  [anchor-prov branches kw all-lits]
-  (narrow-conditional-default anchor-prov branches kw all-lits {:drop-discriminator? true}))
+  [anchor-prov branches kw-query all-lits]
+  (narrow-conditional-default anchor-prov branches [kw-query] all-lits {:drop-discriminator? true}))
 
 (defn annotate-case-one-then
   [anchor-prov ctx locals assumptions i tests thens disc-root use-conditional? cond-branches kw-root-info]
