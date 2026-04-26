@@ -52,7 +52,3 @@
 (defn predicate-fn-entries
   []
   (map (juxt identity predicate-fn-type) predicate-symbols))
-
-(defn predicate-fn-provenance-entries
-  []
-  (map (juxt identity native-prov) predicate-symbols))

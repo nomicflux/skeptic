@@ -208,15 +208,6 @@
   [value]
   (satisfies? SemanticType value))
 
-(defn semantic-type-tag
-  [value]
-  (when (semantic-type-value? value)
-    (semantic-tag value)))
-
-(defn known-semantic-type-tag?
-  [tag]
-  (contains? known-semantic-type-tags tag))
-
 (defn dyn-type? [t] (instance? DynT t))
 (defn bottom-type? [t] (instance? BottomT t))
 (defn ground-type? [t] (instance? GroundT t))
