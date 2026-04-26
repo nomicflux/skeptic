@@ -70,6 +70,38 @@ The fixture is well-formed and analysis completes. The test fails at the call si
 
 **clj-kondo:** 0 errors, 0 warnings.
 
+### 2X — Destructure seq-coercion shim recognition
+
+**Root cause:** `clojure.core/destructure` emits a seq-coercion `:if` shim that rebinds the same gensym with init shape `(if (seq? <g>) (PHM/create (seq <g>)) <g>)`. `binding-env-entry` previously called `branch-origin` on this `:if`, producing `:branch` origin and overwriting the gensym's prior `:root`/`:map-key-lookup` origin. All downstream bindings (`:as` alias, nested `get` calls) then lost their provenance chain.
+
+**AST table for `(let [{{:keys [k]} :x :as x} input] [x k])`:**
+
+| # | sym | init `:op` | annotated origin (post-2X) |
+|---|---|---|---|
+| 0 | `map__N1` | `:local` (refers to `input`) | `:root` sym=`input` |
+| 1 | `map__N1` | `:if` (outer shim) | `:root` sym=`input` (shim recognized, prior preserved) |
+| 2 | `x` | `:local` (refers to `map__N1`) | `:root` sym=`input` (alias chains through) |
+| 3 | `map__N2` | `:static-call` `(get map__N1 :x …)` | `:map-key-lookup` root=`input` path=`[:x]` |
+| 4 | `map__N2` | `:if` (inner shim) | `:map-key-lookup` root=`input` path=`[:x]` (shim recognized) |
+| 5 | `k` | `:static-call` `(get map__N2 :k …)` | `:map-key-lookup` root=`input` path=`[:x :k]` |
+
+**Fix location:** `src/skeptic/analysis/annotate/control.clj`
+
+- `destructure-shim?` (new, ≤10 lines): recognizes `:if` init where test is 1-arg `seq?` call, else branch is same-sym local, and binding rebinds that same sym.
+- `shim-prior-origin` (new, ≤5 lines): looks up the prior gensym entry in `env` and returns its `:origin`.
+- `binding-env-entry`: now receives `env` as first arg; inserts `shim-prior-origin` into the origin resolution `or` chain, after `binding-alias-origin` and before `fallback-origin`.
+- `binding-alias-origin`: fixed to use `(:sym upstream-origin)` instead of `(:form init)` so alias chains preserve the original root sym through gensym indirection.
+- `annotate-let-binding` and `loop-one-binding`: updated to pass `env` to `binding-env-entry`.
+
+**Tests:**
+- `destructured-projection-binding-origin` — updated: now asserts 2-element path `[:x :k]` and root sym `x` (was asserting buggy 1-element path `[:k]`).
+- `destructure-as-alias-preserves-root-origin` (new) — `(let [{{:keys [k]} :x :as x} input] x)`: body `x` local has `:root` origin with sym `input`.
+- `nested-destructure-double-shim-yields-full-path` (new) — `(let [{{{:keys [k]} :inner} :x :as x} input] k)`: `k` local has `:map-key-lookup` origin rooted at `input` with 3-element path `[:x :inner :k]`.
+
+**Full suite result:** 513 tests, 1 failure — `nested-conditional-destructured-discriminator-narrowing` (Phase 1 target, still RED as expected).
+
+**clj-kondo:** 0 errors, 0 warnings.
+
 ## Phase 3
 
 ## Phase 4
