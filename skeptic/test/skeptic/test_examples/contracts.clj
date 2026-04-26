@@ -492,3 +492,15 @@
   (cond->> x
     (= k "b") (nested-conditional-f)
     (= k "a") ((constantly []))))
+
+(s/defschema NestedConditionalInTopPred
+  (s/conditional
+   (comp #{:b} nested-conditional-classify) NestedConditionalB
+   'SupportedType))
+
+(s/defschema NestedConditionalXTop {:x NestedConditionalInTopPred})
+
+(s/defn nested-conditional-repro-top :- s/Any
+  [{{:keys [k]} :x :as x} :- NestedConditionalXTop]
+  (cond->> x
+    (= k "b") (nested-conditional-f)))

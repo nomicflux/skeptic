@@ -64,3 +64,15 @@
       (is (not (at/bottom-type? result)))
       (is (at/map-type? result))
       (is (contains? (:entries result) (ato/exact-value-type tp :disc))))))
+
+(deftest descriptor-path-bypasses-runtime-probe
+  (testing "descriptor with matching values selects branch even when pred returns false"
+    (let [a-type (at/->GroundT tp :str 'String)
+          b-type (at/->GroundT tp :int 'Int)
+          always-false (constantly false)
+          path [:k]
+          branches [[always-false a-type {:path [{:value :k}] :values ["a"]}]
+                    [always-false b-type {:path [{:value :k}] :values ["b"]}]]
+          result (sut/narrow-conditional-by-discriminator
+                   tp branches path ["b"] {:drop-discriminator? false})]
+      (is (= b-type result)))))

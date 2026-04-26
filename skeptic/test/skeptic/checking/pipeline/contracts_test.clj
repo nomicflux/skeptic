@@ -115,3 +115,7 @@
 (deftest nested-conditional-destructured-discriminator-narrowing
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/nested-conditional-repro))
+
+(deftest nested-conditional-classifier-descriptor-narrowing
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/nested-conditional-repro-top))
