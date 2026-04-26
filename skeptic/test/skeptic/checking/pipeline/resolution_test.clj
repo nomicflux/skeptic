@@ -134,6 +134,9 @@
                     (select-keys (:location %) [:file :line :column]))
                  results)))))
 
+(deftest instance-method-value-on-bigdecimal-typechecks
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.resolution/sample-bigdecimal-method-value-fn))))
+
 (deftest call-mismatch-summary-uses-single-focused-input
   (let [result (first (ps/check-fixture 'skeptic.test-examples.resolution/sample-let-fn-bad1-fn))
         summary (inrep/report-summary result)
