@@ -104,6 +104,39 @@ The fixture is well-formed and analysis completes. The test fails at the call si
 
 ## Phase 3
 
+### Extract conditional-branch narrowing helpers with drop-discriminator option
+
+**Goal:** Extract a general-purpose conditional-branch narrowing helper that takes an explicit `{:drop-discriminator? bool}` option. Refactor the two existing case-only wrappers to call the new helpers. Behavior of existing case payload-narrowing MUST be unchanged.
+
+**New helpers in `src/skeptic/analysis/annotate/match.clj`:**
+
+- `narrow-conditional-by-discriminator` (15 lines: docstring + signature + let + if/union): Pick branches whose pred matches each literal in `lits` against discriminator key `kw`. Returns a union of selected branch types. With opts `{:drop-discriminator? true}`, drops the discriminator key from each picked branch.
+  
+- `narrow-conditional-default` (16 lines: docstring + signature + let + if/union): Default-branch counterpart. Returns the union of branch types whose preds did NOT match any of `lits`. With `{:drop-discriminator? true}`, drops the discriminator key from each picked branch.
+
+**Refactored wrappers (both now 1-liners):**
+
+- `case-conditional-narrow-for-lits`: now calls `narrow-conditional-by-discriminator` with `{:drop-discriminator? true}`. Public signature unchanged.
+  
+- `case-conditional-default-narrow`: now calls `narrow-conditional-default` with `{:drop-discriminator? true}`. Public signature unchanged.
+
+**New unit tests in `test/skeptic/analysis/annotate/match_test.clj`:**
+
+- `narrow-conditional-by-discriminator-drop-test` — exercises the helper with `{:drop-discriminator? true}`; asserts discriminator key is removed from returned branch type.
+  
+- `narrow-conditional-by-discriminator-keep-test` — exercises the helper with `{:drop-discriminator? false}`; asserts discriminator key is retained in returned branch type.
+  
+- `narrow-conditional-default-keep-test` — exercises the default sibling with `{:drop-discriminator? false}`; asserts discriminator key is retained.
+
+**Verification:**
+
+- All 5 match tests pass (2 pre-existing + 3 new).
+- `lein test :only skeptic.checking.pipeline.contracts-test/handles-ab-case-routing` — PASS.
+- `lein test :only skeptic.checking.pipeline.contracts-test/type-narrowing-examples` — PASS.
+- Full suite: 516 tests, 1 failure — `nested-conditional-destructured-discriminator-narrowing` (Phase 1 target, still RED as expected).
+- `clj-kondo --lint src/skeptic/analysis/annotate/match.clj` — 0 errors, 0 warnings.
+- `clj-kondo --lint test/skeptic/analysis/annotate/match_test.clj` — 0 errors, 0 warnings.
+
 ## Phase 4
 
 ## Phase 5
