@@ -1,7 +1,9 @@
 (ns skeptic.typed-decls
-  (:require [skeptic.analysis.bridge :as ab]
+  (:require [schema.core :as s]
+            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]
             [skeptic.schema.collect :as collect]))
 
 (defn desc->type
@@ -9,8 +11,10 @@
   ([prov {:keys [schema]} form-descriptor]
    (ab/schema->type prov schema form-descriptor)))
 
-(defn- desc->provenance
-  [_desc ns qualified-sym]
+(s/defn ^:private desc->provenance :- provs/Provenance
+  [_desc         :- s/Any
+   ns            :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
+   qualified-sym :- (s/maybe s/Symbol)]
   (prov/make-provenance :schema qualified-sym ns nil))
 
 (defn convert-desc
