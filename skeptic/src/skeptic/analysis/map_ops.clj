@@ -293,7 +293,7 @@
                                              (apply merge (map :entries types)))
       :else (apply ato/dyn types))))
 
-(declare refine-map-path-by-values)
+(declare refine-map-path)
 
 (defn- update-entry-by-exact-value
   [entries exact-value new-value]
@@ -303,25 +303,14 @@
                          new-value v)])))
         entries))
 
-(defn- narrow-value-to-literals
-  [prov val-type values polarity]
-  (let [matching (filter #(value-satisfies-type?' % val-type) values)]
-    (if polarity
-      (if (empty? matching)
-        (at/BottomType prov)
-        (ato/union (map #(ato/exact-value-type prov %) matching)))
-      (if (= (count matching) (count values))
-        (at/BottomType prov)
-        val-type))))
-
 (defn- refine-map-leaf
-  [root-type key-query values polarity]
+  [root-type key-query leaf-fn]
   (let [prov (ato/derive-prov root-type)
         candidates (map-lookup-candidates (:entries root-type) key-query)
         val-type (candidate-value-type candidates)]
     (if (nil? val-type)
       root-type
-      (let [narrowed (narrow-value-to-literals prov val-type values polarity)]
+      (let [narrowed (leaf-fn prov val-type)]
         (if (at/bottom-type? narrowed)
           (at/BottomType prov)
           (at/->MapT prov (update-entry-by-exact-value (:entries root-type)
@@ -329,13 +318,13 @@
                                                        narrowed)))))))
 
 (defn- refine-map-inner
-  [root-type key-query rest-path values polarity]
+  [root-type key-query rest-path leaf-fn cond-fn]
   (let [candidates (map-lookup-candidates (:entries root-type) key-query)]
     (if (empty? candidates)
       root-type
       (let [candidate (first candidates)
             inner-type (:value candidate)
-            refined-inner (refine-map-path-by-values inner-type rest-path values polarity)]
+            refined-inner (refine-map-path inner-type rest-path leaf-fn cond-fn)]
         (if (at/bottom-type? refined-inner)
           (at/BottomType (ato/derive-prov root-type))
           (at/->MapT (ato/derive-prov root-type)
@@ -343,17 +332,17 @@
                       (:entries root-type) (:exact-value candidate) refined-inner)))))))
 
 (defn- refine-map-path-map
-  [root-type path values polarity]
+  [root-type path leaf-fn cond-fn]
   (let [key-query (first path)
         rest-path (rest path)]
     (if (seq rest-path)
-      (refine-map-inner root-type key-query rest-path values polarity)
-      (refine-map-leaf root-type key-query values polarity))))
+      (refine-map-inner root-type key-query rest-path leaf-fn cond-fn)
+      (refine-map-leaf root-type key-query leaf-fn))))
 
 (defn- refine-map-path-union
-  [root-type path values polarity]
+  [root-type path leaf-fn cond-fn]
   (let [refined (keep (fn [member]
-                        (let [r (refine-map-path-by-values member path values polarity)]
+                        (let [r (refine-map-path member path leaf-fn cond-fn)]
                           (when-not (at/bottom-type? r) r)))
                       (:members root-type))]
     (if (empty? refined)
@@ -361,125 +350,75 @@
       (ato/union refined))))
 
 (defn- refine-map-path-maybe
-  [root-type path values polarity]
-  (let [refined-inner (refine-map-path-by-values (:inner root-type) path values polarity)]
+  [root-type path leaf-fn cond-fn]
+  (let [refined-inner (refine-map-path (:inner root-type) path leaf-fn cond-fn)]
     (if (at/bottom-type? refined-inner)
       (at/BottomType (ato/derive-prov root-type))
       (at/->MaybeT (ato/derive-prov root-type) refined-inner))))
 
-(defn- refine-map-path-conditional
-  [root-type path values]
-  (narrow-conditional-by-discriminator'
-   (prov/of root-type) (:branches root-type) path values {:drop-discriminator? false}))
+(defn- refine-map-path
+  "Walk `root-type` along `path`. Apply `leaf-fn` (called as
+   `(leaf-fn leaf-prov val-type)`) at the slot. ConditionalT nodes are
+   handed to `cond-fn` (called as `(cond-fn cond-type path)`); pass nil to
+   leave them unchanged."
+  [root-type path leaf-fn cond-fn]
+  (let [root-type (as-type root-type)]
+    (cond
+      (at/map-type? root-type)   (refine-map-path-map root-type path leaf-fn cond-fn)
+      (at/union-type? root-type) (refine-map-path-union root-type path leaf-fn cond-fn)
+      (at/maybe-type? root-type) (refine-map-path-maybe root-type path leaf-fn cond-fn)
+      (and cond-fn (at/conditional-type? root-type)) (cond-fn root-type path)
+      :else root-type)))
+
+(defn- values-leaf-fn
+  [values polarity]
+  (fn [prov val-type]
+    (let [matching (filter #(value-satisfies-type?' % val-type) values)]
+      (if polarity
+        (if (empty? matching)
+          (at/BottomType prov)
+          (ato/union (map #(ato/exact-value-type prov %) matching)))
+        (if (= (count matching) (count values))
+          (at/BottomType prov)
+          val-type)))))
+
+(defn- values-cond-fn
+  [values]
+  (fn [cond-type path]
+    (narrow-conditional-by-discriminator'
+     (prov/of cond-type) (:branches cond-type) path values {:drop-discriminator? false})))
 
 (defn refine-map-path-by-values
-  "Refine `root-type` by asserting that the value at the nested path
-   `path` (non-empty vector of key-queries) equals one of `values`.
-   `polarity` true selects matching values; false selects non-matching.
-   Returns the refined type."
+  "Refine `root-type` by asserting that the value at the nested path `path`
+   equals one of `values`. `polarity` true selects matching values; false
+   selects non-matching."
   [root-type path values polarity]
-  (let [root-type (as-type root-type)]
-    (cond
-      (at/map-type? root-type)     (refine-map-path-map root-type path values polarity)
-      (at/union-type? root-type)   (refine-map-path-union root-type path values polarity)
-      (at/maybe-type? root-type)   (refine-map-path-maybe root-type path values polarity)
-      (at/conditional-type? root-type) (refine-map-path-conditional root-type path values)
-      :else root-type)))
-
-(declare refine-map-path-by-predicate map-type-at-path)
-
-(defn- refine-map-leaf-by-predicate
-  [root-type key-query pred-info polarity]
-  (let [prov (ato/derive-prov root-type)
-        candidates (map-lookup-candidates (:entries root-type) key-query)
-        val-type (candidate-value-type candidates)]
-    (if (nil? val-type)
-      root-type
-      (let [narrowed (an/partition-type-for-predicate val-type pred-info polarity)]
-        (if (at/bottom-type? narrowed)
-          (at/BottomType prov)
-          (at/->MapT prov (update-entry-by-exact-value (:entries root-type)
-                                                       (:exact-value (first candidates))
-                                                       narrowed)))))))
-
-(defn- refine-map-inner-by-predicate
-  [root-type key-query rest-path pred-info polarity]
-  (let [candidates (map-lookup-candidates (:entries root-type) key-query)]
-    (if (empty? candidates)
-      root-type
-      (let [candidate (first candidates)
-            inner-type (:value candidate)
-            refined-inner (refine-map-path-by-predicate inner-type rest-path pred-info polarity)]
-        (if (at/bottom-type? refined-inner)
-          (at/BottomType (ato/derive-prov root-type))
-          (at/->MapT (ato/derive-prov root-type)
-                     (update-entry-by-exact-value
-                      (:entries root-type) (:exact-value candidate) refined-inner)))))))
-
-(defn- refine-map-path-map-by-predicate
-  [root-type path pred-info polarity]
-  (let [key-query (first path)
-        rest-path (rest path)]
-    (if (seq rest-path)
-      (refine-map-inner-by-predicate root-type key-query rest-path pred-info polarity)
-      (refine-map-leaf-by-predicate root-type key-query pred-info polarity))))
-
-(defn- refine-map-path-union-by-predicate
-  [root-type path pred-info polarity]
-  (let [refined (keep (fn [member]
-                        (let [r (refine-map-path-by-predicate member path pred-info polarity)]
-                          (when-not (at/bottom-type? r) r)))
-                      (:members root-type))]
-    (if (empty? refined)
-      (at/BottomType (ato/derive-prov root-type))
-      (ato/union refined))))
-
-(defn- refine-map-path-maybe-by-predicate
-  [root-type path pred-info polarity]
-  (let [refined-inner (refine-map-path-by-predicate (:inner root-type) path pred-info polarity)]
-    (if (at/bottom-type? refined-inner)
-      (at/BottomType (ato/derive-prov root-type))
-      (at/->MaybeT (ato/derive-prov root-type) refined-inner))))
+  (refine-map-path root-type path
+                   (values-leaf-fn values polarity)
+                   (values-cond-fn values)))
 
 (defn refine-map-path-by-predicate
-  "Refine `root-type` by asserting that the value at the nested path
-   `path` (non-empty vector of key-queries) satisfies the predicate `pred-info`
-   with the given `polarity`. `pred-info` is `{:pred kw :class cls-or-nil}`.
-   Returns the refined type."
+  "Refine `root-type` by asserting that the value at `path` satisfies
+   `pred-info` (`{:pred kw :class cls-or-nil}`) with the given `polarity`."
   [root-type path pred-info polarity]
-  (let [root-type (as-type root-type)]
-    (cond
-      (at/map-type? root-type)     (refine-map-path-map-by-predicate root-type path pred-info polarity)
-      (at/union-type? root-type)   (refine-map-path-union-by-predicate root-type path pred-info polarity)
-      (at/maybe-type? root-type)   (refine-map-path-maybe-by-predicate root-type path pred-info polarity)
-      (at/conditional-type? root-type) root-type
-      :else root-type)))
-
-(defn- map-type-at-path-inner
-  [root-type path]
-  (cond
-    (at/map-type? root-type)
-    (let [key-query (first path)
-          candidates (map-lookup-candidates (:entries root-type) key-query)
-          val-type (candidate-value-type candidates)]
-      (when val-type
-        (map-type-at-path val-type (rest path))))
-
-    (at/maybe-type? root-type)
-    (map-type-at-path (:inner root-type) path)
-
-    (at/union-type? root-type)
-    (let [results (keep #(map-type-at-path % path) (:members root-type))]
-      (when (seq results)
-        (ato/union results)))
-
-    :else nil))
+  (refine-map-path root-type path
+                   (fn [_prov val-type]
+                     (an/partition-type-for-predicate val-type pred-info polarity))
+                   nil))
 
 (defn map-type-at-path
   "Return the Type stored at `path` within `root-type`, descending through
    map/union/maybe layers. Returns nil when the path cannot be resolved."
   [root-type path]
   (let [root-type (as-type root-type)]
-    (if (empty? path)
-      root-type
-      (map-type-at-path-inner root-type path))))
+    (cond
+      (empty? path) root-type
+      (at/map-type? root-type)
+      (let [candidates (map-lookup-candidates (:entries root-type) (first path))]
+        (when-let [val-type (candidate-value-type candidates)]
+          (map-type-at-path val-type (rest path))))
+      (at/maybe-type? root-type) (map-type-at-path (:inner root-type) path)
+      (at/union-type? root-type)
+      (let [results (keep #(map-type-at-path % path) (:members root-type))]
+        (when (seq results) (ato/union results)))
+      :else nil)))
