@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.match :as am]
             [skeptic.analysis.calls :as ac]
             [skeptic.examples]
             [skeptic.analysis.map-ops :as amo]
@@ -372,3 +373,75 @@
         inner-k (amo/map-get-type x-type kq-k)]
     (is (at/type=? (atst/T (s/eq "b")) inner-k))
     (is (at/type=? (atst/T {:k (s/eq "b")}) x-type))))
+
+(def ^:private vn-dict (catalog/typed-test-example-entries))
+(def ^:private vn-ns 'skeptic.test-examples.var-narrowing)
+
+(defn- vn-form [form] (atst/analyze-form vn-dict form {:ns vn-ns}))
+
+(deftest var-root-origin-attached-test
+  (let [root (vn-form 'server)
+        origin (aapi/node-origin root)]
+    (is (= :root (:kind origin)))
+    (is (= 'server (:sym origin)))))
+
+(deftest var-projection-yields-map-key-lookup-origin-test
+  (let [root (vn-form '(:host server))
+        kw-node (aapi/find-node root #(= :keyword-invoke (aapi/node-op %)))
+        origin (aapi/node-origin kw-node)]
+    (is (= :map-key-lookup (:kind origin)))
+    (is (= :root (:kind (:root origin))))
+    (is (= 'server (:sym (:root origin))))
+    (is (= 1 (count (:path origin))))
+    (is (= :host (:value (first (:path origin)))))))
+
+(deftest some-call-on-var-yields-type-predicate-assumption-test
+  (let [root (vn-form '(some? server))
+        assumption (ao/test->assumption tp root)]
+    (is (= :type-predicate (:kind assumption)))
+    (is (= :some? (:pred assumption)))
+    (is (= 'server (get-in assumption [:root :sym])))))
+
+(deftest when-truthy-on-var-yields-truthy-local-assumption-test
+  (let [root (vn-form 'server)
+        assumption (ao/test->assumption tp root)]
+    (is (= :truthy-local (:kind assumption)))
+    (is (true? (:polarity assumption)))
+    (is (= 'server (get-in assumption [:root :sym])))))
+
+(deftest equality-on-var-yields-value-equality-assumption-test
+  (let [root (vn-form '(= server :foo))
+        assumption (ao/test->assumption tp root)]
+    (is (= :value-equality (:kind assumption)))
+    (is (= 'server (get-in assumption [:root :sym])))
+    (is (= [:foo] (:values assumption)))))
+
+(deftest blank-call-on-var-yields-blank-check-assumption-test
+  (let [var-targ {:op :var :form 'server-str :type (atst/T s/Str)
+                  :origin (ao/root-origin 'server-str (atst/T s/Str))}
+        invoke-node {:op :invoke
+                     :fn {:op :var :form 'clojure.string/blank?}
+                     :args [var-targ]}
+        assumption (ao/test->assumption tp invoke-node)]
+    (is (= :blank-check (:kind assumption)))
+    (is (= 'server-str (get-in assumption [:root :sym])))))
+
+(deftest let-aliased-var-preserves-root-test
+  (let [root (vn-form '(let [s server] s))
+        s-local (aapi/find-node root #(and (= :local (aapi/node-op %))
+                                           (= 's (aapi/node-form %))))
+        origin (aapi/node-origin s-local)]
+    (is (= :root (:kind origin)))
+    (is (= 'server (:sym origin)))))
+
+(deftest case-on-var-projection-narrows-test
+  (let [var-node {:op :var :form 'server :type (atst/T {:host s/Str :port s/Int})
+                  :origin (ao/root-origin 'server (atst/T {:host s/Str :port s/Int}))}
+        key-node {:op :const :val :host :form :host}
+        get-node {:op :static-call :fn {:op :var :form 'clojure.lang.RT/get}
+                  :args [var-node key-node]
+                  :class clojure.lang.RT :method 'get}
+        result (am/case-kw-and-target get-node)]
+    (is (some? result))
+    (is (= :host (first result)))
+    (is (= 'server (aapi/node-form (second result))))))

@@ -53,9 +53,12 @@
 
 (defn annotate-var-like
   [ctx node]
-  (let [{:keys [dict ns accessor-summaries]} ctx
+  (let [{:keys [dict ns accessor-summaries assumptions]} ctx
         entry (ac/lookup-type dict ns node)
+        type (or entry (aapi/dyn ctx))
         qualified (ac/qualify-symbol ns (:form node))
-        summary (get accessor-summaries qualified)]
-    (cond-> (assoc node :type (or entry (aapi/dyn ctx)))
+        summary (get accessor-summaries qualified)
+        origin (ao/root-origin (:form node) (aapi/normalize-type ctx type))
+        refined (or (some-> origin (ao/origin-type assumptions)) type)]
+    (cond-> (assoc node :type refined :origin origin)
       summary (assoc :accessor-summary summary))))

@@ -53,13 +53,13 @@
   (cond
     (and (= :invoke (:op node)) (ac/get-call? (:fn node)))
     (let [[target key-node] (:args node)]
-      (when (and (= :local (:op target)) (ac/literal-map-key? key-node))
+      (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key) [key target]))))
 
     (and (= :static-call (:op node)) (ac/static-get-call? node))
     (let [[target key-node] (:args node)]
-      (when (and (= :local (:op target)) (ac/literal-map-key? key-node))
+      (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key) [key target]))))
     :else nil))
@@ -72,7 +72,7 @@
         (let [summary (get-in node [:fn :accessor-summary])
               target (first (:args node))]
           (when (and (= :unary-map-accessor (:kind summary))
-                     (= :local (:op target)))
+                     (aapi/stable-identity-node? target))
             [(:kw summary) target])))
       (case-get-access-kw-and-target node)))
 

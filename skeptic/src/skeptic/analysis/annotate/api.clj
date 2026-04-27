@@ -112,6 +112,14 @@
   [node]
   (= :local (:op node)))
 
+(defn stable-identity-node?
+  "True for any node that names a stable identity for narrowing
+   purposes: lexical locals, top-level vars, and var-ref forms."
+  [node]
+  (or (local-node? node)
+      (= :var (:op node))
+      (= :the-var (:op node))))
+
 (defn if-node?
   [node]
   (= :if (:op node)))

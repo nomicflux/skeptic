@@ -360,8 +360,8 @@
 (defn- equality-value-assumption
   [ctx left right]
   (let [[target literal] (cond
-                           (and (aapi/local-node? left) (ac/literal-map-key? right)) [left right]
-                           (and (aapi/local-node? right) (ac/literal-map-key? left)) [right left])]
+                           (and (aapi/stable-identity-node? left) (ac/literal-map-key? right)) [left right]
+                           (and (aapi/stable-identity-node? right) (ac/literal-map-key? left)) [right left])]
     (when target
       (or (path-value-equality-assumption target literal)
           (when-let [root (local-root-origin ctx target)]
@@ -375,7 +375,7 @@
   (let [type (aapi/node-type test-node)]
     (when (and type
                (sums/exhausted-by-values? type [true false])
-               (not (aapi/local-node? test-node)))
+               (not (aapi/stable-identity-node? test-node)))
       {:kind :boolean-proposition
        :expr (aapi/node-form test-node)
        :polarity true})))
@@ -383,7 +383,7 @@
 (defn test->assumption
   [ctx test-node]
   (cond
-    (aapi/local-node? test-node)
+    (aapi/stable-identity-node? test-node)
     (when-let [root (local-root-origin ctx test-node)]
       {:kind :truthy-local
        :root root
@@ -392,7 +392,7 @@
     (= :instance? (aapi/node-op test-node))
     (let [target (aapi/node-target test-node)
           cls (aapi/node-class test-node)]
-      (when (and (aapi/local-node? target)
+      (when (and (aapi/stable-identity-node? target)
                  (class? cls)
                  (local-root-origin ctx target))
         {:kind :type-predicate
@@ -426,7 +426,7 @@
           targ (if (= :instance? (:pred info))
                  (second args)
                  (first args))]
-      (when (and info (aapi/local-node? targ) (local-root-origin ctx targ))
+      (when (and info (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
         (cond-> {:kind :type-predicate
                  :root (local-root-origin ctx targ)
                  :pred (:pred info)
@@ -436,7 +436,7 @@
     (and (= :invoke (aapi/node-op test-node))
          (ac/blank-call? (aapi/call-fn-node test-node)))
     (let [targ (first (aapi/call-args test-node))]
-      (when (and (aapi/local-node? targ) (local-root-origin ctx targ))
+      (when (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
         {:kind :blank-check
          :root (local-root-origin ctx targ)
          :polarity true}))
@@ -465,7 +465,7 @@
     (and (= :static-call (aapi/node-op test-node))
          (ac/static-nil?-call? test-node))
     (when-let [targ (ac/static-nil?-target test-node)]
-      (when (and (aapi/local-node? targ) (local-root-origin ctx targ))
+      (when (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
         {:kind :type-predicate
          :root (local-root-origin ctx targ)
          :pred :nil?

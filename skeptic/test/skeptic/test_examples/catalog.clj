@@ -8,6 +8,7 @@
             [skeptic.test-examples.nullability]
             [skeptic.test-examples.predicate-examples]
             [skeptic.test-examples.resolution]
+            [skeptic.test-examples.var-narrowing]
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
@@ -19,7 +20,8 @@
    :contracts
    :nullability
    :fixture-flags
-   :predicate-examples])
+   :predicate-examples
+   :var-narrowing])
 
 (def malli-fixture-order
   [:malli-contracts])
@@ -42,7 +44,9 @@
    :malli-contracts {:ns 'skeptic.test-examples.malli-contracts
                      :file (File. "test/skeptic/test_examples/malli_contracts.clj")}
    :predicate-examples {:ns 'skeptic.test-examples.predicate-examples
-                        :file (File. "test/skeptic/test_examples/predicate_examples.clj")}})
+                        :file (File. "test/skeptic/test_examples/predicate_examples.clj")}
+   :var-narrowing {:ns 'skeptic.test-examples.var-narrowing
+                   :file (File. "test/skeptic/test_examples/var_narrowing.clj")}})
 
 (def documented-canary-symbols
   ['skeptic.test-examples.basics/sample-unannotated-fn
