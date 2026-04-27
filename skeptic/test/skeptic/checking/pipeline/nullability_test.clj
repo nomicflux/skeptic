@@ -80,3 +80,23 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-or-nil-blank-direct-param-narrows-success)]
     (is (empty? (ps/result-errors results))
         (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest pre-some?-narrows-map-key
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/pre-some?-narrows-map-key-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest if-string?-narrows-map-key
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/if-string?-narrows-map-key-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest when-some?-on-key
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-some?-on-key-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest pre-pos?-narrows-map-key
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/pre-pos?-narrows-map-key-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
