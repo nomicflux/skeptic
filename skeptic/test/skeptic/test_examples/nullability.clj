@@ -183,3 +183,24 @@
   {:on-complete (fn [_] (opaque-logging-fn "complete"))
    :on-step (fn [x] (doseq [y [1 2 3]] (when (= x y) (println "equal"))))
    :on-error (fn [_] (println "oops"))})
+
+(s/defn pre-some?-narrows-map-key-success
+  [m :- {:x (s/maybe s/Int)}]
+  {:pre [(some? (:x m))]}
+  (take-val (:x m)))
+
+(s/defn if-string?-narrows-map-key-success
+  [m :- {:s (s/maybe s/Str)}]
+  (if (string? (:s m))
+    (str/upper-case (:s m))
+    ""))
+
+(s/defn when-some?-on-key-success
+  [m :- {:x (s/maybe s/Int)}]
+  (when (some? (:x m))
+    (take-val (:x m))))
+
+(s/defn pre-pos?-narrows-map-key-success
+  [m :- {:n s/Int}]
+  {:pre [(pos? (:n m))]}
+  (take-val (:n m)))
