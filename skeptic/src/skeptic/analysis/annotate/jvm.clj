@@ -5,6 +5,7 @@
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]))
 
@@ -53,8 +54,10 @@
                  (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
         origin (when (and (ac/static-get-call? node)
                           (<= 2 (count args) 3))
-                 (map-projection/map-key-lookup-origin ctx (first args)
-                                                       (ac/get-key-query ctx (second args))))]
+                 (map-projection/map-key-lookup-origin
+                  ctx (first args)
+                  (ac/get-key-query ctx (second args))
+                  (if (= 3 (count args)) (:type (nth args 2)) amo/no-default)))]
     (cond-> (assoc node
                    :args args
                    :actual-argtypes actual-argtypes

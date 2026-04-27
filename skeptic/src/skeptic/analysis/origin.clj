@@ -292,9 +292,10 @@
   (let [t (case (:kind origin)
             :root (refine-root-type origin assumptions)
             :opaque (:type origin)
-            :map-key-lookup (reduce amo/map-get-type
+            :map-key-lookup (reduce (fn [t [key default]]
+                                      (amo/map-get-type t key default))
                                     (refine-root-type (:root origin) assumptions)
-                                    (:path origin))
+                                    (map vector (:path origin) (:defaults origin)))
             :branch (case (assumption-truth (:test origin) assumptions)
                       :true (origin-type (:then-origin origin) assumptions)
                       :false (origin-type (:else-origin origin) assumptions)

@@ -47,13 +47,15 @@
         (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
 
 (defn map-key-lookup-origin
-  [ctx target-node key-query]
+  [ctx target-node key-query default-type]
   (let [target-origin (aapi/node-origin target-node)]
     (if (= :map-key-lookup (:kind target-origin))
       {:kind :map-key-lookup
        :root (:root target-origin)
-       :path (conj (:path target-origin) key-query)}
+       :path (conj (:path target-origin) key-query)
+       :defaults (conj (:defaults target-origin) default-type)}
       (when-let [root (projection-root-origin ctx target-node)]
         {:kind :map-key-lookup
          :root root
-         :path [key-query]}))))
+         :path [key-query]
+         :defaults [default-type]}))))

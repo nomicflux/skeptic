@@ -493,6 +493,18 @@
     (= k "b") (nested-conditional-f)
     (= k "a") ((constantly []))))
 
+(s/defn or-default-int-helper
+  [x :- s/Int]
+  s/Int)
+
+(s/defn or-default-optional-key-success
+  [{:keys [x] :or {x 1}} :- {(s/optional-key :x) s/Int}]
+  (or-default-int-helper x))
+
+(s/defn or-default-optional-key-keyword-default-failure
+  [{:keys [x] :or {x :no-val}} :- {(s/optional-key :x) s/Int}]
+  (or-default-int-helper x))
+
 (s/defschema NestedConditionalInTopPred
   (s/conditional
    (comp #{:b} nested-conditional-classify) NestedConditionalB
