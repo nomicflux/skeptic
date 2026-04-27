@@ -112,6 +112,18 @@
     'skeptic.test-examples.contracts/if-blank-guard-optional-keys-branches-success
     'skeptic.test-examples.contracts/if-some-guard-destructured-success))
 
+(deftest or-default-fills-missing-optional-key
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/or-default-optional-key-success)
+  (let [results (ps/check-fixture
+                 'skeptic.test-examples.contracts/or-default-optional-key-keyword-default-failure)
+        result (first results)
+        err (first (:errors result))]
+    (is (= 1 (count results)))
+    (is (= '(or-default-int-helper x) (:blame result)))
+    (is (re-find #"(?s)x.*in.*\(or-default-int-helper x\).*has inferred type incompatible with the expected type:.*\(union (Int Keyword|Keyword Int)\).*The expected type corresponds to:.*Int"
+                 (ps/strip-ansi err)))))
+
 (deftest nested-conditional-destructured-discriminator-narrowing
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/nested-conditional-repro))

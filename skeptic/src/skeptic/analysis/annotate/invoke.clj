@@ -72,4 +72,4 @@
                    :actual-argtypes [(:type target)]
                    :expected-argtypes [(aapi/dyn ctx)])
       true
-      (assoc :origin (map-projection/map-key-lookup-origin ctx target query)))))
+      (assoc :origin (map-projection/map-key-lookup-origin ctx target query amo/no-default)))))

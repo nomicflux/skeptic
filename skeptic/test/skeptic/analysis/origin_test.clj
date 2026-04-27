@@ -307,7 +307,8 @@
         root (ao/root-origin 'x map-type)
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
-        origin {:kind :map-key-lookup :root root :path [kq-x kq-k]}
+        origin {:kind :map-key-lookup :root root :path [kq-x kq-k]
+                :defaults [amo/no-default amo/no-default]}
         result (ao/origin-type origin [])]
     (is (at/type=? (atst/T s/Str) result))))
 
@@ -368,7 +369,8 @@
                     :polarity true}
         x-origin {:kind :map-key-lookup
                   :root (ao/root-origin 'input root-type)
-                  :path [kq-x]}
+                  :path [kq-x]
+                  :defaults [amo/no-default]}
         x-type (ao/origin-type x-origin [assumption])
         inner-k (amo/map-get-type x-type kq-k)]
     (is (at/type=? (atst/T (s/eq "b")) inner-k))
