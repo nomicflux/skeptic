@@ -40,6 +40,7 @@
                :blank-check
                :value-equality
                :path-value-equality
+               :path-type-predicate
                :conditional-branch}
              (:kind assumption)))
 
@@ -68,6 +69,9 @@
          :value-equality (= (:values left) (:values right))
          :path-value-equality (and (= (:path left) (:path right))
                                    (= (:values left) (:values right)))
+         :path-type-predicate (and (= (:path left) (:path right))
+                                   (= (:pred left) (:pred right))
+                                   (= (:class left) (:class right)))
          :conditional-branch (at/type-equal? (:narrowed-type left) (:narrowed-type right))
          :conjunction (and (= :conjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
@@ -96,6 +100,9 @@
          :value-equality (= (:values a) (:values b))
          :path-value-equality (and (= (:path a) (:path b))
                                    (= (:values a) (:values b)))
+         :path-type-predicate (and (= (:path a) (:path b))
+                                   (= (:pred a) (:pred b))
+                                   (= (:class a) (:class b)))
          :conditional-branch (at/type-equal? (:narrowed-type a) (:narrowed-type b))
          :conjunction (and (= :conjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
@@ -137,6 +144,12 @@
 
       :path-value-equality
       (amo/refine-map-path-by-values type (:path assumption) (:values assumption) (:polarity assumption))
+
+      :path-type-predicate
+      (amo/refine-map-path-by-predicate type
+                                        (:path assumption)
+                                        {:pred (:pred assumption) :class (:class assumption)}
+                                        (:polarity assumption))
 
       :conditional-branch
       (:narrowed-type assumption)
@@ -245,6 +258,18 @@
           :always (if (:polarity assumption) :true :false)
           :never (if (:polarity assumption) :false :true)
           :unknown :unknown))
+
+      :path-type-predicate
+      (let [root-base (refine-root-type (:root assumption)
+                                        (remove #(same-assumption-proposition? % assumption) assumptions))
+            base (amo/map-type-at-path root-base (:path assumption))
+            pred-info {:pred (:pred assumption) :class (:class assumption)}]
+        (if (nil? base)
+          :unknown
+          (case (type-predicate-classification base pred-info)
+            :always (if (:polarity assumption) :true :false)
+            :never (if (:polarity assumption) :false :true)
+            :unknown :unknown)))
 
       :value-equality
       (let [base (assumption-base-type assumption assumptions)
@@ -381,6 +406,17 @@
        :expr (aapi/node-form test-node)
        :polarity true})))
 
+(defn- map-key-lookup-path-assumption
+  [target pred-info polarity]
+  (let [origin (node-origin target)]
+    (when (= :map-key-lookup (:kind origin))
+      (cond-> {:kind :path-type-predicate
+               :root (:root origin)
+               :path (:path origin)
+               :pred (:pred pred-info)
+               :polarity polarity}
+        (:class pred-info) (assoc :class (:class pred-info))))))
+
 (defn test->assumption
   [ctx test-node]
   (cond
@@ -393,14 +429,17 @@
     (= :instance? (aapi/node-op test-node))
     (let [target (aapi/node-target test-node)
           cls (aapi/node-class test-node)]
-      (when (and (aapi/stable-identity-node? target)
-                 (class? cls)
-                 (local-root-origin ctx target))
-        {:kind :type-predicate
-         :root (local-root-origin ctx target)
-         :pred :instance?
-         :class cls
-         :polarity true}))
+      (when (class? cls)
+        (cond
+          (and (aapi/stable-identity-node? target) (local-root-origin ctx target))
+          {:kind :type-predicate
+           :root (local-root-origin ctx target)
+           :pred :instance?
+           :class cls
+           :polarity true}
+
+          :else
+          (map-key-lookup-path-assumption target {:pred :instance? :class cls} true))))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/not-call? (aapi/call-fn-node test-node)))
@@ -427,12 +466,17 @@
           targ (if (= :instance? (:pred info))
                  (second args)
                  (first args))]
-      (when (and info (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
-        (cond-> {:kind :type-predicate
-                 :root (local-root-origin ctx targ)
-                 :pred (:pred info)
-                 :polarity true}
-          (:class info) (assoc :class (:class info)))))
+      (when info
+        (cond
+          (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
+          (cond-> {:kind :type-predicate
+                   :root (local-root-origin ctx targ)
+                   :pred (:pred info)
+                   :polarity true}
+            (:class info) (assoc :class (:class info)))
+
+          :else
+          (map-key-lookup-path-assumption targ info true))))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/blank-call? (aapi/call-fn-node test-node)))
@@ -466,11 +510,15 @@
     (and (= :static-call (aapi/node-op test-node))
          (ac/static-nil?-call? test-node))
     (when-let [targ (ac/static-nil?-target test-node)]
-      (when (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
+      (cond
+        (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
         {:kind :type-predicate
          :root (local-root-origin ctx targ)
          :pred :nil?
-         :polarity true}))
+         :polarity true}
+
+        :else
+        (map-key-lookup-path-assumption targ {:pred :nil?} true)))
 
     (aapi/let-node? test-node)
     (test->assumption ctx (aapi/node-body test-node))
