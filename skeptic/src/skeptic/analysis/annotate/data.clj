@@ -92,9 +92,11 @@
         catches (mapv #(annotate-catch ctx %) (:catches node))
         finally-node (when-some [finally-node (:finally node)]
                        ((:recurse ctx) ctx finally-node))
-        type (av/type-join* (prov/with-ctx ctx) (cons (:type body) (map :type catches)))]
+        type (av/type-join* (prov/with-ctx ctx) (cons (:type body) (map :type catches)))
+        origin (when (empty? catches) (aapi/node-origin body))]
     (cond-> (assoc node :body body :catches catches :type type)
-      finally-node (assoc :finally finally-node))))
+      finally-node (assoc :finally finally-node)
+      origin       (assoc :origin origin))))
 
 (defn annotate-quote
   [ctx node]
