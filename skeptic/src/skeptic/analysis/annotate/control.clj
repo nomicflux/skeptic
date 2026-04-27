@@ -100,7 +100,7 @@
 
 (defn binding-alias-origin
   [init]
-  (when (and (= :local (:op init))
+  (when (and (aapi/stable-identity-node? init)
              (= :root (:kind (ao/node-origin init))))
     (let [upstream (ao/node-origin init)]
       (ao/root-origin (:sym upstream) (:type init)))))

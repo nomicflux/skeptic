@@ -32,7 +32,7 @@
   [target-node]
   (loop [node target-node
          seen #{}]
-    (when (= :local (:op node))
+    (when (aapi/stable-identity-node? node)
       (let [k (local-node-key node)]
         (if (contains? seen k)
           node
