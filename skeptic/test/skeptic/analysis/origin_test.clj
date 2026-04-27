@@ -445,3 +445,47 @@
     (is (some? result))
     (is (= :host (first result)))
     (is (= 'server (aapi/node-form (second result))))))
+
+(deftest do-forwards-ret-origin-test
+  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+        root (atst/analyze-form atst/analysis-dict
+                                '(do (println :x) some-local)
+                                {:locals {'some-local {:type (atst/T s/Str)
+                                                       :origin local-origin}}})
+        origin (aapi/node-origin root)]
+    (is (= :do (aapi/node-op root)))
+    (is (= :root (:kind origin)))
+    (is (= 'some-local (:sym origin)))))
+
+(deftest try-zero-catch-forwards-body-origin-test
+  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+        root (atst/analyze-form atst/analysis-dict
+                                '(try some-local (finally (cleanup!)))
+                                {:locals {'some-local {:type (atst/T s/Str)
+                                                       :origin local-origin}
+                                          'cleanup! {:type (atst/T s/Any)}}})
+        origin (aapi/node-origin root)]
+    (is (= :try (aapi/node-op root)))
+    (is (= :root (:kind origin)))
+    (is (= 'some-local (:sym origin)))))
+
+(deftest try-with-catch-stays-opaque-test
+  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+        root (atst/analyze-form atst/analysis-dict
+                                '(try some-local (catch Exception _ :default))
+                                {:locals {'some-local {:type (atst/T s/Str)
+                                                       :origin local-origin}}})
+        origin (aapi/node-origin root)]
+    (is (= :try (aapi/node-op root)))
+    (is (nil? origin))))
+
+(deftest with-meta-forwards-expr-origin-test
+  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+        form (with-meta 'some-local {:foo 1})
+        root (atst/analyze-form atst/analysis-dict
+                                form
+                                {:locals {'some-local {:type (atst/T s/Str)
+                                                       :origin local-origin}}})
+        origin (aapi/node-origin root)]
+    (is (= :root (:kind origin)))
+    (is (= 'some-local (:sym origin)))))

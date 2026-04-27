@@ -82,8 +82,10 @@
                     [(conj acc annotated) next-ctx]))
                 [[] ctx]
                 (:statements node))
-        ret ((:recurse final-ctx) final-ctx (:ret node))]
-    (assoc node :statements statements :ret ret :type (:type ret))))
+        ret ((:recurse final-ctx) final-ctx (:ret node))
+        origin (aapi/node-origin ret)]
+    (cond-> (assoc node :statements statements :ret ret :type (:type ret))
+      origin (assoc :origin origin))))
 
 (defn binding-recur-target-types
   [ctx bindings]
