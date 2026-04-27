@@ -12,6 +12,8 @@ annotations.
 
 **Versioning:** stable releases use git tags `vX.Y.Z` and are described on [GitHub Releases](https://github.com/nomicflux/skeptic/releases). The badges above reflect what Clojars reports as latest for each artifact.
 
+Experimental support for [Malli](https://github.com/metosin/malli) is in development.
+
 ## What Skeptic checks
 
 - Calls whose inferred argument types do not fit the declared input Plumatic
@@ -51,7 +53,7 @@ ACM. [https://doi.org/10.1145/1926385.1926409](https://doi.org/10.1145/1926385.1
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.0"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.1"]]
 ```
 
 If you need to override the default dependency profile, add a `:skeptic`
