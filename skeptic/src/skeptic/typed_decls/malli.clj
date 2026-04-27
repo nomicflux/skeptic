@@ -1,15 +1,19 @@
 (ns skeptic.typed-decls.malli
-  (:require [skeptic.analysis.malli-spec.bridge :as amb]
+  (:require [schema.core :as s]
+            [skeptic.analysis.malli-spec.bridge :as amb]
             [skeptic.malli-spec.collect :as mcollect]
             [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]
             [skeptic.schema.collect :as scollect]))
 
 (defn desc->type
   [prov {:keys [malli-spec]}]
   (amb/malli-spec->type prov malli-spec))
 
-(defn- desc->provenance
-  [_desc ns qualified-sym]
+(s/defn ^:private desc->provenance :- provs/Provenance
+  [_desc         :- s/Any
+   ns            :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
+   qualified-sym :- (s/maybe s/Symbol)]
   (prov/make-provenance :malli qualified-sym ns nil))
 
 (defn- empty-result [] {:dict {} :provenance {} :ignore-body #{} :errors []})

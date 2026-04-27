@@ -2,13 +2,14 @@
   (:require [schema.core :as s]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
-(defn derive-prov
+(s/defn derive-prov :- provs/Provenance
   "Merge attached provenance of typed inputs. Requires at least one input
   that carries prov — throws otherwise, signalling a caller without real
   provenance context."
-  [& types]
+  [& types :- [s/Any]]
   (or (reduce prov/merge-provenances nil (keep prov/of types))
       (throw (IllegalArgumentException.
               "derive-prov called without any typed input carrying provenance"))))

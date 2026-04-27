@@ -45,9 +45,9 @@
     (is (= :malli (sut/source result)))))
 
 (deftest make-provenance-rejects-invalid-source
-  (is (thrown? IllegalArgumentException
+  (is (thrown? clojure.lang.ExceptionInfo
                (sut/make-provenance :not-a-source 'a/b 'a nil)))
-  (is (thrown? IllegalArgumentException
+  (is (thrown? clojure.lang.ExceptionInfo
                (sut/make-provenance :also-not-a-source 'a/b 'a nil))))
 
 (deftest of-reads-prov-field-from-semantic-type
