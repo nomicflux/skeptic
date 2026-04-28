@@ -15,7 +15,7 @@
 (s/defn root-origin
   [sym :- s/Any
    type :- ats/SemanticType]
-  :- aos/Origin
+  :- aos/RootOrigin
   {:kind :root
    :sym sym
    :type (ato/normalize type)})
@@ -131,7 +131,7 @@
 
 (s/defn assumption-root?
   [assumption :- aos/Assumption
-   root :- aos/Origin]
+   root :- aos/RootOrigin]
   :- s/Bool
   (= (get-in assumption [:root :sym]) (:sym root)))
 
@@ -178,7 +178,7 @@
       type)))
 
 (s/defn refine-root-type
-  [root :- aos/Origin
+  [root :- aos/RootOrigin
    assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (reduce (fn [type assumption]
@@ -395,7 +395,7 @@
 (s/defn local-root-origin
   [ctx :- s/Any
    node :- s/Any]
-  :- (s/maybe aos/Origin)
+  :- (s/maybe aos/RootOrigin)
   (let [origin (node-origin node)]
     (cond
       (= :root (:kind origin))

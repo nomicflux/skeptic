@@ -20,33 +20,23 @@
       (is (at/bottom-type? result))
       (is (= tp (prov/of result))))))
 
-(deftest narrow-conditional-by-discriminator-drop-test
-  (testing "with drop-discriminator? true, removes discriminator key from branches"
-    (let [map-type (at/->MapT tp {(ato/exact-value-type tp :k) (at/->GroundT tp :int 'Int)
-                                   (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
-          pred (constantly true)
-          branches [[pred map-type]]
-          result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a] {:drop-discriminator? true})]
-      (is (not (at/bottom-type? result)))
-      (is (not (contains? (:entries result) (ato/exact-value-type tp :k)))))))
-
 (deftest narrow-conditional-by-discriminator-keep-test
-  (testing "with drop-discriminator? false, retains discriminator key in branches"
+  (testing "retains discriminator key in branches"
     (let [map-type (at/->MapT tp {(ato/exact-value-type tp :k) (at/->GroundT tp :int 'Int)
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly true)
           branches [[pred map-type]]
-          result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a] {:drop-discriminator? false})]
+          result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a])]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
 
 (deftest narrow-conditional-default-keep-test
-  (testing "default sibling with drop-discriminator? false retains discriminator key"
+  (testing "default sibling retains discriminator key"
     (let [map-type (at/->MapT tp {(ato/exact-value-type tp :k) (at/->GroundT tp :int 'Int)
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly false)
           branches [[pred map-type]]
-          result (sut/narrow-conditional-default tp branches [:k] [:a] {:drop-discriminator? false})]
+          result (sut/narrow-conditional-default tp branches [:k] [:a])]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
 
@@ -60,7 +50,7 @@
           pred-b (fn [m] (= (get-in m [:x :k]) "b"))
           branches [[pred-a map-type-a] [pred-b map-type-b]]
           path [:x :k]
-          result (sut/narrow-conditional-by-discriminator tp branches path ["b"] {:drop-discriminator? false})]
+          result (sut/narrow-conditional-by-discriminator tp branches path ["b"])]
       (is (not (at/bottom-type? result)))
       (is (at/map-type? result))
       (is (contains? (:entries result) (ato/exact-value-type tp :disc))))))
@@ -74,5 +64,5 @@
           branches [[always-false a-type {:path [{:value :k}] :values ["a"]}]
                     [always-false b-type {:path [{:value :k}] :values ["b"]}]]
           result (sut/narrow-conditional-by-discriminator
-                   tp branches path ["b"] {:drop-discriminator? false})]
+                   tp branches path ["b"])]
       (is (= b-type result)))))

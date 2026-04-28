@@ -52,7 +52,7 @@
 
 (s/defn case-assumption-root-for-local
   [ctx :- s/Any, target :- s/Any]
-  :- (s/maybe aos/Origin)
+  :- (s/maybe aos/RootOrigin)
   (or (ao/local-root-origin ctx target)
       (when (= :local (:op target))
         (ao/root-origin (:form target) (or (:type target) (aapi/dyn ctx))))))
@@ -121,33 +121,6 @@
           (:branches (first conditionals))))
       :else nil)))
 
-(defn- discriminator-entry?
-  [entry-key kw]
-  (let [entry-key (if (at/optional-key-type? entry-key)
-                    (:inner entry-key)
-                    entry-key)]
-    (and (at/value-type? entry-key)
-         (= kw (:value entry-key)))))
-
-(defn- drop-discriminator-key
-  [type kw]
-  (cond
-    (at/map-type? type)
-    (let [kept (into {}
-                     (remove (fn [[entry-key _]]
-                               (discriminator-entry? entry-key kw)))
-                     (:entries type))
-          refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) kept)]
-      (at/->MapT (prov/with-refs (ato/derive-prov type) refs) kept))
-
-    (at/union-type? type)
-    (ato/union (map #(drop-discriminator-key % kw) (:members type)))
-
-    (at/maybe-type? type)
-    (at/->MaybeT (ato/derive-prov type) (drop-discriminator-key (:inner type) kw))
-
-    :else type))
-
 (defn- path-elem-key
   [elem]
   (if (map? elem) (:value elem) elem))
@@ -178,35 +151,26 @@
 (s/defn narrow-conditional-by-discriminator
   "Pick branches of `branches` whose pred matches each literal in `lits`
    against discriminator `path` (non-empty vector of key-queries). Returns
-   a union of selected branch types. With opts {:drop-discriminator? true},
-   drops the top-level discriminator key from each picked branch."
-  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any], {:keys [drop-discriminator?]} :- {s/Keyword s/Any}]
+   a union of selected branch types."
+  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
   :- ats/SemanticType
-  (let [top-kw (path-elem-key (first path))
-        pick (fn [lit]
+  (let [pick (fn [lit]
                (some (fn [[pred branch-type descriptor]]
                        (when (pred-matches-lit? pred descriptor path lit)
-                         (if drop-discriminator?
-                           (drop-discriminator-key branch-type top-kw)
-                           branch-type)))
+                         branch-type))
                      branches))
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
 
 (s/defn narrow-conditional-default
   "Default-branch counterpart: returns the union of branch types whose
-   preds did NOT match any of `lits`. With {:drop-discriminator? true},
-   drops the top-level discriminator key from each picked branch."
-  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any], {:keys [drop-discriminator?]} :- {s/Keyword s/Any}]
+   preds did NOT match any of `lits`."
+  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
   :- ats/SemanticType
-  (let [top-kw (path-elem-key (first path))
-        matched? (fn [[pred _ descriptor]]
+  (let [matched? (fn [[pred _ descriptor]]
                    (some #(pred-matches-lit? pred descriptor path %) lits))
         default-types (into [] (comp (remove matched?)
-                                     (map second)
-                                     (map #(if drop-discriminator?
-                                             (drop-discriminator-key % top-kw)
-                                             %)))
+                                     (map second))
                             branches)]
     (if (empty? default-types)
       (at/BottomType anchor-prov)
@@ -215,12 +179,12 @@
 (s/defn case-conditional-narrow-for-lits
   [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, lits :- [s/Any]]
   :- ats/SemanticType
-  (narrow-conditional-by-discriminator anchor-prov branches [kw-query] lits {:drop-discriminator? true}))
+  (narrow-conditional-by-discriminator anchor-prov branches [kw-query] lits))
 
 (s/defn case-conditional-default-narrow
   [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, all-lits :- [s/Any]]
   :- ats/SemanticType
-  (narrow-conditional-default anchor-prov branches [kw-query] all-lits {:drop-discriminator? true}))
+  (narrow-conditional-default anchor-prov branches [kw-query] all-lits))
 
 (s/defn annotate-case-one-then
   [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], disc-root :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any]

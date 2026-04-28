@@ -91,6 +91,10 @@
     'skeptic.test-examples.contracts/handles-ab
     'skeptic.test-examples.contracts/handles-ab-destructured-route))
 
+(deftest case-on-discriminator-narrows-to-full-arm-with-kind
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/variant-strict-dispatch))
+
 (deftest type-narrowing-examples
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/conditional-dispatch-success

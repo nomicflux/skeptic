@@ -45,7 +45,7 @@
 
 (s/defn projection-root-origin
   [ctx :- s/Any, target-node :- s/Any]
-  :- (s/maybe aos/Origin)
+  :- (s/maybe aos/RootOrigin)
   (when-let [root-local (projection-root-local target-node)]
     (or (ao/local-root-origin ctx root-local)
         (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
