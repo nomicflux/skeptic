@@ -193,14 +193,15 @@
 
 (declare custom-schema-match-value?)
 
-(defn schema-match-value?
-  [s x]
-  (try
-    (if (custom-schema? s)
-      (custom-schema-match-value? s x)
-      (nil? (s/check s x)))
-    (catch Exception _e
-      nil)))
+(let [s-checker (memoize (fn [s] (s/checker s)))]
+  (defn schema-match-value?
+   [s x]
+   (try
+     (if (custom-schema? s)
+       (custom-schema-match-value? s x)
+       (nil? ((s-checker s) x)))
+     (catch Exception _e
+       nil))))
 
 (defn schema-match?
   [s x]
