@@ -1,6 +1,6 @@
 # Handoff: Plumatic Schema wiring for Skeptic
 
-This file is a handoff to the next agent. Slice 1 (Provenance) is complete on the `add-schemas` branch — the schema namespace, owner-file wiring, and boundary-producer wiring are committed (`Provenance schema wired`). Slices 2–6 remain. You plan from this state, using the context below and the warning at the bottom.
+This file is a handoff to the next agent. Slices 1 (Provenance) and 2 (SemanticType) are complete on the `add-schemas` branch — schema namespaces, owner-file wiring, and producer/consumer wiring across the codebase are committed (`Provenance schema wired` at `428ac1f`, `SemanticType schema wired` at `7d69105`). Slices 3–6 remain. You plan from this state, using the context below and the warning at the bottom.
 
 ---
 
@@ -153,7 +153,35 @@ Schema-design facts confirmed at runtime (the schema authored from the original 
 - `source` is called with `nil` by the private `source-rank` helper inside `merge-provenances` when p1 is nil. Its schema is `[(s/maybe Provenance)] :- (s/maybe Source)`. The `source` function does not throw on nil — it returns nil.
 - Test `make-provenance-rejects-invalid-source` originally asserted `IllegalArgumentException` (thrown by the runtime `assert-source` helper). With the schema enum on `:source`, schema validation fires first and throws `clojure.lang.ExceptionInfo`. Test was updated to assert that class instead. (See "When a test asserts a specific exception class" below.)
 
-**SemanticType.** Implemented as a Clojure protocol (`SemanticType` in `analysis/types.clj`) plus many record types implementing it (`GroundT`, `ValueT`, `MaybeT`, `UnionT`, `IntersectionT`, `FunT`, `FnMethodT`, `MapT`, `VectorT`, `SeqT`, `SetT`, `VarT`, `ForallT`, `TypeVarT`, `ConditionalT`, `BottomType`, `Dyn`, `NumericDyn`, `SealedDynT`, `PlaceholderT`, `InfCycleT`, etc.). The "schema" can be `(s/protocol skeptic.analysis.types/SemanticType)` — open and weak — OR a more specific union of records. The user has previously accepted the open form as a starting point but the looseness is its main weakness. Decide explicitly. Boundary producers: `schema->type` (`src/skeptic/analysis/bridge.clj`), `malli-spec->type` (`src/skeptic/analysis/malli_spec/bridge.clj`), `normalize-type`, `union-type`, `intersection-type`, `de-maybe-type`, `exact-value-type` (all in `src/skeptic/analysis/type_ops.clj`).
+**SemanticType.** ✅ Slice 2 complete (commit `7d69105 SemanticType schema wired`). Implemented as a Clojure protocol plus 24 record types. To avoid the schema↔impl cycle, the `defprotocol SemanticType` was extracted to a new leaf ns `skeptic.analysis.types.proto`; the schema lives in `skeptic.analysis.types.schema` (alias `ats`):
+
+```clojure
+(ns skeptic.analysis.types.proto)
+(defprotocol SemanticType
+  (semantic-tag [this]))
+
+(ns skeptic.analysis.types.schema
+  (:require [schema.core :as s]
+            [skeptic.analysis.types.proto :as proto]))
+(s/defschema SemanticType
+  (s/protocol proto/SemanticType))
+```
+
+The structural-via-protocol form was chosen explicitly. It validates `(satisfies? proto/SemanticType x)` and accepts every record extending the protocol — losing intra-Type discrimination but gaining a single, mechanically-true contract. Specific-record union was considered and rejected as premature; the runtime check is the type-predicate fns (`at/maybe-type?` etc.), not the schema.
+
+Wiring covered ~50 files across the cast engine, analyzer subsystem, analyzer consumers, and periphery (full per-file breakdown previously in `docs/current-plans/SEMANTIC_TYPE_IMPLEMENTATION_STATUS.md`, gitignored).
+
+Schema-design facts confirmed at runtime:
+- `type=?`/`type-equal?` return `s/Any` not `s/Bool`: under `unordered-type=?`/`map-type=?`, a `when-let` no-match returns nil rather than false.
+- `dedup-types` accepts `[s/Any]` not `[ats/SemanticType]`: callers pass mixed sequences (Type values and bare data) because `type=?` itself supports an `(= a b)` else branch.
+- Most `members` params are widened to `s/Any` not `[s/Any]`: real callers pass `PersistentHashSet` (e.g. `combine-parts`); the bodies are seqable-tolerant.
+- `node-type` (annotate/api.clj) widened to `s/Any` not `(s/maybe ats/SemanticType)`: test fixtures construct synthetic nodes with keyword sentinels (`:ti`, `:tf`) in the `:type` slot.
+- `vec-homogeneous-items?` widened to `s/Any` not `(s/maybe s/Bool)`: skeptic-on-self correctly flagged that `(apply = items)` is opaque to its narrowing — the body returns `(union Any Any)` to skeptic even though `=` is in fact boolean. The schema follows skeptic's view, not Clojure's.
+- `map-get-type` widened to `(s/maybe ats/SemanticType)`: skeptic flagged the `:else (if default-provided? ... base-value)` branch where `base-value` from `candidate-value-type` can be nil.
+- Predicate-style fns (`unknown-output-type?`, `grouped-input-summary?`, `schema-defn-symbol?`) declared `:- s/Any` not `:- s/Bool`: their bodies return Clojure truthy values (`(and ...)`, `(or ...)`, `ato/unknown?`'s `s/Any` return), not strict booleans. Wrapping bodies in `(boolean ...)` to satisfy a `:- s/Bool` declaration is editing production code to fit the schema — forbidden.
+- CastResult-shaped, AnnotatedNode-shaped, Origin/Assumption-shaped, and Report-shaped slots were intentionally LEFT LOOSE (`:- s/Any`) in slice 2; those are owned by slices 3, 5, 4, and 6 respectively.
+
+Skeptic-on-self pass: `lein with-profile +skeptic-plugin skeptic` reports "No inconsistencies found" against all slice-2 annotations.
 
 **CastResult.** Built by `cast-result`/`cast-ok`/`cast-fail` in `src/skeptic/analysis/cast/support.clj`. Has many fields including `:ok?`, `:blame-side`, `:blame-polarity`, `:rule`, `:source-type`, `:target-type`, `:children`, `:reason`, plus optional fields merged from `details`. Read the `cast-result` body (lines ~17–33 of `cast/support.clj`) — that's the canonical shape. Note `details` map can add arbitrary additional keys (`:matches?` etc.); the schema needs `s/Keyword s/Any` catch-all OR you need to enumerate the known optional fields.
 
@@ -162,6 +190,12 @@ Schema-design facts confirmed at runtime (the schema authored from the original 
 **AnnotatedNode.** Lives in `src/skeptic/analysis/annotate/api.clj`. Open shape — many `:op` types in tools.analyzer's AST (`:invoke`, `:if`, `:let`, `:def`, `:binding`, `:local`, `:var`, `:with-meta`, `:fn`, etc.) each have different fields. A common-fields-only schema (`{:op s/Keyword (optional `:type`, `:form`, `:children`, etc.) s/Keyword s/Any}`) is realistic. Heavily consumed by `node-*` and `call-*` accessors in the same file plus `src/skeptic/checking/pipeline.clj` and `src/skeptic/checking/ast.clj`.
 
 **Report.** Built by `def-output-results`, `input-cast-result`, `read-exception-result`, `expression-exception-result`, `load-exception-result` in `src/skeptic/checking/pipeline.clj`. Consumed by `src/skeptic/inconsistence/report.clj`, `src/skeptic/output/text.clj`, `src/skeptic/output/porcelain.clj`, `src/skeptic/core.clj`. Read all five constructors and observe every key emitted before authoring.
+
+---
+
+## Follow-up concepts (not in the original six)
+
+**LeafDiagnostic.** Surfaced during slice 3 (CastResult). The output of `project-leaf` in `src/skeptic/analysis/cast/result.clj` is a separate shape from CastResult — it has different field names (`:actual-type`/`:expected-type` rather than `:source-type`/`:target-type`), no `:ok?`, no `:children`, plus optional `:actual-key`/`:expected-key`/`:source-key-domain`. It flows through `with-path-detail` (`src/skeptic/inconsistence/path.clj`), `detail-line` and `union-alternatives-line` (same file), and the leaf-shaped consumers in `src/skeptic/inconsistence/report.clj` (`visible-structural-leaf?`, `actionable-output-leaf?`, `ordered-output-leaves`, `cast-result->message`). Owner namespace would be `cast/result.clj` where `project-leaf` constructs it; schema namespace `src/skeptic/analysis/cast/leaf_diagnostic.clj` (sibling to `cast/schema.clj`, not a precursor — it is not a partially-built CastResult). Slice 3 left these consumers as `:- s/Any` deliberately.
 
 ---
 
