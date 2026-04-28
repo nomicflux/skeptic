@@ -1,5 +1,6 @@
 (ns skeptic.analysis.cast
-  (:require [skeptic.analysis.cast.branch :as branch]
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast.branch :as branch]
             [skeptic.analysis.cast.collection :as coll]
             [skeptic.analysis.cast.function :as fun]
             [skeptic.analysis.cast.map :as cmap]
@@ -81,15 +82,15 @@
   [source-type target-type opts]
   (dispatch-cast run-cast source-type target-type opts))
 
-(defn check-cast
-  ([source-type target-type]
+(s/defn check-cast :- s/Any
+  ([source-type :- s/Any target-type :- s/Any]
    (check-cast source-type target-type {}))
-  ([source-type target-type {:keys [polarity] :or {polarity :positive} :as opts}]
+  ([source-type :- s/Any target-type :- s/Any {:keys [polarity] :or {polarity :positive} :as opts} :- s/Any]
    (let [source-type (ato/normalize source-type)
          target-type (ato/normalize target-type)
          opts (assoc opts :polarity polarity)]
      (run-cast source-type target-type opts))))
 
-(defn compatible?
-  [source-type target-type]
+(s/defn compatible? :- s/Bool
+  [source-type :- s/Any target-type :- s/Any]
   (result/ok? (check-cast source-type target-type)))

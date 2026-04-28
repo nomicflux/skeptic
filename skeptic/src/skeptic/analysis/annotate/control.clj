@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.control
-  (:require [skeptic.analysis.annotate.api :as aapi]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
@@ -8,6 +9,7 @@
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]))
 
@@ -87,8 +89,8 @@
     (cond-> (assoc node :statements statements :ret ret :type (:type ret))
       origin (assoc :origin origin))))
 
-(defn binding-recur-target-types
-  [ctx bindings]
+(s/defn binding-recur-target-types
+  [ctx :- s/Any bindings :- s/Any] :- [ats/SemanticType]
   (mapv (fn [binding]
           (let [type (or (:type binding) (aapi/dyn ctx))]
             (if (ato/nil-value-type? type)
@@ -187,8 +189,8 @@
   (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
            (sac/ast-nodes body)))
 
-(defn widen-int-loop-counter-recur-targets
-  [ctx targets body loop-id]
+(s/defn widen-int-loop-counter-recur-targets
+  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
   (let [recurs (loop-recur-nodes body loop-id)]
     (reduce (fn [acc recur-node]
               (let [exprs (:exprs recur-node)]
@@ -240,8 +242,8 @@
       (av/join (ato/derive-prov current actual) [current actual]))
     current))
 
-(defn widen-empty-collection-recur-targets
-  [targets body loop-id]
+(s/defn widen-empty-collection-recur-targets
+  [targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
   (reduce (fn [acc recur-node]
             (let [exprs (:exprs recur-node)]
               (if (= (count acc) (count exprs))
@@ -250,8 +252,8 @@
           targets
           (loop-recur-nodes body loop-id)))
 
-(defn widen-loop-recur-targets
-  [ctx targets body loop-id]
+(s/defn widen-loop-recur-targets
+  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
   (let [targets (widen-int-loop-counter-recur-targets ctx targets body loop-id)]
     (widen-empty-collection-recur-targets targets body loop-id)))
 

@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [clojure.string :as str]
             [skeptic.colours :as colours]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.inconsistence.display :as disp]))
 
 (s/defschema ErrorMsgCtx
@@ -12,57 +13,59 @@
 (def ^:private pretty-type-threshold 80)
 
 
-(defn plain-key
-  [k]
+(s/defn plain-key :- s/Any
+  [k :- s/Any]
   (cond-> k
     (s/optional-key? k)
     :k))
 
-(defn superfluous-cast-key
-  [actual-key]
+(s/defn superfluous-cast-key :- s/Any
+  [actual-key :- s/Any]
   (let [pk (plain-key actual-key)]
     {:orig-key actual-key
      :cleaned-key pk}))
 
-(defn simple-path-token
-  [{:keys [kind key index]}]
-  (case kind
-    :map-key (disp/exact-key-form key)
-    :vector-index index
-    :seq-index index
-    nil))
+(s/defn simple-path-token :- s/Any
+  [segment :- s/Any]
+  (let [{:keys [kind key index]} segment]
+    (case kind
+      :map-key (disp/exact-key-form key)
+      :vector-index index
+      :seq-index index
+      nil)))
 
-(defn render-path-segment
-  [{:keys [kind key index member]}]
-  (case kind
-    :map-key (str "field " (or (disp/describe-item (disp/exact-key-form key))
-                               (disp/describe-item key)
-                               "unknown"))
-    :vector-index (str "index " index)
-    :seq-index (str "index " index)
-    :set-member (str "set element " (or (disp/describe-item member) "unknown"))
-    :function-domain (str "argument " (inc index))
-    :function-range "return value"
-    :maybe-value "non-nil value"
-    :target-union-branch (str "target union branch " (inc index))
-    :source-union-branch (str "source union branch " (inc index))
-    :target-intersection-branch (str "target intersection branch " (inc index))
-    :source-intersection-branch (str "source intersection branch " (inc index))
-    (pr-str {:kind kind
-             :key key
-             :index index
-             :member member})))
+(s/defn render-path-segment :- s/Str
+  [segment :- s/Any]
+  (let [{:keys [kind key index member]} segment]
+    (case kind
+      :map-key (str "field " (or (disp/describe-item (disp/exact-key-form key))
+                                 (disp/describe-item key)
+                                 "unknown"))
+      :vector-index (str "index " index)
+      :seq-index (str "index " index)
+      :set-member (str "set element " (or (disp/describe-item member) "unknown"))
+      :function-domain (str "argument " (inc index))
+      :function-range "return value"
+      :maybe-value "non-nil value"
+      :target-union-branch (str "target union branch " (inc index))
+      :source-union-branch (str "source union branch " (inc index))
+      :target-intersection-branch (str "target intersection branch " (inc index))
+      :source-intersection-branch (str "source intersection branch " (inc index))
+      (pr-str {:kind kind
+               :key key
+               :index index
+               :member member}))))
 
-(defn render-path
-  [path]
+(s/defn render-path :- (s/maybe s/Str)
+  [path :- [s/Any]]
   (when (seq path)
     (let [simple-tokens (mapv simple-path-token path)]
       (if (every? some? simple-tokens)
         (pr-str simple-tokens)
         (str/join " -> " (map render-path-segment path))))))
 
-(defn structural-path?
-  [path]
+(s/defn structural-path? :- s/Bool
+  [path :- [s/Any]]
   (some #(contains? #{:map-key
                       :vector-index
                       :seq-index
@@ -72,8 +75,8 @@
                     (:kind %))
         path))
 
-(defn visible-path
-  [path]
+(s/defn visible-path :- [s/Any]
+  [path :- [s/Any]]
   (->> path
        (filter #(contains? #{:map-key
                              :vector-index
@@ -84,24 +87,28 @@
                            (:kind %)))
        vec))
 
-(defn render-visible-path
-  [path]
+(s/defn render-visible-path :- (s/maybe s/Str)
+  [path :- [s/Any]]
   (some-> path
           visible-path
           seq
           render-path))
 
-(defn key-description
-  ([key]
+(s/defn key-description :- s/Str
+  ([key :- s/Any]
    (key-description key {}))
-  ([key opts]
+  ([key :- s/Any
+    opts :- s/Any]
    (or (disp/describe-item key opts)
        "Unknown")))
 
-(defn missing-detail
-  ([path expected-key]
+(s/defn missing-detail :- s/Str
+  ([path :- [s/Any]
+    expected-key :- s/Any]
    (missing-detail path expected-key {}))
-  ([path expected-key opts]
+  ([path :- [s/Any]
+    expected-key :- s/Any
+    opts :- s/Any]
    (let [path-text (render-visible-path path)
          exact-key (disp/exact-key-form expected-key)
          key-text (key-description expected-key opts)]
@@ -110,10 +117,15 @@
        path-text (str path-text " is missing required key matching " key-text)
        :else (str "missing required key matching " key-text)))))
 
-(defn unexpected-detail
-  ([report-kind path actual-key]
+(s/defn unexpected-detail :- s/Str
+  ([report-kind :- s/Keyword
+    path :- [s/Any]
+    actual-key :- s/Any]
    (unexpected-detail report-kind path actual-key {}))
-  ([report-kind path actual-key opts]
+  ([report-kind :- s/Keyword
+    path :- [s/Any]
+    actual-key :- s/Any
+    opts :- s/Any]
    (let [path-text (render-visible-path path)
          key-text (key-description actual-key opts)
          suffix (if (= report-kind :output)
@@ -123,10 +135,15 @@
        path-text (str path-text " is " suffix)
        :else (str "disallowed key matching " key-text " is provided")))))
 
-(defn nullable-detail
-  ([path actual-key expected-key]
+(s/defn nullable-detail :- s/Str
+  ([path :- [s/Any]
+    actual-key :- s/Any
+    expected-key :- s/Any]
    (nullable-detail path actual-key expected-key {}))
-  ([path actual-key expected-key opts]
+  ([path :- [s/Any]
+    actual-key :- s/Any
+    expected-key :- s/Any
+    opts :- s/Any]
    (let [path-text (render-visible-path path)
          exact-key (or (disp/exact-key-form actual-key)
                        (disp/exact-key-form expected-key))
@@ -143,10 +160,15 @@
        (str "key matching " key-text
             " is potentially nullable, but the type doesn't allow that")))))
 
-(defn mismatch-detail
-  ([path source-type target-type]
+(s/defn mismatch-detail :- s/Str
+  ([path :- [s/Any]
+    source-type :- ats/SemanticType
+    target-type :- ats/SemanticType]
    (mismatch-detail path source-type target-type {}))
-  ([path source-type target-type opts]
+  ([path :- [s/Any]
+    source-type :- ats/SemanticType
+    target-type :- ats/SemanticType
+    opts :- s/Any]
    (let [path-text (render-visible-path path)
          source-text (disp/describe-type source-type opts)
          target-text (disp/describe-type target-type opts)]
@@ -168,37 +190,43 @@
               " but expected "
               target-text))))))
 
-(defn with-path-detail
-  [message cast-result]
+(s/defn with-path-detail :- s/Str
+  [message :- s/Str
+   cast-result :- s/Any]
   (if-let [path-text (render-visible-path (:path cast-result))]
     (str message "\n\nPath:\n\n" (colours/yellow path-text))
     message))
 
-(defn detail-line
-  ([report-kind diagnostic]
+(s/defn detail-line :- (s/maybe s/Str)
+  ([report-kind :- s/Keyword
+    diagnostic :- s/Any]
    (detail-line report-kind diagnostic {}))
-  ([report-kind {:keys [reason path actual-type expected-type actual-key expected-key]} opts]
-   (case reason
-     :missing-key
-     (missing-detail path expected-key opts)
+  ([report-kind :- s/Keyword
+    diagnostic :- s/Any
+    opts :- s/Any]
+   (let [{:keys [reason path actual-type expected-type actual-key expected-key]} diagnostic]
+     (case reason
+       :missing-key
+       (missing-detail path expected-key opts)
 
-     :nullable-key
-     (nullable-detail path actual-key expected-key opts)
+       :nullable-key
+       (nullable-detail path actual-key expected-key opts)
 
-     :unexpected-key
-     (unexpected-detail report-kind path actual-key opts)
+       :unexpected-key
+       (unexpected-detail report-kind path actual-key opts)
 
-     :nullable-source
-     (if-let [path-text (render-visible-path path)]
-       (str path-text " is nullable, but expected is not")
-       "a nullable value was provided where the type requires a non-null value")
+       :nullable-source
+       (if-let [path-text (render-visible-path path)]
+         (str path-text " is nullable, but expected is not")
+         "a nullable value was provided where the type requires a non-null value")
 
-     (mismatch-detail path actual-type expected-type opts))))
+       (mismatch-detail path actual-type expected-type opts)))))
 
-(defn union-alternatives-line
-  ([cast-results]
+(s/defn union-alternatives-line :- (s/maybe s/Str)
+  ([cast-results :- [s/Any]]
    (union-alternatives-line cast-results {}))
-  ([cast-results opts]
+  ([cast-results :- [s/Any]
+    opts :- s/Any]
    (let [without-visible-path (->> cast-results
                                    (remove #(some-> (:path %)
                                                     visible-path

@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate
-  (:require [clojure.tools.analyzer :as ta]
+  (:require [schema.core :as s]
+            [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.annotate.control :as control]
@@ -15,12 +16,12 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(defn node-location
-  [node]
+(s/defn node-location :- s/Any
+  [node :- s/Any]
   (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
 
-(defn node-error-context
-  [node]
+(s/defn node-error-context :- s/Any
+  [node :- s/Any]
   (let [expr (:form node)]
     {:expr expr
      :source-expression (:source (meta expr))
@@ -84,18 +85,18 @@
     (aapi/with-type annotated override)
     annotated))
 
-(defn annotate-node
-  [ctx node]
+(s/defn annotate-node :- s/Any
+  [ctx :- s/Any node :- s/Any]
   (let [ctx (assoc ctx :recurse annotate-node)]
     (abl/with-error-context (node-error-context node)
       (-> (annotate-dispatch ctx node)
           (apply-type-override ctx node)
           abr/strip-derived-types))))
 
-(defn annotate-ast
-  ([dict ast]
+(s/defn annotate-ast :- s/Any
+  ([dict :- s/Any ast :- s/Any]
    (annotate-ast dict ast {}))
-  ([dict ast {:keys [locals name ns assumptions accessor-summaries]}]
+  ([dict :- s/Any ast :- s/Any {:keys [locals name ns assumptions accessor-summaries]} :- s/Any]
    (annotate-node (prov/set-ctx {:dict (or dict {})
                                  :locals (or locals {})
                                  :assumptions (vec assumptions)
@@ -123,20 +124,20 @@
     source-file
     (assoc :file source-file)))
 
-(defn analyze-form
-  ([form]
+(s/defn analyze-form :- s/Any
+  ([form :- s/Any]
    (analyze-form form {}))
-  ([form {:keys [locals ns source-file]}]
+  ([form :- s/Any {:keys [locals ns source-file]} :- s/Any]
    (let [target-ns (target-ns ns)
          env (binding [*ns* target-ns]
                (analyze-env target-ns locals source-file))]
      (binding [*ns* target-ns]
        (ana.jvm/analyze form env)))))
 
-(defn annotate-form-loop
-  ([dict form]
+(s/defn annotate-form-loop :- s/Any
+  ([dict :- s/Any form :- s/Any]
    (annotate-form-loop dict form {}))
-  ([dict form opts]
+  ([dict :- s/Any form :- s/Any opts :- s/Any]
    (annotate-ast dict
                  (analyze-form form opts)
                  opts)))

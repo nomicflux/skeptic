@@ -3,15 +3,16 @@
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
 
-(defn ppr-str
-  [s]
-  (with-out-str (pprint/pprint s)))
+(s/defn ppr-str :- s/Str
+  [x :- s/Any]
+  (with-out-str (pprint/pprint x)))
 
-(defn public-ref-form
-  [ref]
+(s/defn public-ref-form :- s/Symbol
+  [ref :- s/Any]
   (cond
     (symbol? ref) ref
     (and (vector? ref)
@@ -21,8 +22,8 @@
     (string? ref) (symbol ref)
     :else 'Unknown))
 
-(defn literal-form
-  [value]
+(s/defn literal-form :- s/Any
+  [value :- s/Any]
   (cond
     (or (nil? value)
         (keyword? value)
@@ -49,8 +50,8 @@
 
     :else nil))
 
-(defn exact-key-form
-  [key]
+(s/defn exact-key-form :- s/Any
+  [key :- s/Any]
   (cond
     (and (map? key) (contains? key :cleaned-key))
     (exact-key-form (:cleaned-key key))
@@ -67,23 +68,23 @@
     :else
     (literal-form key)))
 
-(defn format-user-form
-  [form]
+(s/defn format-user-form :- (s/maybe s/Str)
+  [form :- s/Any]
   (when (some? form)
     (pr-str form)))
 
 (def ^:private pretty-type-threshold 80)
 
-(defn pretty-user-form
-  [form]
+(s/defn pretty-user-form :- (s/maybe s/Str)
+  [form :- s/Any]
   (when (some? form)
     (str/trimr
      (binding [pprint/*print-right-margin* 80
                pprint/*print-miser-width* 40]
        (with-out-str (pprint/pprint form))))))
 
-(defn block-user-form
-  [form]
+(s/defn block-user-form :- (s/maybe s/Str)
+  [form :- s/Any]
   (when (some? form)
     (let [inline (format-user-form form)]
       (if (and inline
@@ -91,61 +92,66 @@
         (pretty-user-form form)
         inline))))
 
-(defn user-type-form
-  ([type]
+(s/defn user-type-form :- s/Any
+  ([type :- ats/SemanticType]
    (user-type-form type {}))
-  ([type opts]
+  ([type :- ats/SemanticType
+    opts :- s/Any]
    (if (nil? type)
      (throw (ex-info "Missing semantic type for display"
                      {:missing-field :type
                       :value nil}))
      (abr/render-type-form* type opts))))
 
-(defn user-schema-form
-  [schema]
+(s/defn user-schema-form :- s/Any
+  [schema :- s/Any]
   (or (some-> schema abc/schema-display-form)
       'Unknown))
 
-(defn user-raw-form
-  [value]
+(s/defn user-raw-form :- s/Any
+  [value :- s/Any]
   (or (literal-form value)
       value
       'Unknown))
 
-(defn user-fn-input-form
-  ([method]
+(s/defn user-fn-input-form :- s/Any
+  ([method :- s/Any]
    (user-fn-input-form method {}))
-  ([method opts]
+  ([method :- s/Any
+    opts :- s/Any]
    (let [inputs (mapv #(user-type-form % opts) (:inputs method))]
      (if (:variadic? method)
        (concat (take (:min-arity method) inputs)
                ['& (drop (:min-arity method) inputs)])
        inputs))))
 
-(defn describe-type
-  ([type]
+(s/defn describe-type :- (s/maybe s/Str)
+  ([type :- ats/SemanticType]
    (describe-type type {}))
-  ([type opts]
+  ([type :- ats/SemanticType
+    opts :- s/Any]
    (format-user-form (user-type-form type opts))))
 
-(defn describe-type-block
-  ([type]
+(s/defn describe-type-block :- (s/maybe s/Str)
+  ([type :- ats/SemanticType]
    (describe-type-block type {}))
-  ([type opts]
+  ([type :- ats/SemanticType
+    opts :- s/Any]
    (block-user-form (user-type-form type opts))))
 
-(defn describe-schema
-  [schema]
+(s/defn describe-schema :- (s/maybe s/Str)
+  [schema :- s/Any]
   (format-user-form (user-schema-form schema)))
 
-(defn describe-raw
-  [value]
+(s/defn describe-raw :- (s/maybe s/Str)
+  [value :- s/Any]
   (format-user-form (user-raw-form value)))
 
-(defn describe-item
-  ([x]
+(s/defn describe-item :- (s/maybe s/Str)
+  ([x :- s/Any]
    (describe-item x {}))
-  ([x opts]
+  ([x :- s/Any
+    opts :- s/Any]
    (if (at/semantic-type-value? x)
      (describe-type x opts)
      (describe-raw x))))

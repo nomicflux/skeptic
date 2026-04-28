@@ -1,8 +1,10 @@
 (ns skeptic.analysis.value-check
-  (:require [skeptic.analysis.cast.support :as ascs]
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at])
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats])
   (:import [java.lang Number Object]))
 
 (declare value-satisfies-type?)
@@ -15,26 +17,26 @@
   [value]
   (ato/normalize value))
 
-(defn exact-value-type?
-  [type]
+(s/defn exact-value-type?
+  [type :- s/Any] :- s/Bool
   (at/value-type? (as-type type)))
 
-(defn path-key
-  [type]
+(s/defn path-key
+  [type :- s/Any]
   (let [type (ascs/optional-key-inner type)]
     (when (exact-value-type? type)
       (:value type))))
 
-(defn with-map-path
-  [cast-result key]
+(s/defn with-map-path
+  [cast-result :- s/Any key :- s/Any]
   (if-let [path-value (path-key key)]
     (ascs/with-cast-path cast-result
       {:kind :map-key
        :key path-value})
     cast-result))
 
-(defn map-contains-key-classification
-  [type key]
+(s/defn map-contains-key-classification
+  [type :- s/Any key :- s/Any]
   (let [descriptor (amo/map-entry-descriptor (:entries (as-type type)))
         exact-entry (amo/exact-key-entry descriptor key)]
     (if exact-entry
@@ -45,8 +47,8 @@
         :unknown
         :never))))
 
-(defn contains-key-type-classification
-  [type key]
+(s/defn contains-key-type-classification
+  [type :- s/Any key :- s/Any]
   (let [type (as-type type)]
     (cond
       (at/bottom-type? type) :never
@@ -79,8 +81,8 @@
       :else
       :unknown)))
 
-(defn refine-type-by-contains-key
-  [type key polarity]
+(s/defn refine-type-by-contains-key
+  [type :- ats/SemanticType key :- s/Any polarity :- s/Any] :- ats/SemanticType
   (let [type (as-type type)
         branches (cond
                    (at/union-type? type) (:members type)
@@ -108,8 +110,8 @@
     (when (and (map? ground) (:class ground))
       (:class ground))))
 
-(defn numeric-ground-type?
-  [type]
+(s/defn numeric-ground-type?
+  [type :- s/Any] :- s/Bool
   (let [type (as-type type)
         ground (:ground type)
         klass (numeric-ground-class type)]
@@ -120,23 +122,23 @@
                  (= klass Number)
                  (= klass java.lang.Number))))))
 
-(defn non-int-numeric-ground-type?
-  [type]
+(s/defn non-int-numeric-ground-type?
+  [type :- s/Any] :- s/Bool
   (let [klass (numeric-ground-class type)]
     (and (numeric-ground-type? type)
          (not= :int (:ground (as-type type)))
          (or (nil? klass)
              (not (contains? integral-ground-classes klass))))))
 
-(defn numeric-leaf-type?
-  [type]
+(s/defn numeric-leaf-type?
+  [type :- s/Any] :- s/Bool
   (let [type (as-type type)]
     (or (at/numeric-dyn-type? type)
         (numeric-ground-type? type)
         (and (at/value-type? type) (number? (:value type))))))
 
-(defn ground-accepts-value?
-  [type value]
+(s/defn ground-accepts-value?
+  [type :- s/Any value :- s/Any] :- s/Bool
   (let [ground (:ground (as-type type))]
     (cond
       (= ground :int) (integer? value)
@@ -147,8 +149,8 @@
       (and (map? ground) (:class ground)) (instance? (:class ground) value)
       :else false)))
 
-(defn leaf-overlap?
-  [source-type target-type]
+(s/defn leaf-overlap?
+  [source-type :- s/Any target-type :- s/Any] :- s/Bool
   (let [source-type (as-type source-type)
         target-type (as-type target-type)]
     (cond
@@ -205,20 +207,20 @@
 
       :else false)))
 
-(defn type-compatible-map-value?
-  [value-type expected-type]
+(s/defn type-compatible-map-value?
+  [value-type :- s/Any expected-type :- s/Any] :- s/Bool
   ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' value-type expected-type)))
 
-(defn set-value-satisfies-type?
-  [value members]
+(s/defn set-value-satisfies-type?
+  [value :- s/Any members :- s/Any] :- s/Bool
   (and (set? value)
        (= (count value) (count members))
        (every? (fn [member-value]
                  (some #(value-satisfies-type? member-value %) members))
                value)))
 
-(defn map-value-satisfies-type?
-  [value map-type]
+(s/defn map-value-satisfies-type?
+  [value :- s/Any map-type :- s/Any] :- s/Bool
   (and (map? value)
        (let [descriptor (amo/map-entry-descriptor (:entries (as-type map-type)))
              required-missing (atom (set (keys (:required-exact descriptor))))]
@@ -235,8 +237,8 @@
                   value)
           (empty? @required-missing)))))
 
-(defn value-satisfies-type?
-  [value type]
+(s/defn value-satisfies-type?
+  [value :- s/Any type :- s/Any] :- s/Bool
   (let [type (as-type type)]
     (cond
       (or (at/dyn-type? type)

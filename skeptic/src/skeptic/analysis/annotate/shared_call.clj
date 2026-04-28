@@ -1,12 +1,14 @@
 (ns skeptic.analysis.annotate.shared-call
-  (:require [skeptic.analysis.annotate.coll :as coll]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.map-path :as map-path]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.map-ops.algebra :as amoa]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]))
 
 (defn- shared-get-output-type
   [ctx args]
@@ -34,8 +36,11 @@
           :else nil)
         (at/Dyn (ato/derive-prov type)))))
 
-(defn shared-call-output-type
-  [ctx shared-op args default-output-type]
+(s/defn shared-call-output-type :- ats/SemanticType
+  [ctx :- s/Any
+   shared-op :- s/Any
+   args :- s/Any
+   default-output-type :- ats/SemanticType]
   (let [anchor-prov (ato/derive-prov default-output-type)]
     (case shared-op
       :get (shared-get-output-type ctx args)

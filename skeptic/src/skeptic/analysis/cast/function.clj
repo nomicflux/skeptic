@@ -1,6 +1,8 @@
 (ns skeptic.analysis.cast.function
-  (:require [skeptic.analysis.bridge.render :as abr]
-            [skeptic.analysis.cast.support :as ascs]))
+  (:require [schema.core :as s]
+            [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.types.schema :as ats]))
 
 (defn- domain-request
   [idx target-input source-input opts]
@@ -57,8 +59,8 @@
                    (method-children run-child source-method target-method opts))
     (missing-method source-type target-method target-method opts)))
 
-(defn check-function-cast
-  [run-child source-type target-type opts]
+(s/defn check-function-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (let [children (mapv #(check-function-method run-child source-type % opts)
                        (:methods target-type))]
     (ascs/aggregate-children source-type

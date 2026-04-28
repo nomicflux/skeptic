@@ -1,7 +1,9 @@
 (ns skeptic.analysis.map-ops.algebra
-  (:require [skeptic.analysis.map-ops :as amo]
+  (:require [schema.core :as s]
+            [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (defn- exact-key-for-literal
@@ -18,8 +20,8 @@
                              (at/type-equal? (:inner k) ev))))
                   entries))))
 
-(defn assoc-type
-  [m-type key-lit value-type]
+(s/defn assoc-type :- ats/SemanticType
+  [m-type :- ats/SemanticType key-lit :- s/Any value-type :- ats/SemanticType]
   (let [m-type (ato/normalize m-type)
         value-type (ato/normalize value-type)
         prov (ato/derive-prov m-type value-type)
@@ -37,8 +39,8 @@
       :else
       (ato/dyn m-type value-type))))
 
-(defn dissoc-type
-  [m-type key-lit]
+(s/defn dissoc-type :- ats/SemanticType
+  [m-type :- ats/SemanticType key-lit :- s/Any]
   (let [m-type (ato/normalize m-type)
         prov (ato/derive-prov m-type)]
     (cond
@@ -61,15 +63,15 @@
               (:output m)))
           (:methods fn-type))))
 
-(defn update-type
-  [m-type key-lit fn-type]
+(s/defn update-type :- ats/SemanticType
+  [m-type :- ats/SemanticType key-lit :- s/Any fn-type :- ats/SemanticType]
   (let [m-type (ato/normalize m-type)
         fn-type (ato/normalize fn-type)
         out (or (first-unary-output-type fn-type) (ato/dyn fn-type))]
     (assoc-type m-type key-lit out)))
 
-(defn merge-types
-  [anchor-prov types]
+(s/defn merge-types :- ats/SemanticType
+  [anchor-prov :- s/Any types :- [ats/SemanticType]]
   (let [types (mapv ato/normalize types)]
     (cond
       (empty? types) (at/Dyn anchor-prov)

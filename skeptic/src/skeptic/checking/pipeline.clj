@@ -1,11 +1,13 @@
 (ns skeptic.checking.pipeline
-  (:require [skeptic.analysis.annotate :as aa]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.checking.ast :as ca]
@@ -192,13 +194,13 @@
      :resolved-defs (into {} (map (juxt :sym :entry)) entries)
      :accessor-summaries accessor-summaries}))
 
-(defn analyze-source-exprs
+(s/defn analyze-source-exprs :- s/Any
   ([dict ns-sym source-file exprs]
    (run-analyze-source-exprs dict ns-sym source-file exprs {}))
   ([dict ns-sym source-file exprs {:keys [accessor-summaries]}]
    (run-analyze-source-exprs dict ns-sym source-file exprs (or accessor-summaries {}))))
 
-(defn method-output-type
+(s/defn method-output-type :- ats/SemanticType
   [method]
   (let [{:keys [body output-type]} (aapi/method-result-type method)
         tagged-output (when-let [tag (aapi/node-tag body)]
@@ -207,7 +209,7 @@
       (ato/normalize (or tagged-output output-type))
       (ato/normalize output-type))))
 
-(defn def-output-results
+(s/defn def-output-results :- s/Any
   [dict ns-sym source-file source-form enclosing-form node]
   (let [declared-t (ac/lookup-type dict ns-sym node)
         init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
@@ -262,7 +264,7 @@
                           :cast-diagnostics (:cast-diagnostics report)
                           :errors (:errors report)})))))))))
 
-(defn input-error-group
+(s/defn input-error-group :- s/Any
   [expr arg-node expected actual]
   (let [arg-expr (if (some? arg-node)
                    (aapi/node-form arg-node)
@@ -290,7 +292,7 @@
   [location source]
   (assoc (or location {}) :source source))
 
-(defn input-cast-result
+(s/defn input-cast-result :- s/Any
   [enclosing-form node error-groups]
   (let [display (cf/display-expr node)
         primary-group (first error-groups)]
@@ -314,7 +316,7 @@
                :refs (ca/call-refs node)}
      :errors (vec (mapcat :errors error-groups))}))
 
-(defn match-s-exprs
+(s/defn match-s-exprs :- s/Any
   [enclosing-form node keep-empty]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (aapi/call-expected-argtypes node))
@@ -337,7 +339,7 @@
           (when keep-empty
             (input-cast-result enclosing-form node [])))))))
 
-(defn enclosing-form
+(s/defn enclosing-form :- s/Any
   [ns-sym source-form]
   (if (and (seq? source-form)
            (symbol? (second source-form))
@@ -355,7 +357,7 @@
                    (some-> qualified-sym resolve meta :skeptic/ignore-body)
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
-(defn check-resolved-form
+(s/defn check-resolved-form :- s/Any
   [dict ignore-body ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? ignore-body ns-sym source-form)
@@ -394,7 +396,7 @@
                    (map #(dissoc % :context)))]
     (vec (concat debug-records filtered))))
 
-(defn ns-exprs
+(s/defn ns-exprs :- s/Any
   [source-file]
   (with-open [reader (file/pushback-reader source-file)]
     (->> (repeatedly #(file/try-read reader))
@@ -402,7 +404,7 @@
          (remove file/is-ns-block?)
          doall)))
 
-(defn read-exception-result
+(s/defn read-exception-result :- s/Any
   [source-file e]
   {:report-kind :exception
    :phase :read
@@ -414,7 +416,7 @@
    :exception-message (or (.getMessage e)
                           (str e))})
 
-(defn next-checkable-form
+(s/defn next-checkable-form :- s/Any
   [reader]
   (try
     (loop []
@@ -433,7 +435,7 @@
       {:kind :read-error
        :exception e})))
 
-(defn expression-exception-result
+(s/defn expression-exception-result :- s/Any
   [ns-sym source-file source-form e]
   {:report-kind :exception
    :phase :expression
@@ -449,7 +451,7 @@
   [resolved-defs]
   (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
 
-(defn check-ns-form
+(s/defn check-ns-form :- s/Any
   [dict ignore-body ns source-file source-form opts]
   (try
     (let [{:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form])]
@@ -484,7 +486,7 @@
    :ignore-body #{}
    :errors []})
 
-(defn namespace-dict
+(s/defn namespace-dict :- s/Any
   [opts ns-sym source-file]
   (require ns-sym)
   (let [form-refs (java.util.IdentityHashMap.)]
@@ -510,7 +512,7 @@
     {:dict dict
      :accessor-summaries {}}))
 
-(defn check-s-expr
+(s/defn check-s-expr :- s/Any
   [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
     (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)
@@ -538,7 +540,7 @@
        (clojure.core/in-ns (symbol current-namespace#))
        res#)))
 
-(defn check-ns
+(s/defn check-ns :- s/Any
   [ns source-file opts]
   (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)]
     (binding [*ns* (the-ns ns)]
@@ -553,7 +555,7 @@
                                  (update :provenance merge provenance))))
               :read-error (recur (update acc :results conj (read-exception-result source-file exception))))))))))
 
-(defn load-exception-result
+(s/defn load-exception-result :- s/Any
   [ns-sym e]
   {:report-kind :exception
    :phase :load
@@ -565,7 +567,7 @@
    :exception-message (or (.getMessage e)
                           (str e))})
 
-(defn check-namespace
+(s/defn check-namespace :- s/Any
   "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
   (typed declarations and form checking). Returns
   {:results [...] :provenance {sym → Provenance}}."

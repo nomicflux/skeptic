@@ -1,12 +1,13 @@
 (ns skeptic.analysis.annotate.test-api
-  (:require [clojure.string :as str]
+  (:require [schema.core :as s]
+            [clojure.string :as str]
             [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.walk :as walk]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]))
 
-(defn normalize-symbol
-  [value]
+(s/defn normalize-symbol :- s/Any
+  [value :- s/Any]
   (if (symbol? value)
     (let [name-part (name value)]
       (if (str/includes? name-part "__")
@@ -14,12 +15,12 @@
         value))
     value))
 
-(defn normalize-form
-  [form]
+(s/defn normalize-form :- s/Any
+  [form :- s/Any]
   (walk/postwalk normalize-symbol form))
 
-(defn var->sym
-  [value]
+(s/defn var->sym :- s/Any
+  [value :- s/Any]
   (when (instance? clojure.lang.Var value)
     (let [meta-map (meta value)]
       (symbol (str (ns-name (:ns meta-map)) "/" (:name meta-map))))))
@@ -29,8 +30,8 @@
    :literal? :type :output-type :fn-type :types :arglist :arglists :param-specs
    :actual-argtypes :expected-argtypes :raw-forms])
 
-(defn project-ast
-  [root]
+(s/defn project-ast :- s/Any
+  [root :- s/Any]
   (letfn [(project-node [node]
             (cond
               (nil? node) nil
@@ -51,8 +52,8 @@
               :else node))]
     (project-node root)))
 
-(defn projected-nodes
-  [root]
+(s/defn projected-nodes :- s/Any
+  [root :- s/Any]
   (letfn [(walk-projected [node]
             (lazy-seq
              (cond
@@ -62,64 +63,64 @@
                :else nil)))]
     (walk-projected root)))
 
-(defn find-projected-node
-  [root pred]
+(s/defn find-projected-node :- s/Any
+  [root :- s/Any pred :- s/Any]
   (some #(when (pred %) %) (projected-nodes root)))
 
-(defn child-projection
-  [node key]
+(s/defn child-projection :- s/Any
+  [node :- s/Any key :- s/Any]
   (some (fn [[child-key child]] (when (= child-key key) child)) (:children node)))
 
-(defn ast-by-name
-  [asts sym]
+(s/defn ast-by-name :- s/Any
+  [asts :- s/Any sym :- s/Any]
   (some #(when (= sym (aapi/node-name %)) %) asts))
 
-(defn node-by-form
-  [ast form]
+(s/defn node-by-form :- s/Any
+  [ast :- s/Any form :- s/Any]
   (some #(when (= form (aapi/node-form %)) %) (ana.ast/nodes ast)))
 
-(defn arglist-types
-  [root arity]
+(s/defn arglist-types :- s/Any
+  [root :- s/Any arity :- s/Any]
   (aapi/arglist-types root arity))
 
-(defn annotate-form-loop
-  ([dict form]
+(s/defn annotate-form-loop :- s/Any
+  ([dict :- s/Any form :- s/Any]
    (annotate-form-loop dict form {}))
-  ([dict form opts]
+  ([dict :- s/Any form :- s/Any opts :- s/Any]
    (aa/annotate-form-loop dict form opts)))
 
-(defn test-local-node
-  [sym init]
+(s/defn test-local-node :- s/Any
+  [sym :- s/Any init :- s/Any]
   {:op :local :form sym :type (aapi/node-type init) :binding-init init})
 
-(defn test-fn-node
-  [sym]
+(s/defn test-fn-node :- s/Any
+  [sym :- s/Any]
   {:op :var :form sym})
 
-(defn test-typed-node
-  [op form type]
+(s/defn test-typed-node :- s/Any
+  [op :- s/Any form :- s/Any type :- s/Any]
   {:op op :form form :type type})
 
-(defn test-const-node
-  [value]
+(s/defn test-const-node :- s/Any
+  [value :- s/Any]
   {:op :const :val value})
 
-(defn test-invoke-node
-  [fn-node args expected actual]
+(s/defn test-invoke-node :- s/Any
+  [fn-node :- s/Any args :- s/Any expected :- s/Any actual :- s/Any]
   {:op :invoke
    :fn fn-node
    :args args
    :expected-argtypes expected
    :actual-argtypes actual})
 
-(defn test-invoke-form-node
-  [fn-node args form type]
+(s/defn test-invoke-form-node :- s/Any
+  [fn-node :- s/Any args :- s/Any form :- s/Any type :- s/Any]
   (assoc (test-invoke-node fn-node args [] []) :form form :type type))
 
-(defn test-with-meta-node
-  [expr]
+(s/defn test-with-meta-node :- s/Any
+  [expr :- s/Any]
   {:op :with-meta :expr expr})
 
-(defn test-static-call-node
-  [class method]
+(s/defn test-static-call-node :- s/Any
+  [class :- s/Any method :- s/Any]
   {:op :static-call :class class :method method})

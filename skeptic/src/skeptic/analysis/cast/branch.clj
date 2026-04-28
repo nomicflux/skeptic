@@ -1,7 +1,9 @@
 (ns skeptic.analysis.cast.branch
-  (:require [skeptic.analysis.cast.support :as ascs]
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]))
 
 (defn- run-indexed-children
   [run-child kind pairs opts]
@@ -35,8 +37,8 @@
       (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
       (ascs/cast-fail source-type target-type :target-union (:polarity opts) :no-union-branch children))))
 
-(defn check-union-cast
-  [run-child source-type target-type opts]
+(s/defn check-union-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/union-type? source-type)
     (source-union-result run-child source-type target-type opts)
     (target-union-result run-child source-type target-type opts)))
@@ -60,8 +62,8 @@
       (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
       (ascs/cast-fail source-type target-type :target-union (:polarity opts) :no-union-branch children))))
 
-(defn check-conditional-cast
-  [run-child source-type target-type opts]
+(s/defn check-conditional-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/conditional-type? source-type)
     (source-conditional-result run-child source-type target-type opts)
     (target-conditional-result run-child source-type target-type opts)))
@@ -88,8 +90,8 @@
                              :source-component-failed
                              children)))
 
-(defn check-intersection-cast
-  [run-child source-type target-type opts]
+(s/defn check-intersection-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/intersection-type? target-type)
     (target-intersection-result run-child source-type target-type opts)
     (source-intersection-result run-child source-type target-type opts)))
@@ -110,8 +112,8 @@
   [t]
   (if (at/maybe-type? t) (:inner t) t))
 
-(defn check-maybe-cast
-  [run-child source-type target-type opts]
+(s/defn check-maybe-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (cond
     (and (at/maybe-type? source-type) (nullable-target? target-type))
     (if (at/maybe-type? target-type)
@@ -142,8 +144,8 @@
     (at/var-type? type) (:inner type)
     :else type))
 
-(defn check-wrapper-cast
-  [run-child source-type target-type opts]
+(s/defn check-wrapper-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (or (at/optional-key-type? source-type)
           (at/var-type? source-type))
     (run-child {:source-type (unwrap-wrapper source-type)

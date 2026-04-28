@@ -1,8 +1,10 @@
 (ns skeptic.inconsistence.report
-  (:require [skeptic.analysis.cast :as acast]
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast :as acast]
             [skeptic.analysis.cast.result :as cast-result]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.colours :as colours]
             [skeptic.inconsistence.display :as disp]
             [skeptic.inconsistence.mismatch :as mm]
@@ -13,21 +15,25 @@
 (declare cast-result->message
          primary-actionable-output-leaf)
 
-(defn focused-input-expr
-  [{:keys [focuses blame]}]
-  (if (= 1 (count focuses))
-    (first focuses)
-    blame))
+(s/defn focused-input-expr :- s/Any
+  [report :- s/Any]
+  (let [{:keys [focuses blame]} report]
+    (if (= 1 (count focuses))
+      (first focuses)
+      blame)))
 
-(defn input-summary-header
-  [{:keys [blame] :as report}]
-  (let [arg (focused-input-expr report)]
+(s/defn input-summary-header :- s/Str
+  [report :- s/Any]
+  (let [arg (focused-input-expr report)
+        {:keys [blame]} report]
     (format "%s\n\tin\n\n%s\nhas inferred type incompatible with the expected type:"
             (colours/magenta (disp/ppr-str arg) true)
             (colours/magenta (disp/ppr-str blame)))))
 
-(defn combine-summary-lines
-  [header label detail-lines]
+(s/defn combine-summary-lines :- s/Str
+  [header :- s/Str
+   label :- s/Str
+   detail-lines :- [s/Str]]
   (str header
        "\n\n"
        label
@@ -45,9 +51,10 @@
            (when (some? rejected-schema)
              (str "Rejected schema: " (disp/ppr-str rejected-schema)))]))
 
-(defn exception-error-summary
-  [{:keys [phase blame exception-message] :as report}]
-  (let [subject (case phase
+(s/defn exception-error-summary :- s/Str
+  [report :- s/Any]
+  (let [{:keys [phase blame exception-message]} report
+        subject (case phase
                   :declaration (format "declared schema for %s" (pr-str blame))
                   :read (format "namespace input %s" (pr-str blame))
                   (format "expression %s" (colours/magenta (disp/ppr-str blame) true)))
@@ -66,26 +73,27 @@
             (or detail-block "")
             skip-text)))
 
-(defn report-ctx
-  [{:keys [blame] :as report}]
-  {:expr blame
+(s/defn report-ctx :- s/Any
+  [report :- s/Any]
+  {:expr (:blame report)
    :arg (focused-input-expr report)})
 
-(defn output-focus
-  [report]
+(s/defn output-focus :- s/Any
+  [report :- s/Any]
   (or (some-> (primary-actionable-output-leaf report)
               :path
               pth/render-visible-path)
       (:arg (report-ctx report))))
 
-(defn output-focus-text
-  [focus]
+(s/defn output-focus-text :- s/Str
+  [focus :- s/Any]
   (if (string? focus)
     focus
     (disp/ppr-str focus)))
 
-(defn output-summary-headline
-  [report message]
+(s/defn output-summary-headline :- s/Str
+  [report :- s/Any
+   message :- s/Str]
   (let [{:keys [expr]} (report-ctx report)
         focus (output-focus report)]
     (if (= focus expr)
@@ -97,40 +105,42 @@
               (colours/magenta (disp/ppr-str expr))
               message))))
 
-(defn output-summary-message
-  ([report]
+(s/defn output-summary-message :- s/Str
+  ([report :- s/Any]
    (output-summary-message report {}))
-  ([{:keys [cast-summary actual-type expected-type] :as report} opts]
-   (let [actual-type (or (:actual-type cast-summary) actual-type)
+  ([report :- s/Any
+    opts :- s/Any]
+   (let [{:keys [cast-summary actual-type expected-type]} report
+         actual-type (or (:actual-type cast-summary) actual-type)
          expected-type (or (:expected-type cast-summary) expected-type)]
      (format "%s\n\n%s\n\nbut the declared return type expects:\n\n%s"
              (output-summary-headline report "has inferred output type:")
              (colours/yellow (disp/describe-type-block actual-type opts))
              (colours/yellow (disp/describe-type-block expected-type opts))))))
 
-(defn report-cast-leaves
-  [{:keys [cast-diagnostics]}]
-  (vec cast-diagnostics))
+(s/defn report-cast-leaves :- [s/Any]
+  [report :- s/Any]
+  (vec (:cast-diagnostics report)))
 
-(defn visible-structural-leaf?
-  [cast-result]
+(s/defn visible-structural-leaf? :- s/Bool
+  [cast-result :- s/Any]
   (boolean (some-> (:path cast-result)
                    pth/visible-path
                    seq)))
 
-(defn dynamic-display-type?
-  [type]
+(s/defn dynamic-display-type? :- s/Bool
+  [type :- ats/SemanticType]
   (let [type (some-> type ato/normalize)]
     (or (nil? type)
         (at/dyn-type? type))))
 
-(defn actionable-output-leaf?
-  [cast-result]
+(s/defn actionable-output-leaf? :- s/Bool
+  [cast-result :- s/Any]
   (or (visible-structural-leaf? cast-result)
       (not (dynamic-display-type? (:actual-type cast-result)))))
 
-(defn ordered-output-leaves
-  [report]
+(s/defn ordered-output-leaves :- [s/Any]
+  [report :- s/Any]
   (->> (report-cast-leaves report)
        (map-indexed (fn [idx leaf]
                       {:idx idx
@@ -144,21 +154,23 @@
                    idx]))
        (mapv :leaf)))
 
-(defn primary-actionable-output-leaf
-  [report]
+(s/defn primary-actionable-output-leaf :- (s/maybe s/Any)
+  [report :- s/Any]
   (first (filter actionable-output-leaf?
                  (ordered-output-leaves report))))
 
-(defn output-declared-expected-type
-  [{:keys [cast-summary expected-type] :as report}]
-  (or (:expected-type cast-summary)
-      (some-> (primary-actionable-output-leaf report) :expected-type)
-      expected-type))
+(s/defn output-declared-expected-type :- ats/SemanticType
+  [report :- s/Any]
+  (let [{:keys [cast-summary expected-type]} report]
+    (or (:expected-type cast-summary)
+        (some-> (primary-actionable-output-leaf report) :expected-type)
+        expected-type)))
 
-(defn output-leaf-summary-message
-  ([report]
+(s/defn output-leaf-summary-message :- s/Str
+  ([report :- s/Any]
    (output-leaf-summary-message report {}))
-  ([report opts]
+  ([report :- s/Any
+    opts :- s/Any]
    (let [expected-type (output-declared-expected-type report)]
      (format "%s\n\nDeclared return type expects:\n\n%s"
              (output-summary-headline report
@@ -173,144 +185,156 @@
      (conj detail-lines u)
      detail-lines)))
 
-(defn rebuilt-leaf-errors
-  ([report]
+(s/defn rebuilt-leaf-errors :- [s/Str]
+  ([report :- s/Any]
    (rebuilt-leaf-errors report {}))
-  ([report opts]
+  ([report :- s/Any
+    opts :- s/Any]
    (->> (report-cast-leaves report)
         (map #(cast-result->message (report-ctx report) % opts))
         distinct
         vec)))
 
-(defn input-leaf-errors
-  ([report]
+(s/defn input-leaf-errors :- [s/Str]
+  ([report :- s/Any]
    (input-leaf-errors report {}))
-  ([{:keys [errors] :as report} opts]
-   (if (seq errors)
-     (vec errors)
-     (rebuilt-leaf-errors report opts))))
+  ([report :- s/Any
+    opts :- s/Any]
+   (let [errors (:errors report)]
+     (if (seq errors)
+       (vec errors)
+       (rebuilt-leaf-errors report opts)))))
 
-(defn grouped-input-summary?
-  [{:keys [focuses]} leaf-errors]
-  (or (seq focuses)
+(s/defn grouped-input-summary? :- s/Any
+  [report :- s/Any
+   leaf-errors :- [s/Str]]
+  (or (seq (:focuses report))
       (not= 1 (count leaf-errors))))
 
-(defn summarize-errors
-  ([report]
+(s/defn summarize-errors :- [s/Str]
+  ([report :- s/Any]
    (summarize-errors report {}))
-  ([{:keys [report-kind cast-diagnostics] :as report} opts]
-   (case report-kind
-     :exception
-     [(exception-error-summary report)]
+  ([report :- s/Any
+    opts :- s/Any]
+   (let [report-kind (:report-kind report)
+         cast-diagnostics (:cast-diagnostics report)]
+     (case report-kind
+       :exception
+       [(exception-error-summary report)]
 
-     :output
-     (let [ordered-leaves (ordered-output-leaves report)
-           detail-lines (->> ordered-leaves
-                             (keep #(pth/detail-line :output % opts))
-                             distinct
-                             vec)
-           detail-lines (augment-detail-lines-with-union-alternatives ordered-leaves
-                                                                       detail-lines
-                                                                       opts)
-           summary (if (primary-actionable-output-leaf report)
-                     (output-leaf-summary-message report opts)
-                     (output-summary-message report opts))]
-       [(if (seq detail-lines)
-          (combine-summary-lines summary "Problem fields" detail-lines)
-          summary)])
+       :output
+       (let [ordered-leaves (ordered-output-leaves report)
+             detail-lines (->> ordered-leaves
+                               (keep #(pth/detail-line :output % opts))
+                               distinct
+                               vec)
+             detail-lines (augment-detail-lines-with-union-alternatives ordered-leaves
+                                                                         detail-lines
+                                                                         opts)
+             summary (if (primary-actionable-output-leaf report)
+                       (output-leaf-summary-message report opts)
+                       (output-summary-message report opts))]
+         [(if (seq detail-lines)
+            (combine-summary-lines summary "Problem fields" detail-lines)
+            summary)])
 
-     :input
-     (let [detail-lines (->> cast-diagnostics
-                             (keep #(pth/detail-line :input % opts))
-                             distinct
-                             vec)
-           detail-lines (augment-detail-lines-with-union-alternatives cast-diagnostics
-                                                                      detail-lines
-                                                                      opts)
-           leaf-errors (input-leaf-errors report opts)]
-       (cond
-         (and (seq detail-lines)
-              (grouped-input-summary? report leaf-errors))
-         [(combine-summary-lines (input-summary-header report) "Problems" detail-lines)]
+       :input
+       (let [detail-lines (->> cast-diagnostics
+                               (keep #(pth/detail-line :input % opts))
+                               distinct
+                               vec)
+             detail-lines (augment-detail-lines-with-union-alternatives cast-diagnostics
+                                                                        detail-lines
+                                                                        opts)
+             leaf-errors (input-leaf-errors report opts)]
+         (cond
+           (and (seq detail-lines)
+                (grouped-input-summary? report leaf-errors))
+           [(combine-summary-lines (input-summary-header report) "Problems" detail-lines)]
 
-         (seq leaf-errors)
-         [(first leaf-errors)]
+           (seq leaf-errors)
+           [(first leaf-errors)]
 
-         :else
-         []))
+           :else
+           []))
 
-     (rebuilt-leaf-errors report opts))))
+       (rebuilt-leaf-errors report opts)))))
 
-(defn display-cast
-  ([report]
+(s/defn display-cast :- (s/maybe s/Any)
+  ([report :- s/Any]
    (display-cast report {}))
-  ([{:keys [report-kind rule actual-type expected-type cast-summary cast-diagnostics]} opts]
-   (when-not (= :exception report-kind)
-     (let [primary (first cast-diagnostics)
-           rule (or (:rule cast-summary) rule (:rule primary))
-           actual-type (or (:actual-type cast-summary) actual-type (:actual-type primary))
-           expected-type (or (:expected-type cast-summary) expected-type (:expected-type primary))]
-       (when (or actual-type expected-type)
-         (when (nil? actual-type)
-           (throw (ex-info "Report cast display missing actual type"
-                           {:missing-field :actual-type
-                            :rule rule
-                            :cast-summary cast-summary
-                            :cast-diagnostics cast-diagnostics})))
-         (when (nil? expected-type)
-           (throw (ex-info "Report cast display missing expected type"
-                           {:missing-field :expected-type
-                            :rule rule
-                            :cast-summary cast-summary
-                            :cast-diagnostics cast-diagnostics})))
-         {:rule rule
-          :rule-text (some-> rule name)
-          :actual-type actual-type
-          :expected-type expected-type
-          :actual-type-text (disp/describe-type-block actual-type opts)
-          :expected-type-text (disp/describe-type-block expected-type opts)})))))
+  ([report :- s/Any
+    opts :- s/Any]
+   (let [{:keys [report-kind rule actual-type expected-type cast-summary cast-diagnostics]} report]
+     (when-not (= :exception report-kind)
+       (let [primary (first cast-diagnostics)
+             rule (or (:rule cast-summary) rule (:rule primary))
+             actual-type (or (:actual-type cast-summary) actual-type (:actual-type primary))
+             expected-type (or (:expected-type cast-summary) expected-type (:expected-type primary))]
+         (when (or actual-type expected-type)
+           (when (nil? actual-type)
+             (throw (ex-info "Report cast display missing actual type"
+                             {:missing-field :actual-type
+                              :rule rule
+                              :cast-summary cast-summary
+                              :cast-diagnostics cast-diagnostics})))
+           (when (nil? expected-type)
+             (throw (ex-info "Report cast display missing expected type"
+                             {:missing-field :expected-type
+                              :rule rule
+                              :cast-summary cast-summary
+                              :cast-diagnostics cast-diagnostics})))
+           {:rule rule
+            :rule-text (some-> rule name)
+            :actual-type actual-type
+            :expected-type expected-type
+            :actual-type-text (disp/describe-type-block actual-type opts)
+            :expected-type-text (disp/describe-type-block expected-type opts)}))))))
 
-(defn report-summary
-  ([report]
+(s/defn report-summary :- s/Any
+  ([report :- s/Any]
    (report-summary report {}))
-  ([{:keys [location blame-side blame-polarity source-expression blame
-            focus-sources focuses enclosing-form expanded-expression
-            phase exception-class declaration-slot rejected-schema]
-     :as report}
-    opts]
-   (merge {:location location
-           :report-kind (:report-kind report)
-           :phase phase
-           :exception-class exception-class
-           :declaration-slot declaration-slot
-           :rejected-schema rejected-schema
-           :blame-side blame-side
-           :blame-polarity blame-polarity
-           :source-expression source-expression
-           :blame blame
-           :focus-sources focus-sources
-           :focuses focuses
-           :enclosing-form enclosing-form
-           :expanded-expression expanded-expression
-           :errors (summarize-errors report opts)}
-          (or (if (= :output (:report-kind report))
-                (let [root-sum (:cast-summary report)
-                      selected (or (primary-actionable-output-leaf report) root-sum)
-                      display-source (merge root-sum selected)
-                      base (display-cast (assoc report :cast-summary display-source) opts)]
-                  (if (and base root-sum)
-                    (let [et (:expected-type root-sum)]
-                      (merge base
-                             {:expected-type et
-                              :expected-type-text (disp/describe-type-block et opts)}))
-                    base))
-                (display-cast report opts))
-              {}))))
+  ([report :- s/Any
+    opts :- s/Any]
+   (let [{:keys [location blame-side blame-polarity source-expression blame
+                 focus-sources focuses enclosing-form expanded-expression
+                 phase exception-class declaration-slot rejected-schema]} report]
+     (merge {:location location
+             :report-kind (:report-kind report)
+             :phase phase
+             :exception-class exception-class
+             :declaration-slot declaration-slot
+             :rejected-schema rejected-schema
+             :blame-side blame-side
+             :blame-polarity blame-polarity
+             :source-expression source-expression
+             :blame blame
+             :focus-sources focus-sources
+             :focuses focuses
+             :enclosing-form enclosing-form
+             :expanded-expression expanded-expression
+             :errors (summarize-errors report opts)}
+            (or (if (= :output (:report-kind report))
+                  (let [root-sum (:cast-summary report)
+                        selected (or (primary-actionable-output-leaf report) root-sum)
+                        display-source (merge root-sum selected)
+                        base (display-cast (assoc report :cast-summary display-source) opts)]
+                    (if (and base root-sum)
+                      (let [et (:expected-type root-sum)]
+                        (merge base
+                               {:expected-type et
+                                :expected-type-text (disp/describe-type-block et opts)}))
+                      base))
+                  (display-cast report opts))
+                {})))))
 
-(defn cast-result->message
-  ([ctx diagnostic]
+(s/defn cast-result->message :- s/Str
+  ([ctx :- s/Any
+    diagnostic :- s/Any]
    (cast-result->message ctx diagnostic {}))
-  ([ctx diagnostic opts]
+  ([ctx :- s/Any
+    diagnostic :- s/Any
+    opts :- s/Any]
    (let [actual-type   (:actual-type diagnostic)
          expected-type (:expected-type diagnostic)
          message (case (:reason diagnostic)
@@ -364,8 +388,8 @@
        message
        (pth/with-path-detail message diagnostic)))))
 
-(defn cast-report-metadata
-  [raw-cast-result]
+(s/defn cast-report-metadata :- s/Any
+  [raw-cast-result :- s/Any]
   (let [summary  (cast-result/root-summary raw-cast-result)
         leaves   (cast-result/leaf-diagnostics raw-cast-result)
         primary  (cast-result/primary-diagnostic raw-cast-result)]
@@ -377,10 +401,15 @@
      :expected-type    (:expected-type primary)
      :actual-type      (:actual-type primary)}))
 
-(defn cast-report
-  ([ctx expected actual]
+(s/defn cast-report :- s/Any
+  ([ctx :- s/Any
+    expected :- ats/SemanticType
+    actual :- ats/SemanticType]
    (cast-report ctx expected actual {}))
-  ([ctx expected actual opts]
+  ([ctx :- s/Any
+    expected :- ats/SemanticType
+    actual :- ats/SemanticType
+    opts :- s/Any]
    (let [expected-type (ato/normalize expected)
          actual-type (ato/normalize actual)
          source (prov/source (prov/of actual-type))
@@ -404,10 +433,15 @@
                          vec)]
          (merge {:ok? false :source source :errors errors} metadata))))))
 
-(defn output-cast-report
-  ([ctx expected actual]
+(s/defn output-cast-report :- s/Any
+  ([ctx :- s/Any
+    expected :- ats/SemanticType
+    actual :- ats/SemanticType]
    (output-cast-report ctx expected actual {}))
-  ([ctx expected actual opts]
+  ([ctx :- s/Any
+    expected :- ats/SemanticType
+    actual :- ats/SemanticType
+    opts :- s/Any]
    (let [expected-type (ato/normalize expected)
          actual-type (ato/normalize actual)
          source (prov/source (prov/of actual-type))

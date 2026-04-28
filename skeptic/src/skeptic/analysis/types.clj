@@ -1,4 +1,8 @@
-(ns skeptic.analysis.types)
+(ns skeptic.analysis.types
+  (:require [schema.core :as s]
+            [skeptic.analysis.types.proto :as proto]
+            [skeptic.analysis.types.schema :as ats]
+            [skeptic.provenance.schema :as provs]))
 
 (def semantic-type-tag-key
   :skeptic.analysis.types/semantic-type)
@@ -117,140 +121,138 @@
     sealed-dyn-type-tag
     conditional-type-tag})
 
-(defprotocol SemanticType
-  (semantic-tag [this]))
-
 (defrecord DynT [prov]
-  SemanticType (semantic-tag [_] dyn-type-tag))
+  proto/SemanticType (semantic-tag [_] dyn-type-tag))
 
 (defrecord BottomT [prov]
-  SemanticType (semantic-tag [_] bottom-type-tag))
+  proto/SemanticType (semantic-tag [_] bottom-type-tag))
 
 (defrecord GroundT [prov ground display-form]
-  SemanticType (semantic-tag [_] ground-type-tag))
+  proto/SemanticType (semantic-tag [_] ground-type-tag))
 
 (defrecord NumericDynT [prov]
-  SemanticType (semantic-tag [_] numeric-dyn-type-tag))
+  proto/SemanticType (semantic-tag [_] numeric-dyn-type-tag))
 
 (defrecord RefinementT [prov base display-form accepts? adapter-data]
-  SemanticType (semantic-tag [_] refinement-type-tag))
+  proto/SemanticType (semantic-tag [_] refinement-type-tag))
 
 (defrecord AdapterLeafT [prov adapter display-form accepts? adapter-data]
-  SemanticType (semantic-tag [_] adapter-leaf-type-tag))
+  proto/SemanticType (semantic-tag [_] adapter-leaf-type-tag))
 
 (defrecord OptionalKeyT [prov inner]
-  SemanticType (semantic-tag [_] optional-key-type-tag))
+  proto/SemanticType (semantic-tag [_] optional-key-type-tag))
 
 (defrecord FnMethodT [prov inputs output min-arity variadic? names]
-  SemanticType (semantic-tag [_] fn-method-type-tag))
+  proto/SemanticType (semantic-tag [_] fn-method-type-tag))
 
 (defrecord FunT [prov methods]
-  SemanticType (semantic-tag [_] fun-type-tag))
+  proto/SemanticType (semantic-tag [_] fun-type-tag))
 
 (defrecord MaybeT [prov inner]
-  SemanticType (semantic-tag [_] maybe-type-tag))
+  proto/SemanticType (semantic-tag [_] maybe-type-tag))
 
 (defrecord UnionT [prov members]
-  SemanticType (semantic-tag [_] union-type-tag))
+  proto/SemanticType (semantic-tag [_] union-type-tag))
 
 (defrecord IntersectionT [prov members]
-  SemanticType (semantic-tag [_] intersection-type-tag))
+  proto/SemanticType (semantic-tag [_] intersection-type-tag))
 
 (defrecord MapT [prov entries]
-  SemanticType (semantic-tag [_] map-type-tag))
+  proto/SemanticType (semantic-tag [_] map-type-tag))
 
 (defrecord VectorT [prov items homogeneous?]
-  SemanticType (semantic-tag [_] vector-type-tag))
+  proto/SemanticType (semantic-tag [_] vector-type-tag))
 
 (defrecord SetT [prov members homogeneous?]
-  SemanticType (semantic-tag [_] set-type-tag))
+  proto/SemanticType (semantic-tag [_] set-type-tag))
 
 (defrecord SeqT [prov items homogeneous?]
-  SemanticType (semantic-tag [_] seq-type-tag))
+  proto/SemanticType (semantic-tag [_] seq-type-tag))
 
 (defrecord VarT [prov inner]
-  SemanticType (semantic-tag [_] var-type-tag))
+  proto/SemanticType (semantic-tag [_] var-type-tag))
 
 (defrecord PlaceholderT [prov ref]
-  SemanticType (semantic-tag [_] placeholder-type-tag))
+  proto/SemanticType (semantic-tag [_] placeholder-type-tag))
 
 (defrecord InfCycleT [prov ref]
-  SemanticType (semantic-tag [_] inf-cycle-type-tag))
+  proto/SemanticType (semantic-tag [_] inf-cycle-type-tag))
 
 (defrecord ValueT [prov inner value]
-  SemanticType (semantic-tag [_] value-type-tag))
+  proto/SemanticType (semantic-tag [_] value-type-tag))
 
 (defrecord TypeVarT [prov name]
-  SemanticType (semantic-tag [_] type-var-type-tag))
+  proto/SemanticType (semantic-tag [_] type-var-type-tag))
 
 (defrecord ForallT [prov binder body]
-  SemanticType (semantic-tag [_] forall-type-tag))
+  proto/SemanticType (semantic-tag [_] forall-type-tag))
 
 (defrecord SealedDynT [prov ground]
-  SemanticType (semantic-tag [_] sealed-dyn-type-tag))
+  proto/SemanticType (semantic-tag [_] sealed-dyn-type-tag))
 
 (defrecord ConditionalT [prov branches]
-  SemanticType (semantic-tag [_] conditional-type-tag))
+  proto/SemanticType (semantic-tag [_] conditional-type-tag))
 
-(defn Dyn
-  [prov]
+(s/defn Dyn :- ats/SemanticType
+  [prov :- provs/Provenance]
   (->DynT prov))
 
-(defn BottomType
-  [prov]
+(s/defn BottomType :- ats/SemanticType
+  [prov :- provs/Provenance]
   (->BottomT prov))
 
-(defn NumericDyn
-  [prov]
+(s/defn NumericDyn :- ats/SemanticType
+  [prov :- provs/Provenance]
   (->NumericDynT prov))
 
-(defn semantic-type-value?
-  [value]
-  (satisfies? SemanticType value))
+(s/defn semantic-type-value? :- s/Bool
+  [value :- s/Any]
+  (satisfies? proto/SemanticType value))
 
-(defn dyn-type? [t] (instance? DynT t))
-(defn bottom-type? [t] (instance? BottomT t))
-(defn ground-type? [t] (instance? GroundT t))
-(defn numeric-dyn-type? [t] (instance? NumericDynT t))
-(defn refinement-type? [t] (instance? RefinementT t))
-(defn adapter-leaf-type? [t] (instance? AdapterLeafT t))
-(defn optional-key-type? [t] (instance? OptionalKeyT t))
-(defn fn-method-type? [t] (instance? FnMethodT t))
-(defn fun-type? [t] (instance? FunT t))
-(defn maybe-type? [t] (instance? MaybeT t))
-(defn union-type? [t] (instance? UnionT t))
-(defn intersection-type? [t] (instance? IntersectionT t))
-(defn map-type? [t] (instance? MapT t))
-(defn vector-type? [t] (instance? VectorT t))
-(defn set-type? [t] (instance? SetT t))
-(defn seq-type? [t] (instance? SeqT t))
-(defn var-type? [t] (instance? VarT t))
-(defn type-var-type? [t] (instance? TypeVarT t))
-(defn forall-type? [t] (instance? ForallT t))
-(defn sealed-dyn-type? [t] (instance? SealedDynT t))
-(defn conditional-type? [t] (instance? ConditionalT t))
-(defn placeholder-type? [t] (instance? PlaceholderT t))
-(defn inf-cycle-type? [t] (instance? InfCycleT t))
-(defn value-type? [t] (instance? ValueT t))
+(s/defn dyn-type? :- s/Bool [t :- s/Any] (instance? DynT t))
+(s/defn bottom-type? :- s/Bool [t :- s/Any] (instance? BottomT t))
+(s/defn ground-type? :- s/Bool [t :- s/Any] (instance? GroundT t))
+(s/defn numeric-dyn-type? :- s/Bool [t :- s/Any] (instance? NumericDynT t))
+(s/defn refinement-type? :- s/Bool [t :- s/Any] (instance? RefinementT t))
+(s/defn adapter-leaf-type? :- s/Bool [t :- s/Any] (instance? AdapterLeafT t))
+(s/defn optional-key-type? :- s/Bool [t :- s/Any] (instance? OptionalKeyT t))
+(s/defn fn-method-type? :- s/Bool [t :- s/Any] (instance? FnMethodT t))
+(s/defn fun-type? :- s/Bool [t :- s/Any] (instance? FunT t))
+(s/defn maybe-type? :- s/Bool [t :- s/Any] (instance? MaybeT t))
+(s/defn union-type? :- s/Bool [t :- s/Any] (instance? UnionT t))
+(s/defn intersection-type? :- s/Bool [t :- s/Any] (instance? IntersectionT t))
+(s/defn map-type? :- s/Bool [t :- s/Any] (instance? MapT t))
+(s/defn vector-type? :- s/Bool [t :- s/Any] (instance? VectorT t))
+(s/defn set-type? :- s/Bool [t :- s/Any] (instance? SetT t))
+(s/defn seq-type? :- s/Bool [t :- s/Any] (instance? SeqT t))
+(s/defn var-type? :- s/Bool [t :- s/Any] (instance? VarT t))
+(s/defn type-var-type? :- s/Bool [t :- s/Any] (instance? TypeVarT t))
+(s/defn forall-type? :- s/Bool [t :- s/Any] (instance? ForallT t))
+(s/defn sealed-dyn-type? :- s/Bool [t :- s/Any] (instance? SealedDynT t))
+(s/defn conditional-type? :- s/Bool [t :- s/Any] (instance? ConditionalT t))
+(s/defn placeholder-type? :- s/Bool [t :- s/Any] (instance? PlaceholderT t))
+(s/defn inf-cycle-type? :- s/Bool [t :- s/Any] (instance? InfCycleT t))
+(s/defn value-type? :- s/Bool [t :- s/Any] (instance? ValueT t))
 
-(defn fun-methods
-  [fun-t]
+(s/defn fun-methods :- [ats/SemanticType]
+  [fun-t :- ats/SemanticType]
   (:methods fun-t))
 
-(defn fn-method-inputs
-  [method]
+(s/defn fn-method-inputs :- [ats/SemanticType]
+  [method :- ats/SemanticType]
   (:inputs method))
 
-(defn fn-method-output
-  [method]
+(s/defn fn-method-output :- ats/SemanticType
+  [method :- ats/SemanticType]
   (:output method))
 
-(defn fn-method-input-names
-  [method]
+(s/defn fn-method-input-names :- (s/maybe [s/Any])
+  [method :- ats/SemanticType]
   (:names method))
 
-(defn select-method
-  [methods arity]
+(s/defn select-method :- (s/maybe ats/SemanticType)
+  [methods :- [ats/SemanticType]
+   arity :- s/Int]
   (or (some #(when (= (:min-arity %) arity) %) methods)
       (some #(when (:variadic? %) %) methods)
       (when-let [eligible (seq (filter #(<= (:min-arity %) arity) methods))]
@@ -356,7 +358,7 @@
 
 (defn- semantic-type=?
   [same? a b]
-  (and (= (semantic-tag a) (semantic-tag b))
+  (and (= (proto/semantic-tag a) (proto/semantic-tag b))
        (cond
          (or (dyn-type? a)
              (bottom-type? a)
@@ -445,8 +447,9 @@
          :else
          (= a b))))
 
-(defn type=?
-  [a b]
+(s/defn type=? :- s/Any
+  [a :- s/Any
+   b :- s/Any]
   (letfn [(same? [a b]
             (cond
               (identical? a b) true
@@ -489,7 +492,7 @@
   (letfn [(hash-type [x]
             (cond
               (semantic-type-value? x)
-              (let [tag-hash (hash (semantic-tag x))]
+              (let [tag-hash (hash (proto/semantic-tag x))]
                 (cond
                   (or (dyn-type? x)
                       (bottom-type? x)
@@ -607,8 +610,8 @@
       (assoc bucket idx t)
       (conj (or bucket []) t))))
 
-(defn dedup-types
-  [types]
+(s/defn dedup-types :- #{s/Any}
+  [types :- [s/Any]]
   (->> types
        (reduce (fn [acc t]
                  (update acc (type-hash t) dedup-bucket t))
@@ -617,12 +620,13 @@
        (apply concat)
        (into #{})))
 
-(defn type-equal?
-  [a b]
+(s/defn type-equal? :- s/Any
+  [a :- s/Any
+   b :- s/Any]
   (type=? (strip-runtime-closures a) (strip-runtime-closures b)))
 
-(defn ref-display-form
-  [ref]
+(s/defn ref-display-form :- s/Symbol
+  [ref :- s/Any]
   (cond
     (symbol? ref) ref
     (and (vector? ref)
@@ -632,6 +636,6 @@
     (string? ref) (symbol ref)
     :else 'Unknown))
 
-(defn placeholder-display-form
-  [ref]
+(s/defn placeholder-display-form :- s/Symbol
+  [ref :- s/Any]
   (ref-display-form ref))

@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.fn
-  (:require [skeptic.analysis.annotate.api :as aapi]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
@@ -15,8 +16,8 @@
   (or (some #(when (= (:min-arity %) arity) %) (at/fun-methods ft))
       (some #(when (:variadic? %) %) (at/fun-methods ft))))
 
-(defn arg-type-specs
-  [ctx dict ns-sym name params]
+(s/defn arg-type-specs
+  [ctx dict ns-sym name params] :- [s/Any]
   (let [arity (count params)
         method (some-> (dict-fun-type dict ns-sym name) (method-at-arity arity))
         inputs (some-> method at/fn-method-inputs)
@@ -32,8 +33,8 @@
               {:type (aapi/dyn ctx) :optional? false :name (:form param)})
             params))))
 
-(defn fn-method-param-specs-with-overrides
-  [ctx dict ns-sym name params param-type-overrides]
+(s/defn fn-method-param-specs-with-overrides
+  [ctx dict ns-sym name params param-type-overrides] :- [s/Any]
   (mapv (fn [param spec]
           (if-let [type (get param-type-overrides (:form param))]
             (assoc spec :type (aapi/normalize-type ctx type))
@@ -41,8 +42,8 @@
         params
         (arg-type-specs ctx dict ns-sym name params)))
 
-(defn fn-method-merge-param-nodes
-  [params param-specs]
+(s/defn fn-method-merge-param-nodes
+  [params param-specs] :- [s/Any]
   (mapv (fn [param spec]
           (let [extra (when (at/fun-type? (:type spec))
                         (ac/fun-type->call-opts (:type spec)))]
@@ -56,8 +57,8 @@
         (map (fn [param] [(:form param) (or (:type param) (aapi/dyn ctx))]))
         annotated-params))
 
-(defn annotate-fn-method
-  [{:keys [locals dict name ns recur-targets] :as ctx} node & [param-type-overrides]]
+(s/defn annotate-fn-method
+  [{:keys [locals dict name ns recur-targets] :as ctx} node & [param-type-overrides]] :- s/Any
   (let [param-type-overrides (or param-type-overrides {})
         param-specs (fn-method-param-specs-with-overrides
                      ctx dict ns name (:params node) param-type-overrides)
@@ -79,8 +80,8 @@
            :arglist (mapv :name param-specs)
            :param-specs param-specs)))
 
-(defn method->arglist-entry
-  [method]
+(s/defn method->arglist-entry
+  [method] :- s/Any
   {:arglist (:arglist method)
    :count (count (:param-specs method))
    :types (mapv (fn [{:keys [type name]}]
@@ -96,8 +97,8 @@
                   (boolean (:variadic? method))
                   (mapv :name (:param-specs method))))
 
-(defn annotate-fn
-  [ctx node & [opts]]
+(s/defn annotate-fn
+  [ctx node & [opts]] :- s/Any
   (let [overrides (:param-type-overrides opts {})
         methods (mapv #(annotate-fn-method ctx % overrides) (:methods node))
         arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)

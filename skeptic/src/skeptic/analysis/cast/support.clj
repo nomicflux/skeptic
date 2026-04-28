@@ -1,11 +1,13 @@
 (ns skeptic.analysis.cast.support
-  (:require [skeptic.analysis.bridge.render :as abr]
+  (:require [schema.core :as s]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]))
 
-(defn sealed-ground-name
-  [type]
+(s/defn sealed-ground-name :- s/Any
+  [type :- s/Any]
   (some-> type ato/normalize :ground ata/type-var-name))
 
 (defn- missing-type-field
@@ -84,8 +86,8 @@
     (cast-ok source-type target-type rule children)
     (cast-fail source-type target-type rule polarity reason children)))
 
-(defn semantic-type-children
-  [type]
+(s/defn semantic-type-children :- [s/Any]
+  [type :- s/Any]
   (let [type (ato/normalize type)]
     (cond
       (at/sealed-dyn-type? type) [(:ground type)]
@@ -102,8 +104,8 @@
       (at/forall-type? type) [(:body type)]
       :else [])))
 
-(defn contains-sealed-ground?
-  [type binder]
+(s/defn contains-sealed-ground? :- s/Bool
+  [type :- s/Any binder :- s/Any]
   (boolean
    (some #(and (at/sealed-dyn-type? %)
                (= binder (sealed-ground-name %)))
@@ -157,19 +159,19 @@
         (cast-fail type (at/->TypeVarT (ato/derive-prov type) binder) :nu-tamper :global :nu-tamper [] nil)
         (cast-ok type (at/->TypeVarT (ato/derive-prov type) binder) :nu-pass [] nil)))))
 
-(defn method-accepts-arity?
-  [method arity]
+(s/defn method-accepts-arity? :- s/Bool
+  [method :- ats/SemanticType arity :- s/Int]
   (if (:variadic? method)
     (>= arity (:min-arity method))
     (= arity (:min-arity method))))
 
-(defn matching-source-method
-  [source-fun target-method]
+(s/defn matching-source-method :- (s/maybe ats/SemanticType)
+  [source-fun :- ats/SemanticType target-method :- ats/SemanticType]
   (some #(when (method-accepts-arity? % (count (:inputs target-method))) %)
         (:methods source-fun)))
 
-(defn optional-key-inner
-  [type]
+(s/defn optional-key-inner :- ats/SemanticType
+  [type :- ats/SemanticType]
   (if (at/optional-key-type? type)
     (:inner type)
     type))

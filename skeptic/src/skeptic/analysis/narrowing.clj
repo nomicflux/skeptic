@@ -1,6 +1,8 @@
 (ns skeptic.analysis.narrowing
-  (:require [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at])
+  (:require [schema.core :as s]
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats])
   (:import [java.lang Number]))
 
 (declare partition-type-for-predicate*)
@@ -38,8 +40,9 @@
     (.isAssignableFrom Number pred-class) :unknown
     :else :does-not-match))
 
-(defn classify-leaf-for-predicate?
-  [pred-info t]
+(s/defn classify-leaf-for-predicate? :- s/Keyword
+  [pred-info :- s/Any
+   t         :- ats/SemanticType]
   (let [t (ato/normalize t)
         pred (:pred pred-info)]
     (cond
@@ -189,8 +192,10 @@
 
       :else (partition-leaf type pred-info polarity))))
 
-(defn partition-type-for-predicate
-  [type pred-info polarity]
+(s/defn partition-type-for-predicate :- ats/SemanticType
+  [type      :- ats/SemanticType
+   pred-info :- s/Any
+   polarity  :- s/Bool]
   (partition-type-for-predicate* (ato/normalize type) pred-info polarity))
 
 (defn- false-bool-value-type?
@@ -198,8 +203,8 @@
   (and (at/value-type? t)
        (false? (:value t))))
 
-(defn can-be-falsy-type?
-  [t]
+(s/defn can-be-falsy-type? :- s/Any
+  [t :- ats/SemanticType]
   (let [t (ato/normalize t)]
     (cond
       (at/dyn-type? t) true
@@ -211,12 +216,13 @@
       (at/ground-type? t) (= :bool (:ground t))
       :else false)))
 
-(defn statically-truthy-type?
-  [t]
+(s/defn statically-truthy-type? :- s/Any
+  [t :- (s/maybe ats/SemanticType)]
   (and t (not (can-be-falsy-type? t))))
 
-(defn apply-truthy-local
-  [type polarity]
+(s/defn apply-truthy-local :- ats/SemanticType
+  [type     :- ats/SemanticType
+   polarity :- s/Bool]
   (if-not polarity
     type
     (let [t (ato/de-maybe (ato/normalize type))]
@@ -268,8 +274,10 @@
     :else
     (if polarity (ato/bottom t) t)))
 
-(defn partition-type-for-values
-  [type values polarity]
+(s/defn partition-type-for-values :- ats/SemanticType
+  [type     :- ats/SemanticType
+   values   :- [s/Any]
+   polarity :- s/Bool]
   (let [type (ato/normalize type)
         values (vec (distinct values))]
     (cond
