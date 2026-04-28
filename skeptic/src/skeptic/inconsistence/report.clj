@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.cast :as acast]
             [skeptic.analysis.cast.result :as cast-result]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -389,7 +390,7 @@
        (pth/with-path-detail message diagnostic)))))
 
 (s/defn cast-report-metadata :- s/Any
-  [raw-cast-result :- s/Any]
+  [raw-cast-result :- csch/CastResult]
   (let [summary  (cast-result/root-summary raw-cast-result)
         leaves   (cast-result/leaf-diagnostics raw-cast-result)
         primary  (cast-result/primary-diagnostic raw-cast-result)]

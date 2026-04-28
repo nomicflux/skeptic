@@ -192,8 +192,8 @@
 
 (s/defn with-path-detail :- s/Str
   [message :- s/Str
-   cast-result :- s/Any]
-  (if-let [path-text (render-visible-path (:path cast-result))]
+   diagnostic :- s/Any]
+  (if-let [path-text (render-visible-path (:path diagnostic))]
     (str message "\n\nPath:\n\n" (colours/yellow path-text))
     message))
 
