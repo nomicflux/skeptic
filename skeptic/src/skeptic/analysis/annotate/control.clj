@@ -329,14 +329,11 @@
                (first then-conjuncts))
         test (or test
                  (when (seq then-conjuncts)
-                   {:kind :conjunction :parts then-conjuncts}))
+                   (ao/conjunction-assumption then-conjuncts)))
         then-orig (ao/node-origin then-node)
         else-orig (ao/node-origin else-node)]
     (or (when (and test then-orig else-orig)
-          {:kind :branch
-           :test test
-           :then-origin then-orig
-           :else-origin else-orig})
+          (ao/branch-origin test then-orig else-orig))
         (ao/opaque-origin joined-type))))
 
 (s/defn ^:private branch-truth :- (s/maybe aos/AssumptionTruth)
@@ -346,7 +343,7 @@
     (ao/assumption-truth (first then-conjuncts) assumptions)
 
     (seq then-conjuncts)
-    (ao/assumption-truth {:kind :conjunction :parts (vec then-conjuncts)} assumptions)))
+    (ao/assumption-truth (ao/conjunction-assumption then-conjuncts) assumptions)))
 
 (defn- joined-branch-type
   [ctx truth then-node else-node]

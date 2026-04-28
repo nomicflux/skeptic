@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.map-ops :as amo]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -169,7 +170,7 @@
   (and (= :const (aapi/node-op node))
        (class? (aapi/node-value node))))
 
-(s/defn type-predicate-assumption-info :- (s/maybe s/Any)
+(s/defn type-predicate-assumption-info :- (s/maybe aos/PredInfo)
   [fn-node :- s/Any
    args :- s/Any]
   (let [sym (resolved-call-sym fn-node)

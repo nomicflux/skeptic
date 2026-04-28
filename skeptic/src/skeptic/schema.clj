@@ -1,4 +1,3 @@
-(ns skeptic.analysis)
 (ns skeptic.schema
   (:require [schema.core :as s]))
 

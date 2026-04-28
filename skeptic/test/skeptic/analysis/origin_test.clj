@@ -7,6 +7,7 @@
             [skeptic.examples]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.origin :as ao]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.analysis-test :as atst]
@@ -26,6 +27,51 @@
       (is (at/type=? (atst/T s/Str) (:type o)))))
   (testing "effective-type returns refined type"
     (is (at/type=? (atst/T s/Int) (ao/effective-type tp 'x (atst/T s/Int) [])))))
+
+(deftest predicate-info-shapes-satisfy-schema-test
+  (let [some-info (ac/type-predicate-assumption-info {:op :var :form 'some?}
+                                                     [{:op :local :form 'x}])
+        instance-info (ac/type-predicate-assumption-info {:op :var :form 'instance?}
+                                                         [{:op :const :val String :form String}
+                                                          {:op :local :form 'x}])]
+    (is (= {:pred :some?} (s/validate aos/PredInfo some-info)))
+    (is (= {:pred :instance? :class String}
+           (s/validate aos/PredInfo instance-info)))))
+
+(deftest path-type-predicate-assumption-shape-test
+  (let [root-type (atst/T {:x {:k (s/maybe s/Str)}})
+        kq-x (amo/exact-key-query tp :x)
+        kq-k (amo/exact-key-query tp :k)
+        target {:op :keyword-invoke
+                :form '(:k (:x x))
+                :type (atst/T (s/maybe s/Str))
+                :origin (ao/map-key-lookup-origin (ao/root-origin 'x root-type)
+                                                  [kq-x kq-k]
+                                                  [amo/no-default amo/no-default])}
+        some-node {:op :invoke
+                   :fn {:op :var :form 'some?}
+                   :args [target]}
+        assumption (ao/test->assumption tp some-node)]
+    (is (= :path-type-predicate (:kind assumption)))
+    (is (= 'x (get-in assumption [:root :sym])))
+    (is (= 2 (count (:path assumption))))
+    (is (= :x (:value (first (:path assumption)))))
+    (is (= :k (:value (second (:path assumption)))))
+    (is (= :some? (:pred assumption)))
+    (is (true? (:polarity assumption)))
+    (is (= assumption (s/validate aos/PathTypePredicateAssumption assumption)))))
+
+(deftest branch-origin-with-conjunction-satisfies-schema-test
+  (let [root (ao/root-origin 'x (atst/T (s/maybe s/Str)))
+        left (ao/type-predicate-assumption root {:pred :some?} true)
+        right (ao/type-predicate-assumption root {:pred :string?} true)
+        test (ao/conjunction-assumption [left right])
+        then-origin (ao/opaque-origin (atst/T s/Str))
+        else-origin (ao/opaque-origin (atst/T nil))
+        origin (ao/branch-origin test then-origin else-origin)]
+    (is (= :branch (:kind origin)))
+    (is (= :conjunction (get-in origin [:test :kind])))
+    (is (= origin (s/validate aos/Origin origin)))))
 
 (deftest typed-binding-and-refinement-test
   (testing "let-driven flow through or expands to refinable branch"
