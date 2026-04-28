@@ -4,6 +4,7 @@
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.sum-types :as sums]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -51,7 +52,7 @@
 
 (s/defn case-assumption-root-for-local
   [ctx :- s/Any, target :- s/Any]
-  :- s/Any
+  :- (s/maybe aos/Origin)
   (or (ao/local-root-origin ctx target)
       (when (= :local (:op target))
         (ao/root-origin (:form target) (or (:type target) (aapi/dyn ctx))))))
@@ -251,8 +252,9 @@
                    then-body)]
     (assoc (nth thens i) :then annotated)))
 
-(defn- default-assumption
-  [anchor-prov use-conditional? disc-root cond-branches kw-root-info all-values]
+(s/defn ^:private default-assumption
+  [anchor-prov :- provs/Provenance, use-conditional? :- s/Any, disc-root :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any, all-values :- s/Any]
+  :- (s/maybe aos/Assumption)
   (cond
     (and use-conditional? disc-root (seq all-values))
     {:kind :conditional-branch

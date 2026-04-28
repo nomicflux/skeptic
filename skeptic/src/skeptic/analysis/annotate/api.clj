@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -43,7 +44,7 @@
 (s/defn node-type :- s/Any [node :- s/Any] (:type node))
 (s/defn node-output-type :- s/Any [node :- s/Any] (:output-type node))
 (s/defn node-fn-type :- s/Any [node :- s/Any] (:fn-type node))
-(s/defn node-origin :- s/Any [node :- s/Any] (:origin node))
+(s/defn node-origin :- (s/maybe aos/Origin) [node :- s/Any] (:origin node))
 (s/defn node-var :- s/Any [node :- s/Any] (:var node))
 (s/defn node-name :- s/Any [node :- s/Any] (:name node))
 (s/defn node-class :- s/Any [node :- s/Any] (:class node))
@@ -209,11 +210,11 @@
   [node :- s/Any]
   (:else node))
 
-(s/defn branch-origin-kind :- s/Any
+(s/defn branch-origin-kind :- (s/maybe s/Keyword)
   [node :- s/Any]
   (get-in node [:origin :kind]))
 
-(s/defn branch-test-assumption :- s/Any
+(s/defn branch-test-assumption :- (s/maybe aos/Assumption)
   [node :- s/Any]
   (get-in node [:origin :test]))
 
