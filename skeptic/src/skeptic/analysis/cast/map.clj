@@ -1,5 +1,6 @@
 (ns skeptic.analysis.cast.map
   (:require [schema.core :as s]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
@@ -153,7 +154,7 @@
                  (mapcat #(domain-entry-results run-child source-type target-type % target-domains opts)
                          source-domains)))))
 
-(s/defn check-map-cast
+(s/defn check-map-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (let [children (map-children run-child source-type target-type opts)]
     (ascs/aggregate-children source-type target-type :map (:polarity opts) :map-cast-failed children)))

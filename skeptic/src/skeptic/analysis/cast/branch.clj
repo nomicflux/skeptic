@@ -1,5 +1,6 @@
 (ns skeptic.analysis.cast.branch
   (:require [schema.core :as s]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -37,7 +38,7 @@
       (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
       (ascs/cast-fail source-type target-type :target-union (:polarity opts) :no-union-branch children))))
 
-(s/defn check-union-cast
+(s/defn check-union-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/union-type? source-type)
     (source-union-result run-child source-type target-type opts)
@@ -62,7 +63,7 @@
       (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})
       (ascs/cast-fail source-type target-type :target-union (:polarity opts) :no-union-branch children))))
 
-(s/defn check-conditional-cast
+(s/defn check-conditional-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/conditional-type? source-type)
     (source-conditional-result run-child source-type target-type opts)
@@ -90,7 +91,7 @@
                              :source-component-failed
                              children)))
 
-(s/defn check-intersection-cast
+(s/defn check-intersection-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/intersection-type? target-type)
     (target-intersection-result run-child source-type target-type opts)
@@ -112,7 +113,7 @@
   [t]
   (if (at/maybe-type? t) (:inner t) t))
 
-(s/defn check-maybe-cast
+(s/defn check-maybe-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (cond
     (and (at/maybe-type? source-type) (nullable-target? target-type))
@@ -144,7 +145,7 @@
     (at/var-type? type) (:inner type)
     :else type))
 
-(s/defn check-wrapper-cast
+(s/defn check-wrapper-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (or (at/optional-key-type? source-type)
           (at/var-type? source-type))
