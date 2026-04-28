@@ -37,7 +37,7 @@
   [assumption :- aos/Assumption]
   :- (s/maybe aos/Assumption)
   (case (:kind assumption)
-    :conjunction nil
+    (:conjunction :disjunction) nil
     (update assumption :polarity not)))
 
 (defn- invertible-assumption?
@@ -96,7 +96,9 @@
   [left :- aos/Assumption
    right :- aos/Assumption]
   :- s/Bool
-  (same-assumption? left (opposite-polarity right)))
+  (if-let [r (opposite-polarity right)]
+    (same-assumption? left r)
+    false))
 
 (s/defn same-assumption-proposition?
   "Same narrowed fact on the same root, ignoring branch polarity."
@@ -187,7 +189,7 @@
           assumptions))
 
 (s/defn assumption-base-type
-  [assumption :- aos/Assumption
+  [assumption :- aos/RootedAssumption
    assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (let [same-proposition? #(same-assumption-proposition? % assumption)]
