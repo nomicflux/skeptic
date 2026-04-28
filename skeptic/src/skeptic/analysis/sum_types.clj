@@ -1,6 +1,8 @@
 (ns skeptic.analysis.sum-types
-  (:require [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+  (:require [schema.core :as s]
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]))
 
 (declare sum-alternatives)
 
@@ -35,8 +37,8 @@
         (when-not (open-type? type)
           [type]))))
 
-(defn sum-alternatives
-  [type]
+(s/defn sum-alternatives :- (s/maybe [ats/SemanticType])
+  [type :- s/Any]
   (let [type (ato/normalize type)]
     (cond
       (open-type? type) nil
@@ -47,24 +49,26 @@
       (at/conditional-type? type) (union-alternatives (assoc type :members (mapv second (:branches type))))
       :else (bool-alternatives type))))
 
-(defn sum-type?
-  [type]
+(s/defn sum-type? :- s/Bool
+  [type :- s/Any]
   (boolean (seq (sum-alternatives type))))
 
 (defn- covered?
   [covered alternative]
   (some #(at/type-equal? alternative %) covered))
 
-(defn exhausted-by-types?
-  [sum-type covered-types]
+(s/defn exhausted-by-types? :- s/Bool
+  [sum-type      :- s/Any
+   covered-types :- [s/Any]]
   (let [alternatives (seq (sum-alternatives sum-type))
         covered (mapcat cover-alternatives covered-types)]
     (boolean
      (and alternatives
           (every? #(covered? covered %) alternatives)))))
 
-(defn exhausted-by-values?
-  [sum-type values]
+(s/defn exhausted-by-values? :- s/Bool
+  [sum-type :- ats/SemanticType
+   values   :- [s/Any]]
   (let [prov (ato/derive-prov sum-type)
         covered (map #(ato/exact-value-type prov %) values)]
     (exhausted-by-types? sum-type covered)))

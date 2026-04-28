@@ -1,15 +1,17 @@
 (ns skeptic.analysis.type-algebra
-  (:require [skeptic.analysis.type-ops :as ato]
+  (:require [schema.core :as s]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
-(defn type-var-name
-  [type]
+(s/defn type-var-name :- s/Any
+  [type :- s/Any]
   (when (at/type-var-type? type)
     (:name type)))
 
-(defn type-free-vars
-  [type]
+(s/defn type-free-vars :- #{s/Any}
+  [type :- s/Any]
   (let [type (ato/normalize type)]
     (cond
       (or (at/dyn-type? type)
@@ -76,8 +78,10 @@
       :else
       #{})))
 
-(defn type-substitute
-  [type binder replacement]
+(s/defn type-substitute :- ats/SemanticType
+  [type        :- s/Any
+   binder      :- s/Any
+   replacement :- s/Any]
   (let [type (ato/normalize type)
         replacement (ato/normalize replacement)
         prov (ato/derive-prov type replacement)]

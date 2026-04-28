@@ -1,13 +1,14 @@
 ;; Descriptor: {:kind :def|:defschema|:defn :schema-form form | :output-form form :arglists {k {:input-forms [...] :count n}}}
 (ns skeptic.checking.form
-  (:require [skeptic.analysis.annotate.api :as aapi]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.bridge :as ab])
   (:import [java.io File]))
 
 (def spy-on false)
 (def spy-only #{})
 
-(defn spy*
+(s/defn spy* :- s/Any
   [msg x]
   (when (and spy-on (or (nil? spy-only)
                         (contains? spy-only msg)))
@@ -22,7 +23,7 @@
   `(spy* ~_msg ~x)
   x)
 
-(defn valid-schema?
+(s/defn valid-schema? :- s/Any
   [schema]
   (ab/schema-domain? schema))
 
@@ -40,19 +41,19 @@
        ~x)
   x)
 
-(defn with-form-meta
+(s/defn with-form-meta :- s/Any
   [original rewritten]
   (if (instance? clojure.lang.IObj rewritten)
     (with-meta rewritten (meta original))
     rewritten))
 
-(defn schema-defn-symbol?
-  [sym]
+(s/defn schema-defn-symbol? :- s/Any
+  [sym :- s/Any]
   (and (symbol? sym)
        (= "defn" (name sym))
        (#{"s" "schema.core"} (namespace sym))))
 
-(defn strip-schema-argvec
+(s/defn strip-schema-argvec :- s/Any
   [argvec]
   (with-form-meta
     argvec
@@ -63,13 +64,13 @@
         (= x ':-) (recur (next more) acc)
         :else (recur more (conj acc x))))))
 
-(defn strip-schema-method
+(s/defn strip-schema-method :- s/Any
   [decl]
   (let [[args & body] decl]
     (with-form-meta decl
       (list* (strip-schema-argvec args) body))))
 
-(defn strip-schema-defn
+(s/defn strip-schema-defn :- s/Any
   [form]
   (let [[_defn-sym name & more] form
         [more] (if (= ':- (first more))
@@ -92,20 +93,20 @@
                      (when attr-map [attr-map])
                      decls)))))
 
-(defn normalize-check-form
+(s/defn normalize-check-form :- s/Any
   [form]
   (if (and (seq? form) (schema-defn-symbol? (first form)))
     (strip-schema-defn form)
     form))
 
-(defn source-file-path
+(s/defn source-file-path :- (s/maybe s/Str)
   [source-file]
   (cond
     (nil? source-file) nil
     (instance? File source-file) (.getPath ^File source-file)
     :else (str source-file)))
 
-(defn merge-location
+(s/defn merge-location :- s/Any
   [& locations]
   (when-let [present (seq (remove nil? locations))]
     (reduce (fn [acc location]
@@ -115,12 +116,12 @@
             {}
             present)))
 
-(defn form-location
+(s/defn form-location :- s/Any
   [source-file form]
   (merge-location {:file (source-file-path source-file)}
                   (select-keys (meta form) [:line :column :end-line :end-column])))
 
-(defn form-source
+(s/defn form-source :- s/Any
   [form]
   (:source (meta form)))
 
@@ -142,7 +143,7 @@
       (= ':- (second items)) (recur (drop 3 items) (conj acc (nth items 2)))
       :else (recur (next items) (conj acc nil)))))
 
-(defn defn-decls
+(s/defn defn-decls :- s/Any
   [form]
   (when (and (seq? form)
              (symbol? (first form))
@@ -164,14 +165,14 @@
            (list* (first more) (next more)))]
         more))))
 
-(defn extract-defn-annotation-symbol
+(s/defn extract-defn-annotation-symbol :- s/Any
   [form]
   (let [[_defn-sym _name & more] form
         more (if (string? (first more)) (next more) more)
         more (if (map? (first more)) (next more) more)]
     (annotation-symbol more)))
 
-(defn extract-def-annotation-symbol
+(s/defn extract-def-annotation-symbol :- s/Any
   [form]
   (let [[_def-sym _name & more] form]
     (annotation-symbol more)))
@@ -184,7 +185,7 @@
       [:varargs {:input-forms input-forms :count (count input-forms)}]
       [(count input-forms) {:input-forms input-forms}])))
 
-(defn extract-defn-annotation-form
+(s/defn extract-defn-annotation-form :- s/Any
   [form]
   (let [[_defn-sym _name & more] form
         more (if (string? (first more)) (next more) more)
@@ -206,7 +207,7 @@
      :output-form output-form
      :arglists arglists}))
 
-(defn extract-def-annotation-form
+(s/defn extract-def-annotation-form :- s/Any
   [form]
   (let [[_def-sym _name & more] form
         schema-form (annotation-form more)]
@@ -219,7 +220,7 @@
        (= "defschema" (name sym))
        (#{"s" "schema.core"} (namespace sym))))
 
-(defn extract-defschema-body-form
+(s/defn extract-defschema-body-form :- s/Any
   [form]
   (when (and (seq? form)
              (schema-defschema-symbol? (first form)))
@@ -227,7 +228,7 @@
       {:kind :defschema
        :schema-form body-form})))
 
-(defn method-source-body
+(s/defn method-source-body :- s/Any
   [decl]
   (let [[_args & body] decl]
     (cond
@@ -236,7 +237,7 @@
       :else (with-form-meta (first body)
               (list* 'do body)))))
 
-(defn display-expr
+(s/defn display-expr :- s/Any
   [node]
   (let [expr (aapi/node-form node)
         source-expression (form-source expr)]
@@ -247,7 +248,7 @@
                             expr)
      :location (aapi/node-location node)}))
 
-(defn node-error-context
+(s/defn node-error-context :- s/Any
   [node enclosing-form]
   (let [{:keys [expr source-expression location]} (display-expr node)]
     {:expr expr

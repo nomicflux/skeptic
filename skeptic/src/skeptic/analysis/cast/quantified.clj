@@ -1,8 +1,10 @@
 (ns skeptic.analysis.cast.quantified
-  (:require [skeptic.analysis.cast.support :as ascs]
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]))
 
 (defn- quantified-failure
   [source-type target-type rule reason child opts details]
@@ -70,8 +72,8 @@
         (ascs/cast-fail source-type target-type :sealed-collapse polarity :sealed-ground-mismatch))
       (ascs/cast-fail source-type target-type :type-var-target polarity :abstract-target-mismatch))))
 
-(defn check-abstract-cast
-  [source-type target-type opts]
+(s/defn check-abstract-cast
+  [source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (let [polarity (:polarity opts)]
     (cond
       (and (at/type-var-type? source-type) (at/dyn-type? target-type))
@@ -87,8 +89,8 @@
       :else
       (ascs/cast-fail source-type target-type :sealed-conflict polarity :sealed-mismatch))))
 
-(defn check-quantified-cast
-  [run-child source-type target-type opts]
+(s/defn check-quantified-cast
+  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
   (if (at/forall-type? target-type)
     (generalize-cast run-child source-type target-type opts)
     (instantiate-cast run-child source-type target-type opts)))

@@ -1,9 +1,11 @@
 (ns skeptic.analysis.map-ops
   (:require [clojure.set :as set]
+            [schema.core :as s]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (defn- check-cast'
@@ -32,8 +34,8 @@
   [value]
   (ato/normalize value))
 
-(defn finite-exact-key-values
-  [type]
+(s/defn finite-exact-key-values :- (s/maybe #{s/Any})
+  [type :- ats/SemanticType]
   (let [type (ascs/optional-key-inner (as-type type))]
     (cond
       (at/value-type? type)
@@ -50,48 +52,48 @@
 (def map-key-query-tag
   ::map-key-query)
 
-(defn map-key-query?
-  [query]
+(s/defn map-key-query? :- s/Bool
+  [query :- s/Any]
   (at/tagged-map? query map-key-query-tag true))
 
-(defn exact-key-query
-  ([prov value]
+(s/defn exact-key-query :- {s/Keyword s/Any}
+  ([prov :- s/Any value :- s/Any]
    (exact-key-query prov value nil))
-  ([prov value source-form]
+  ([prov :- s/Any value :- s/Any source-form :- s/Any]
    {map-key-query-tag true
     :kind :exact
     :prov prov
     :value value
     :source-form source-form}))
 
-(defn domain-key-query
-  ([type]
+(s/defn domain-key-query :- {s/Keyword s/Any}
+  ([type :- ats/SemanticType]
    (domain-key-query type nil))
-  ([type source-form]
+  ([type :- ats/SemanticType source-form :- s/Any]
    {map-key-query-tag true
     :kind :domain
     :type (ato/normalize type)
     :source-form source-form}))
 
-(defn exact-key-query?
-  [query]
+(s/defn exact-key-query? :- s/Bool
+  [query :- s/Any]
   (and (map-key-query? query)
        (= :exact (:kind query))))
 
-(defn query-key-type
-  [query]
+(s/defn query-key-type :- ats/SemanticType
+  [query :- s/Any]
   (if (exact-key-query? query)
     (ato/exact-value-type (:prov query) (:value query))
     (:type query)))
 
-(defn exact-entry-kind
-  [key-type]
+(s/defn exact-entry-kind :- s/Keyword
+  [key-type :- ats/SemanticType]
   (if (at/optional-key-type? key-type)
     :optional-explicit
     :required-explicit))
 
-(defn descriptor-entry
-  [entry-key entry-value kind]
+(s/defn descriptor-entry :- {s/Keyword s/Any}
+  [entry-key :- s/Any entry-value :- s/Any kind :- s/Keyword]
   (let [key-type (as-type entry-key)
         inner-key-type (ascs/optional-key-inner key-type)]
     {:key entry-key
@@ -102,8 +104,8 @@
      :exact-value (when (at/value-type? inner-key-type)
                     (:value inner-key-type))}))
 
-(defn add-descriptor-entry
-  [descriptor entry]
+(s/defn add-descriptor-entry :- {s/Keyword s/Any}
+  [descriptor :- {s/Keyword s/Any} entry :- {s/Keyword s/Any}]
   (if-let [exact-value (:exact-value entry)]
     (case (:kind entry)
       :required-explicit (assoc-in descriptor [:required-exact exact-value] entry)
@@ -111,8 +113,8 @@
       (update descriptor :domain-entries conj entry))
     (update descriptor :domain-entries conj entry)))
 
-(defn map-entry-descriptor
-  [entries]
+(s/defn map-entry-descriptor :- {s/Keyword s/Any}
+  [entries :- s/Any]
   (reduce (fn [descriptor [entry-key entry-value]]
             (let [key-type (as-type entry-key)]
               (if-let [exact-values (finite-exact-key-values key-type)]
@@ -136,21 +138,21 @@
            :domain-entries []}
           entries))
 
-(defn effective-exact-entries
-  [descriptor]
+(s/defn effective-exact-entries :- s/Any
+  [descriptor :- {s/Keyword s/Any}]
   (concat (vals (:required-exact descriptor))
           (->> (:optional-exact descriptor)
                (remove (fn [[value _entry]]
                          (contains? (:required-exact descriptor) value)))
                (map val))))
 
-(defn exact-key-entry
-  [descriptor exact-value]
+(s/defn exact-key-entry :- (s/maybe {s/Keyword s/Any})
+  [descriptor :- {s/Keyword s/Any} exact-value :- s/Any]
   (or (get-in descriptor [:required-exact exact-value])
       (get-in descriptor [:optional-exact exact-value])))
 
-(defn key-domain-covered?
-  [source-key target-key]
+(s/defn key-domain-covered? :- s/Bool
+  [source-key :- ats/SemanticType target-key :- ats/SemanticType]
   (let [source-key (ascs/optional-key-inner (as-type source-key))
         target-key (ascs/optional-key-inner (as-type target-key))]
     (cond
@@ -175,8 +177,8 @@
       :else
       (cast-ok?' source-key target-key))))
 
-(defn key-domain-overlap?
-  [source-key target-key]
+(s/defn key-domain-overlap? :- s/Bool
+  [source-key :- ats/SemanticType target-key :- ats/SemanticType]
   (let [source-key (ascs/optional-key-inner (as-type source-key))
         target-key (ascs/optional-key-inner (as-type target-key))]
     (cond
@@ -211,16 +213,16 @@
           (cast-ok?' target-key source-key)
           (leaf-overlap?' source-key target-key)))))
 
-(defn exact-key-candidates
-  [descriptor exact-value]
+(s/defn exact-key-candidates :- [s/Any]
+  [descriptor :- {s/Keyword s/Any} exact-value :- s/Any]
   (if-let [entry (exact-key-entry descriptor exact-value)]
     [entry]
     (->> (:domain-entries descriptor)
          (filter #(value-satisfies-type?' exact-value (:inner-key-type %)))
          vec)))
 
-(defn domain-key-candidates
-  [descriptor key-type]
+(s/defn domain-key-candidates :- [s/Any]
+  [descriptor :- {s/Keyword s/Any} key-type :- ats/SemanticType]
   (let [key-type (ascs/optional-key-inner (as-type key-type))]
     (vec
      (concat
@@ -229,8 +231,8 @@
       (filter #(key-domain-overlap? key-type (:inner-key-type %))
               (:domain-entries descriptor))))))
 
-(defn map-lookup-candidates
-  [entries key-query]
+(s/defn map-lookup-candidates :- [s/Any]
+  [entries :- s/Any key-query :- s/Any]
   (let [descriptor (map-entry-descriptor entries)]
     (if (exact-key-query? key-query)
       (exact-key-candidates descriptor (:value key-query))
@@ -238,15 +240,15 @@
 
 (def no-default ::no-default)
 
-(defn candidate-value-type
-  [candidates]
+(s/defn candidate-value-type :- (s/maybe ats/SemanticType)
+  [candidates :- [s/Any]]
   (when (seq candidates)
     (ato/union (map :value candidates))))
 
-(defn map-get-type
-  ([m key]
+(s/defn map-get-type :- (s/maybe ats/SemanticType)
+  ([m :- ats/SemanticType key :- s/Any]
    (map-get-type m key no-default))
-  ([m key default]
+  ([m :- ats/SemanticType key :- s/Any default :- s/Any]
    (let [m (as-type m)
          key-query key
          default-provided? (not= default no-default)
@@ -284,8 +286,8 @@
          (ato/union [(ato/dyn m) default-type])
          (ato/dyn m))))))
 
-(defn merge-map-types
-  [anchor-prov types]
+(s/defn merge-map-types :- ats/SemanticType
+  [anchor-prov :- s/Any types :- [s/Any]]
   (let [types (mapv as-type types)]
     (cond
       (empty? types) (at/Dyn anchor-prov)
@@ -388,28 +390,28 @@
     (narrow-conditional-by-discriminator'
      (prov/of cond-type) (:branches cond-type) path values {:drop-discriminator? false})))
 
-(defn refine-map-path-by-values
+(s/defn refine-map-path-by-values :- ats/SemanticType
   "Refine `root-type` by asserting that the value at the nested path `path`
    equals one of `values`. `polarity` true selects matching values; false
    selects non-matching."
-  [root-type path values polarity]
+  [root-type :- ats/SemanticType path :- [s/Any] values :- [s/Any] polarity :- s/Bool]
   (refine-map-path root-type path
                    (values-leaf-fn values polarity)
                    (values-cond-fn values)))
 
-(defn refine-map-path-by-predicate
+(s/defn refine-map-path-by-predicate :- ats/SemanticType
   "Refine `root-type` by asserting that the value at `path` satisfies
    `pred-info` (`{:pred kw :class cls-or-nil}`) with the given `polarity`."
-  [root-type path pred-info polarity]
+  [root-type :- ats/SemanticType path :- [s/Any] pred-info :- {s/Keyword s/Any} polarity :- s/Bool]
   (refine-map-path root-type path
                    (fn [_prov val-type]
                      (an/partition-type-for-predicate val-type pred-info polarity))
                    nil))
 
-(defn map-type-at-path
+(s/defn map-type-at-path :- (s/maybe ats/SemanticType)
   "Return the Type stored at `path` within `root-type`, descending through
    map/union/maybe layers. Returns nil when the path cannot be resolved."
-  [root-type path]
+  [root-type :- ats/SemanticType path :- [s/Any]]
   (let [root-type (as-type root-type)]
     (cond
       (empty? path) root-type

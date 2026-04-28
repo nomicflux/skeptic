@@ -1,8 +1,11 @@
 (ns skeptic.analysis.malli-spec.bridge
   (:require [malli.core :as m]
+            [schema.core :as s]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
+            [skeptic.provenance.schema :as provs]))
 
 (defn- invalid-malli-spec-input
   [value e]
@@ -84,7 +87,8 @@
     (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
     :else (malli-leaf->type prov form)))
 
-(defn malli-spec->type
+(s/defn malli-spec->type :- ats/SemanticType
   "Convert a Malli spec to a semantic type."
-  [prov value]
+  [prov  :- provs/Provenance
+   value :- s/Any]
   (form->type prov (admit-malli-spec value)))

@@ -1,6 +1,8 @@
 (ns skeptic.analysis.bridge.render
-  (:require [skeptic.analysis.type-ops :as ato]
+  (:require [schema.core :as s]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (def foldable-sources
@@ -29,16 +31,17 @@
 
 (declare render-type-form*)
 
-(defn render-fn-input-form*
-  [method opts]
+(s/defn render-fn-input-form* :- s/Any
+  [method :- ats/SemanticType
+   opts :- s/Any]
   (let [inputs (mapv #(render-type-form* % opts) (:inputs method))]
     (if (:variadic? method)
       (concat (take (:min-arity method) inputs)
               ['& (drop (:min-arity method) inputs)])
       inputs)))
 
-(defn render-fn-input-form
-  [method]
+(s/defn render-fn-input-form :- s/Any
+  [method :- ats/SemanticType]
   (render-fn-input-form* method default-render-opts))
 
 (defn- conditional-branch-types
@@ -56,8 +59,9 @@
             (nth display 2))
       display)))
 
-(defn render-type-form*
-  [type opts]
+(s/defn render-type-form* :- s/Any
+  [type :- (s/maybe ats/SemanticType)
+   opts :- s/Any]
   (let [opts (merge default-render-opts opts)
         type (ato/normalize type)
         fold-hit (and (not (:explain-full opts))
@@ -102,18 +106,19 @@
         (at/placeholder-type? type) (at/placeholder-display-form (:ref type))
         :else type))))
 
-(defn render-type-form
-  [type]
+(s/defn render-type-form :- s/Any
+  [type :- (s/maybe ats/SemanticType)]
   (render-type-form* type default-render-opts))
 
-(defn render-type*
-  [type opts]
+(s/defn render-type* :- (s/maybe s/Str)
+  [type :- (s/maybe ats/SemanticType)
+   opts :- s/Any]
   (some-> type
           (render-type-form* opts)
           pr-str))
 
-(defn render-type
-  [type]
+(s/defn render-type :- (s/maybe s/Str)
+  [type :- (s/maybe ats/SemanticType)]
   (render-type* type default-render-opts))
 
 (declare type->json-data*)
@@ -132,9 +137,10 @@
    :variadic (boolean (:variadic? method))
    :min_arity (:min-arity method)})
 
-(defn type->json-data*
+(s/defn type->json-data* :- s/Any
   "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
-  [type opts]
+  [type :- (s/maybe ats/SemanticType)
+   opts :- s/Any]
   (let [opts (merge default-render-opts opts)
         type (some-> type ato/normalize)
         fold-hit (and type
@@ -185,8 +191,8 @@
                                    :name (pr-str (at/placeholder-display-form (:ref type)))}
       :else {:t "unknown" :form (pr-str type)})))
 
-(defn type->json-data
-  [type]
+(s/defn type->json-data :- s/Any
+  [type :- (s/maybe ats/SemanticType)]
   (type->json-data* type default-render-opts))
 
 (defn polarity->side

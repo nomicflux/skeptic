@@ -4,9 +4,12 @@
     - native_fns: each predicate is typed Dyn -> Bool when invoked
     - bridge admission: (s/pred f) and Malli's bare-predicate-as-schema
       both convert to the predicate's witness type."
-  (:require [skeptic.analysis.types :as at]
+  (:require [schema.core :as s]
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
 (def ^:private witness-builders
   {'clojure.core/string?  (fn [p] (at/->GroundT p :str 'Str))
@@ -38,15 +41,16 @@
 (defn- native-prov [sym]
   (prov/make-provenance :native sym nil nil))
 
-(defn predicate-fn-type
-  [qualified-sym]
+(s/defn predicate-fn-type :- ats/SemanticType
+  [qualified-sym :- s/Symbol]
   (let [p (native-prov qualified-sym)
         bool-t (at/->GroundT p :bool 'Bool)
         method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
     (at/->FunT p [method])))
 
-(defn witness-type
-  [qualified-sym prov]
+(s/defn witness-type :- ats/SemanticType
+  [qualified-sym :- s/Symbol
+   prov          :- provs/Provenance]
   ((get witness-builders qualified-sym) prov))
 
 (defn predicate-fn-entries

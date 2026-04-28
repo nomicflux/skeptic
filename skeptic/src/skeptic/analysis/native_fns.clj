@@ -5,7 +5,8 @@
     minus argc 1 or 2; isPos/isNeg argc 1 -> bool.
   - Invoke (native-fn-dict): (+) (+ x) (*) (* x); str; format; even? odd?; inc when not inlined.
   - Literal (+ 1 2 3) never yields top-level :invoke; test 3-arg + with ((resolve '+) 1 2 3)."
-  (:require [skeptic.analysis.predicates :as predicates]
+  (:require [schema.core :as s]
+            [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov])
   (:import [clojure.lang Numbers]))
@@ -18,8 +19,8 @@
   [method]
   (native-prov (symbol (str "clojure.lang.Numbers/" method))))
 
-(defn static-call-native-info
-  [class method arity]
+(s/defn static-call-native-info :- (s/maybe {s/Keyword s/Any})
+  [class :- s/Any method :- s/Any arity :- s/Int]
   (when (= class Numbers)
     (let [p (numbers-prov method)
           n (at/NumericDyn p)

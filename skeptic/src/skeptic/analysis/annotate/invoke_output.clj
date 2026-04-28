@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.invoke-output
-  (:require [skeptic.analysis.annotate.coll :as coll]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
@@ -13,8 +14,8 @@
                (= 1 (count args)))
       (:type (first args)))))
 
-(defn invoke-output-type
-  [ctx fn-node args output-type]
+(s/defn invoke-output-type
+  [ctx fn-node args output-type] :- s/Any
   (if-let [summary-output (unary-summary-output fn-node args)]
     summary-output
     (cond
