@@ -6,6 +6,7 @@
             [skeptic.analysis.cast.map :as cmap]
             [skeptic.analysis.cast.quantified :as quant]
             [skeptic.analysis.cast.result :as result]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
@@ -82,7 +83,7 @@
   [source-type target-type opts]
   (dispatch-cast run-cast source-type target-type opts))
 
-(s/defn check-cast :- s/Any
+(s/defn check-cast :- csch/CastResult
   ([source-type :- s/Any target-type :- s/Any]
    (check-cast source-type target-type {}))
   ([source-type :- s/Any target-type :- s/Any {:keys [polarity] :or {polarity :positive} :as opts} :- s/Any]

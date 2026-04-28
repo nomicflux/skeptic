@@ -1,5 +1,6 @@
 (ns skeptic.analysis.value-check
   (:require [schema.core :as s]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
@@ -27,8 +28,8 @@
     (when (exact-value-type? type)
       (:value type))))
 
-(s/defn with-map-path
-  [cast-result :- s/Any key :- s/Any]
+(s/defn with-map-path :- csch/CastResult
+  [cast-result :- csch/CastResult key :- s/Any]
   (if-let [path-value (path-key key)]
     (ascs/with-cast-path cast-result
       {:kind :map-key

@@ -1,4 +1,6 @@
-(ns skeptic.analysis.cast.result)
+(ns skeptic.analysis.cast.result
+  (:require [schema.core :as s]
+            [skeptic.analysis.cast.schema :as csch]))
 
 (def ^:private structural-rules
   #{:target-union :source-union :target-intersection :source-intersection
@@ -8,12 +10,12 @@
 (def ^:private source-aggregate-rules
   #{:source-union :source-intersection})
 
-(defn ok?
-  [cast-result]
+(s/defn ok? :- s/Bool
+  [cast-result :- csch/CastResult]
   (boolean (:ok? cast-result)))
 
-(defn root-summary
-  [cast-result]
+(s/defn root-summary :- {s/Keyword s/Any}
+  [cast-result :- csch/CastResult]
   {:ok?            (:ok? cast-result)
    :rule           (:rule cast-result)
    :blame-side     (:blame-side cast-result)
@@ -21,8 +23,8 @@
    :actual-type    (:source-type cast-result)
    :expected-type  (:target-type cast-result)})
 
-(defn- project-leaf
-  [leaf path]
+(s/defn ^:private project-leaf :- {s/Keyword s/Any}
+  [leaf :- csch/CastResult path :- s/Any]
   (cond-> {:rule           (:rule leaf)
            :reason         (:reason leaf)
            :path           path
@@ -34,10 +36,10 @@
     (contains? leaf :expected-key)      (assoc :expected-key (:expected-key leaf))
     (contains? leaf :source-key-domain) (assoc :source-key-domain (:source-key-domain leaf))))
 
-(defn leaf-diagnostics
-  ([cast-result]
+(s/defn leaf-diagnostics :- [{s/Keyword s/Any}]
+  ([cast-result :- (s/maybe csch/CastResult)]
    (leaf-diagnostics cast-result []))
-  ([cast-result parent-path]
+  ([cast-result :- (s/maybe csch/CastResult) parent-path :- s/Any]
    (let [path (into (vec parent-path) (or (:path cast-result) []))]
      (cond
        (or (nil? cast-result) (:ok? cast-result))
@@ -54,7 +56,7 @@
        :else
        [(project-leaf cast-result path)]))))
 
-(defn primary-diagnostic
-  [cast-result]
+(s/defn primary-diagnostic :- {s/Keyword s/Any}
+  [cast-result :- csch/CastResult]
   (or (first (leaf-diagnostics cast-result))
       (project-leaf cast-result (or (:path cast-result) []))))
