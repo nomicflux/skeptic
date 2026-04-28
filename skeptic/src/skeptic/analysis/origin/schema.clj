@@ -2,34 +2,126 @@
   (:require [schema.core :as s]
             [skeptic.analysis.types.schema :as ats]))
 
-(declare Assumption)
+(declare Origin Assumption RootOrigin)
+
+(s/defschema RootOrigin
+  {:kind (s/eq :root)
+   :sym  s/Any
+   :type ats/SemanticType})
+
+(s/defschema OpaqueOrigin
+  {:kind                          (s/eq :opaque)
+   :type                          ats/SemanticType
+   (s/optional-key :binding-sym)  s/Symbol})
+
+(s/defschema MapKeyLookupOrigin
+  {:kind                          (s/eq :map-key-lookup)
+   :root                          (s/recursive #'RootOrigin)
+   :path                          [s/Any]
+   :defaults                      [s/Any]
+   (s/optional-key :binding-sym)  s/Symbol})
+
+(s/defschema BranchOrigin
+  {:kind                          (s/eq :branch)
+   :test                          (s/recursive #'Assumption)
+   (s/optional-key :then-origin)  (s/maybe (s/recursive #'Origin))
+   (s/optional-key :else-origin)  (s/maybe (s/recursive #'Origin))
+   (s/optional-key :binding-sym)  s/Symbol})
 
 (s/defschema Origin
-  {:kind s/Keyword
-   (s/optional-key :sym)         s/Any
-   (s/optional-key :type)        ats/SemanticType
-   (s/optional-key :root)        (s/recursive #'Origin)
-   (s/optional-key :path)        [s/Any]
-   (s/optional-key :defaults)    [s/Any]
-   (s/optional-key :test)        (s/recursive #'Assumption)
-   (s/optional-key :then-origin) (s/maybe (s/recursive #'Origin))
-   (s/optional-key :else-origin) (s/maybe (s/recursive #'Origin))
-   (s/optional-key :binding-sym) s/Symbol
-   s/Keyword                     s/Any})
+  (s/conditional
+    #(= :root           (:kind %)) RootOrigin
+    #(= :opaque         (:kind %)) OpaqueOrigin
+    #(= :map-key-lookup (:kind %)) MapKeyLookupOrigin
+    #(= :branch         (:kind %)) BranchOrigin))
+
+(s/defschema TruthyLocalAssumption
+  {:kind     (s/eq :truthy-local)
+   :root     (s/recursive #'Origin)
+   :polarity s/Bool})
+
+(s/defschema BooleanPropositionAssumption
+  {:kind     (s/eq :boolean-proposition)
+   :expr     s/Any
+   :polarity s/Bool})
+
+(s/defschema BlankCheckAssumption
+  {:kind     (s/eq :blank-check)
+   :root     (s/recursive #'Origin)
+   :polarity s/Bool})
+
+(s/defschema ContainsKeyAssumption
+  {:kind     (s/eq :contains-key)
+   :root     (s/recursive #'Origin)
+   :key      s/Any
+   :polarity s/Bool})
+
+(s/defschema TypePredicateAssumption
+  {:kind                    (s/eq :type-predicate)
+   :root                    (s/recursive #'Origin)
+   :pred                    s/Keyword
+   (s/optional-key :class)  s/Any
+   :polarity                s/Bool})
+
+(s/defschema ValueEqualityAssumption
+  {:kind     (s/eq :value-equality)
+   :root     (s/recursive #'Origin)
+   :values   [s/Any]
+   :polarity s/Bool})
+
+(s/defschema PathValueEqualityAssumption
+  {:kind     (s/eq :path-value-equality)
+   :root     (s/recursive #'Origin)
+   :path     [s/Any]
+   :values   [s/Any]
+   :polarity s/Bool})
+
+(s/defschema PathTypePredicateAssumption
+  {:kind                    (s/eq :path-type-predicate)
+   :root                    (s/recursive #'Origin)
+   :path                    [s/Any]
+   :pred                    s/Keyword
+   (s/optional-key :class)  s/Any
+   :polarity                s/Bool})
+
+(s/defschema ConditionalBranchAssumption
+  {:kind          (s/eq :conditional-branch)
+   :root          (s/recursive #'Origin)
+   :narrowed-type ats/SemanticType
+   :polarity      s/Bool})
+
+(s/defschema ConjunctionAssumption
+  {:kind  (s/eq :conjunction)
+   :parts [(s/recursive #'Assumption)]})
+
+(s/defschema DisjunctionAssumption
+  {:kind  (s/eq :disjunction)
+   :parts [(s/recursive #'Assumption)]})
+
+(s/defschema RootedAssumption
+  (s/conditional
+    #(= :truthy-local        (:kind %)) TruthyLocalAssumption
+    #(= :blank-check         (:kind %)) BlankCheckAssumption
+    #(= :contains-key        (:kind %)) ContainsKeyAssumption
+    #(= :type-predicate      (:kind %)) TypePredicateAssumption
+    #(= :value-equality      (:kind %)) ValueEqualityAssumption
+    #(= :path-value-equality (:kind %)) PathValueEqualityAssumption
+    #(= :path-type-predicate (:kind %)) PathTypePredicateAssumption
+    #(= :conditional-branch  (:kind %)) ConditionalBranchAssumption))
 
 (s/defschema Assumption
-  {:kind s/Keyword
-   (s/optional-key :polarity)      s/Any
-   (s/optional-key :root)          (s/recursive #'Origin)
-   (s/optional-key :parts)         [(s/recursive #'Assumption)]
-   (s/optional-key :narrowed-type) ats/SemanticType
-   (s/optional-key :path)          [s/Any]
-   (s/optional-key :pred)          s/Keyword
-   (s/optional-key :class)         s/Any
-   (s/optional-key :key)           s/Any
-   (s/optional-key :values)        s/Any
-   (s/optional-key :expr)          s/Any
-   s/Keyword                       s/Any})
+  (s/conditional
+    #(= :truthy-local        (:kind %)) TruthyLocalAssumption
+    #(= :boolean-proposition (:kind %)) BooleanPropositionAssumption
+    #(= :blank-check         (:kind %)) BlankCheckAssumption
+    #(= :contains-key        (:kind %)) ContainsKeyAssumption
+    #(= :type-predicate      (:kind %)) TypePredicateAssumption
+    #(= :value-equality      (:kind %)) ValueEqualityAssumption
+    #(= :path-value-equality (:kind %)) PathValueEqualityAssumption
+    #(= :path-type-predicate (:kind %)) PathTypePredicateAssumption
+    #(= :conditional-branch  (:kind %)) ConditionalBranchAssumption
+    #(= :conjunction         (:kind %)) ConjunctionAssumption
+    #(= :disjunction         (:kind %)) DisjunctionAssumption))
 
 (s/defschema Conjuncts
   {:then-conjuncts [Assumption]
