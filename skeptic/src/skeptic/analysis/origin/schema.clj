@@ -24,8 +24,8 @@
 (s/defschema BranchOrigin
   {:kind                          (s/eq :branch)
    :test                          (s/recursive #'Assumption)
-   (s/optional-key :then-origin)  (s/maybe (s/recursive #'Origin))
-   (s/optional-key :else-origin)  (s/maybe (s/recursive #'Origin))
+   :then-origin                   (s/recursive #'Origin)
+   :else-origin                   (s/recursive #'Origin)
    (s/optional-key :binding-sym)  s/Symbol})
 
 (s/defschema Origin
@@ -37,7 +37,7 @@
 
 (s/defschema TruthyLocalAssumption
   {:kind     (s/eq :truthy-local)
-   :root     (s/recursive #'Origin)
+   :root     RootOrigin
    :polarity s/Bool})
 
 (s/defschema BooleanPropositionAssumption
@@ -47,38 +47,38 @@
 
 (s/defschema BlankCheckAssumption
   {:kind     (s/eq :blank-check)
-   :root     (s/recursive #'Origin)
+   :root     RootOrigin
    :polarity s/Bool})
 
 (s/defschema ContainsKeyAssumption
   {:kind     (s/eq :contains-key)
-   :root     (s/recursive #'Origin)
+   :root     RootOrigin
    :key      s/Any
    :polarity s/Bool})
 
 (s/defschema TypePredicateAssumption
   {:kind                    (s/eq :type-predicate)
-   :root                    (s/recursive #'Origin)
+   :root                    RootOrigin
    :pred                    s/Keyword
    (s/optional-key :class)  s/Any
    :polarity                s/Bool})
 
 (s/defschema ValueEqualityAssumption
   {:kind     (s/eq :value-equality)
-   :root     (s/recursive #'Origin)
+   :root     RootOrigin
    :values   [s/Any]
    :polarity s/Bool})
 
 (s/defschema PathValueEqualityAssumption
   {:kind     (s/eq :path-value-equality)
-   :root     (s/recursive #'Origin)
+   :root     RootOrigin
    :path     [s/Any]
    :values   [s/Any]
    :polarity s/Bool})
 
 (s/defschema PathTypePredicateAssumption
   {:kind                    (s/eq :path-type-predicate)
-   :root                    (s/recursive #'Origin)
+   :root                    RootOrigin
    :path                    [s/Any]
    :pred                    s/Keyword
    (s/optional-key :class)  s/Any
@@ -86,7 +86,7 @@
 
 (s/defschema ConditionalBranchAssumption
   {:kind          (s/eq :conditional-branch)
-   :root          (s/recursive #'Origin)
+   :root          RootOrigin
    :narrowed-type ats/SemanticType
    :polarity      s/Bool})
 

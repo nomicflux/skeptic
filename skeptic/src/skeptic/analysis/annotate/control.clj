@@ -104,7 +104,7 @@
   (or (ac/node-info annotated) {:type (aapi/dyn ctx)}))
 
 (s/defn binding-alias-origin
-  [init :- s/Any] :- (s/maybe aos/Origin)
+  [init :- s/Any] :- (s/maybe aos/RootOrigin)
   (when (and (aapi/stable-identity-node? init)
              (= :root (:kind (ao/node-origin init))))
     (let [upstream (ao/node-origin init)]
@@ -329,12 +329,14 @@
                (first then-conjuncts))
         test (or test
                  (when (seq then-conjuncts)
-                   {:kind :conjunction :parts then-conjuncts}))]
-    (or (when test
+                   {:kind :conjunction :parts then-conjuncts}))
+        then-orig (ao/node-origin then-node)
+        else-orig (ao/node-origin else-node)]
+    (or (when (and test then-orig else-orig)
           {:kind :branch
            :test test
-           :then-origin (ao/node-origin then-node)
-           :else-origin (ao/node-origin else-node)})
+           :then-origin then-orig
+           :else-origin else-orig})
         (ao/opaque-origin joined-type))))
 
 (s/defn ^:private branch-truth

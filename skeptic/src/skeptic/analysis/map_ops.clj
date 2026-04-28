@@ -13,9 +13,9 @@
   ([a b opts] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b opts)))
 
 (defn- narrow-conditional-by-discriminator'
-  [anchor-prov branches path values opts]
+  [anchor-prov branches path values]
   ((requiring-resolve 'skeptic.analysis.annotate.match/narrow-conditional-by-discriminator)
-   anchor-prov branches path values opts))
+   anchor-prov branches path values))
 
 
 (defn- cast-ok?'
@@ -388,7 +388,7 @@
   [values]
   (fn [cond-type path]
     (narrow-conditional-by-discriminator'
-     (prov/of cond-type) (:branches cond-type) path values {:drop-discriminator? false})))
+     (prov/of cond-type) (:branches cond-type) path values)))
 
 (s/defn refine-map-path-by-values :- ats/SemanticType
   "Refine `root-type` by asserting that the value at the nested path `path`

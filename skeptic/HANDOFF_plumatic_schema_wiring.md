@@ -185,7 +185,20 @@ Skeptic-on-self pass: `lein with-profile +skeptic-plugin skeptic` reports "No in
 
 **CastResult.** Built by `cast-result`/`cast-ok`/`cast-fail` in `src/skeptic/analysis/cast/support.clj`. Has many fields including `:ok?`, `:blame-side`, `:blame-polarity`, `:rule`, `:source-type`, `:target-type`, `:children`, `:reason`, plus optional fields merged from `details`. Read the `cast-result` body (lines ~17–33 of `cast/support.clj`) — that's the canonical shape. Note `details` map can add arbitrary additional keys (`:matches?` etc.); the schema needs `s/Keyword s/Any` catch-all OR you need to enumerate the known optional fields.
 
-**Origin + Assumption.** Mutually recursive in `src/skeptic/analysis/origin.clj`. Producers split between Origin makers (`root-origin`, `opaque-origin`, `node-origin`) and Assumption makers (~10 of them: `test->assumption`, `equality-value-assumption`, etc.). Consumers include `assumption-truth`, `apply-assumption-to-root-type`, `same-assumption?`, `invert-assumption`, `origin-type`, `effective-type`. Outside-file boundary consumer: `aapi/branch-test-assumption` is read by `src/skeptic/analysis/annotate/control.clj`.
+**Origin + Assumption.** ✅ Slice 4 complete. Mutually recursive in `src/skeptic/analysis/origin.clj`; the schemas live in `skeptic.analysis.origin.schema` (alias `aos`) as discriminated unions over `:kind`. Phase 1 (commit `7de636d`) shipped Origin/Assumption as `s/conditional` over `:kind` plus `RootOrigin` / `RootedAssumption` shapes. Producers split between Origin makers (`root-origin`, `opaque-origin`, `node-origin`) and Assumption makers (~10: `test->assumption`, `equality-value-assumption`, etc.). Consumers include `assumption-truth`, `apply-assumption-to-root-type`, `same-assumption?`, `invert-assumption`, `origin-type`, `effective-type`. Outside-file boundary consumer: `aapi/branch-test-assumption` is read by `src/skeptic/analysis/annotate/control.clj`.
+
+Analyzer-side correctness companion (this commit). After Phase 1, `lein with-profile +skeptic-plugin skeptic` reported five `[:kind] is missing` findings, all in origin.clj — at consumer call sites of `assumption-base-type`, `same-assumption-proposition?`, and `refine-root-type` inside `case (:kind ...)` arms. Root cause: `skeptic.analysis.annotate.match` carried a `:drop-discriminator?` opt that, when true, stripped the discriminator key from the inferred type after case-on-discriminator narrowing. The two production callers (`case-conditional-narrow-for-lits`, `case-conditional-default-narrow`) hardcoded it true. After narrowing dropped `:kind`, the cast against any consumer parameter requiring `:kind (s/eq :literal)` etc. failed via `pred-matches-lit?` — the synthetic test map lacked `:kind`, so no arm's predicate fired, and the cast reported the union of arm-required keys missing.
+
+Fix: deleted `:drop-discriminator?` parameter, `drop-discriminator-key`, and `discriminator-entry?` from `match.clj`; both narrowing helpers now always preserve the discriminator. The other production caller (`map_ops.clj` `values-cond-fn`) already passed `false`, so it became a no-op call-site update. Owner-file unit tests updated; the test that pinned the dropped-key behavior was removed.
+
+Fallout owned per `feedback_rep_change_scope`:
+- `test/skeptic/test_examples/contracts.clj`: `handle-a` and `handle-b` parameters changed from `{:x s/Int}` / `{:y s/Str}` (closed-map projections that masked the bug — runtime values carry `:k` and Plumatic would have rejected them) to `VariantA` / `VariantB`.
+- `test/skeptic/analysis_test.clj` (`accessor-helper-resolution-contract-test`): pinned argtypes updated from the projection shapes to `(T contracts/VariantA)` / `(T contracts/VariantB)`.
+- `test/skeptic/analysis/annotate/match_test.clj`: `narrow-conditional-by-discriminator-drop-test` removed; remaining tests call without the opts arg.
+
+Regression test (red→green for the bug): `case-on-discriminator-narrows-to-full-arm-with-kind` in `test/skeptic/checking/pipeline/contracts_test.clj` exercises the same case-on-discriminator pattern outside origin.clj via `variant-strict-dispatch`.
+
+Final state: `lein with-profile +skeptic-plugin skeptic` exits 0 with "No inconsistencies found"; `lein test` 572 tests / 2544 assertions / 0 failures; `clj-kondo --lint src test` clean.
 
 **AnnotatedNode.** Lives in `src/skeptic/analysis/annotate/api.clj`. Open shape — many `:op` types in tools.analyzer's AST (`:invoke`, `:if`, `:let`, `:def`, `:binding`, `:local`, `:var`, `:with-meta`, `:fn`, etc.) each have different fields. A common-fields-only schema (`{:op s/Keyword (optional `:type`, `:form`, `:children`, etc.) s/Keyword s/Any}`) is realistic. Heavily consumed by `node-*` and `call-*` accessors in the same file plus `src/skeptic/checking/pipeline.clj` and `src/skeptic/checking/ast.clj`.
 
@@ -211,8 +224,7 @@ Skeptic-on-self pass: `lein with-profile +skeptic-plugin skeptic` reports "No in
    - Genuine bug in production code (rare, but possible) → STOP, surface to user, do not silently change production data flow.
 7. Wire outside-file boundary producers/consumers. Re-run `lein test`. Repeat step 6.
 8. Run `clj-kondo --lint src test`. Clean.
-9. Commit the slice with a single commit message: `<Concept> schema wired`.
-10. Move to next concept. One slice at a time.
+9. Run `script/install-local.sh && lein with-profile +skeptic-plugin skeptic` to confirm that the code type-checks.
 
 ### When a test asserts a specific exception class
 

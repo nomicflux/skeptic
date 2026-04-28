@@ -373,11 +373,11 @@
                  #(= :b (:k %)) VariantB))
 
 (s/defn handle-a :- s/Any
-  [v :- {:x s/Int}]
+  [v :- VariantA]
   v)
 
 (s/defn handle-b :- s/Any
-  [v :- {:y s/Str}]
+  [v :- VariantB]
   v)
 
 (s/defn vtype
@@ -389,6 +389,20 @@
   (case (vtype v)
     :a (handle-a v)
     :b (handle-b v)))
+
+(s/defn handle-variant-a-strict :- s/Int
+  [v :- VariantA]
+  (:x v))
+
+(s/defn handle-variant-b-strict :- s/Str
+  [v :- VariantB]
+  (:y v))
+
+(s/defn variant-strict-dispatch :- s/Any
+  [v :- Variants]
+  (case (:k v)
+    :a (handle-variant-a-strict v)
+    :b (handle-variant-b-strict v)))
 
 (s/defn cond-branch-pick-success :- (s/maybe (s/conditional :x {:x s/Int}))
   []

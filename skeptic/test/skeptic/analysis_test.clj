@@ -8,7 +8,8 @@
             [skeptic.checking.pipeline :as checking]
             [skeptic.provenance :as prov]
             [skeptic.source :as source]
-            [skeptic.test-examples.catalog :as catalog])
+            [skeptic.test-examples.catalog :as catalog]
+            [skeptic.test-examples.contracts :as contracts])
   (:import [java.io File]))
 
 (defn set-cache-value
@@ -244,5 +245,5 @@
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-b v) (aapi/node-form %))))]
-      (is (at/type=? (T {:x s/Int}) (first (aapi/call-actual-argtypes handle-a))))
-      (is (at/type=? (T {:y s/Str}) (first (aapi/call-actual-argtypes handle-b)))))))
+      (is (at/type=? (T contracts/VariantA) (first (aapi/call-actual-argtypes handle-a))))
+      (is (at/type=? (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b)))))))
