@@ -24,6 +24,109 @@
   {:kind :opaque
    :type (ato/normalize type)})
 
+(s/defn map-key-lookup-origin :- aos/MapKeyLookupOrigin
+  [root :- s/Any
+   path :- s/Any
+   defaults :- s/Any]
+  {:kind :map-key-lookup
+   :root root
+   :path path
+   :defaults defaults})
+
+(s/defn branch-origin :- aos/BranchOrigin
+  [test :- s/Any
+   then-origin :- s/Any
+   else-origin :- s/Any]
+  {:kind :branch
+   :test test
+   :then-origin then-origin
+   :else-origin else-origin})
+
+(s/defn root-origin-value :- s/Any
+  [origin :- s/Any]
+  (when (= :root (:kind origin))
+    origin))
+
+(s/defn map-key-lookup-origin-value :- s/Any
+  [origin :- s/Any]
+  (when (= :map-key-lookup (:kind origin))
+    origin))
+
+(s/defn truthy-local-assumption :- aos/TruthyLocalAssumption
+  [root :- s/Any
+   polarity :- s/Bool]
+  {:kind :truthy-local
+   :root root
+   :polarity polarity})
+
+(s/defn blank-check-assumption :- aos/BlankCheckAssumption
+  [root :- s/Any
+   polarity :- s/Bool]
+  {:kind :blank-check
+   :root root
+   :polarity polarity})
+
+(s/defn contains-key-assumption :- aos/ContainsKeyAssumption
+  [root :- s/Any
+   key :- s/Any
+   polarity :- s/Bool]
+  {:kind :contains-key
+   :root root
+   :key key
+   :polarity polarity})
+
+(s/defn type-predicate-assumption :- aos/TypePredicateAssumption
+  [root :- s/Any
+   pred-info :- aos/PredInfo
+   polarity :- s/Bool]
+  (cond-> {:kind :type-predicate
+           :root root
+           :pred (:pred pred-info)
+           :polarity polarity}
+    (:class pred-info) (assoc :class (:class pred-info))))
+
+(s/defn value-equality-assumption :- aos/ValueEqualityAssumption
+  [root :- s/Any
+   values :- [s/Any]
+   polarity :- s/Bool]
+  {:kind :value-equality
+   :root root
+   :values values
+   :polarity polarity})
+
+(s/defn path-value-equality-assumption :- aos/PathValueEqualityAssumption
+  [root :- s/Any
+   path :- s/Any
+   values :- [s/Any]
+   polarity :- s/Bool]
+  {:kind :path-value-equality
+   :root root
+   :path path
+   :values values
+   :polarity polarity})
+
+(s/defn path-type-predicate-assumption :- aos/PathTypePredicateAssumption
+  [root :- s/Any
+   path :- s/Any
+   pred-info :- aos/PredInfo
+   polarity :- s/Bool]
+  (cond-> {:kind :path-type-predicate
+           :root root
+           :path path
+           :pred (:pred pred-info)
+           :polarity polarity}
+    (:class pred-info) (assoc :class (:class pred-info))))
+
+(s/defn conjunction-assumption :- aos/ConjunctionAssumption
+  [parts :- s/Any]
+  {:kind :conjunction
+   :parts (vec parts)})
+
+(s/defn disjunction-assumption :- aos/DisjunctionAssumption
+  [parts :- s/Any]
+  {:kind :disjunction
+   :parts (vec parts)})
+
 (s/defn node-origin :- (s/maybe aos/Origin)
   [node :- s/Any]
   (or (aapi/node-origin node)
@@ -56,7 +159,7 @@
 (defn- negate-conjunct-list
   [conjuncts]
   (when (every? invertible-assumption? conjuncts)
-    {:kind :disjunction :parts (mapv invert-assumption conjuncts)}))
+    (disjunction-assumption (mapv invert-assumption conjuncts))))
 
 (s/defn same-assumption? :- s/Bool
   [left :- aos/Assumption
@@ -378,35 +481,26 @@
   [ctx :- s/Any
    node :- s/Any]
   (let [origin (node-origin node)]
-    (cond
-      (= :root (:kind origin))
-      origin
-
-      (aapi/local-node? node)
-      (root-origin (aapi/node-form node) (or (aapi/node-type node) (aapi/dyn ctx)))
-
-      :else nil)))
+    (if-let [root (root-origin-value origin)]
+      root
+      (when (aapi/local-node? node)
+        (root-origin (aapi/node-form node) (or (aapi/node-type node) (aapi/dyn ctx)))))))
 
 (s/defn contains-key-test-assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
    target-node :- s/Any
    key :- s/Any]
   (when-let [root (local-root-origin ctx target-node)]
-    {:kind :contains-key
-     :root root
-     :key key
-     :polarity true}))
+    (contains-key-assumption root key true)))
 
-(s/defn ^:private path-value-equality-assumption :- (s/maybe aos/PathValueEqualityAssumption)
+(s/defn ^:private target-path-value-equality-assumption :- (s/maybe aos/PathValueEqualityAssumption)
   [target :- s/Any
    literal :- s/Any]
-  (let [origin (aapi/node-origin target)]
-    (when (= :map-key-lookup (:kind origin))
-      {:kind :path-value-equality
-       :root (:root origin)
-       :path (:path origin)
-       :values [(ac/literal-node-value literal)]
-       :polarity true})))
+  (when-let [origin (map-key-lookup-origin-value (aapi/node-origin target))]
+    (path-value-equality-assumption (:root origin)
+                                    (:path origin)
+                                    [(ac/literal-node-value literal)]
+                                    true)))
 
 (s/defn ^:private equality-value-assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
@@ -416,12 +510,9 @@
                            (and (aapi/stable-identity-node? left) (ac/literal-map-key? right)) [left right]
                            (and (aapi/stable-identity-node? right) (ac/literal-map-key? left)) [right left])]
     (when target
-      (or (path-value-equality-assumption target literal)
+      (or (target-path-value-equality-assumption target literal)
           (when-let [root (local-root-origin ctx target)]
-            {:kind :value-equality
-             :root root
-             :values [(ac/literal-node-value literal)]
-             :polarity true})))))
+            (value-equality-assumption root [(ac/literal-node-value literal)] true))))))
 
 (s/defn ^:private boolean-proposition-assumption :- (s/maybe aos/BooleanPropositionAssumption)
   [test-node :- s/Any]
@@ -435,16 +526,10 @@
 
 (s/defn ^:private map-key-lookup-path-assumption :- (s/maybe aos/PathTypePredicateAssumption)
   [target :- s/Any
-   pred-info :- s/Any
+   pred-info :- aos/PredInfo
    polarity :- s/Bool]
-  (let [origin (node-origin target)]
-    (when (= :map-key-lookup (:kind origin))
-      (cond-> {:kind :path-type-predicate
-               :root (:root origin)
-               :path (:path origin)
-               :pred (:pred pred-info)
-               :polarity polarity}
-        (:class pred-info) (assoc :class (:class pred-info))))))
+  (when-let [origin (map-key-lookup-origin-value (node-origin target))]
+    (path-type-predicate-assumption (:root origin) (:path origin) pred-info polarity)))
 
 (s/defn test->assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
@@ -452,23 +537,16 @@
   (cond
     (aapi/stable-identity-node? test-node)
     (when-let [root (local-root-origin ctx test-node)]
-      {:kind :truthy-local
-       :root root
-       :polarity true})
+      (truthy-local-assumption root true))
 
     (= :instance? (aapi/node-op test-node))
     (let [target (aapi/node-target test-node)
           cls (aapi/node-class test-node)]
       (when (class? cls)
-        (cond
-          (and (aapi/stable-identity-node? target) (local-root-origin ctx target))
-          {:kind :type-predicate
-           :root (local-root-origin ctx target)
-           :pred :instance?
-           :class cls
-           :polarity true}
+        (if-let [root (when (aapi/stable-identity-node? target)
+                        (local-root-origin ctx target))]
+          (type-predicate-assumption root {:pred :instance? :class cls} true)
 
-          :else
           (map-key-lookup-path-assumption target {:pred :instance? :class cls} true))))
 
     (and (= :invoke (aapi/node-op test-node))
@@ -497,24 +575,18 @@
                  (second args)
                  (first args))]
       (when info
-        (cond
-          (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
-          (cond-> {:kind :type-predicate
-                   :root (local-root-origin ctx targ)
-                   :pred (:pred info)
-                   :polarity true}
-            (:class info) (assoc :class (:class info)))
+        (if-let [root (when (aapi/stable-identity-node? targ)
+                        (local-root-origin ctx targ))]
+          (type-predicate-assumption root info true)
 
-          :else
           (map-key-lookup-path-assumption targ info true))))
 
     (and (= :invoke (aapi/node-op test-node))
          (ac/blank-call? (aapi/call-fn-node test-node)))
     (let [targ (first (aapi/call-args test-node))]
-      (when (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
-        {:kind :blank-check
-         :root (local-root-origin ctx targ)
-         :polarity true}))
+      (when-let [root (when (aapi/stable-identity-node? targ)
+                        (local-root-origin ctx targ))]
+        (blank-check-assumption root true)))
 
     (ac/keyword-invoke-on-local? test-node)
     (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]
@@ -540,14 +612,10 @@
     (and (= :static-call (aapi/node-op test-node))
          (ac/static-nil?-call? test-node))
     (when-let [targ (ac/static-nil?-target test-node)]
-      (cond
-        (and (aapi/stable-identity-node? targ) (local-root-origin ctx targ))
-        {:kind :type-predicate
-         :root (local-root-origin ctx targ)
-         :pred :nil?
-         :polarity true}
+      (if-let [root (when (aapi/stable-identity-node? targ)
+                      (local-root-origin ctx targ))]
+        (type-predicate-assumption root {:pred :nil?} true)
 
-        :else
         (map-key-lookup-path-assumption targ {:pred :nil?} true)))
 
     (aapi/let-node? test-node)

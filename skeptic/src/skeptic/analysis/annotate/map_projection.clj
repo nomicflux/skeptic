@@ -50,14 +50,10 @@
 
 (s/defn map-key-lookup-origin :- (s/maybe aos/Origin)
   [ctx :- s/Any, target-node :- s/Any, key-query :- s/Any, default-type :- s/Any]
-  (let [target-origin (aapi/node-origin target-node)]
-    (if (= :map-key-lookup (:kind target-origin))
-      {:kind :map-key-lookup
-       :root (:root target-origin)
-       :path (conj (:path target-origin) key-query)
-       :defaults (conj (:defaults target-origin) default-type)}
+  (let [target-origin (ao/map-key-lookup-origin-value (aapi/node-origin target-node))]
+    (if target-origin
+      (ao/map-key-lookup-origin (:root target-origin)
+                                (conj (:path target-origin) key-query)
+                                (conj (:defaults target-origin) default-type))
       (when-let [root (projection-root-origin ctx target-node)]
-        {:kind :map-key-lookup
-         :root root
-         :path [key-query]
-         :defaults [default-type]}))))
+        (ao/map-key-lookup-origin root [key-query] [default-type])))))
