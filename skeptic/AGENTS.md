@@ -52,7 +52,7 @@ Source namespace families:
   MalliSpec-domain admission and boundary.
   `skeptic.malli-spec` defines the admitted `MalliSpecDesc` shape and uses `:malli-spec` everywhere; it never carries `:schema`, which is reserved for Plumatic.
   `skeptic.malli-spec.collect` walks `(ns-interns ns)`, reads `:malli/schema` var metadata (skipping macros and vars without it), and returns `{:entries {qualified-sym {:name ... :malli-spec ...}} :errors [...]}`.
-  `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type`. `malli-spec->type` is a small recursive runner over the admitted Malli form: it handles the `[:=> [:cat & inputs] output]` callable shape (producing a `FunT`/`FnMethodT`), `[:maybe X]` (producing `MaybeT`), and `[:or X Y …]` (via `ato/union-type` over converted members). Leaves route through a five-entry primitive table (`:int`, `:string`, `:keyword`, `:boolean`, `:any`). Any other Malli form (e.g., `:map`, `:vector`, registry refs, sequence/regex combinators) returns `Dyn`.
+  `skeptic.analysis.malli-spec.bridge` exposes `admit-malli-spec`, `malli-spec-domain?`, and `malli-spec->type`. `malli-spec->type` is a small recursive runner over the admitted Malli form: it handles the `[:=> [:cat & inputs] output]` callable shape (producing a `FunT`/`FnMethodT`), `[:maybe X]` (producing `MaybeT`), `[:or X Y ...]` (via `ato/union-type` over converted members), and `[:enum ...]` (via exact value types). Leaves route through a five-entry primitive table (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) and recognized bare predicate symbols. Any other Malli form (e.g., `:map`, `:vector`, registry refs, sequence/regex combinators) returns `Dyn`.
 - `skeptic.analysis.bridge` and `skeptic.analysis.bridge.*`:
   Schema-domain to type-domain boundary.
   `skeptic.analysis.bridge` imports schemas into semantic types.
@@ -60,29 +60,38 @@ Source namespace families:
   `skeptic.analysis.bridge.localize` resolves schema values into the current project context and carries localized error context.
   `skeptic.analysis.bridge.render` renders semantic types for reports and strips derived display-only fields.
   `skeptic.analysis.bridge.algebra` contains schema-boundary set/join helpers.
-- `skeptic.analysis.types`, `skeptic.analysis.type-ops`, `skeptic.analysis.type-algebra`:
+- `skeptic.analysis.types`, `skeptic.analysis.types.schema`, `skeptic.analysis.types.proto`, `skeptic.analysis.type-ops`, `skeptic.analysis.type-algebra`:
   Core type-domain representation and normalization.
   `skeptic.analysis.types` is the canonical semantic type data model.
+  `skeptic.analysis.types.schema` defines schema contracts for semantic types.
+  `skeptic.analysis.types.proto` defines the protocol used to tag semantic type records.
   `skeptic.analysis.type-ops` builds, normalizes, unions, intersects, and de-`maybe`s types.
   `skeptic.analysis.type-algebra` holds extra type-combination helpers.
 - `skeptic.analysis.annotate` and `skeptic.analysis.annotate.*`:
   Analyzer AST typing/inference.
   `skeptic.analysis.annotate` dispatches on analyzer `:op` values.
   `skeptic.analysis.annotate.api` is the public API for the annotate subsystem — node accessors (`node-form`, `node-type`, `node-op`, ...) and mutators (`with-type`) used by any code that does not own node shape.
-  Sub-namespaces split the work by AST area: `base`, `control`, `data`, `fn`, `invoke`, `invoke-output`, `jvm`, `match`, `numeric`, `coll`, and `map-path`.
-- `skeptic.analysis.calls`, `skeptic.analysis.native-fns`, `skeptic.analysis.value`, `skeptic.analysis.value-check`, `skeptic.analysis.map-ops`, `skeptic.analysis.map-ops.algebra`, `skeptic.analysis.narrowing`, `skeptic.analysis.origin`, `skeptic.analysis.ast-children`, `skeptic.analysis.annotation`:
+  Sub-namespaces split the work by AST area: `base`, `control`, `data`, `fn`, `invoke`, `invoke-output`, `jvm`, `match`, `numeric`, `coll`, `map-path`, `map-projection`, and `shared-call`; `test-api` exists for test-facing helpers.
+- `skeptic.analysis.calls`, `skeptic.analysis.native-fns`, `skeptic.analysis.predicates`, `skeptic.analysis.predicate-descriptor`, `skeptic.analysis.value`, `skeptic.analysis.value-check`, `skeptic.analysis.map-ops`, `skeptic.analysis.map-ops.algebra`, `skeptic.analysis.narrowing`, `skeptic.analysis.origin`, `skeptic.analysis.sum-types`, `skeptic.analysis.ast-children`, `skeptic.analysis.annotation`:
   Analysis helpers used by annotation and checking.
-  Call resolution and callable metadata live in `calls` and `native-fns`.
+  Call resolution and callable metadata live in `calls`, `native-fns`, and `predicates`.
+  Predicate descriptor parsing lives in `predicate-descriptor`.
   Runtime-value typing and compatibility checks live in `value`, `value-check`, `map-ops`, and `map-ops.algebra`.
   Flow-sensitive refinements live in `narrowing`.
-  Provenance tracking lives in `origin`.
+  Assumption/origin tracking lives in `origin`.
+  Closed-sum exhaustiveness helpers live in `sum-types`.
   AST traversal/indexing helpers live in `ast-children` and `annotation`.
-- `skeptic.analysis.cast`, `skeptic.analysis.cast.kernel`, `skeptic.analysis.cast.map`, `skeptic.analysis.cast.support`:
+- `skeptic.analysis.cast` and `skeptic.analysis.cast.*`:
   Core cast engine in the type domain.
   `cast` is the dispatcher.
-  `cast.kernel` holds the general cast rules.
+  `cast.branch` handles union, intersection, conditional, maybe, and wrapper casts.
+  `cast.collection` handles vector, seq, set, and leaf casts.
+  `cast.function` handles function casts.
   `cast.map` handles map-specific casting.
-  `cast.support` carries cast-result structures, blame/path helpers, and common utilities.
+  `cast.quantified` handles `forall`, type-var, and sealed-dyn casts.
+  `cast.result` projects cast-result diagnostics.
+  `cast.schema` defines cast-result schema contracts.
+  `cast.support` constructs cast results and carries path helpers and common utilities.
 - `skeptic.analysis.schema-base`, `skeptic.analysis.schema.cast`, `skeptic.analysis.schema.map-ops`, `skeptic.analysis.schema.value-check`, `skeptic.analysis.schema.valued`:
   Legacy or boundary-facing schema-domain helpers.
   Keep new semantic work in the type domain unless an external schema-facing API specifically requires schema forms.
@@ -92,11 +101,12 @@ Source namespace families:
   `path` computes visible blame paths and detail lines.
   `display` renders types/schemas for users.
   `mismatch` contains older mismatch message helpers.
-- `skeptic.output`, `skeptic.output.text`, `skeptic.output.porcelain`:
+- `skeptic.output`, `skeptic.output.text`, `skeptic.output.porcelain`, `skeptic.output.serialize`:
   User-facing output layer.
   `skeptic.output` selects a printer based on opts.
   `skeptic.output.text` renders the human-readable, ANSI-coloured report that `lein skeptic` has always produced.
   `skeptic.output.porcelain` renders newline-delimited JSON (one object per finding) for `lein skeptic -p`.
+  `skeptic.output.serialize` converts findings into JSON-ready data.
 - `skeptic.file`, `skeptic.source`, `skeptic.colours`, `skeptic.type-vars`:
   General support namespaces for file reading, source lookup, terminal formatting, and simple type-var values.
 - `skeptic.examples`, `skeptic.static-call-examples`:
@@ -132,7 +142,7 @@ Some subsystems expose a dedicated API module that external callers must go thro
 
 - `skeptic.analysis.annotate.api` is the API for the annotate subsystem. Code that reads or writes fields on annotated nodes must use the accessors and mutators defined there (e.g. `node-form`, `node-type`, `with-type`). Direct `(:form node)`, `(:type node)`, `(assoc node :type ...)` are permitted only inside `annotate/*` files that own node shape (the per-AST-op annotators).
 - `skeptic.analysis.bridge` is the entry point for schema→type conversion (`schema->type`). Schema-domain predicates and canonicalization live in `skeptic.analysis.bridge.canonicalize`; per rule 1 these siblings are required directly, they are not "internals of bridge."
-- `skeptic.analysis.cast` is the cast dispatcher. Cast-result construction and blame/path helpers live in `skeptic.analysis.cast.support`. Again these are documented siblings, not cast internals.
+- `skeptic.analysis.cast` is the cast dispatcher. Cast-result construction and path helpers live in `skeptic.analysis.cast.support`; diagnostic projection lives in `skeptic.analysis.cast.result`. Again these are documented siblings, not cast internals.
 - `skeptic.provenance` is the API for Provenance values carried alongside the declaration dict and attached to every Type. Consumers use `make-provenance`, `of`, `source`, `provenance?`, and `merge-provenances` — not the `Provenance` record constructor or raw `:source` field access. `prov/of` is strict: it throws if given a value without `:prov`, so any code that fabricates a Type without a real Provenance is rejected at the earliest read. There is no `prov/unknown` sentinel; every Type everywhere must carry a named-source Provenance.
 
 When an existing API module lacks a helper that a new consumer needs, extend the API module rather than reaching past it. The purpose of the boundary is to keep node shape (and analogous cast-result shape) changeable in one place.
@@ -156,7 +166,7 @@ The library has three domains that must not be confused: Schema, MalliSpec, and 
 
 Conversion is one-way into Type: `Schema → Type` (via `skeptic.analysis.bridge/schema->type`) and `MalliSpec → Type` (via `skeptic.analysis.malli-spec.bridge/malli-spec->type`). There is no `Type → Schema`, `Type → MalliSpec`, `Schema → MalliSpec`, or `MalliSpec → Schema`.
 
-`:schema` as a keyword in this codebase means Plumatic Schema, always. Malli data at the admission boundary is carried as `:malli-spec` (and read from `:malli/schema` var metadata or from `malli.core/function-schemas`) so the Plumatic collector never sees it.
+`:schema` as a keyword in this codebase means Plumatic Schema, always. Malli data at the admission boundary is carried as `:malli-spec` and currently read from `:malli/schema` var metadata only, so the Plumatic collector never sees it.
 
 ### Schema Domain
 
@@ -179,9 +189,9 @@ The MalliSpec domain is the external [Malli](https://github.com/metosin/malli) s
 The slice as it now stands:
 
 - **Discovery:** `:malli/schema` var metadata only. Deferred: `malli.core/function-schemas` registry, `m/=>`, `malli.experimental/defn`.
-- **Conversion (`malli-spec->type`):** admits via `m/form ∘ m/schema`; recursively converts the callable shape `[:=> [:cat & inputs] output]` into a `FunT` with one `FnMethodT`, `[:maybe X]` into `MaybeT` over the converted inner, and `[:or X Y …]` via `ato/union-type` over the converted members. Leaves are restricted to a five-entry primitive table: `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:boolean → Bool`, `:any → Dyn`. Every other Malli form (`:map`, `:vector`, nested `:=>`, registry refs, etc.) returns `Dyn`.
-- **Strict separation at admission, merge at the pipeline boundary:** `typed-ns-results` still returns Schema-derived entries only; the Malli collector (`skeptic.malli-spec.collect`) and Malli→Type bridge (`skeptic.analysis.malli-spec.bridge`) remain domain-pure standalone modules. Pipeline wiring happens in `skeptic.checking.pipeline/namespace-dict`, which combines per-namespace schema, malli, and native-fn entries through `merge-typed-dicts [schema-dict malli-dict native-fn-dict]`; once inside the merged dict, Malli-admitted entries reach the analyzer in the same shape as schema entries.
-- **Deferred:** registry-based discovery; non-primitive Malli leaves; nested `:=>`; multi-arity malli-spec admission; JSONL Malli kinds; `.skeptic/config.edn` Malli surface; `:skeptic/type` Malli interpretation; analyzer-side wiring of Malli-derived types as a separate type source.
+- **Conversion (`malli-spec->type`):** admits via `m/form ∘ m/schema`; recursively converts the callable shape `[:=> [:cat & inputs] output]` into a `FunT` with one `FnMethodT`, `[:maybe X]` into `MaybeT` over the converted inner, `[:or X Y ...]` via `ato/union-type` over the converted members, and `[:enum ...]` via exact value types. Leaves support `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:boolean → Bool`, `:any → Dyn`, and recognized bare predicate symbols. Every other Malli form (`:map`, `:vector`, registry refs, sequence/regex combinators, etc.) returns `Dyn`.
+- **Strict separation at admission, merge at the pipeline boundary:** `typed-ns-results` returns Schema-derived entries plus `:skeptic/type-overrides`; the Malli collector (`skeptic.malli-spec.collect`) and Malli→Type bridge (`skeptic.analysis.malli-spec.bridge`) remain domain-pure standalone modules. Pipeline wiring happens in `skeptic.checking.pipeline/namespace-dict`, which combines per-namespace schema, malli, and native-fn entries through `merge-type-dicts [schema-result malli-result native-result]`; once inside the merged dict, Malli-admitted entries reach the analyzer in the same shape as schema entries.
+- **Deferred:** registry-based discovery; unsupported Malli forms such as `:map`, `:vector`, registry refs, and sequence/regex combinators; multi-arity malli-spec admission; JSONL Malli kinds; `.skeptic/config.edn` Malli surface; `:skeptic/type` Malli interpretation; analyzer-side wiring of Malli-derived types as a separate type source.
 
 ### Type Domain
 
@@ -191,21 +201,21 @@ In this codebase, those semantic types live in `src/skeptic/analysis/types.clj`.
 The type domain is not an abstract idea here; it is the concrete family of internal values built and recognized by helpers such as:
 
 - constructors:
-  `at/->DynT`, `at/->BottomT`, `at/->GroundT`, `at/->RefinementT`, `at/->AdapterLeafT`, `at/->OptionalKeyT`, `at/->FnMethodT`, `at/->FunT`, `at/->MaybeT`, `at/->UnionT`, `at/->IntersectionT`, `at/->MapT`, `at/->VectorT`, `at/->SetT`, `at/->SeqT`, `at/->VarT`, `at/->PlaceholderT`, `at/->ValueT`, `at/->TypeVarT`, `at/->ForallT`, and `at/->SealedDynT`
+  `at/->DynT`, `at/->BottomT`, `at/->GroundT`, `at/->NumericDynT`, `at/->RefinementT`, `at/->AdapterLeafT`, `at/->OptionalKeyT`, `at/->FnMethodT`, `at/->FunT`, `at/->MaybeT`, `at/->UnionT`, `at/->IntersectionT`, `at/->MapT`, `at/->VectorT`, `at/->SetT`, `at/->SeqT`, `at/->VarT`, `at/->PlaceholderT`, `at/->InfCycleT`, `at/->ValueT`, `at/->TypeVarT`, `at/->ForallT`, `at/->SealedDynT`, and `at/->ConditionalT`
 - predicates:
-  `at/dyn-type?`, `at/bottom-type?`, `at/ground-type?`, `at/refinement-type?`, `at/adapter-leaf-type?`, `at/optional-key-type?`, `at/fn-method-type?`, `at/fun-type?`, `at/maybe-type?`, `at/union-type?`, `at/intersection-type?`, `at/map-type?`, `at/vector-type?`, `at/set-type?`, `at/seq-type?`, `at/var-type?`, `at/placeholder-type?`, `at/value-type?`, `at/type-var-type?`, `at/forall-type?`, and `at/sealed-dyn-type?`
+  `at/dyn-type?`, `at/bottom-type?`, `at/ground-type?`, `at/numeric-dyn-type?`, `at/refinement-type?`, `at/adapter-leaf-type?`, `at/optional-key-type?`, `at/fn-method-type?`, `at/fun-type?`, `at/maybe-type?`, `at/union-type?`, `at/intersection-type?`, `at/map-type?`, `at/vector-type?`, `at/set-type?`, `at/seq-type?`, `at/var-type?`, `at/placeholder-type?`, `at/inf-cycle-type?`, `at/value-type?`, `at/type-var-type?`, `at/forall-type?`, `at/sealed-dyn-type?`, and `at/conditional-type?`
 
 This is the domain where the cast engine, blame logic, compatibility checks, and most internal reasoning should happen.
 
 Concretely, when code is doing real semantic work, it should usually be operating on values shaped like:
 
-- `at/->GroundT :int 'Int`
-- `at/->ValueT inner value`
-- `at/->FunT [...]`
-- `at/->MapT {...}`
-- `at/->UnionT members`
-- `at/->ForallT binder body`
-- `at/->SealedDynT ground`
+- `at/->GroundT prov :int 'Int`
+- `at/->ValueT prov inner value`
+- `at/->FunT prov [...]`
+- `at/->MapT prov {...}`
+- `at/->UnionT prov members`
+- `at/->ForallT prov binder body`
+- `at/->SealedDynT prov ground`
 
 and branching with the corresponding `at/*-type?` predicates.
 
@@ -239,7 +249,7 @@ The direct admission flow per source is:
 - `Schema → schema->type → dict[sym] = Type` (via `skeptic.typed-decls`)
 - `MalliSpec → malli-spec->type → dict[sym] = Type` (via `skeptic.typed-decls.malli`)
 - `native → Type → dict[sym] = Type` (via `skeptic.analysis.native-fns`)
-- `:skeptic/type-overrides → schema->type → dict[sym] = Type` (via `skeptic.config` + `skeptic.typed-decls`)
+- `:skeptic/type-overrides → dict[sym] = Type` (via opts consumed by `skeptic.typed-decls`)
 
 There is no intermediate entry-map shape between admission and dict insertion.
 
@@ -247,7 +257,7 @@ There is no intermediate entry-map shape between admission and dict insertion.
 
 Every Type in `skeptic.analysis.types` is a `defrecord` with `:prov` as field 1. The constructor contract is absolute:
 
-- Every positional arrow constructor (`at/->GroundT`, `at/->MapT`, `at/->FunT`, `at/->FnMethodT`, `at/->MaybeT`, `at/->UnionT`, `at/->SeqT`, `at/->VectorT`, `at/->SetT`, `at/->ValueT`, `at/->ForallT`, `at/->PlaceholderT`, `at/->InfCycleT`, `at/->RefinementT`, `at/->AdapterLeafT`, `at/->OptionalKeyT`, `at/->VarT`, `at/->TypeVarT`, `at/->BottomT`, `at/->DynT`, `at/->SealedDynT`) takes a Provenance as first argument.
+- Every positional arrow constructor (`at/->GroundT`, `at/->MapT`, `at/->FunT`, `at/->FnMethodT`, `at/->MaybeT`, `at/->UnionT`, `at/->SeqT`, `at/->VectorT`, `at/->SetT`, `at/->ValueT`, `at/->ForallT`, `at/->PlaceholderT`, `at/->InfCycleT`, `at/->RefinementT`, `at/->AdapterLeafT`, `at/->OptionalKeyT`, `at/->VarT`, `at/->TypeVarT`, `at/->BottomT`, `at/->DynT`, `at/->NumericDynT`, `at/->SealedDynT`, `at/->ConditionalT`) takes a Provenance as first argument.
 - Type helpers that wrap constructors (`at/Dyn`, `at/NumericDyn`, `at/BottomType`) also take a Provenance as first argument.
 - `prov/of` is the canonical reader and throws if `:prov` is absent. There is no fallback and no `prov/unknown` sentinel.
 
@@ -259,7 +269,7 @@ Combinator provenance rule (container-owns-identity):
 Ingestion boundaries supply the root Provenance used throughout a derived subtree:
 
 - `skeptic.analysis.bridge/schema->type` and `skeptic.analysis.bridge.localize/*` — `:schema`.
-- `skeptic.analysis.malli-spec.bridge/malli-spec->type` threads `:malli-spec` through every sub-constructor (`FunT`, `FnMethodT`, `MaybeT`, `UnionT` members, primitive leaves).
+- `skeptic.analysis.malli-spec.bridge/malli-spec->type` threads `:malli` through every sub-constructor (`FunT`, `FnMethodT`, `MaybeT`, `UnionT` members, enum values, primitive leaves, and predicate witnesses).
 - `skeptic.analysis.native-fns/static-call-native-info` — `:native`.
 - `skeptic.config` / `skeptic.typed-decls` for `:type-overrides` — `:type-override`.
 - `skeptic.analysis.type-ops/exact-value-type`, `skeptic.analysis.value/type-of-value`, and the analyzer annotation layer — `:inferred`, taken from `prov/with-ctx` when inside the analyzer.
