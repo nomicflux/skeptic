@@ -13,9 +13,8 @@
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]))
 
-(s/defn case-test-literal-nodes
+(s/defn case-test-literal-nodes :- (s/maybe [s/Any])
   [case-test-entry :- s/Any]
-  :- (s/maybe [s/Any])
   (when case-test-entry
     (let [candidates (cond
                        (#{:const :quote} (:op case-test-entry))
@@ -30,29 +29,25 @@
       (when candidates
         (vec (filter #(#{:const :quote} (:op %)) candidates))))))
 
-(s/defn case-test-literals
+(s/defn case-test-literals :- [s/Any]
   [case-test-node :- s/Any]
-  :- [s/Any]
   (mapv ac/literal-node-value (case-test-literal-nodes case-test-node)))
 
-(s/defn case-discriminant-expr-node
+(s/defn case-discriminant-expr-node :- s/Any
   [test-node :- s/Any]
-  :- s/Any
   (if (and (= :local (:op test-node)) (:binding-init test-node))
     (:binding-init test-node)
     test-node))
 
-(s/defn case-discriminant-leaf-node
+(s/defn case-discriminant-leaf-node :- s/Any
   [node :- s/Any]
-  :- s/Any
   (case (:op node)
     :do (case-discriminant-leaf-node (:ret node))
     :let (case-discriminant-leaf-node (:body node))
     node))
 
-(s/defn case-assumption-root-for-local
+(s/defn case-assumption-root-for-local :- (s/maybe aos/RootOrigin)
   [ctx :- s/Any, target :- s/Any]
-  :- (s/maybe aos/RootOrigin)
   (or (ao/local-root-origin ctx target)
       (when (= :local (:op target))
         (ao/root-origin (:form target) (or (:type target) (aapi/dyn ctx))))))
@@ -73,9 +68,8 @@
           (when (keyword? key) [key target]))))
     :else nil))
 
-(s/defn case-kw-and-target
+(s/defn case-kw-and-target :- (s/maybe [s/Any])
   [node :- s/Any]
-  :- (s/maybe [s/Any])
   (or (ac/keyword-invoke-kw-and-target node)
       (when (and (contains? aapi/invoke-ops (:op node))
                  (= 1 (count (:args node))))
@@ -86,32 +80,28 @@
             [(:kw summary) target])))
       (case-get-access-kw-and-target node)))
 
-(s/defn case-kw-root-info
+(s/defn case-kw-root-info :- (s/maybe {s/Keyword s/Any})
   [ctx :- s/Any, test-node :- s/Any]
-  :- (s/maybe {s/Keyword s/Any})
   (some (fn [node]
           (when-let [[kw target] (case-kw-and-target node)]
             (when-let [root (and (keyword? kw) (case-assumption-root-for-local ctx target))]
               {:kw kw :root root})))
         (sac/ast-nodes test-node)))
 
-(s/defn case-predicate-test-map
+(s/defn case-predicate-test-map :- {s/Any s/Any}
   [kw :- s/Any, lit :- s/Any]
-  :- {s/Any s/Any}
   (cond-> {kw lit}
     (keyword? lit) (assoc lit true)))
 
-(s/defn case-predicate-matches-lit?
+(s/defn case-predicate-matches-lit? :- s/Bool
   [pred :- s/Any, kw :- s/Any, lit :- s/Any]
-  :- s/Bool
   (boolean
    (try
      (pred (case-predicate-test-map kw lit))
      (catch Exception _ false))))
 
-(s/defn case-conditional-branches-from-type
+(s/defn case-conditional-branches-from-type :- (s/maybe s/Any)
   [type :- ats/SemanticType]
-  :- (s/maybe s/Any)
   (let [type (if (at/maybe-type? type) (:inner type) type)]
     (cond
       (at/conditional-type? type) (:branches type)
@@ -148,12 +138,11 @@
     (contains? (set (:values descriptor)) lit)
     (path-predicate-matches-lit? pred path lit)))
 
-(s/defn narrow-conditional-by-discriminator
+(s/defn narrow-conditional-by-discriminator :- ats/SemanticType
   "Pick branches of `branches` whose pred matches each literal in `lits`
    against discriminator `path` (non-empty vector of key-queries). Returns
    a union of selected branch types."
   [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
-  :- ats/SemanticType
   (let [pick (fn [lit]
                (some (fn [[pred branch-type descriptor]]
                        (when (pred-matches-lit? pred descriptor path lit)
@@ -162,11 +151,10 @@
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
 
-(s/defn narrow-conditional-default
+(s/defn narrow-conditional-default :- ats/SemanticType
   "Default-branch counterpart: returns the union of branch types whose
    preds did NOT match any of `lits`."
   [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
-  :- ats/SemanticType
   (let [matched? (fn [[pred _ descriptor]]
                    (some #(pred-matches-lit? pred descriptor path %) lits))
         default-types (into [] (comp (remove matched?)
@@ -176,19 +164,16 @@
       (at/BottomType anchor-prov)
       (ato/union default-types))))
 
-(s/defn case-conditional-narrow-for-lits
+(s/defn case-conditional-narrow-for-lits :- ats/SemanticType
   [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, lits :- [s/Any]]
-  :- ats/SemanticType
   (narrow-conditional-by-discriminator anchor-prov branches [kw-query] lits))
 
-(s/defn case-conditional-default-narrow
+(s/defn case-conditional-default-narrow :- ats/SemanticType
   [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, all-lits :- [s/Any]]
-  :- ats/SemanticType
   (narrow-conditional-default anchor-prov branches [kw-query] all-lits))
 
-(s/defn annotate-case-one-then
+(s/defn annotate-case-one-then :- s/Any
   [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], disc-root :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any]
-  :- s/Any
   (let [lits (vec (distinct (case-test-literals (nth tests i))))
         assumption (cond
                      (and use-conditional? disc-root (seq lits))
@@ -216,9 +201,8 @@
                    then-body)]
     (assoc (nth thens i) :then annotated)))
 
-(s/defn ^:private default-assumption
+(s/defn ^:private default-assumption :- (s/maybe aos/Assumption)
   [anchor-prov :- provs/Provenance, use-conditional? :- s/Any, disc-root :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any, all-values :- s/Any]
-  :- (s/maybe aos/Assumption)
   (cond
     (and use-conditional? disc-root (seq all-values))
     {:kind :conditional-branch
@@ -247,9 +231,8 @@
                    branch-types
                    (conj branch-types (:type default-node)))))
 
-(s/defn annotate-case
+(s/defn annotate-case :- s/Any
   [{:keys [locals assumptions] :as ctx} :- s/Any, node :- s/Any]
-  :- s/Any
   (let [anchor-prov (prov/with-ctx ctx)
         test-node ((:recurse ctx) ctx (:test node))
         discriminant-expr (case-discriminant-expr-node test-node)

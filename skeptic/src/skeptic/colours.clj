@@ -1,3 +1,4 @@
+(ns skeptic.checking)
 (ns skeptic.colours)
 
 (def black-code "\u001B[30")

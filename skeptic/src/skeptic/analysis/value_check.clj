@@ -18,8 +18,8 @@
   [value]
   (ato/normalize value))
 
-(s/defn exact-value-type?
-  [type :- s/Any] :- s/Bool
+(s/defn exact-value-type? :- s/Bool
+  [type :- s/Any]
   (at/value-type? (as-type type)))
 
 (s/defn path-key
@@ -82,8 +82,8 @@
       :else
       :unknown)))
 
-(s/defn refine-type-by-contains-key
-  [type :- ats/SemanticType key :- s/Any polarity :- s/Any] :- ats/SemanticType
+(s/defn refine-type-by-contains-key :- ats/SemanticType
+  [type :- ats/SemanticType key :- s/Any polarity :- s/Any]
   (let [type (as-type type)
         branches (cond
                    (at/union-type? type) (:members type)
@@ -111,8 +111,8 @@
     (when (and (map? ground) (:class ground))
       (:class ground))))
 
-(s/defn numeric-ground-type?
-  [type :- s/Any] :- s/Bool
+(s/defn numeric-ground-type? :- s/Bool
+  [type :- s/Any]
   (let [type (as-type type)
         ground (:ground type)
         klass (numeric-ground-class type)]
@@ -123,23 +123,23 @@
                  (= klass Number)
                  (= klass java.lang.Number))))))
 
-(s/defn non-int-numeric-ground-type?
-  [type :- s/Any] :- s/Bool
+(s/defn non-int-numeric-ground-type? :- s/Bool
+  [type :- s/Any]
   (let [klass (numeric-ground-class type)]
     (and (numeric-ground-type? type)
          (not= :int (:ground (as-type type)))
          (or (nil? klass)
              (not (contains? integral-ground-classes klass))))))
 
-(s/defn numeric-leaf-type?
-  [type :- s/Any] :- s/Bool
+(s/defn numeric-leaf-type? :- s/Bool
+  [type :- s/Any]
   (let [type (as-type type)]
     (or (at/numeric-dyn-type? type)
         (numeric-ground-type? type)
         (and (at/value-type? type) (number? (:value type))))))
 
-(s/defn ground-accepts-value?
-  [type :- s/Any value :- s/Any] :- s/Bool
+(s/defn ground-accepts-value? :- s/Bool
+  [type :- s/Any value :- s/Any]
   (let [ground (:ground (as-type type))]
     (cond
       (= ground :int) (integer? value)
@@ -150,8 +150,8 @@
       (and (map? ground) (:class ground)) (instance? (:class ground) value)
       :else false)))
 
-(s/defn leaf-overlap?
-  [source-type :- s/Any target-type :- s/Any] :- s/Bool
+(s/defn leaf-overlap? :- s/Bool
+  [source-type :- s/Any target-type :- s/Any]
   (let [source-type (as-type source-type)
         target-type (as-type target-type)]
     (cond
@@ -208,20 +208,20 @@
 
       :else false)))
 
-(s/defn type-compatible-map-value?
-  [value-type :- s/Any expected-type :- s/Any] :- s/Bool
+(s/defn type-compatible-map-value? :- s/Bool
+  [value-type :- s/Any expected-type :- s/Any]
   ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' value-type expected-type)))
 
-(s/defn set-value-satisfies-type?
-  [value :- s/Any members :- s/Any] :- s/Bool
+(s/defn set-value-satisfies-type? :- s/Bool
+  [value :- s/Any members :- s/Any]
   (and (set? value)
        (= (count value) (count members))
        (every? (fn [member-value]
                  (some #(value-satisfies-type? member-value %) members))
                value)))
 
-(s/defn map-value-satisfies-type?
-  [value :- s/Any map-type :- s/Any] :- s/Bool
+(s/defn map-value-satisfies-type? :- s/Bool
+  [value :- s/Any map-type :- s/Any]
   (and (map? value)
        (let [descriptor (amo/map-entry-descriptor (:entries (as-type map-type)))
              required-missing (atom (set (keys (:required-exact descriptor))))]
@@ -238,8 +238,8 @@
                   value)
           (empty? @required-missing)))))
 
-(s/defn value-satisfies-type?
-  [value :- s/Any type :- s/Any] :- s/Bool
+(s/defn value-satisfies-type? :- s/Bool
+  [value :- s/Any type :- s/Any]
   (let [type (as-type type)]
     (cond
       (or (at/dyn-type? type)
@@ -274,13 +274,14 @@
           (value-satisfies-type? value (:inner type)))
 
       (at/union-type? type)
-      (some #(value-satisfies-type? value %) (:members type))
+      (boolean (some #(value-satisfies-type? value %) (:members type)))
 
       (at/conditional-type? type)
-      (some (fn [[pred branch-t _]]
-              (and (try (pred value) (catch Exception _ false))
-                   (value-satisfies-type? value branch-t)))
-            (:branches type))
+      (boolean
+       (some (fn [[pred branch-t _]]
+               (and (try (pred value) (catch Exception _ false))
+                    (value-satisfies-type? value branch-t)))
+             (:branches type)))
 
       (at/intersection-type? type)
       (every? #(value-satisfies-type? value %) (:members type))

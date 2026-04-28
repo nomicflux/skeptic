@@ -14,8 +14,8 @@
                (= 1 (count args)))
       (:type (first args)))))
 
-(s/defn invoke-output-type
-  [ctx fn-node args output-type] :- s/Any
+(s/defn invoke-output-type :- s/Any
+  [ctx fn-node args output-type]
   (if-let [summary-output (unary-summary-output fn-node args)]
     summary-output
     (cond

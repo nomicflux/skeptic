@@ -30,9 +30,8 @@
 
       :else nil)))
 
-(s/defn projection-root-local
+(s/defn projection-root-local :- (s/maybe s/Any)
   [target-node :- s/Any]
-  :- (s/maybe aos/Origin)
   (loop [node target-node
          seen #{}]
     (when (aapi/stable-identity-node? node)
@@ -43,16 +42,14 @@
             (recur alias (conj seen k))
             node))))))
 
-(s/defn projection-root-origin
+(s/defn projection-root-origin :- (s/maybe aos/RootOrigin)
   [ctx :- s/Any, target-node :- s/Any]
-  :- (s/maybe aos/RootOrigin)
   (when-let [root-local (projection-root-local target-node)]
     (or (ao/local-root-origin ctx root-local)
         (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
 
-(s/defn map-key-lookup-origin
+(s/defn map-key-lookup-origin :- (s/maybe aos/Origin)
   [ctx :- s/Any, target-node :- s/Any, key-query :- s/Any, default-type :- s/Any]
-  :- (s/maybe aos/Origin)
   (let [target-origin (aapi/node-origin target-node)]
     (if (= :map-key-lookup (:kind target-origin))
       {:kind :map-key-lookup

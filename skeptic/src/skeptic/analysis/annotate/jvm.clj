@@ -10,9 +10,8 @@
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]))
 
-(s/defn annotate-instance-call
+(s/defn annotate-instance-call :- s/Any
   [ctx :- s/Any, node :- s/Any]
-  :- s/Any
   (let [instance ((:recurse ctx) ctx (:instance node))
         args (mapv #((:recurse ctx) ctx %) (:args node))
         type (when (= 'nth (:method node))
@@ -42,9 +41,8 @@
                                           node args actual-argtypes native-info)
     (aapi/dyn ctx)))
 
-(s/defn annotate-static-call
+(s/defn annotate-static-call :- s/Any
   [ctx :- s/Any, node :- s/Any]
-  :- s/Any
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))
         actual-argtypes (mapv :type args)
         native-info (native-fns/static-call-native-info (:class node) (:method node) (count args))

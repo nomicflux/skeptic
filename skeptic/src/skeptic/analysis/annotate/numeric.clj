@@ -6,9 +6,8 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance.schema :as provs]))
 
-(s/defn bool-type
+(s/defn bool-type :- ats/SemanticType
   [prov :- provs/Provenance]
-  :- ats/SemanticType
   (at/->GroundT prov :bool 'Bool))
 
 (def integral-arg-classes
@@ -20,9 +19,8 @@
     (when (and (map? ground) (:class ground))
       (:class ground))))
 
-(s/defn integral-type?
+(s/defn integral-type? :- s/Bool
   [type :- ats/SemanticType]
-  :- s/Bool
   (let [type (ato/normalize type)]
     (cond
       (and (at/ground-type? type) (= :int (:ground type))) true
@@ -35,9 +33,8 @@
 
 (def integral-ground-type? integral-type?)
 
-(s/defn numeric-type?
+(s/defn numeric-type? :- s/Bool
   [type :- ats/SemanticType]
-  :- s/Bool
   (let [type (ato/normalize type)]
     (cond
       (integral-type? type) true
@@ -48,9 +45,8 @@
       (at/intersection-type? type) (every? numeric-type? (:members type))
       :else false)))
 
-(s/defn non-int-numeric-type?
+(s/defn non-int-numeric-type? :- s/Bool
   [type :- ats/SemanticType]
-  :- s/Bool
   (let [type (ato/normalize type)
         klass (numeric-ground-class type)]
     (cond
@@ -84,9 +80,8 @@
 
       :else nil)))
 
-(s/defn inc-dec-output-type
+(s/defn inc-dec-output-type :- (s/maybe ats/SemanticType)
   [arg-type :- ats/SemanticType]
-  :- (s/maybe ats/SemanticType)
   (let [prov (ato/derive-prov arg-type)]
     (cond
       (integral-type? arg-type) (at/->GroundT prov :int 'Int)
@@ -94,18 +89,16 @@
       (numeric-type? arg-type) (at/NumericDyn prov)
       :else nil)))
 
-(s/defn binary-integral-locals-narrow?
+(s/defn binary-integral-locals-narrow? :- s/Bool
   [arg-nodes :- [s/Any], arg-types :- [ats/SemanticType]]
-  :- s/Bool
   (and (= 2 (count arg-nodes))
        (not= :const (:op (first arg-nodes)))
        (not= :const (:op (second arg-nodes)))
        (integral-type? (first arg-types))
        (integral-type? (second arg-types))))
 
-(s/defn invoke-integral-math-narrow-type
+(s/defn invoke-integral-math-narrow-type :- (s/maybe ats/SemanticType)
   [anchor-prov :- provs/Provenance, fn-node :- s/Any, args :- [s/Any], actual-argtypes :- [ats/SemanticType]]
-  :- (s/maybe ats/SemanticType)
   (cond
     (and (ac/inc-invoke? fn-node) (= 1 (count args))
          (numeric-type? (first actual-argtypes)))
@@ -127,9 +120,8 @@
     (at/->GroundT anchor-prov :int 'Int)
     :else nil))
 
-(s/defn narrow-static-numbers-output
+(s/defn narrow-static-numbers-output :- (s/maybe ats/SemanticType)
   [anchor-prov :- provs/Provenance, node :- s/Any, args :- [s/Any], actual-argtypes :- [ats/SemanticType], native-info :- s/Any]
-  :- (s/maybe ats/SemanticType)
   (let [method (:method node)]
     (or (when (#{'inc 'dec} method)
           (when (and (= 1 (count args))
