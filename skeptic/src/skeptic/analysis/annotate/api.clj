@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.api
   (:require [schema.core :as s]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.origin.schema :as aos]
@@ -39,53 +40,53 @@
 (def ^:private legacy-schema-mirror-keys
   #{:schema :output :expected-arglist :actual-arglist})
 
-(s/defn node-op :- s/Any [node :- s/Any] (:op node))
-(s/defn node-form :- s/Any [node :- s/Any] (:form node))
-(s/defn node-type :- s/Any [node :- s/Any] (:type node))
-(s/defn node-output-type :- s/Any [node :- s/Any] (:output-type node))
-(s/defn node-fn-type :- s/Any [node :- s/Any] (:fn-type node))
-(s/defn node-origin :- (s/maybe aos/Origin) [node :- s/Any] (:origin node))
-(s/defn node-var :- s/Any [node :- s/Any] (:var node))
-(s/defn node-name :- s/Any [node :- s/Any] (:name node))
-(s/defn node-class :- s/Any [node :- s/Any] (:class node))
-(s/defn node-method :- s/Any [node :- s/Any] (:method node))
-(s/defn node-value :- s/Any [node :- s/Any] (:val node))
-(s/defn node-tag :- s/Any [node :- s/Any] (:tag node))
-(s/defn node-raw-forms :- s/Any [node :- s/Any] (:raw-forms node))
-(s/defn node-test :- s/Any [node :- s/Any] (:test node))
-(s/defn node-body :- s/Any [node :- s/Any] (:body node))
-(s/defn node-init :- s/Any [node :- s/Any] (:init node))
-(s/defn node-expr :- s/Any [node :- s/Any] (:expr node))
-(s/defn node-ret :- s/Any [node :- s/Any] (:ret node))
-(s/defn node-bindings :- s/Any [node :- s/Any] (:bindings node))
-(s/defn node-target :- s/Any [node :- s/Any] (:target node))
-(s/defn node-keyword :- s/Any [node :- s/Any] (:keyword node))
-(s/defn node-arglists :- s/Any [node :- s/Any] (:arglists node))
-(s/defn node-arglist :- s/Any [node :- s/Any] (:arglist node))
-(s/defn call-fn-node :- s/Any [node :- s/Any] (:fn node))
-(s/defn call-args :- s/Any [node :- s/Any] (:args node))
-(s/defn recur-args :- s/Any [node :- s/Any] (:exprs node))
-(s/defn call-actual-argtypes :- s/Any [node :- s/Any] (:actual-argtypes node))
-(s/defn call-expected-argtypes :- s/Any [node :- s/Any] (:expected-argtypes node))
-(s/defn binding-init :- s/Any [node :- s/Any] (:binding-init node))
+(s/defn node-op :- s/Any [node :- aas/AnnotatedNode] (:op node))
+(s/defn node-form :- s/Any [node :- aas/AnnotatedNode] (:form node))
+(s/defn node-type :- s/Any [node :- aas/AnnotatedNode] (:type node))
+(s/defn node-output-type :- s/Any [node :- aas/AnnotatedNode] (:output-type node))
+(s/defn node-fn-type :- s/Any [node :- aas/AnnotatedNode] (:fn-type node))
+(s/defn node-origin :- (s/maybe aos/Origin) [node :- aas/AnnotatedNode] (:origin node))
+(s/defn node-var :- s/Any [node :- aas/AnnotatedNode] (:var node))
+(s/defn node-name :- s/Any [node :- aas/AnnotatedNode] (:name node))
+(s/defn node-class :- s/Any [node :- aas/AnnotatedNode] (:class node))
+(s/defn node-method :- s/Any [node :- aas/AnnotatedNode] (:method node))
+(s/defn node-value :- s/Any [node :- aas/AnnotatedNode] (:val node))
+(s/defn node-tag :- s/Any [node :- aas/AnnotatedNode] (:tag node))
+(s/defn node-raw-forms :- s/Any [node :- aas/AnnotatedNode] (:raw-forms node))
+(s/defn node-test :- s/Any [node :- aas/AnnotatedNode] (:test node))
+(s/defn node-body :- s/Any [node :- aas/AnnotatedNode] (:body node))
+(s/defn node-init :- s/Any [node :- aas/AnnotatedNode] (:init node))
+(s/defn node-expr :- s/Any [node :- aas/AnnotatedNode] (:expr node))
+(s/defn node-ret :- s/Any [node :- aas/AnnotatedNode] (:ret node))
+(s/defn node-bindings :- s/Any [node :- aas/AnnotatedNode] (:bindings node))
+(s/defn node-target :- s/Any [node :- aas/AnnotatedNode] (:target node))
+(s/defn node-keyword :- s/Any [node :- aas/AnnotatedNode] (:keyword node))
+(s/defn node-arglists :- s/Any [node :- aas/AnnotatedNode] (:arglists node))
+(s/defn node-arglist :- s/Any [node :- aas/AnnotatedNode] (:arglist node))
+(s/defn call-fn-node :- s/Any [node :- aas/AnnotatedNode] (:fn node))
+(s/defn call-args :- s/Any [node :- aas/AnnotatedNode] (:args node))
+(s/defn recur-args :- s/Any [node :- aas/AnnotatedNode] (:exprs node))
+(s/defn call-actual-argtypes :- s/Any [node :- aas/AnnotatedNode] (:actual-argtypes node))
+(s/defn call-expected-argtypes :- s/Any [node :- aas/AnnotatedNode] (:expected-argtypes node))
+(s/defn binding-init :- s/Any [node :- aas/AnnotatedNode] (:binding-init node))
 
 (s/defn with-type :- s/Any
   "Public setter for the inferred value-type of an annotated node.
    Use this (not raw (assoc node :type ...)) from any code that does not own node shape."
-  [node :- s/Any type :- ats/SemanticType]
+  [node :- aas/AnnotatedNode type :- ats/SemanticType]
   (assoc node :type type))
 
 (s/defn node-location :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
 
 (s/defn node-info :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (select-keys node
                [:type :output-type :arglists :arglist :expected-argtypes
                 :actual-argtypes :fn-type :origin]))
 
-(s/defn synthetic-binding-node :- s/Any
+(s/defn synthetic-binding-node :- aas/AnnotatedNode
   [idx :- s/Any sym :- s/Any]
   {:op :binding
    :name sym
@@ -94,52 +95,52 @@
    :arg-id idx})
 
 (s/defn node-children :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (mapv (fn [key] [key (get node key)]) (:children node)))
 
 (s/defn annotated-nodes :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (sac/ast-nodes node))
 
 (s/defn find-node :- s/Any
-  [root :- s/Any pred :- s/Any]
+  [root :- aas/AnnotatedNode pred :- s/Any]
   (some #(when (pred %) %) (annotated-nodes root)))
 
 (s/defn unwrap-with-meta :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (if (= :with-meta (:op node))
     (recur (:expr node))
     node))
 
 (s/defn local-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (= :local (:op node)))
 
 (s/defn stable-identity-node? :- s/Any
   "True for any node that names a stable identity for narrowing
    purposes: lexical locals, top-level vars, and var-ref forms."
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (or (local-node? node)
       (= :var (:op node))
       (= :the-var (:op node))))
 
 (s/defn if-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (= :if (:op node)))
 
 (s/defn let-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (= :let (:op node)))
 
 (s/defn recur-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (= :recur (:op node)))
 
 (def invoke-ops
   #{:instance-call :invoke :keyword-invoke :prim-invoke :protocol-invoke :static-call})
 
 (s/defn call-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (or (and (contains? invoke-ops (:op node))
            (vector? (:args node))
            (seq (:expected-argtypes node))
@@ -150,11 +151,11 @@
            (seq (:actual-argtypes node)))))
 
 (s/defn node-ref :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (when node {:form (:form node) :type (:type node)}))
 
 (s/defn callee-ref :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (when node
     (case (:op node)
       :invoke (node-ref (:fn node))
@@ -162,7 +163,7 @@
       nil)))
 
 (s/defn local-resolution-path :- s/Any
-  [local-node :- s/Any]
+  [local-node :- aas/AnnotatedNode]
   (let [init (:binding-init local-node)]
     (if init
       (cond-> [(node-ref init)]
@@ -170,7 +171,7 @@
       [])))
 
 (s/defn local-vars-context :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (reduce (fn [acc local-node]
             (if (contains? acc (:form local-node))
               acc
@@ -183,7 +184,7 @@
           (filter local-node? (annotated-nodes node))))
 
 (s/defn call-refs :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (let [fn-node (:fn node)]
     (cond
       (nil? fn-node) []
@@ -191,39 +192,39 @@
       :else (cond-> [] (node-ref fn-node) (conj (node-ref fn-node))))))
 
 (s/defn function-methods :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (:methods node))
 
 (s/defn method-body :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (:body node))
 
 (s/defn def-init-node :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (:init node))
 
 (s/defn then-node :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (:then node))
 
 (s/defn else-node :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (:else node))
 
 (s/defn branch-origin-kind :- (s/maybe s/Keyword)
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (get-in node [:origin :kind]))
 
 (s/defn branch-test-assumption :- (s/maybe aos/Assumption)
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (get-in node [:origin :test]))
 
 (s/defn arglist-types :- s/Any
-  [node :- s/Any arity :- s/Any]
+  [node :- aas/AnnotatedNode arity :- s/Any]
   (mapv :type (get-in node [:arglists arity :types])))
 
 (s/defn typed-call-metadata-only? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (and (contains? node :type)
        (contains? node :actual-argtypes)
        (or (contains? node :expected-argtypes)
@@ -236,27 +237,27 @@
   (abr/strip-derived-types value))
 
 (s/defn node-arg-names-at-arity :- s/Any
-  [node :- s/Any arity :- s/Any]
+  [node :- aas/AnnotatedNode arity :- s/Any]
   (when (at/fun-type? (:type node))
     (some-> (at/select-method (at/fun-methods (:type node)) arity)
             at/fn-method-input-names)))
 
 (s/defn node-fun-type :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (when (at/fun-type? (:type node))
     (:type node)))
 
 (s/defn node-method-output :- s/Any
-  [node :- s/Any arity :- s/Any]
+  [node :- aas/AnnotatedNode arity :- s/Any]
   (when-let [ft (node-fun-type node)]
     (some-> (at/select-method (at/fun-methods ft) arity) :output)))
 
 (s/defn def-node? :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (= :def (:op node)))
 
 (s/defn def-value-node :- s/Any
-  [node :- s/Any]
+  [node :- aas/AnnotatedNode]
   (let [init-node (some-> node def-init-node unwrap-with-meta)]
     (or (some-> init-node :expr unwrap-with-meta) init-node)))
 
