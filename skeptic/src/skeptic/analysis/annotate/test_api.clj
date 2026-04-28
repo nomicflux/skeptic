@@ -4,7 +4,8 @@
             [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.walk :as walk]
             [skeptic.analysis.annotate :as aa]
-            [skeptic.analysis.annotate.api :as aapi]))
+            [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]))
 
 (s/defn normalize-symbol :- s/Any
   [value :- s/Any]
@@ -83,7 +84,7 @@
   [root :- s/Any arity :- s/Any]
   (aapi/arglist-types root arity))
 
-(s/defn annotate-form-loop :- s/Any
+(s/defn annotate-form-loop :- aas/AnnotatedNode
   ([dict :- s/Any form :- s/Any]
    (annotate-form-loop dict form {}))
   ([dict :- s/Any form :- s/Any opts :- s/Any]
