@@ -1,6 +1,7 @@
 (ns skeptic.analysis.cast.support
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -16,8 +17,8 @@
     (nil? source-type) :source-type
     (nil? target-type) :target-type))
 
-(defn cast-result
-  [{:keys [ok? source-type target-type rule polarity reason children details] :as inputs}]
+(s/defn cast-result :- csch/CastResult
+  [{:keys [ok? source-type target-type rule polarity reason children details] :as inputs} :- s/Any]
   (if-let [missing-field (missing-type-field source-type target-type)]
     (throw (ex-info "Cast result missing semantic type"
                     {:rule rule
@@ -34,12 +35,12 @@
              :reason reason}
       (map? details) (merge details))))
 
-(defn cast-ok
-  ([source-type target-type rule]
+(s/defn cast-ok :- csch/CastResult
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any]
    (cast-ok source-type target-type rule [] nil))
-  ([source-type target-type rule children]
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any children :- s/Any]
    (cast-ok source-type target-type rule children nil))
-  ([source-type target-type rule children details]
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any children :- s/Any details :- s/Any]
    (cast-result {:ok? true
                  :source-type source-type
                  :target-type target-type
@@ -48,12 +49,12 @@
                  :children children
                  :details details})))
 
-(defn cast-fail
-  ([source-type target-type rule polarity reason]
+(s/defn cast-fail :- csch/CastResult
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any polarity :- s/Any reason :- s/Any]
    (cast-fail source-type target-type rule polarity reason [] nil))
-  ([source-type target-type rule polarity reason children]
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any polarity :- s/Any reason :- s/Any children :- s/Any]
    (cast-fail source-type target-type rule polarity reason children nil))
-  ([source-type target-type rule polarity reason children details]
+  ([source-type :- s/Any target-type :- s/Any rule :- s/Any polarity :- s/Any reason :- s/Any children :- s/Any details :- s/Any]
    (cast-result {:ok? false
                  :source-type source-type
                  :target-type target-type
@@ -63,8 +64,8 @@
                  :children children
                  :details details})))
 
-(defn with-cast-path
-  [result segment]
+(s/defn with-cast-path :- csch/CastResult
+  [result :- csch/CastResult segment :- s/Any]
   (cond-> result
     (some? segment) (update :path (fnil conj []) segment)))
 
@@ -76,12 +77,12 @@
    :path-segment {:kind kind
                   :index idx}})
 
-(defn all-ok?
-  [results]
+(s/defn all-ok? :- s/Bool
+  [results :- [csch/CastResult]]
   (every? :ok? results))
 
-(defn aggregate-children
-  [source-type target-type rule polarity reason children]
+(s/defn aggregate-children :- csch/CastResult
+  [source-type :- s/Any target-type :- s/Any rule :- s/Any polarity :- s/Any reason :- s/Any children :- s/Any]
   (if (all-ok? children)
     (cast-ok source-type target-type rule children)
     (cast-fail source-type target-type rule polarity reason children)))
@@ -111,8 +112,8 @@
                (= binder (sealed-ground-name %)))
          (tree-seq seq semantic-type-children (ato/normalize type)))))
 
-(defn rule-seal-delta
-  [result binder]
+(s/defn rule-seal-delta :- s/Int
+  [result :- csch/CastResult binder :- s/Any]
   (cond
     (and (= :seal (:rule result))
          (= binder (sealed-ground-name (:sealed-type result))))
@@ -125,19 +126,19 @@
     :else
     0))
 
-(defn seal-balance
-  [cast-result binder]
+(s/defn seal-balance :- s/Int
+  [cast-result :- csch/CastResult binder :- s/Any]
   (reduce + 0 (map #(rule-seal-delta % binder)
                    (tree-seq seq :children cast-result))))
 
-(defn leaked-sealed-type
-  [cast-result binder]
+(s/defn leaked-sealed-type :- s/Any
+  [cast-result :- csch/CastResult binder :- s/Any]
   (some #(when (= 1 (rule-seal-delta % binder))
            (:sealed-type %))
         (tree-seq seq :children cast-result)))
 
-(defn exit-nu-scope
-  [artifact binder]
+(s/defn exit-nu-scope :- csch/CastResult
+  [artifact :- s/Any binder :- s/Any]
   (if (and (map? artifact)
            (contains? artifact :ok?)
            (contains? artifact :rule)
@@ -176,10 +177,10 @@
     (:inner type)
     type))
 
-(defn check-type-test
-  ([value-type ground-type]
+(s/defn check-type-test :- csch/CastResult
+  ([value-type :- s/Any ground-type :- s/Any]
    (check-type-test value-type ground-type {}))
-  ([value-type ground-type _opts]
+  ([value-type :- s/Any ground-type :- s/Any _opts :- s/Any]
    (let [value-type (ato/normalize value-type)
          ground-type (ato/normalize ground-type)
          details {:matches? (at/type=? value-type ground-type)}]
