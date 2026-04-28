@@ -7,6 +7,7 @@
             [skeptic.analysis.narrowing :as narrowing]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -102,8 +103,8 @@
   [ctx annotated]
   (or (ac/node-info annotated) {:type (aapi/dyn ctx)}))
 
-(defn binding-alias-origin
-  [init]
+(s/defn binding-alias-origin
+  [init :- s/Any] :- (s/maybe aos/Origin)
   (when (and (aapi/stable-identity-node? init)
              (= :root (:kind (ao/node-origin init))))
     (let [upstream (ao/node-origin init)]
@@ -322,8 +323,8 @@
   [node]
   (and (= :const (:op node)) (nil? (:val node))))
 
-(defn- branch-origin
-  [then-conjuncts then-node else-node joined-type]
+(s/defn ^:private branch-origin
+  [then-conjuncts :- [aos/Assumption] then-node :- s/Any else-node :- s/Any joined-type :- ats/SemanticType] :- aos/Origin
   (let [test (when (= 1 (count then-conjuncts))
                (first then-conjuncts))
         test (or test
@@ -336,8 +337,8 @@
            :else-origin (ao/node-origin else-node)})
         (ao/opaque-origin joined-type))))
 
-(defn- branch-truth
-  [then-conjuncts assumptions]
+(s/defn ^:private branch-truth
+  [then-conjuncts :- [aos/Assumption] assumptions :- [aos/Assumption]] :- (s/maybe aos/AssumptionTruth)
   (cond
     (= 1 (count then-conjuncts))
     (ao/assumption-truth (first then-conjuncts) assumptions)
