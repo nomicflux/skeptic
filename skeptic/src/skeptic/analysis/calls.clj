@@ -8,51 +8,44 @@
             [skeptic.provenance :as prov])
   (:import [clojure.lang Util]))
 
-(s/defn node-info
+(s/defn node-info :- s/Any
   [node :- s/Any]
-  :- s/Any
   (aapi/node-info node))
 
-(s/defn literal-map-key?
+(s/defn literal-map-key? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (contains? #{:const :quote} (aapi/node-op node)))
 
-(s/defn literal-node-value
+(s/defn literal-node-value :- s/Any
   [node :- s/Any]
-  :- s/Any
   (case (aapi/node-op node)
     :const (aapi/node-value node)
     :quote (-> node aapi/node-form second)
     (aapi/node-form node)))
 
-(s/defn map-literal-key-type
+(s/defn map-literal-key-type :- ats/SemanticType
   [ctx :- s/Any
    node :- s/Any]
-  :- ats/SemanticType
   (if (literal-map-key? node)
     (aapi/exact-value-type ctx (literal-node-value node))
     (or (aapi/node-type node) (aapi/dyn ctx))))
 
-(s/defn get-key-query
+(s/defn get-key-query :- s/Any
   [ctx :- s/Any
    node :- s/Any]
-  :- s/Any
   (if (literal-map-key? node)
     (amo/exact-key-query (prov/with-ctx ctx) (literal-node-value node) (aapi/node-form node))
     (amo/domain-key-query (aapi/node-type node) (aapi/node-form node))))
 
-(s/defn var->sym
+(s/defn var->sym :- (s/maybe s/Symbol)
   [var :- s/Any]
-  :- (s/maybe s/Symbol)
   (when (instance? clojure.lang.Var var)
     (let [m (meta var)]
       (symbol (str (ns-name (:ns m)) "/" (:name m))))))
 
-(s/defn qualify-symbol
+(s/defn qualify-symbol :- s/Any
   [ns-sym :- s/Any
    sym :- s/Any]
-  :- s/Any
   (cond
     (nil? sym) nil
     (not (symbol? sym)) sym
@@ -60,20 +53,18 @@
     ns-sym (symbol (str ns-sym "/" sym))
     :else sym))
 
-(s/defn lookup-type
+(s/defn lookup-type :- s/Any
   [dict :- s/Any
    ns-sym :- s/Any
    node :- s/Any]
-  :- s/Any
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
                             (var->sym (aapi/node-var node))])]
     (some dict candidates)))
 
-(s/defn fun-type->call-opts
+(s/defn fun-type->call-opts :- s/Any
   [fun-type :- ats/SemanticType]
-  :- s/Any
   (let [{:keys [methods]} fun-type
         arglists (into {}
                        (map (fn [{:keys [inputs min-arity variadic?]}]
@@ -85,11 +76,10 @@
     {:arglists arglists
      :output-type (or output-type (at/Dyn (prov/of fun-type)))}))
 
-(s/defn default-call-info
+(s/defn default-call-info :- s/Any
   [ctx :- s/Any
    arity :- s/Int
    output :- (s/maybe ats/SemanticType)]
-  :- s/Any
   (let [output-type (or output (aapi/dyn ctx))
         prov (ato/derive-prov output-type)
         expected-argtypes (vec (repeat arity (at/Dyn prov)))
@@ -105,42 +95,36 @@
      :fn-type fn-type}))
 
 
-(s/defn typed-callable?
+(s/defn typed-callable? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (boolean (aapi/node-fun-type fn-node)))
 
-(s/defn seq-call?
+(s/defn seq-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/seq 'seq} resolved)))
 
-(s/defn merge-call?
+(s/defn merge-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/merge 'merge} resolved)))
 
-(s/defn contains-call?
+(s/defn contains-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/contains? 'contains? 'contains} resolved)))
 
-(s/defn get-call?
+(s/defn get-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.core/get 'get} resolved)))
 
-(s/defn blank-call?
+(s/defn blank-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (let [resolved (or (var->sym (aapi/node-var fn-node))
                      (aapi/node-form fn-node))]
     (contains? #{'clojure.string/blank? 'blank?} resolved)))
@@ -167,19 +151,16 @@
       (some-> (aapi/binding-init fn-node) resolved-call-sym)
       (aapi/node-form fn-node)))
 
-(s/defn not-call?
+(s/defn not-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/not 'not} (resolved-call-sym fn-node)))
 
-(s/defn equality-call?
+(s/defn equality-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/= '=} (resolved-call-sym fn-node)))
 
-(s/defn static-equality-call?
+(s/defn static-equality-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= Util (aapi/node-class node))
        (= 'equiv (aapi/node-method node))))
 
@@ -188,10 +169,9 @@
   (and (= :const (aapi/node-op node))
        (class? (aapi/node-value node))))
 
-(s/defn type-predicate-assumption-info
+(s/defn type-predicate-assumption-info :- (s/maybe s/Any)
   [fn-node :- s/Any
    args :- s/Any]
-  :- (s/maybe s/Any)
   (let [sym (resolved-call-sym fn-node)
         n (count args)]
     (cond
@@ -207,16 +187,14 @@
 
       :else nil)))
 
-(s/defn type-predicate-call?
+(s/defn type-predicate-call? :- s/Bool
   [fn-node :- s/Any
    args :- s/Any]
-  :- s/Bool
   (boolean (type-predicate-assumption-info fn-node args)))
 
-(s/defn keyword-invoke-on-local?
+(s/defn keyword-invoke-on-local? :- s/Bool
   "True for `(:k x)` as either JVM analyzer `:invoke` or `:keyword-invoke`."
   [node :- s/Any]
-  :- s/Bool
   (or (and (= :invoke (aapi/node-op node))
            (let [fn-node (aapi/call-fn-node node)
                  a0 (first (aapi/call-args node))]
@@ -226,10 +204,9 @@
       (and (= :keyword-invoke (aapi/node-op node))
            (= :local (aapi/node-op (aapi/node-target node))))))
 
-(s/defn keyword-invoke-kw-and-target
+(s/defn keyword-invoke-kw-and-target :- (s/maybe s/Any)
   "When `keyword-invoke-on-local?`, returns `[kw-keyword target-node]`."
   [node :- s/Any]
-  :- (s/maybe s/Any)
   (cond
     (= :keyword-invoke (aapi/node-op node))
     (when (= :local (aapi/node-op (aapi/node-target node)))
@@ -246,159 +223,130 @@
     :else
     nil))
 
-(s/defn assoc-call?
+(s/defn assoc-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/assoc 'assoc} (resolved-call-sym fn-node)))
 
-(s/defn dissoc-call?
+(s/defn dissoc-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/dissoc 'dissoc} (resolved-call-sym fn-node)))
 
-(s/defn update-call?
+(s/defn update-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/update 'update} (resolved-call-sym fn-node)))
 
-(s/defn static-get-call?
+(s/defn static-get-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/get 'get} (aapi/node-method node))))
 
-(s/defn static-merge-call?
+(s/defn static-merge-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/merge 'merge} (aapi/node-method node))))
 
-(s/defn static-contains-call?
+(s/defn static-contains-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/contains? 'contains? 'contains} (aapi/node-method node))))
 
-(s/defn static-nil?-call?
+(s/defn static-nil?-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= Util (aapi/node-class node))
        (= 'identical (aapi/node-method node))))
 
-(s/defn static-nil?-target
+(s/defn static-nil?-target :- (s/maybe s/Any)
   [node :- s/Any]
-  :- (s/maybe s/Any)
   (let [[a b] (aapi/call-args node)]
     (cond
       (and (= :const (aapi/node-op b)) (nil? (aapi/node-value b))) a
       (and (= :const (aapi/node-op a)) (nil? (aapi/node-value a))) b)))
 
-(s/defn static-assoc-call?
+(s/defn static-assoc-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/assoc 'assoc} (aapi/node-method node))))
 
-(s/defn static-dissoc-call?
+(s/defn static-dissoc-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/dissoc 'dissoc} (aapi/node-method node))))
 
-(s/defn static-update-call?
+(s/defn static-update-call? :- s/Bool
   [node :- s/Any]
-  :- s/Bool
   (and (= clojure.lang.RT (aapi/node-class node))
        (contains? #{'clojure.core/update 'update} (aapi/node-method node))))
 
-(s/defn first-call?
+(s/defn first-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/first 'first} (resolved-call-sym fn-node)))
 
-(s/defn second-call?
+(s/defn second-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/second 'second} (resolved-call-sym fn-node)))
 
-(s/defn last-call?
+(s/defn last-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/last 'last} (resolved-call-sym fn-node)))
 
-(s/defn nth-call?
+(s/defn nth-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/nth 'nth} (resolved-call-sym fn-node)))
 
-(s/defn rest-call?
+(s/defn rest-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/rest 'rest} (resolved-call-sym fn-node)))
 
-(s/defn butlast-call?
+(s/defn butlast-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/butlast 'butlast} (resolved-call-sym fn-node)))
 
-(s/defn drop-last-call?
+(s/defn drop-last-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/drop-last 'drop-last} (resolved-call-sym fn-node)))
 
-(s/defn take-call?
+(s/defn take-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/take 'take} (resolved-call-sym fn-node)))
 
-(s/defn drop-call?
+(s/defn drop-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/drop 'drop} (resolved-call-sym fn-node)))
 
-(s/defn take-while-call?
+(s/defn take-while-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/take-while 'take-while} (resolved-call-sym fn-node)))
 
-(s/defn drop-while-call?
+(s/defn drop-while-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/drop-while 'drop-while} (resolved-call-sym fn-node)))
 
-(s/defn concat-call?
+(s/defn concat-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/concat 'concat} (resolved-call-sym fn-node)))
 
-(s/defn into-call?
+(s/defn into-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/into 'into} (resolved-call-sym fn-node)))
 
-(s/defn chunk-first-call?
+(s/defn chunk-first-call? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/chunk-first 'chunk-first} (resolved-call-sym fn-node)))
 
-(s/defn plus-invoke?
+(s/defn plus-invoke? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/+ '+} (resolved-call-sym fn-node)))
 
-(s/defn multiply-invoke?
+(s/defn multiply-invoke? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/* '*} (resolved-call-sym fn-node)))
 
-(s/defn minus-invoke?
+(s/defn minus-invoke? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/- '-} (resolved-call-sym fn-node)))
 
-(s/defn inc-invoke?
+(s/defn inc-invoke? :- s/Bool
   [fn-node :- s/Any]
-  :- s/Bool
   (contains? #{'clojure.core/inc 'inc} (resolved-call-sym fn-node)))
 
 (defn- fun-type-call-info
@@ -415,11 +363,10 @@
      :output-type output
      :fn-type ft}))
 
-(s/defn call-info
+(s/defn call-info :- s/Any
   [ctx :- s/Any
    fn-node :- s/Any
    args :- s/Any]
-  :- s/Any
   (if-let [ft (aapi/node-fun-type fn-node)]
     (fun-type-call-info ft (count args))
     (default-call-info ctx (count args) (aapi/node-output-type fn-node))))

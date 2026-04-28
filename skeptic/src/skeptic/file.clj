@@ -1,3 +1,4 @@
+(ns skeptic.core-fns)
 (ns skeptic.file
   (:require [clojure.java.io :as io]
             [clojure.tools.reader :as tr]

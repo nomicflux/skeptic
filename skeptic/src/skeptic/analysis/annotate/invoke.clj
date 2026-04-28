@@ -9,8 +9,8 @@
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]))
 
-(s/defn resolve-unary-fn-arg-type-hint
-  [ctx fn-ast args] :- (s/maybe s/Any)
+(s/defn resolve-unary-fn-arg-type-hint :- (s/maybe s/Any)
+  [ctx fn-ast args]
   (let [local-fn (when (= :local (:op fn-ast))
                    (some-> (get (:locals ctx) (:form fn-ast))
                            :fn-binding-node))
@@ -50,8 +50,8 @@
          :type (aapi/normalize-type ctx output-type)
          :fn-type (aapi/normalize-type ctx fn-type)))
 
-(s/defn annotate-invoke
-  [ctx node] :- s/Any
+(s/defn annotate-invoke :- s/Any
+  [ctx node]
   (let [[fn-node args] (annotate-fn-and-args ctx node)
         call-info (ac/call-info ctx fn-node args)
         output-type (invoke-output/invoke-output-type ctx fn-node args (:output-type call-info))
@@ -60,8 +60,8 @@
                         output-type)]
     (build-invoke-node ctx node fn-node args output-type (:fn-type call-info) (:expected-argtypes call-info))))
 
-(s/defn annotate-keyword-invoke
-  [ctx node] :- s/Any
+(s/defn annotate-keyword-invoke :- s/Any
+  [ctx node]
   (let [target ((:recurse ctx) ctx (:target node))
         keyword-node ((:recurse ctx) ctx (:keyword node))
         query (ac/get-key-query ctx keyword-node)

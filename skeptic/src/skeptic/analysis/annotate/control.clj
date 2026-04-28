@@ -90,8 +90,8 @@
     (cond-> (assoc node :statements statements :ret ret :type (:type ret))
       origin (assoc :origin origin))))
 
-(s/defn binding-recur-target-types
-  [ctx :- s/Any bindings :- s/Any] :- [ats/SemanticType]
+(s/defn binding-recur-target-types :- [ats/SemanticType]
+  [ctx :- s/Any bindings :- s/Any]
   (mapv (fn [binding]
           (let [type (or (:type binding) (aapi/dyn ctx))]
             (if (ato/nil-value-type? type)
@@ -103,8 +103,8 @@
   [ctx annotated]
   (or (ac/node-info annotated) {:type (aapi/dyn ctx)}))
 
-(s/defn binding-alias-origin
-  [init :- s/Any] :- (s/maybe aos/RootOrigin)
+(s/defn binding-alias-origin :- (s/maybe aos/RootOrigin)
+  [init :- s/Any]
   (when (and (aapi/stable-identity-node? init)
              (= :root (:kind (ao/node-origin init))))
     (let [upstream (ao/node-origin init)]
@@ -190,8 +190,8 @@
   (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
            (sac/ast-nodes body)))
 
-(s/defn widen-int-loop-counter-recur-targets
-  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
+(s/defn widen-int-loop-counter-recur-targets :- [ats/SemanticType]
+  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any]
   (let [recurs (loop-recur-nodes body loop-id)]
     (reduce (fn [acc recur-node]
               (let [exprs (:exprs recur-node)]
@@ -243,8 +243,8 @@
       (av/join (ato/derive-prov current actual) [current actual]))
     current))
 
-(s/defn widen-empty-collection-recur-targets
-  [targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
+(s/defn widen-empty-collection-recur-targets :- [ats/SemanticType]
+  [targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any]
   (reduce (fn [acc recur-node]
             (let [exprs (:exprs recur-node)]
               (if (= (count acc) (count exprs))
@@ -253,8 +253,8 @@
           targets
           (loop-recur-nodes body loop-id)))
 
-(s/defn widen-loop-recur-targets
-  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any] :- [ats/SemanticType]
+(s/defn widen-loop-recur-targets :- [ats/SemanticType]
+  [ctx :- s/Any targets :- [ats/SemanticType] body :- s/Any loop-id :- s/Any]
   (let [targets (widen-int-loop-counter-recur-targets ctx targets body loop-id)]
     (widen-empty-collection-recur-targets targets body loop-id)))
 
@@ -323,8 +323,8 @@
   [node]
   (and (= :const (:op node)) (nil? (:val node))))
 
-(s/defn ^:private branch-origin
-  [then-conjuncts :- [aos/Assumption] then-node :- s/Any else-node :- s/Any joined-type :- ats/SemanticType] :- aos/Origin
+(s/defn ^:private branch-origin :- aos/Origin
+  [then-conjuncts :- [aos/Assumption] then-node :- s/Any else-node :- s/Any joined-type :- ats/SemanticType]
   (let [test (when (= 1 (count then-conjuncts))
                (first then-conjuncts))
         test (or test
@@ -339,8 +339,8 @@
            :else-origin else-orig})
         (ao/opaque-origin joined-type))))
 
-(s/defn ^:private branch-truth
-  [then-conjuncts :- [aos/Assumption] assumptions :- [aos/Assumption]] :- (s/maybe aos/AssumptionTruth)
+(s/defn ^:private branch-truth :- (s/maybe aos/AssumptionTruth)
+  [then-conjuncts :- [aos/Assumption] assumptions :- [aos/Assumption]]
   (cond
     (= 1 (count then-conjuncts))
     (ao/assumption-truth (first then-conjuncts) assumptions)
