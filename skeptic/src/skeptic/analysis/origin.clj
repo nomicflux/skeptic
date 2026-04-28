@@ -4,6 +4,7 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.narrowing :as an]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.sum-types :as sums]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
@@ -14,27 +15,27 @@
 (s/defn root-origin
   [sym :- s/Any
    type :- ats/SemanticType]
-  :- s/Any
+  :- aos/Origin
   {:kind :root
    :sym sym
    :type (ato/normalize type)})
 
 (s/defn opaque-origin
   [type :- ats/SemanticType]
-  :- s/Any
+  :- aos/Origin
   {:kind :opaque
    :type (ato/normalize type)})
 
 (s/defn node-origin
   [node :- s/Any]
-  :- s/Any
+  :- (s/maybe aos/Origin)
   (or (aapi/node-origin node)
       (when-let [type (aapi/node-type node)]
         (opaque-origin type))))
 
 (s/defn opposite-polarity
-  [assumption :- s/Any]
-  :- (s/maybe s/Any)
+  [assumption :- aos/Assumption]
+  :- (s/maybe aos/Assumption)
   (case (:kind assumption)
     :conjunction nil
     (update assumption :polarity not)))
@@ -52,8 +53,8 @@
              (:kind assumption)))
 
 (s/defn invert-assumption
-  [assumption :- s/Any]
-  :- (s/maybe s/Any)
+  [assumption :- aos/Assumption]
+  :- (s/maybe aos/Assumption)
   (when (invertible-assumption? assumption)
     (opposite-polarity assumption)))
 
@@ -63,8 +64,8 @@
     {:kind :disjunction :parts (mapv invert-assumption conjuncts)}))
 
 (s/defn same-assumption?
-  [left :- s/Any
-   right :- s/Any]
+  [left :- aos/Assumption
+   right :- aos/Assumption]
   :- s/Bool
   (and (= (:kind left) (:kind right))
        (= (get-in left [:root :sym]) (get-in right [:root :sym]))
@@ -92,15 +93,15 @@
          false)))
 
 (s/defn opposite-assumption?
-  [left :- s/Any
-   right :- s/Any]
+  [left :- aos/Assumption
+   right :- aos/Assumption]
   :- s/Bool
   (same-assumption? left (opposite-polarity right)))
 
 (s/defn same-assumption-proposition?
   "Same narrowed fact on the same root, ignoring branch polarity."
-  [a :- s/Any
-   b :- s/Any]
+  [a :- aos/Assumption
+   b :- aos/Assumption]
   :- s/Bool
   (and (= (:kind a) (:kind b))
        (= (get-in a [:root :sym]) (get-in b [:root :sym]))
@@ -127,14 +128,14 @@
          false)))
 
 (s/defn assumption-root?
-  [assumption :- s/Any
-   root :- s/Any]
+  [assumption :- aos/Assumption
+   root :- aos/Origin]
   :- s/Bool
   (= (get-in assumption [:root :sym]) (:sym root)))
 
 (s/defn apply-assumption-to-root-type
   [type :- ats/SemanticType
-   assumption :- s/Any]
+   assumption :- aos/Assumption]
   :- ats/SemanticType
   (letfn [(non-blank-string-type [t]
             (let [non-nil (an/partition-type-for-predicate t {:pred :some?} true)]
@@ -175,8 +176,8 @@
       type)))
 
 (s/defn refine-root-type
-  [root :- s/Any
-   assumptions :- s/Any]
+  [root :- aos/Origin
+   assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (reduce (fn [type assumption]
             (if (assumption-root? assumption root)
@@ -186,15 +187,17 @@
           assumptions))
 
 (s/defn assumption-base-type
-  [assumption :- s/Any
-   assumptions :- s/Any]
+  [assumption :- aos/Assumption
+   assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (let [same-proposition? #(same-assumption-proposition? % assumption)]
     (refine-root-type (:root assumption)
                       (remove same-proposition? assumptions))))
 
-(defn- type-predicate-classification
-  [base pred-info]
+(s/defn ^:private type-predicate-classification
+  [base :- ats/SemanticType
+   pred-info :- aos/PredInfo]
+  :- s/Any
   (let [pos (an/partition-type-for-predicate base pred-info true)
         neg (an/partition-type-for-predicate base pred-info false)]
     (cond
@@ -204,8 +207,10 @@
       (sums/exhausted-by-types? base [neg]) :never
       :else :unknown)))
 
-(defn- value-in-values-classification
-  [base values]
+(s/defn ^:private value-in-values-classification
+  [base :- ats/SemanticType
+   values :- [s/Any]]
+  :- s/Any
   (let [pos (an/partition-type-for-values base values true)
         neg (an/partition-type-for-values base values false)]
     (cond
@@ -213,8 +218,10 @@
       (at/bottom-type? neg) :always
       :else :unknown)))
 
-(defn- value-not-in-values-classification
-  [base values]
+(s/defn ^:private value-not-in-values-classification
+  [base :- ats/SemanticType
+   values :- [s/Any]]
+  :- s/Any
   (let [pos (an/partition-type-for-values base values true)
         neg (an/partition-type-for-values base values false)]
     (cond
@@ -259,9 +266,9 @@
     :disjunction {:kind :conjunction :parts (mapv negate-formula (:parts f))}))
 
 (s/defn assumption-truth
-  [assumption :- s/Any
-   assumptions :- s/Any]
-  :- s/Any
+  [assumption :- aos/Assumption
+   assumptions :- [aos/Assumption]]
+  :- aos/AssumptionTruth
   (cond
     (some #(same-assumption? assumption %) assumptions) :true
     (some #(opposite-assumption? assumption %) assumptions) :false
@@ -337,8 +344,8 @@
           :else :unknown)))))
 
 (s/defn origin-type
-  [origin :- s/Any
-   assumptions :- s/Any]
+  [origin :- aos/Origin
+   assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (let [t (case (:kind origin)
             :root (refine-root-type origin assumptions)
@@ -377,7 +384,7 @@
   [ctx :- s/Any
    sym :- s/Any
    entry :- s/Any
-   assumptions :- s/Any]
+   assumptions :- [aos/Assumption]]
   :- ats/SemanticType
   (let [[t origin] (local-type-and-origin ctx sym entry)
         refined (or (some-> origin (origin-type assumptions)) t)]
@@ -386,7 +393,7 @@
 (s/defn local-root-origin
   [ctx :- s/Any
    node :- s/Any]
-  :- (s/maybe s/Any)
+  :- (s/maybe aos/Origin)
   (let [origin (node-origin node)]
     (cond
       (= :root (:kind origin))
@@ -401,7 +408,7 @@
   [ctx :- s/Any
    target-node :- s/Any
    key :- s/Any]
-  :- (s/maybe s/Any)
+  :- (s/maybe aos/Assumption)
   (when-let [root (local-root-origin ctx target-node)]
     {:kind :contains-key
      :root root
@@ -455,7 +462,7 @@
 (s/defn test->assumption
   [ctx :- s/Any
    test-node :- s/Any]
-  :- (s/maybe s/Any)
+  :- (s/maybe aos/Assumption)
   (cond
     (aapi/stable-identity-node? test-node)
     (when-let [root (local-root-origin ctx test-node)]
@@ -570,7 +577,7 @@
   [ctx :- s/Any
    test-node :- s/Any
    locals :- s/Any]
-  :- (s/maybe s/Any)
+  :- (s/maybe aos/Assumption)
   (when (and (aapi/local-node? test-node) locals)
     (when-let [entry (get locals (aapi/node-form test-node))]
       (when-let [init (aapi/binding-init entry)]
@@ -609,13 +616,13 @@
   ([ctx :- s/Any
     node :- s/Any
     locals :- s/Any]
-   :- s/Any
+   :- aos/Conjuncts
    (region-conjuncts ctx node locals {}))
   ([ctx :- s/Any
     node :- s/Any
     locals :- s/Any
     alias-map :- s/Any]
-   :- s/Any
+   :- aos/Conjuncts
    (cond
      (and (aapi/let-node? node)
           (= 1 (count (aapi/node-bindings node))))
@@ -660,7 +667,7 @@
   [ctx :- s/Any
    test-node :- s/Any
    locals :- s/Any]
-  :- s/Any
+  :- aos/Conjuncts
   (region-conjuncts ctx test-node locals))
 
 (defn- refine-local-entry
@@ -673,7 +680,7 @@
 (s/defn refine-locals-for-assumption
   [ctx :- s/Any
    locals :- s/Any
-   assumptions :- s/Any]
+   assumptions :- [aos/Assumption]]
   :- s/Any
   (into {}
         (map (fn [[sym entry]]
@@ -683,9 +690,9 @@
 (s/defn branch-local-envs
   [ctx :- s/Any
    locals :- s/Any
-   assumptions :- s/Any
-   conjuncts :- s/Any]
-  :- s/Any
+   assumptions :- [aos/Assumption]
+   conjuncts :- aos/Conjuncts]
+  :- aos/BranchEnvs
   (let [{:keys [then-conjuncts else-conjuncts]} conjuncts
         then-assumptions (into (vec assumptions) then-conjuncts)
         else-assumptions (into (vec assumptions) else-conjuncts)]
@@ -696,7 +703,7 @@
 
 (s/defn guard-assumption
   [stmt-node :- s/Any]
-  :- (s/maybe s/Any)
+  :- (s/maybe aos/Assumption)
   (when (and (aapi/if-node? stmt-node)
              (= :branch (aapi/branch-origin-kind stmt-node)))
     (let [then-bottom? (at/bottom-type? (aapi/node-type (aapi/then-node stmt-node)))
@@ -710,7 +717,7 @@
 
 (s/defn apply-guard-assumption
   [ctx :- s/Any
-   assumption :- (s/maybe s/Any)]
+   assumption :- (s/maybe aos/Assumption)]
   :- s/Any
   (let [{:keys [locals assumptions]} ctx
         parts (if (and assumption (= :conjunction (:kind assumption)))
