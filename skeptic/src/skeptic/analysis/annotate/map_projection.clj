@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.map-projection
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.origin.schema :as aos]))
@@ -30,8 +31,8 @@
 
       :else nil)))
 
-(s/defn projection-root-local :- (s/maybe s/Any)
-  [target-node :- s/Any]
+(s/defn projection-root-local :- (s/maybe aas/AnnotatedNode)
+  [target-node :- aas/AnnotatedNode]
   (loop [node target-node
          seen #{}]
     (when (aapi/stable-identity-node? node)
@@ -43,13 +44,13 @@
             node))))))
 
 (s/defn projection-root-origin :- (s/maybe aos/RootOrigin)
-  [ctx :- s/Any, target-node :- s/Any]
+  [ctx :- s/Any, target-node :- aas/AnnotatedNode]
   (when-let [root-local (projection-root-local target-node)]
     (or (ao/local-root-origin ctx root-local)
         (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
 
 (s/defn map-key-lookup-origin :- (s/maybe aos/Origin)
-  [ctx :- s/Any, target-node :- s/Any, key-query :- s/Any, default-type :- s/Any]
+  [ctx :- s/Any, target-node :- aas/AnnotatedNode, key-query :- s/Any, default-type :- s/Any]
   (let [target-origin (ao/map-key-lookup-origin-value (aapi/node-origin target-node))]
     (if target-origin
       (ao/map-key-lookup-origin (:root target-origin)

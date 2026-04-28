@@ -10,6 +10,7 @@
             [skeptic.analysis.annotate.invoke :as invoke]
             [skeptic.analysis.annotate.jvm :as jvm]
             [skeptic.analysis.annotate.match :as match]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
@@ -27,12 +28,12 @@
      :source-expression (:source (meta expr))
      :location (node-location node)}))
 
-(defn- annotate-generic
-  [ctx node]
+(s/defn ^:private annotate-generic :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (assoc (base/annotate-children ctx node) :type (at/Dyn (prov/with-ctx ctx))))
 
-(defn- annotate-dispatch
-  [ctx node]
+(s/defn ^:private annotate-dispatch :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (case (:op node)
     :binding (base/annotate-binding ctx node)
     :const (base/annotate-const ctx node)
@@ -85,18 +86,18 @@
     (aapi/with-type annotated override)
     annotated))
 
-(s/defn annotate-node :- s/Any
-  [ctx :- s/Any node :- s/Any]
+(s/defn annotate-node :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [ctx (assoc ctx :recurse annotate-node)]
     (abl/with-error-context (node-error-context node)
       (-> (annotate-dispatch ctx node)
           (apply-type-override ctx node)
           abr/strip-derived-types))))
 
-(s/defn annotate-ast :- s/Any
-  ([dict :- s/Any ast :- s/Any]
+(s/defn annotate-ast :- aas/AnnotatedNode
+  ([dict :- s/Any ast :- aas/AnnotatedNode]
    (annotate-ast dict ast {}))
-  ([dict :- s/Any ast :- s/Any {:keys [locals name ns assumptions accessor-summaries]} :- s/Any]
+  ([dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries]} :- s/Any]
    (annotate-node (prov/set-ctx {:dict (or dict {})
                                  :locals (or locals {})
                                  :assumptions (vec assumptions)
@@ -134,7 +135,7 @@
      (binding [*ns* target-ns]
        (ana.jvm/analyze form env)))))
 
-(s/defn annotate-form-loop :- s/Any
+(s/defn annotate-form-loop :- aas/AnnotatedNode
   ([dict :- s/Any form :- s/Any]
    (annotate-form-loop dict form {}))
   ([dict :- s/Any form :- s/Any opts :- s/Any]

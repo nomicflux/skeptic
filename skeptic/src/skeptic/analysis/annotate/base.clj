@@ -1,5 +1,7 @@
 (ns skeptic.analysis.annotate.base
-  (:require [skeptic.analysis.annotate.api :as aapi]
+  (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.types :as at]
@@ -13,19 +15,19 @@
     (map? value) ((:recurse ctx) ctx value)
     :else value))
 
-(defn annotate-children
-  [ctx node]
+(s/defn annotate-children :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (reduce (fn [acc key]
             (assoc acc key (annotate-child ctx (get acc key))))
           node
           (:children node)))
 
-(defn annotate-const
-  [ctx node]
+(s/defn annotate-const :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (assoc node :type (av/type-of-value (prov/with-ctx ctx) (:val node))))
 
-(defn annotate-binding
-  [ctx node]
+(s/defn annotate-binding :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (if-let [init (:init node)]
     (let [annotated-init ((:recurse ctx) ctx init)]
       (merge node {:init annotated-init} (ac/node-info annotated-init)))
@@ -37,8 +39,8 @@
     (ao/root-origin sym (aapi/normalize-type ctx t))
     (:origin entry)))
 
-(defn annotate-local
-  [ctx node]
+(s/defn annotate-local :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [{:keys [locals assumptions]} ctx
         sym (:form node)
         entry (get locals sym)]
@@ -51,8 +53,8 @@
                        {:type t})
           origin (assoc :origin origin))))))
 
-(defn annotate-var-like
-  [ctx node]
+(s/defn annotate-var-like :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [{:keys [dict ns accessor-summaries assumptions]} ctx
         entry (ac/lookup-type dict ns node)
         type (or entry (aapi/dyn ctx))

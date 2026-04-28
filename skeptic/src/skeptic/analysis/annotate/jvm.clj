@@ -3,6 +3,7 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.map-projection :as map-projection]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.calls :as ac]
@@ -10,8 +11,8 @@
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]))
 
-(s/defn annotate-instance-call :- s/Any
-  [ctx :- s/Any, node :- s/Any]
+(s/defn annotate-instance-call :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [instance ((:recurse ctx) ctx (:instance node))
         args (mapv #((:recurse ctx) ctx %) (:args node))
         type (when (= 'nth (:method node))
@@ -41,8 +42,8 @@
                                           node args actual-argtypes native-info)
     (aapi/dyn ctx)))
 
-(s/defn annotate-static-call :- s/Any
-  [ctx :- s/Any, node :- s/Any]
+(s/defn annotate-static-call :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))
         actual-argtypes (mapv :type args)
         native-info (native-fns/static-call-native-info (:class node) (:method node) (count args))

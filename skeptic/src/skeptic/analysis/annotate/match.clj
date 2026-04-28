@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.match
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
@@ -231,8 +232,8 @@
                    branch-types
                    (conj branch-types (:type default-node)))))
 
-(s/defn annotate-case :- s/Any
-  [{:keys [locals assumptions] :as ctx} :- s/Any, node :- s/Any]
+(s/defn annotate-case :- aas/AnnotatedNode
+  [{:keys [locals assumptions] :as ctx} :- s/Any, node :- aas/AnnotatedNode]
   (let [anchor-prov (prov/with-ctx ctx)
         test-node ((:recurse ctx) ctx (:test node))
         discriminant-expr (case-discriminant-expr-node test-node)

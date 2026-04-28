@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.base :as base]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.narrowing :as narrowing]
@@ -73,8 +74,8 @@
       (when (= test-root-sym source-root-sym)
         source-root-sym))))
 
-(defn annotate-do
-  [ctx node]
+(s/defn annotate-do :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [[statements final-ctx]
         (reduce (fn [[acc inner-ctx] stmt]
                   (let [annotated ((:recurse inner-ctx) inner-ctx stmt)
@@ -174,8 +175,8 @@
                                 :fallback-origin binding-origin
                                 :track-fn-binding? true}))]))
 
-(defn annotate-let
-  [{:keys [locals] :as ctx} node]
+(s/defn annotate-let :- aas/AnnotatedNode
+  [{:keys [locals] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [[bindings final-locals]
         (reduce (fn [[acc env] binding]
                   (let [[annotated next-env] (annotate-let-binding ctx env binding)]
@@ -279,8 +280,8 @@
               :recur-targets (assoc recur-targets loop-id targets-v1))
        (:body node)))))
 
-(defn annotate-loop
-  [{:keys [locals recur-targets] :as ctx} node]
+(s/defn annotate-loop :- aas/AnnotatedNode
+  [{:keys [locals recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [loop-id (:loop-id node)
         recur-targets (or recur-targets {})
         [bindings final-locals]
@@ -298,8 +299,8 @@
                     ctx node final-locals recur-targets loop-id targets-v0 body-v1)]
     (assoc node :bindings bindings :body body-final :type (:type body-final))))
 
-(defn annotate-recur
-  [{:keys [recur-targets] :as ctx} node]
+(s/defn annotate-recur :- aas/AnnotatedNode
+  [{:keys [recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
         targets (some-> (:loop-id node) recur-targets)
         actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
@@ -352,8 +353,8 @@
     :false (:type else-node)
     (av/type-join* (prov/with-ctx ctx) [(:type then-node) (:type else-node)])))
 
-(defn annotate-if
-  [{:keys [locals assumptions] :as ctx} node]
+(s/defn annotate-if :- aas/AnnotatedNode
+  [{:keys [locals assumptions] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [test-node ((:recurse ctx) ctx (:test node))
         regions (ao/if-test-conjuncts ctx test-node locals)
         then-conjuncts (:then-conjuncts regions)

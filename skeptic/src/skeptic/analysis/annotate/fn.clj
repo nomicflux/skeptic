@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.fn
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
@@ -57,8 +58,8 @@
         (map (fn [param] [(:form param) (or (:type param) (aapi/dyn ctx))]))
         annotated-params))
 
-(s/defn annotate-fn-method :- s/Any
-  [{:keys [locals dict name ns recur-targets] :as ctx} node & [param-type-overrides]]
+(s/defn annotate-fn-method :- aas/AnnotatedNode
+  [{:keys [locals dict name ns recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode & [param-type-overrides :- s/Any]]
   (let [param-type-overrides (or param-type-overrides {})
         param-specs (fn-method-param-specs-with-overrides
                      ctx dict ns name (:params node) param-type-overrides)
@@ -97,8 +98,8 @@
                   (boolean (:variadic? method))
                   (mapv :name (:param-specs method))))
 
-(s/defn annotate-fn :- s/Any
-  [ctx node & [opts]]
+(s/defn annotate-fn :- aas/AnnotatedNode
+  [ctx :- s/Any node :- aas/AnnotatedNode & [opts :- s/Any]]
   (let [overrides (:param-type-overrides opts {})
         methods (mapv #(annotate-fn-method ctx % overrides) (:methods node))
         arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)
