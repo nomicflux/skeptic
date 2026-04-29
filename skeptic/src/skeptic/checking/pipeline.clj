@@ -213,7 +213,7 @@
   [dict ns-sym source-file source-form enclosing-form node]
   (let [declared-t (ac/lookup-type dict ns-sym node)
         init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
-        methods (aapi/function-methods init-node)]
+        methods (when init-node (aapi/function-methods init-node))]
     (when (and declared-t (seq methods))
       (->> (map vector methods (cf/defn-decls source-form))
            (keep (fn [[method decl]]

@@ -151,11 +151,11 @@
            (seq (:actual-argtypes node)))))
 
 (s/defn node-ref :- s/Any
-  [node :- aas/AnnotatedNode]
+  [node :- (s/maybe aas/AnnotatedNode)]
   (when node {:form (:form node) :type (:type node)}))
 
 (s/defn callee-ref :- s/Any
-  [node :- aas/AnnotatedNode]
+  [node :- (s/maybe aas/AnnotatedNode)]
   (when node
     (case (:op node)
       :invoke (node-ref (:fn node))
