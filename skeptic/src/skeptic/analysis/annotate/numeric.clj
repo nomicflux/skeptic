@@ -99,26 +99,29 @@
 
 (s/defn invoke-integral-math-narrow-type :- (s/maybe ats/SemanticType)
   [anchor-prov :- provs/Provenance, fn-node :- s/Any, args :- [s/Any], actual-argtypes :- [ats/SemanticType]]
-  (cond
-    (and (ac/inc-invoke? fn-node) (= 1 (count args))
-         (numeric-type? (first actual-argtypes)))
-    (inc-dec-output-type (first actual-argtypes))
+  (let [call-sym (ac/resolved-call-sym fn-node)
+        arity (count args)]
+    (cond
+      (and (contains? ac/inc-invoke-syms call-sym) (= 1 arity)
+           (numeric-type? (first actual-argtypes)))
+      (inc-dec-output-type (first actual-argtypes))
 
-    (and (or (ac/plus-invoke? fn-node) (ac/multiply-invoke? fn-node))
-         (seq args)
-         (every? #(not= :const (:op %)) args)
-         (every? integral-type? actual-argtypes))
-    (at/->GroundT anchor-prov :int 'Int)
+      (and (or (contains? ac/plus-invoke-syms call-sym)
+               (contains? ac/multiply-invoke-syms call-sym))
+           (seq args)
+           (every? #(not= :const (:op %)) args)
+           (every? integral-type? actual-argtypes))
+      (at/->GroundT anchor-prov :int 'Int)
 
-    (and (ac/minus-invoke? fn-node) (= 1 (count args))
-         (not= :const (:op (first args)))
-         (integral-type? (first actual-argtypes)))
-    (at/->GroundT anchor-prov :int 'Int)
+      (and (contains? ac/minus-invoke-syms call-sym) (= 1 arity)
+           (not= :const (:op (first args)))
+           (integral-type? (first actual-argtypes)))
+      (at/->GroundT anchor-prov :int 'Int)
 
-    (and (ac/minus-invoke? fn-node) (= 2 (count args))
-         (binary-integral-locals-narrow? args actual-argtypes))
-    (at/->GroundT anchor-prov :int 'Int)
-    :else nil))
+      (and (contains? ac/minus-invoke-syms call-sym) (= 2 arity)
+           (binary-integral-locals-narrow? args actual-argtypes))
+      (at/->GroundT anchor-prov :int 'Int)
+      :else nil)))
 
 (s/defn narrow-static-numbers-output :- (s/maybe ats/SemanticType)
   [anchor-prov :- provs/Provenance, node :- s/Any, args :- [s/Any], actual-argtypes :- [ats/SemanticType], native-info :- s/Any]

@@ -100,29 +100,31 @@
   [fn-node :- s/Any]
   (boolean (aapi/node-fun-type fn-node)))
 
-(s/defn seq-call? :- s/Bool
-  [fn-node :- s/Any]
-  (let [resolved (or (var->sym (aapi/node-var fn-node))
-                     (aapi/node-form fn-node))]
-    (contains? #{'clojure.core/seq 'seq} resolved)))
-
-(s/defn merge-call? :- s/Bool
-  [fn-node :- s/Any]
-  (let [resolved (or (var->sym (aapi/node-var fn-node))
-                     (aapi/node-form fn-node))]
-    (contains? #{'clojure.core/merge 'merge} resolved)))
-
-(s/defn contains-call? :- s/Bool
-  [fn-node :- s/Any]
-  (let [resolved (or (var->sym (aapi/node-var fn-node))
-                     (aapi/node-form fn-node))]
-    (contains? #{'clojure.core/contains? 'contains? 'contains} resolved)))
-
-(s/defn get-call? :- s/Bool
-  [fn-node :- s/Any]
-  (let [resolved (or (var->sym (aapi/node-var fn-node))
-                     (aapi/node-form fn-node))]
-    (contains? #{'clojure.core/get 'get} resolved)))
+(def seq-call-syms '#{clojure.core/seq seq})
+(def merge-call-syms '#{clojure.core/merge merge})
+(def contains-call-syms '#{clojure.core/contains? contains? contains})
+(def get-call-syms '#{clojure.core/get get})
+(def assoc-call-syms '#{clojure.core/assoc assoc})
+(def dissoc-call-syms '#{clojure.core/dissoc dissoc})
+(def update-call-syms '#{clojure.core/update update})
+(def first-call-syms '#{clojure.core/first first})
+(def second-call-syms '#{clojure.core/second second})
+(def last-call-syms '#{clojure.core/last last})
+(def nth-call-syms '#{clojure.core/nth nth})
+(def rest-call-syms '#{clojure.core/rest rest})
+(def butlast-call-syms '#{clojure.core/butlast butlast})
+(def drop-last-call-syms '#{clojure.core/drop-last drop-last})
+(def take-call-syms '#{clojure.core/take take})
+(def drop-call-syms '#{clojure.core/drop drop})
+(def take-while-call-syms '#{clojure.core/take-while take-while})
+(def drop-while-call-syms '#{clojure.core/drop-while drop-while})
+(def concat-call-syms '#{clojure.core/concat concat})
+(def into-call-syms '#{clojure.core/into into})
+(def chunk-first-call-syms '#{clojure.core/chunk-first chunk-first})
+(def plus-invoke-syms '#{clojure.core/+ +})
+(def multiply-invoke-syms '#{clojure.core/* *})
+(def minus-invoke-syms '#{clojure.core/- -})
+(def inc-invoke-syms '#{clojure.core/inc inc})
 
 (s/defn blank-call? :- s/Bool
   [fn-node :- s/Any]
@@ -146,11 +148,27 @@
     clojure.core/seq? :seq?, seq? :seq?
     clojure.core/fn? :fn?, fn? :fn?})
 
-(defn- resolved-call-sym
+(defn resolved-call-sym
   [fn-node]
   (or (var->sym (aapi/node-var fn-node))
       (some-> (aapi/binding-init fn-node) resolved-call-sym)
       (aapi/node-form fn-node)))
+
+(s/defn seq-call? :- s/Bool
+  [fn-node :- s/Any]
+  (contains? seq-call-syms (resolved-call-sym fn-node)))
+
+(s/defn merge-call? :- s/Bool
+  [fn-node :- s/Any]
+  (contains? merge-call-syms (resolved-call-sym fn-node)))
+
+(s/defn contains-call? :- s/Bool
+  [fn-node :- s/Any]
+  (contains? contains-call-syms (resolved-call-sym fn-node)))
+
+(s/defn get-call? :- s/Bool
+  [fn-node :- s/Any]
+  (contains? get-call-syms (resolved-call-sym fn-node)))
 
 (s/defn not-call? :- s/Bool
   [fn-node :- s/Any]
@@ -226,15 +244,15 @@
 
 (s/defn assoc-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/assoc 'assoc} (resolved-call-sym fn-node)))
+  (contains? assoc-call-syms (resolved-call-sym fn-node)))
 
 (s/defn dissoc-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/dissoc 'dissoc} (resolved-call-sym fn-node)))
+  (contains? dissoc-call-syms (resolved-call-sym fn-node)))
 
 (s/defn update-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/update 'update} (resolved-call-sym fn-node)))
+  (contains? update-call-syms (resolved-call-sym fn-node)))
 
 (s/defn static-get-call? :- s/Bool
   [node :- s/Any]
@@ -280,75 +298,75 @@
 
 (s/defn first-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/first 'first} (resolved-call-sym fn-node)))
+  (contains? first-call-syms (resolved-call-sym fn-node)))
 
 (s/defn second-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/second 'second} (resolved-call-sym fn-node)))
+  (contains? second-call-syms (resolved-call-sym fn-node)))
 
 (s/defn last-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/last 'last} (resolved-call-sym fn-node)))
+  (contains? last-call-syms (resolved-call-sym fn-node)))
 
 (s/defn nth-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/nth 'nth} (resolved-call-sym fn-node)))
+  (contains? nth-call-syms (resolved-call-sym fn-node)))
 
 (s/defn rest-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/rest 'rest} (resolved-call-sym fn-node)))
+  (contains? rest-call-syms (resolved-call-sym fn-node)))
 
 (s/defn butlast-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/butlast 'butlast} (resolved-call-sym fn-node)))
+  (contains? butlast-call-syms (resolved-call-sym fn-node)))
 
 (s/defn drop-last-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/drop-last 'drop-last} (resolved-call-sym fn-node)))
+  (contains? drop-last-call-syms (resolved-call-sym fn-node)))
 
 (s/defn take-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/take 'take} (resolved-call-sym fn-node)))
+  (contains? take-call-syms (resolved-call-sym fn-node)))
 
 (s/defn drop-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/drop 'drop} (resolved-call-sym fn-node)))
+  (contains? drop-call-syms (resolved-call-sym fn-node)))
 
 (s/defn take-while-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/take-while 'take-while} (resolved-call-sym fn-node)))
+  (contains? take-while-call-syms (resolved-call-sym fn-node)))
 
 (s/defn drop-while-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/drop-while 'drop-while} (resolved-call-sym fn-node)))
+  (contains? drop-while-call-syms (resolved-call-sym fn-node)))
 
 (s/defn concat-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/concat 'concat} (resolved-call-sym fn-node)))
+  (contains? concat-call-syms (resolved-call-sym fn-node)))
 
 (s/defn into-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/into 'into} (resolved-call-sym fn-node)))
+  (contains? into-call-syms (resolved-call-sym fn-node)))
 
 (s/defn chunk-first-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/chunk-first 'chunk-first} (resolved-call-sym fn-node)))
+  (contains? chunk-first-call-syms (resolved-call-sym fn-node)))
 
 (s/defn plus-invoke? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/+ '+} (resolved-call-sym fn-node)))
+  (contains? plus-invoke-syms (resolved-call-sym fn-node)))
 
 (s/defn multiply-invoke? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/* '*} (resolved-call-sym fn-node)))
+  (contains? multiply-invoke-syms (resolved-call-sym fn-node)))
 
 (s/defn minus-invoke? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/- '-} (resolved-call-sym fn-node)))
+  (contains? minus-invoke-syms (resolved-call-sym fn-node)))
 
 (s/defn inc-invoke? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/inc 'inc} (resolved-call-sym fn-node)))
+  (contains? inc-invoke-syms (resolved-call-sym fn-node)))
 
 (defn- fun-type-call-info
   [ft arity]
