@@ -15,11 +15,10 @@
       (:type (first args)))))
 
 (s/defn invoke-output-type :- s/Any
-  [ctx fn-node args output-type]
+  [ctx fn-node args output-type call-sym]
   (if-let [summary-output (unary-summary-output fn-node args)]
     summary-output
-    (let [call-sym (ac/resolved-call-sym fn-node)
-          arity (count args)]
+    (let [arity (count args)]
       (cond
         (contains? ac/get-call-syms call-sym) (shared-call/shared-call-output-type ctx :get args output-type)
         (contains? ac/merge-call-syms call-sym) (shared-call/shared-call-output-type ctx :merge args output-type)

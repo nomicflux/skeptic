@@ -55,9 +55,10 @@
   [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [[fn-node args] (annotate-fn-and-args ctx node)
         call-info (ac/call-info ctx fn-node args)
-        output-type (invoke-output/invoke-output-type ctx fn-node args (:output-type call-info))
+        call-sym (ac/resolved-call-sym fn-node)
+        output-type (invoke-output/invoke-output-type ctx fn-node args (:output-type call-info) call-sym)
         output-type (or (numeric/invoke-integral-math-narrow-type
-                         (ato/derive-prov output-type) fn-node args (mapv :type args))
+                         (ato/derive-prov output-type) call-sym args (mapv :type args))
                         output-type)]
     (build-invoke-node ctx node fn-node args output-type (:fn-type call-info) (:expected-argtypes call-info))))
 
