@@ -205,8 +205,8 @@
   [prov :- provs/Provenance]
   (->NumericDynT prov))
 
-(s/defn semantic-type-value? :- s/Bool
-  [value :- s/Any]
+(defn semantic-type-value?
+  [value]
   (satisfies? proto/SemanticType value))
 
 (s/defn dyn-type? :- s/Bool [t :- s/Any] (instance? DynT t))

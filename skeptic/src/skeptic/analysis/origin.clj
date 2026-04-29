@@ -29,6 +29,10 @@
   {:kind :opaque
    :type type})
 
+(defn- plain-map?
+  [value]
+  (and (map? value) (not (record? value))))
+
 (s/defn root-origin :- aos/RootOrigin
   [sym :- s/Any
    type :- ats/SemanticType]
@@ -470,13 +474,13 @@
 (defn- local-type-and-origin
   [ctx sym entry]
   (cond
-    (at/semantic-type-value? entry)
-    [entry (root-origin* sym entry)]
-
-    (map? entry)
+    (plain-map? entry)
     (let [t (normalize-if-needed (or (:type entry) (aapi/dyn ctx)))
           origin (or (:origin entry) (root-origin* sym t))]
       [t origin])
+
+    (at/semantic-type-value? entry)
+    [entry (root-origin* sym entry)]
 
     :else
     (let [d (aapi/dyn ctx)]
@@ -736,10 +740,12 @@
   [ctx sym entry assumptions]
   (let [current-type (when (map? entry) (:type entry))
         refined-type (effective-type ctx sym entry assumptions)]
-    (if (at/semantic-type-value? entry)
-      refined-type
+    (if (plain-map? entry)
       (if (identical? current-type refined-type)
         entry
+        (assoc entry :type refined-type))
+      (if (at/semantic-type-value? entry)
+        refined-type
         (assoc entry :type refined-type)))))
 
 (s/defn refine-locals-for-assumption :- s/Any

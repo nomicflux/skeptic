@@ -35,8 +35,14 @@
 
 (defn- local-origin-for-entry
   [ctx sym entry t]
-  (if (at/semantic-type-value? entry)
+  (cond
+    (and (map? entry) (not (record? entry)))
+    (:origin entry)
+
+    (at/semantic-type-value? entry)
     (ao/root-origin sym (aapi/normalize-type ctx t))
+
+    :else
     (:origin entry)))
 
 (s/defn annotate-local :- aas/AnnotatedNode
