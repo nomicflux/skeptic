@@ -59,7 +59,7 @@
         annotated-params))
 
 (s/defn annotate-fn-method :- aas/AnnotatedNode
-  [{:keys [locals dict name ns recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode & [param-type-overrides :- s/Any]]
+  [{:keys [locals dict name ns recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode & [param-type-overrides]]
   (let [param-type-overrides (or param-type-overrides {})
         param-specs (fn-method-param-specs-with-overrides
                      ctx dict ns name (:params node) param-type-overrides)
@@ -99,7 +99,7 @@
                   (mapv :name (:param-specs method))))
 
 (s/defn annotate-fn :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode & [opts :- s/Any]]
+  [ctx :- s/Any node :- aas/AnnotatedNode & [opts]]
   (let [overrides (:param-type-overrides opts {})
         methods (mapv #(annotate-fn-method ctx % overrides) (:methods node))
         arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)

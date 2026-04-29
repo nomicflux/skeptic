@@ -233,7 +233,7 @@
                    (conj branch-types (:type default-node)))))
 
 (s/defn annotate-case :- aas/AnnotatedNode
-  [{:keys [locals assumptions] :as ctx} :- s/Any, node :- aas/AnnotatedNode]
+  [{:keys [locals assumptions] :as ctx} :- s/Any, node :- aas/CaseNode]
   (let [anchor-prov (prov/with-ctx ctx)
         test-node ((:recurse ctx) ctx (:test node))
         discriminant-expr (case-discriminant-expr-node test-node)
