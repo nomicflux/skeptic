@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.native-fns :as native-fns]
@@ -66,16 +67,16 @@
                (= param-sym (:sym (:root origin))))
       (:path origin))))
 
-(defn- case-test-literal-nodes
-  [t]
+(s/defn ^:private case-test-literal-nodes :- s/Any
+  [t :- aas/AnnotatedNode]
   (cond
     (#{:const :quote} (:op t)) [t]
     (= :case-test (:op t)) [(:test t)]
     :else (let [raw (or (:tests t) (:test t))]
             (when raw (if (vector? raw) raw [raw])))))
 
-(defn- case-pairs+default
-  [case-node]
+(s/defn ^:private case-pairs+default :- s/Any
+  [case-node :- aas/CaseNode]
   (let [tests (:tests case-node)
         thens (:thens case-node)
         n (min (count tests) (count thens))
@@ -88,8 +89,8 @@
                     (range n))]
     [pairs (:form (:default case-node))]))
 
-(defn- body-as-classifier-case-node
-  [body]
+(s/defn ^:private body-as-classifier-case-node :- (s/maybe aas/AnnotatedNode)
+  [body :- aas/AnnotatedNode]
   (let [body (aapi/unwrap-with-meta body)]
     (case (:op body)
       :case body
@@ -97,8 +98,8 @@
       :do (body-as-classifier-case-node (:ret body))
       nil)))
 
-(defn analyzed-def-entry
-  [ns-sym analyzed]
+(s/defn analyzed-def-entry :- s/Any
+  [ns-sym :- s/Any analyzed :- aas/AnnotatedNode]
   (letfn [(literal-keyword [node]
             (when (ac/literal-map-key? node)
               (let [value (ac/literal-node-value node)]
@@ -210,7 +211,7 @@
       (ato/normalize output-type))))
 
 (s/defn def-output-results :- s/Any
-  [dict ns-sym source-file source-form enclosing-form node]
+  [dict ns-sym source-file source-form enclosing-form node :- aas/AnnotatedNode]
   (let [declared-t (ac/lookup-type dict ns-sym node)
         init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
         methods (when init-node (aapi/function-methods init-node))]
@@ -265,7 +266,7 @@
                           :errors (:errors report)})))))))))
 
 (s/defn input-error-group :- s/Any
-  [expr arg-node expected actual]
+  [expr arg-node :- (s/maybe aas/AnnotatedNode) expected actual]
   (let [arg-expr (if (some? arg-node)
                    (aapi/node-form arg-node)
                    arg-node)
@@ -293,7 +294,7 @@
   (assoc (or location {}) :source source))
 
 (s/defn input-cast-result :- s/Any
-  [enclosing-form node error-groups]
+  [enclosing-form node :- aas/AnnotatedNode error-groups]
   (let [display (cf/display-expr node)
         primary-group (first error-groups)]
     {:blame (:expr display)
@@ -317,7 +318,7 @@
      :errors (vec (mapcat :errors error-groups))}))
 
 (s/defn match-s-exprs :- s/Any
-  [enclosing-form node keep-empty]
+  [enclosing-form node :- aas/AnnotatedNode keep-empty]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (aapi/call-expected-argtypes node))
           actual-arglist (vec (aapi/call-actual-argtypes node))]
@@ -358,7 +359,7 @@
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (s/defn check-resolved-form :- s/Any
-  [dict ignore-body ns-sym source-file source-form analyzed {:keys [keep-empty remove-context debug] :as opts}]
+  [dict ignore-body ns-sym source-file source-form analyzed :- aas/AnnotatedNode {:keys [keep-empty remove-context debug] :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? ignore-body ns-sym source-form)
         results (if ignored?

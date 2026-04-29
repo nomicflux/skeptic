@@ -27,9 +27,11 @@
   (is (nil? (ca/callee-ref (aat/test-const-node 1)))))
 
 (deftest match-up-arglists-test
-  (let [pairs (ca/match-up-arglists [:a :b nil] [:e0 :e1] [:x0 :x1 :x2])]
+  (let [a (aat/test-typed-node :const 'a :ta)
+        b (aat/test-typed-node :const 'b :tb)
+        pairs (vec (ca/match-up-arglists [a b nil] [:e0 :e1] [:x0 :x1 :x2]))]
     (is (= 3 (count pairs)))
-    (is (= [:a :e0 :x0] (first pairs)))
+    (is (= [a :e0 :x0] (first pairs)))
     (is (= [nil :e1 :x2] (last pairs)))))
 
 (deftest local-resolution-path-test
