@@ -1,6 +1,7 @@
 (ns skeptic.checking.ast
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.checking.form :as cf]))
 
@@ -16,15 +17,15 @@
           xs))
 
 (s/defn node-ref :- s/Any
-  [node]
+  [node :- (s/maybe aas/AnnotatedNode)]
   (aapi/node-ref node))
 
 (s/defn callee-ref :- s/Any
-  [node]
+  [node :- (s/maybe aas/AnnotatedNode)]
   (aapi/callee-ref node))
 
 (s/defn match-up-arglists :- s/Any
-  [arg-nodes expected actual]
+  [arg-nodes :- [(s/maybe aas/AnnotatedNode)] expected actual]
   (cf/spy :match-up-actual-list actual)
   (cf/spy :match-up-expected-list expected)
   (let [size (max (count expected) (count actual))
@@ -35,19 +36,19 @@
        (cf/spy :match-up-actual (get actual n))])))
 
 (s/defn local-resolution-path :- s/Any
-  [local-node]
+  [local-node :- aas/AnnotatedNode]
   (aapi/local-resolution-path local-node))
 
 (s/defn local-vars-context :- s/Any
-  [node]
+  [node :- aas/AnnotatedNode]
   (aapi/local-vars-context node))
 
 (s/defn call-refs :- s/Any
-  [node]
+  [node :- aas/AnnotatedNode]
   (aapi/call-refs node))
 
 (s/defn call-node? :- s/Any
-  [node]
+  [node :- aas/AnnotatedNode]
   (aapi/call-node? node))
 
 (defn- lookup-in-dict
@@ -60,5 +61,5 @@
   (lookup-in-dict dict ns-sym sym))
 
 (s/defn unwrap-with-meta :- s/Any
-  [node]
+  [node :- aas/AnnotatedNode]
   (aapi/unwrap-with-meta node))
