@@ -125,12 +125,16 @@
 (def multiply-invoke-syms '#{clojure.core/* *})
 (def minus-invoke-syms '#{clojure.core/- -})
 (def inc-invoke-syms '#{clojure.core/inc inc})
+(def not-call-syms '#{clojure.core/not not})
+(def equality-call-syms '#{clojure.core/= =})
+(def blank-call-syms '#{clojure.string/blank? blank?})
+(def instance-call-syms '#{clojure.core/instance? instance?})
+
+(declare resolved-call-sym)
 
 (s/defn blank-call? :- s/Bool
   [fn-node :- s/Any]
-  (let [resolved (or (var->sym (aapi/node-var fn-node))
-                     (aapi/node-form fn-node))]
-    (contains? #{'clojure.string/blank? 'blank?} resolved)))
+  (contains? blank-call-syms (resolved-call-sym fn-node)))
 
 (def ^:private type-predicate-sym->pred
   '{clojure.core/nil? :nil?, nil? :nil?
@@ -172,11 +176,11 @@
 
 (s/defn not-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/not 'not} (resolved-call-sym fn-node)))
+  (contains? not-call-syms (resolved-call-sym fn-node)))
 
 (s/defn equality-call? :- s/Bool
   [fn-node :- s/Any]
-  (contains? #{'clojure.core/= '=} (resolved-call-sym fn-node)))
+  (contains? equality-call-syms (resolved-call-sym fn-node)))
 
 (s/defn static-equality-call? :- s/Bool
   [node :- s/Any]
@@ -188,13 +192,12 @@
   (and (= :const (aapi/node-op node))
        (class? (aapi/node-value node))))
 
-(s/defn type-predicate-assumption-info :- (s/maybe aos/PredInfo)
-  [fn-node :- s/Any
+(s/defn type-predicate-assumption-info-for-sym :- (s/maybe aos/PredInfo)
+  [sym :- s/Any
    args :- s/Any]
-  (let [sym (resolved-call-sym fn-node)
-        n (count args)]
+  (let [n (count args)]
     (cond
-      (contains? #{'clojure.core/instance? 'instance?} sym)
+      (contains? instance-call-syms sym)
       (when (and (>= n 2)
                  (class-literal-node? (first args)))
         {:pred :instance?
@@ -205,6 +208,11 @@
         {:pred (type-predicate-sym->pred sym)})
 
       :else nil)))
+
+(s/defn type-predicate-assumption-info :- (s/maybe aos/PredInfo)
+  [fn-node :- s/Any
+   args :- s/Any]
+  (type-predicate-assumption-info-for-sym (resolved-call-sym fn-node) args))
 
 (s/defn type-predicate-call? :- s/Bool
   [fn-node :- s/Any

@@ -548,98 +548,96 @@
 (s/defn test->assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
    test-node :- s/Any]
-  (cond
-    (aapi/stable-identity-node? test-node)
-    (when-let [root (local-root-origin ctx test-node)]
-      (truthy-local-assumption root true))
+  (let [op (:op test-node)
+        invoke? (= :invoke op)
+        invoke-fn (when invoke? (:fn test-node))
+        invoke-args (when invoke? (:args test-node))
+        invoke-sym (when invoke? (ac/resolved-call-sym invoke-fn))
+        invoke-pred-info (when invoke?
+                           (ac/type-predicate-assumption-info-for-sym invoke-sym invoke-args))]
+    (cond
+      (aapi/stable-identity-node? test-node)
+      (when-let [root (local-root-origin ctx test-node)]
+        (truthy-local-assumption root true))
 
-    (= :instance? (aapi/node-op test-node))
-    (let [target (aapi/node-target test-node)
-          cls (aapi/node-class test-node)]
-      (when (class? cls)
-        (if-let [root (when (aapi/stable-identity-node? target)
-                        (local-root-origin ctx target))]
-          (type-predicate-assumption root {:pred :instance? :class cls} true)
+      (= :instance? op)
+      (let [target (aapi/node-target test-node)
+            cls (aapi/node-class test-node)]
+        (when (class? cls)
+          (if-let [root (when (aapi/stable-identity-node? target)
+                          (local-root-origin ctx target))]
+            (type-predicate-assumption root {:pred :instance? :class cls} true)
 
-          (map-key-lookup-path-assumption target {:pred :instance? :class cls} true))))
+            (map-key-lookup-path-assumption target {:pred :instance? :class cls} true))))
 
-    (and (= :invoke (aapi/node-op test-node))
-         (ac/not-call? (aapi/call-fn-node test-node)))
-    (let [args (aapi/call-args test-node)]
-      (when (= 1 (count args))
-        (some-> (first args)
+      (and invoke? (contains? ac/not-call-syms invoke-sym))
+      (when (= 1 (count invoke-args))
+        (some-> (first invoke-args)
                 (->> (test->assumption ctx))
-                invert-assumption)))
+                invert-assumption))
 
-    (and (= :invoke (aapi/node-op test-node))
-         (ac/equality-call? (aapi/call-fn-node test-node)))
-    (let [[left right] (aapi/call-args test-node)]
-      (equality-value-assumption ctx left right))
+      (and invoke? (contains? ac/equality-call-syms invoke-sym))
+      (let [[left right] invoke-args]
+        (equality-value-assumption ctx left right))
 
-    (and (= :static-call (aapi/node-op test-node))
-         (ac/static-equality-call? test-node))
-    (let [[left right] (aapi/call-args test-node)]
-      (equality-value-assumption ctx left right))
+      (and (= :static-call op)
+           (ac/static-equality-call? test-node))
+      (let [[left right] (aapi/call-args test-node)]
+        (equality-value-assumption ctx left right))
 
-    (and (= :invoke (aapi/node-op test-node))
-         (ac/type-predicate-call? (aapi/call-fn-node test-node) (aapi/call-args test-node)))
-    (let [args (aapi/call-args test-node)
-          info (ac/type-predicate-assumption-info (aapi/call-fn-node test-node) args)
-          targ (if (= :instance? (:pred info))
-                 (second args)
-                 (first args))]
-      (when info
+      invoke-pred-info
+      (let [targ (if (= :instance? (:pred invoke-pred-info))
+                   (second invoke-args)
+                   (first invoke-args))]
         (if-let [root (when (aapi/stable-identity-node? targ)
                         (local-root-origin ctx targ))]
-          (type-predicate-assumption root info true)
+          (type-predicate-assumption root invoke-pred-info true)
 
-          (map-key-lookup-path-assumption targ info true))))
+          (map-key-lookup-path-assumption targ invoke-pred-info true)))
 
-    (and (= :invoke (aapi/node-op test-node))
-         (ac/blank-call? (aapi/call-fn-node test-node)))
-    (let [targ (first (aapi/call-args test-node))]
-      (when-let [root (when (aapi/stable-identity-node? targ)
+      (and invoke? (contains? ac/blank-call-syms invoke-sym))
+      (let [targ (first invoke-args)]
+        (when-let [root (when (aapi/stable-identity-node? targ)
+                          (local-root-origin ctx targ))]
+          (blank-check-assumption root true)))
+
+      (ac/keyword-invoke-on-local? test-node)
+      (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]
+        (when (keyword? kw)
+          (contains-key-test-assumption ctx target kw)))
+
+      (and invoke? (contains? ac/contains-call-syms invoke-sym))
+      (let [[target-node key-node] invoke-args]
+        (when (ac/literal-map-key? key-node)
+          (let [key (ac/literal-node-value key-node)]
+            (when (keyword? key)
+              (contains-key-test-assumption ctx target-node key)))))
+
+      (and (= :static-call op)
+           (ac/static-contains-call? test-node))
+      (let [[target-node key-node] (aapi/call-args test-node)]
+        (when (ac/literal-map-key? key-node)
+          (let [key (ac/literal-node-value key-node)]
+            (when (keyword? key)
+              (contains-key-test-assumption ctx target-node key)))))
+
+      (and (= :static-call op)
+           (ac/static-nil?-call? test-node))
+      (when-let [targ (ac/static-nil?-target test-node)]
+        (if-let [root (when (aapi/stable-identity-node? targ)
                         (local-root-origin ctx targ))]
-        (blank-check-assumption root true)))
+          (type-predicate-assumption root {:pred :nil?} true)
 
-    (ac/keyword-invoke-on-local? test-node)
-    (when-let [[kw target] (ac/keyword-invoke-kw-and-target test-node)]
-      (when (keyword? kw)
-        (contains-key-test-assumption ctx target kw)))
+          (map-key-lookup-path-assumption targ {:pred :nil?} true)))
 
-    (and (= :invoke (aapi/node-op test-node))
-         (ac/contains-call? (aapi/call-fn-node test-node)))
-    (let [[target-node key-node] (aapi/call-args test-node)]
-      (when (ac/literal-map-key? key-node)
-        (let [key (ac/literal-node-value key-node)]
-          (when (keyword? key)
-            (contains-key-test-assumption ctx target-node key)))))
+      (aapi/let-node? test-node)
+      (test->assumption ctx (aapi/node-body test-node))
 
-    (and (= :static-call (aapi/node-op test-node))
-         (ac/static-contains-call? test-node))
-    (let [[target-node key-node] (aapi/call-args test-node)]
-      (when (ac/literal-map-key? key-node)
-        (let [key (ac/literal-node-value key-node)]
-          (when (keyword? key)
-            (contains-key-test-assumption ctx target-node key)))))
+      (aapi/if-node? test-node)
+      (test->assumption ctx (aapi/then-node test-node))
 
-    (and (= :static-call (aapi/node-op test-node))
-         (ac/static-nil?-call? test-node))
-    (when-let [targ (ac/static-nil?-target test-node)]
-      (if-let [root (when (aapi/stable-identity-node? targ)
-                      (local-root-origin ctx targ))]
-        (type-predicate-assumption root {:pred :nil?} true)
-
-        (map-key-lookup-path-assumption targ {:pred :nil?} true)))
-
-    (aapi/let-node? test-node)
-    (test->assumption ctx (aapi/node-body test-node))
-
-    (aapi/if-node? test-node)
-    (test->assumption ctx (aapi/then-node test-node))
-
-    :else
-    (boolean-proposition-assumption test-node)))
+      :else
+      (boolean-proposition-assumption test-node))))
 
 (s/defn local-binding-init-assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
@@ -736,10 +734,13 @@
 
 (defn- refine-local-entry
   [ctx sym entry assumptions]
-  (let [refined-type (effective-type ctx sym entry assumptions)]
+  (let [current-type (when (map? entry) (:type entry))
+        refined-type (effective-type ctx sym entry assumptions)]
     (if (at/semantic-type-value? entry)
       refined-type
-      (assoc entry :type refined-type))))
+      (if (identical? current-type refined-type)
+        entry
+        (assoc entry :type refined-type)))))
 
 (s/defn refine-locals-for-assumption :- s/Any
   [ctx :- s/Any
@@ -758,10 +759,16 @@
   (let [{:keys [then-conjuncts else-conjuncts]} conjuncts
         then-assumptions (into (vec assumptions) then-conjuncts)
         else-assumptions (into (vec assumptions) else-conjuncts)]
-    {:then-locals (refine-locals-for-assumption ctx locals then-assumptions)
-     :then-assumptions then-assumptions
-     :else-locals (refine-locals-for-assumption ctx locals else-assumptions)
-     :else-assumptions else-assumptions}))
+    (if (= then-assumptions else-assumptions)
+      (let [refined-locals (refine-locals-for-assumption ctx locals then-assumptions)]
+        {:then-locals refined-locals
+         :then-assumptions then-assumptions
+         :else-locals refined-locals
+         :else-assumptions else-assumptions})
+      {:then-locals (refine-locals-for-assumption ctx locals then-assumptions)
+       :then-assumptions then-assumptions
+       :else-locals (refine-locals-for-assumption ctx locals else-assumptions)
+       :else-assumptions else-assumptions})))
 
 (s/defn guard-assumption :- (s/maybe aos/Assumption)
   [stmt-node :- s/Any]
