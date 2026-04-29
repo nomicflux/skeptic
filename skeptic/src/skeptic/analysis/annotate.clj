@@ -12,21 +12,9 @@
             [skeptic.analysis.annotate.match :as match]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
-
-(s/defn node-location :- s/Any
-  [node :- s/Any]
-  (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
-
-(s/defn node-error-context :- s/Any
-  [node :- s/Any]
-  (let [expr (:form node)]
-    {:expr expr
-     :source-expression (:source (meta expr))
-     :location (node-location node)}))
 
 (s/defn ^:private annotate-generic :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
@@ -89,10 +77,9 @@
 (s/defn annotate-node :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [ctx (assoc ctx :recurse annotate-node)]
-    (abl/with-error-context (node-error-context node)
-      (-> (annotate-dispatch ctx node)
-          (apply-type-override ctx node)
-          abr/strip-derived-types))))
+    (-> (annotate-dispatch ctx node)
+        (apply-type-override ctx node)
+        abr/strip-derived-types)))
 
 (s/defn annotate-ast :- aas/AnnotatedNode
   ([dict :- s/Any ast :- aas/AnnotatedNode]

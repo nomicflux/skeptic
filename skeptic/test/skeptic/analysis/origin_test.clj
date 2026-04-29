@@ -12,6 +12,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis-test :as atst]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.provenance :as prov]
             [skeptic.test-examples.catalog :as catalog]
             [skeptic.test-helpers :refer [tp]]
             [skeptic.typed-decls :as typed-decls])
@@ -27,6 +28,33 @@
       (is (at/type=? (atst/T s/Str) (:type o)))))
   (testing "effective-type returns refined type"
     (is (at/type=? (atst/T s/Int) (ao/effective-type tp 'x (atst/T s/Int) [])))))
+
+(deftest effective-type-entry-shapes-preserve-types-test
+  (let [ctx (prov/set-ctx {} tp)
+        str-type (atst/T s/Str)
+        maybe-str-type (atst/T (s/maybe s/Str))
+        root (ao/root-origin 'x maybe-str-type)
+        some-assumption (ao/type-predicate-assumption root {:pred :some?} true)]
+    (testing "semantic type entries are returned unchanged when no assumptions refine them"
+      (is (identical? str-type (ao/effective-type ctx 'x str-type []))))
+    (testing "map entries with origins still refine through their origin"
+      (is (at/type=? str-type
+                     (ao/effective-type ctx
+                                        'x
+                                        {:type maybe-str-type
+                                         :origin root}
+                                        [some-assumption]))))
+    (testing "fallback entries still produce dyn with the context provenance"
+      (let [fallback (ao/effective-type ctx 'missing nil [])]
+        (is (at/dyn-type? fallback))
+        (is (= :inferred (get-in fallback [:prov :source])))))))
+
+(deftest normalized-origin-private-helpers-match-public-constructors-test
+  (let [str-type (atst/T s/Str)]
+    (is (= (ao/root-origin 'x str-type)
+           (#'ao/root-origin* 'x str-type)))
+    (is (= (ao/opaque-origin str-type)
+           (#'ao/opaque-origin* str-type)))))
 
 (deftest predicate-info-shapes-satisfy-schema-test
   (let [some-info (ac/type-predicate-assumption-info {:op :var :form 'some?}
@@ -421,6 +449,33 @@
         inner-k (amo/map-get-type x-type kq-k)]
     (is (at/type=? (atst/T (s/eq "b")) inner-k))
     (is (at/type=? (atst/T {:k (s/eq "b")}) x-type))))
+
+(deftest branch-local-envs-refines-cross-symbol-origin-dependency
+  (let [root-type (atst/T {:x {:k s/Str}})
+        x-type (atst/T {:k s/Str})
+        kq-x (amo/exact-key-query tp :x)
+        kq-k (amo/exact-key-query tp :k)
+        assumption {:kind :path-value-equality
+                    :root (ao/root-origin 'input root-type)
+                    :path [kq-x kq-k]
+                    :values ["b"]
+                    :polarity true}
+        x-origin {:kind :map-key-lookup
+                  :root (ao/root-origin 'input root-type)
+                  :path [kq-x]
+                  :defaults [amo/no-default]}
+        envs (ao/branch-local-envs tp
+                                   {'input {:type root-type
+                                            :origin (ao/root-origin 'input root-type)}
+                                    'x {:type x-type
+                                        :origin x-origin}}
+                                   []
+                                   {:then-conjuncts [assumption]
+                                    :else-conjuncts []})]
+    (is (at/type=? (atst/T {:k (s/eq "b")})
+                   (get-in envs [:then-locals 'x :type])))
+    (is (at/type=? x-type
+                   (get-in envs [:else-locals 'x :type])))))
 
 (def ^:private vn-dict (catalog/typed-test-example-entries))
 (def ^:private vn-ns 'skeptic.test-examples.var-narrowing)

@@ -12,17 +12,31 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]))
 
+(defn- normalize-if-needed
+  [type]
+  (if (at/semantic-type-value? type)
+    type
+    (ato/normalize type)))
+
+(defn- root-origin*
+  [sym type]
+  {:kind :root
+   :sym sym
+   :type type})
+
+(defn- opaque-origin*
+  [type]
+  {:kind :opaque
+   :type type})
+
 (s/defn root-origin :- aos/RootOrigin
   [sym :- s/Any
    type :- ats/SemanticType]
-  {:kind :root
-   :sym sym
-   :type (ato/normalize type)})
+  (root-origin* sym (normalize-if-needed type)))
 
 (s/defn opaque-origin :- aos/Origin
   [type :- ats/SemanticType]
-  {:kind :opaque
-   :type (ato/normalize type)})
+  (opaque-origin* (normalize-if-needed type)))
 
 (s/defn map-key-lookup-origin :- aos/MapKeyLookupOrigin
   [root :- s/Any
@@ -457,16 +471,16 @@
   [ctx sym entry]
   (cond
     (at/semantic-type-value? entry)
-    [(ato/normalize entry) (root-origin sym (ato/normalize entry))]
+    [entry (root-origin* sym entry)]
 
     (map? entry)
-    (let [t (ato/normalize (or (:type entry) (aapi/dyn ctx)))
-          origin (or (:origin entry) (root-origin sym t))]
+    (let [t (normalize-if-needed (or (:type entry) (aapi/dyn ctx)))
+          origin (or (:origin entry) (root-origin* sym t))]
       [t origin])
 
     :else
     (let [d (aapi/dyn ctx)]
-      [d (root-origin sym d)])))
+      [d (root-origin* sym d)])))
 
 (s/defn effective-type :- ats/SemanticType
   [ctx :- s/Any
@@ -475,7 +489,7 @@
    assumptions :- [aos/Assumption]]
   (let [[t origin] (local-type-and-origin ctx sym entry)
         refined (or (some-> origin (origin-type assumptions)) t)]
-    (ato/normalize refined)))
+    (normalize-if-needed refined)))
 
 (s/defn local-root-origin :- (s/maybe aos/RootOrigin)
   [ctx :- s/Any
