@@ -32,6 +32,10 @@ Add the plugin to the `:plugins` vector in your `project.clj`:
 :plugins [[org.clojars.nomicflux/lein-skeptic "0.7.1"]]
 ```
 
+```clojure
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.0-SNAPSHOT"]]
+```
+
 If you need to override the default dependency profile, define a `:skeptic`
 profile in your project and Skeptic will use that instead.
 
