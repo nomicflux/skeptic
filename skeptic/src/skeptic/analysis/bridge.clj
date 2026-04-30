@@ -102,6 +102,7 @@
                              (set? form) (mapv build (vec form))
                              (seq? form) (mapv build (rest form))
                              :else [])
+                  referenced-schema-form (referenced-schema-form form)
                   map-entries (when (map? form)
                                 (into {}
                                       (map (fn [[k v]]
@@ -111,10 +112,17 @@
                :named-prov (source-named-prov prov form)
                :children children
                :map-entries map-entries
-               :conditional-branches (conditional-branch-sources form)}))
+               :conditional-branches (or (conditional-branch-sources form)
+                                         (some-> referenced-schema-form
+                                                 conditional-branch-sources))}))
           (resolve-symbol [form]
             (when (symbol? form)
               (try (resolve form) (catch Exception _ nil))))
+          (referenced-schema-form [form]
+            (when-let [v (resolve-symbol form)]
+              (when (and *form-refs* (instance? clojure.lang.Var v))
+                (some-> (.get ^java.util.IdentityHashMap *form-refs* v)
+                        :schema-form))))
           (source-named-prov [ctx-prov form]
             (or (var-source-prov form)
                 (inline-named-source-prov ctx-prov form)))

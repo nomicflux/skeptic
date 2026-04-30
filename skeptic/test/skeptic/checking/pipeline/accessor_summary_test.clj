@@ -34,6 +34,14 @@
     (is (= :unary-map-classifier (:kind s)))
     (is (= [:k] (mapv :value (:path s))))))
 
+(deftest keyword-get-default-classifier
+  (let [s (summary-of '(defn choose [m]
+                         (keyword (get m :k :a))))]
+    (is (= :unary-map-classifier (:kind s)))
+    (is (= [:k] (mapv :value (:path s))))
+    (is (= :a (:default s)))
+    (is (= :keyword (:result-transform s)))))
+
 (deftest different-classifier-name-recognized-identically
   (let [s (summary-of '(defn another-classifier [m]
                          (case (:k m) "a" :a "b" :b :unclassified)))]

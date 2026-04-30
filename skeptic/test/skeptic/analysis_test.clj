@@ -211,13 +211,19 @@
         contracts-file (fixture-file-for-ns contracts-ns)
         nullability-ns 'skeptic.test-examples.nullability
         nullability-file (fixture-file-for-ns nullability-ns)]
-    (testing "accessor summaries are emitted only for trivial unary accessors"
-      (is (= {:kind :unary-map-accessor :kw :k}
-             (get (:accessor-summaries (checking/analyze-source-exprs dict
-                                                                      contracts-ns
-                                                                      contracts-file
-                                                                      (source-exprs-in contracts-ns contracts-file)))
-                  'skeptic.test-examples.contracts/vtype)))
+    (testing "accessor summaries are emitted only for supported unary projection helpers"
+      (let [summaries (:accessor-summaries (checking/analyze-source-exprs dict
+                                                                          contracts-ns
+                                                                          contracts-file
+                                                                          (source-exprs-in contracts-ns contracts-file)))
+            choose-summary (get summaries 'skeptic.test-examples.contracts/choose)]
+        (is (= {:kind :unary-map-accessor :kw :k}
+               (get summaries 'skeptic.test-examples.contracts/vtype)))
+        (is (= :unary-map-classifier (:kind choose-summary)))
+        (is (= [:k] (mapv :value (:path choose-summary))))
+        (is (= :a (:default choose-summary)))
+        (is (= :keyword (:result-transform choose-summary)))
+        (is (= #{:a :b} (set (:values choose-summary)))))
       (is (nil? (get (:accessor-summaries (checking/analyze-source-exprs dict
                                                                          nullability-ns
                                                                          nullability-file
@@ -246,4 +252,26 @@
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-b v) (aapi/node-form %))))]
       (is (at/type=? (T contracts/VariantA) (first (aapi/call-actual-argtypes handle-a))))
-      (is (at/type=? (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b)))))))
+      (is (at/type=? (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b))))))
+
+  (testing "classifier case narrowing crosses helper function boundaries"
+    (let [fixture-ns 'skeptic.test-examples.contracts
+          fixture-file (fixture-file-for-ns fixture-ns)
+          {base-dict :dict} (checking/namespace-dict {} fixture-ns fixture-file)
+          {dict :dict accessor-summaries :accessor-summaries}
+          (#'checking/preanalyzed-ns-dict base-dict fixture-ns fixture-file)
+          dict (#'checking/enrich-conditional-descriptors dict fixture-ns accessor-summaries)
+          form (->> 'skeptic.test-examples.contracts/repro
+                    (source/get-fn-code {})
+                    read-string)
+          ast (first (:resolved (checking/analyze-source-exprs dict
+                                                               fixture-ns
+                                                               fixture-file
+                                                               [form]
+                                                               {:accessor-summaries accessor-summaries})))
+          f-a (aapi/find-node ast #(and (aapi/call-node? %)
+                                        (= '(f-a x) (aapi/node-form %))))
+          f-b (aapi/find-node ast #(and (aapi/call-node? %)
+                                        (= '(f-b x) (aapi/node-form %))))]
+      (is (at/type=? (T contracts/A) (first (aapi/call-actual-argtypes f-a))))
+      (is (at/type=? (T contracts/B) (first (aapi/call-actual-argtypes f-b)))))))

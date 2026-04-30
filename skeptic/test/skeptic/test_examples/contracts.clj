@@ -537,3 +537,29 @@
   [{{:keys [k]} :x :as x} :- NestedConditionalXTop]
   (cond->> x
     (= k "b") (nested-conditional-f)))
+
+(s/defschema A {})
+(s/defschema B {:k (s/eq :b)})
+
+(s/defn choose :- (s/enum :a :b)
+  [x]
+  (keyword (get x :k :a)))
+
+(s/defschema In
+  (s/conditional
+    #(= :a (choose %)) A
+    #(= :b (choose %)) B))
+
+(s/defn f-a :- [s/Any]
+  [x :- A]
+  [])
+
+(s/defn f-b :- [s/Any]
+  [x :- B]
+  [])
+
+(s/defn repro :- [s/Any]
+  [x :- In]
+  (case (choose x)
+    :a (f-a x)
+    :b (f-b x)))

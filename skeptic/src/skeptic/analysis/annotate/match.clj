@@ -90,6 +90,37 @@
               {:kw kw :root root})))
         (sac/ast-nodes test-node)))
 
+(defn- case-classifier-info-for-node
+  [ctx node]
+  (when (and (contains? aapi/invoke-ops (:op node))
+             (= 1 (count (:args node))))
+    (let [summary (get-in node [:fn :accessor-summary])
+          target (first (:args node))]
+      (when (and (= :unary-map-classifier (:kind summary))
+                 (aapi/stable-identity-node? target))
+        (when-let [root (case-assumption-root-for-local ctx target)]
+          {:kind :classifier
+           :root root
+           :path (:path summary)
+           :classifier-sym (ac/resolved-call-sym (:fn node))
+           :summary summary})))))
+
+(defn- case-path-info-for-node
+  [ctx node]
+  (when-let [[kw target] (case-kw-and-target node)]
+    (when-let [root (and (keyword? kw) (case-assumption-root-for-local ctx target))]
+      {:kind :path
+       :root root
+       :path [kw]
+       :kw kw})))
+
+(defn- case-discriminator-info
+  [ctx test-node]
+  (some (fn [node]
+          (or (case-classifier-info-for-node ctx node)
+              (case-path-info-for-node ctx node)))
+        (sac/ast-nodes test-node)))
+
 (s/defn case-predicate-test-map :- {s/Any s/Any}
   [kw :- s/Any, lit :- s/Any]
   (cond-> {kw lit}
@@ -128,26 +159,54 @@
      (pred (path->test-map path lit))
      (catch Exception _ false))))
 
+(defn- discriminator-info
+  [discriminator]
+  (if (map? discriminator)
+    discriminator
+    {:kind :path :path discriminator}))
+
 (defn- descriptor-applies?
-  [descriptor path]
-  (and descriptor
-       (= (mapv path-elem-key (:path descriptor))
-          (mapv path-elem-key path))))
+  [descriptor discriminator]
+  (let [discriminator (discriminator-info discriminator)]
+    (and descriptor
+         (if-let [classifier-sym (:classifier-sym descriptor)]
+           (= classifier-sym (:classifier-sym discriminator))
+           (= (mapv path-elem-key (:path descriptor))
+              (mapv path-elem-key (:path discriminator)))))))
 
 (defn- pred-matches-lit?
-  [pred descriptor path lit]
-  (if (descriptor-applies? descriptor path)
-    (contains? (set (:values descriptor)) lit)
-    (path-predicate-matches-lit? pred path lit)))
+  [pred descriptor discriminator lit]
+  (let [discriminator (discriminator-info discriminator)]
+    (cond
+      (descriptor-applies? descriptor discriminator)
+      (contains? (set (:values descriptor)) lit)
+
+      (:classifier-sym discriminator)
+      false
+
+      :else
+      (path-predicate-matches-lit? pred (:path discriminator) lit))))
+
+(defn- discriminator-root
+  [discriminator]
+  (:root (discriminator-info discriminator)))
+
+(defn- root-discriminator?
+  [discriminator]
+  (= :root (:kind (discriminator-info discriminator))))
+
+(defn- conditional-discriminator?
+  [discriminator]
+  (contains? #{:path :classifier} (:kind (discriminator-info discriminator))))
 
 (s/defn narrow-conditional-by-discriminator :- ats/SemanticType
   "Pick branches of `branches` whose pred matches each literal in `lits`
-   against discriminator `path` (non-empty vector of key-queries). Returns
+   against `discriminator` (path vector or discriminator info map). Returns
    a union of selected branch types."
-  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
+  [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
   (let [pick (fn [lit]
                (some (fn [[pred branch-type descriptor]]
-                       (when (pred-matches-lit? pred descriptor path lit)
+                       (when (pred-matches-lit? pred descriptor discriminator lit)
                          branch-type))
                      branches))
         picked (vec (distinct (keep pick lits)))]
@@ -156,9 +215,9 @@
 (s/defn narrow-conditional-default :- ats/SemanticType
   "Default-branch counterpart: returns the union of branch types whose
    preds did NOT match any of `lits`."
-  [anchor-prov :- provs/Provenance, branches :- s/Any, path :- [s/Any], lits :- [s/Any]]
+  [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
   (let [matched? (fn [[pred _ descriptor]]
-                   (some #(pred-matches-lit? pred descriptor path %) lits))
+                   (some #(pred-matches-lit? pred descriptor discriminator %) lits))
         default-types (into [] (comp (remove matched?)
                                      (map second))
                             branches)]
@@ -167,25 +226,26 @@
       (ato/union default-types))))
 
 (s/defn case-conditional-narrow-for-lits :- ats/SemanticType
-  [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, lits :- [s/Any]]
-  (narrow-conditional-by-discriminator anchor-prov branches [kw-query] lits))
+  [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
+  (narrow-conditional-by-discriminator anchor-prov branches discriminator lits))
 
 (s/defn case-conditional-default-narrow :- ats/SemanticType
-  [anchor-prov :- provs/Provenance, branches :- s/Any, kw-query :- s/Any, all-lits :- [s/Any]]
-  (narrow-conditional-default anchor-prov branches [kw-query] all-lits))
+  [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, all-lits :- [s/Any]]
+  (narrow-conditional-default anchor-prov branches discriminator all-lits))
 
 (s/defn annotate-case-one-then :- s/Any
-  [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], disc-root :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any]
+  [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], discriminator :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any]
   (let [lits (vec (distinct (case-test-literals (nth tests i))))
+        disc-root (discriminator-root discriminator)
         assumption (cond
                      (and use-conditional? disc-root (seq lits))
                      {:kind :conditional-branch
                       :root disc-root
                       :narrowed-type (case-conditional-narrow-for-lits
-                                      anchor-prov cond-branches (:kw kw-root-info) lits)
+                                      anchor-prov cond-branches discriminator lits)
                       :polarity true}
 
-                     (and disc-root (seq lits))
+                     (and (root-discriminator? discriminator) disc-root (seq lits))
                      {:kind :value-equality
                       :root disc-root
                       :values lits
@@ -204,27 +264,28 @@
     (assoc (nth thens i) :then annotated)))
 
 (s/defn ^:private default-assumption :- (s/maybe aos/Assumption)
-  [anchor-prov :- provs/Provenance, use-conditional? :- s/Any, disc-root :- s/Any, cond-branches :- s/Any, kw-root-info :- s/Any, all-values :- s/Any]
-  (cond
-    (and use-conditional? disc-root (seq all-values))
-    {:kind :conditional-branch
-     :root disc-root
-     :narrowed-type (case-conditional-default-narrow
-                     anchor-prov cond-branches (:kw kw-root-info) all-values)
-     :polarity true}
+  [anchor-prov :- provs/Provenance, use-conditional? :- s/Any, discriminator :- s/Any, cond-branches :- s/Any, all-values :- s/Any]
+  (let [disc-root (discriminator-root discriminator)]
+    (cond
+      (and use-conditional? disc-root (seq all-values))
+      {:kind :conditional-branch
+       :root disc-root
+       :narrowed-type (case-conditional-default-narrow
+                       anchor-prov cond-branches discriminator all-values)
+       :polarity true}
 
-    (and disc-root (seq all-values))
-    {:kind :value-equality
-     :root disc-root
-     :values all-values
-     :polarity false}
-    :else nil))
+      (and (root-discriminator? discriminator) disc-root (seq all-values))
+      {:kind :value-equality
+       :root disc-root
+       :values all-values
+       :polarity false}
+      :else nil)))
 
 (defn- exhaustive-values?
-  [disc-root values]
-  (and disc-root
+  [type values]
+  (and type
        (seq values)
-       (sums/exhausted-by-values? (:type disc-root) values)))
+       (sums/exhausted-by-values? type values)))
 
 (defn- case-joined-type
   [anchor-prov branch-types default-node exhaustive?]
@@ -241,20 +302,22 @@
         tests (:tests node)
         thens (:thens node)
         n (min (count tests) (count thens))
-        kw-root-info (case-kw-root-info ctx discriminant-expr)
-        disc-root (or (:root kw-root-info)
-                      (when-let [leaf (some-> discriminant-expr case-discriminant-leaf-node)]
-                        (case-assumption-root-for-local ctx leaf)))
-        cond-branches (when kw-root-info
-                        (case-conditional-branches-from-type (:type (:root kw-root-info))))
+        discriminator (or (case-discriminator-info ctx discriminant-expr)
+                          (when-let [leaf (some-> discriminant-expr case-discriminant-leaf-node)]
+                            (when-let [root (case-assumption-root-for-local ctx leaf)]
+                              {:kind :root
+                               :root root
+                               :type (:type root)})))
+        cond-branches (when (and discriminator (conditional-discriminator? discriminator))
+                        (case-conditional-branches-from-type (:type (discriminator-root discriminator))))
         use-conditional? (seq cond-branches)
         all-values (into [] (distinct (mapcat case-test-literals (take n tests))))
         annotated-thens (mapv (fn [i]
                                 (annotate-case-one-then
                                  anchor-prov ctx locals assumptions i tests thens
-                                 disc-root use-conditional? cond-branches kw-root-info))
+                                 discriminator use-conditional? cond-branches))
                               (range n))
-        assumption (default-assumption anchor-prov use-conditional? disc-root cond-branches kw-root-info all-values)
+        assumption (default-assumption anchor-prov use-conditional? discriminator cond-branches all-values)
         envs (ao/branch-local-envs ctx locals assumptions
                                     (if assumption
                                       {:then-conjuncts [assumption] :else-conjuncts []}
@@ -265,7 +328,7 @@
                              :assumptions (:then-assumptions envs))
                       (:default node))
         branch-types (mapv (comp :type :then) annotated-thens)
-        exhaustive? (exhaustive-values? disc-root all-values)
+        exhaustive? (exhaustive-values? (:type test-node) all-values)
         joined (case-joined-type (prov/with-ctx ctx) branch-types default-node exhaustive?)]
     (assoc node
            :test test-node

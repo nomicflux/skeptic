@@ -98,6 +98,69 @@
       :do (body-as-classifier-case-node (:ret body))
       nil)))
 
+(defn- keyword-call?
+  [node]
+  (and (= :invoke (aapi/node-op node))
+       (contains? '#{keyword clojure.core/keyword}
+                  (ac/resolved-call-sym (aapi/call-fn-node node)))))
+
+(defn- get-call-summary
+  [param-sym node]
+  (when (or (and (= :invoke (aapi/node-op node))
+                 (ac/get-call? (aapi/call-fn-node node)))
+            (and (= :static-call (aapi/node-op node))
+                 (ac/static-get-call? node)))
+    (let [[target key-node default-node] (aapi/call-args node)
+          key (when (ac/literal-map-key? key-node)
+                (ac/literal-node-value key-node))]
+      (when (and (keyword? key)
+                 (= :local (:op target))
+                 (= param-sym (:form target)))
+        (cond-> {:path [{:value key}]}
+          (and (some? default-node)
+               (ac/literal-map-key? default-node))
+          (assoc :default (ac/literal-node-value default-node)))))))
+
+(defn- keyword-get-classifier-summary
+  [param-sym body]
+  (when (keyword-call? body)
+    (let [[arg] (aapi/call-args body)]
+      (when-let [summary (get-call-summary param-sym arg)]
+        (assoc summary
+               :kind :unary-map-classifier
+               :result-transform :keyword)))))
+
+(defn- finite-values
+  [type]
+  (cond
+    (at/value-type? type)
+    [(:value type)]
+
+    (at/union-type? type)
+    (let [values (mapcat finite-values (:members type))]
+      (when (= (count values) (count (:members type)))
+        values))
+
+    :else nil))
+
+(defn- declared-output-values
+  [dict sym]
+  (when-let [type (get dict sym)]
+    (when (at/fun-type? type)
+      (let [values (mapcat (comp finite-values at/fn-method-output)
+                           (at/fun-methods type))]
+        (when (seq values)
+          (vec (distinct values)))))))
+
+(defn- enrich-summary-with-declared-output
+  [dict {:keys [sym summary] :as entry}]
+  (if (and (= :unary-map-classifier (:kind summary))
+           (not (contains? summary :values)))
+    (if-let [values (declared-output-values dict sym)]
+      (assoc entry :summary (assoc summary :values values))
+      entry)
+    entry))
+
 (s/defn analyzed-def-entry :- s/Any
   [ns-sym :- (s/maybe s/Symbol) analyzed :- aas/AnnotatedNode]
   (letfn [(literal-keyword [node]
@@ -143,13 +206,14 @@
                      :kw kw}))
 
                 :else
-                (when-let [case-node (body-as-classifier-case-node body)]
-                  (when-let [path (discriminant-projection-path (:test case-node) param-sym)]
-                    (let [[pairs default] (case-pairs+default case-node)]
-                      {:kind :unary-map-classifier
-                       :path path
-                       :cases pairs
-                       :default default}))))))
+                (or (keyword-get-classifier-summary param-sym body)
+                    (when-let [case-node (body-as-classifier-case-node body)]
+                      (when-let [path (discriminant-projection-path (:test case-node) param-sym)]
+                        (let [[pairs default] (case-pairs+default case-node)]
+                          {:kind :unary-map-classifier
+                           :path path
+                           :cases pairs
+                           :default default})))))))
           (def-accessor-summary [node]
             (when (= :fn (aapi/node-op node))
               (let [methods (aapi/function-methods node)]
@@ -178,7 +242,8 @@
 (defn- accumulate-analysis
   [dict ns-sym source-file acc expr]
   (let [analyzed (analyze-source-expr dict ns-sym source-file (:accessor-summaries acc) expr)
-        entry (analyzed-def-entry ns-sym analyzed)]
+        entry (when-let [entry (analyzed-def-entry ns-sym analyzed)]
+                (enrich-summary-with-declared-output dict entry))]
     (cond-> (update acc :analyzed conj analyzed)
       entry (update :entries conj entry)
       (:summary entry) (assoc-in [:accessor-summaries (:sym entry)] (:summary entry)))))

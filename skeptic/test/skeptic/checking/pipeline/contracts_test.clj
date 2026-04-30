@@ -139,3 +139,7 @@
 (deftest nested-conditional-classifier-descriptor-narrowing
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/nested-conditional-repro-top))
+
+(deftest conditional-classifier-case-narrows-across-functions
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/repro))

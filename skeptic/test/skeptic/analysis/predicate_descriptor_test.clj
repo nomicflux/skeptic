@@ -11,6 +11,16 @@
 (def ^:private summaries
   {'foo.ns/my-classifier classifier-summary})
 
+(def ^:private choose-summary
+  {:kind :unary-map-classifier
+   :path [{:value :k}]
+   :default :a
+   :result-transform :keyword
+   :values [:a :b]})
+
+(def ^:private choose-summaries
+  {'foo.ns/choose choose-summary})
+
 (deftest comp-single-lit-known-classifier
   (let [d (pd/predicate-form->descriptor '(comp #{:b} my-classifier) 'foo.ns summaries)]
     (is (= [{:value :k}] (:path d)))
@@ -30,6 +40,18 @@
 (deftest comp-non-classifier-summary
   (let [accessor-summaries {'foo.ns/k-getter {:kind :unary-map-accessor :kw :k}}]
     (is (nil? (pd/predicate-form->descriptor '(comp #{:b} k-getter) 'foo.ns accessor-summaries)))))
+
+(deftest fn-equality-known-classifier
+  (let [d (pd/predicate-form->descriptor '(fn* [p] (= :a (choose p))) 'foo.ns choose-summaries)]
+    (is (= [{:value :k}] (:path d)))
+    (is (= 'foo.ns/choose (:classifier-sym d)))
+    (is (= [:a] (:values d)))))
+
+(deftest fn-equality-known-classifier-swapped
+  (let [d (pd/predicate-form->descriptor '(fn* [p] (= (choose p) :b)) 'foo.ns choose-summaries)]
+    (is (= [{:value :k}] (:path d)))
+    (is (= 'foo.ns/choose (:classifier-sym d)))
+    (is (= [:b] (:values d)))))
 
 (deftest non-comp-shape-returns-nil
   (is (nil? (pd/predicate-form->descriptor '(fn [v] (= :b v)) 'foo.ns summaries)))

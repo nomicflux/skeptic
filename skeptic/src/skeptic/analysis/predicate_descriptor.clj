@@ -8,6 +8,30 @@
        (set? (second form))
        (symbol? (nth form 2))))
 
+(defn- equality-call?
+  [form]
+  (and (seq? form)
+       (#{'= 'clojure.core/=} (first form))
+       (= 3 (count form))))
+
+(defn- fn-body
+  [form]
+  (when (and (seq? form)
+             (#{'fn 'fn* 'clojure.core/fn} (first form)))
+    (let [body (rest form)]
+      (cond
+        (and (= 2 (count body))
+             (vector? (first body)))
+        {:params (first body)
+         :body (second body)}
+
+        (and (= 1 (count body))
+             (seq? (first body))
+             (= 2 (count (first body)))
+             (vector? (ffirst body)))
+        {:params (ffirst body)
+         :body (second (first body))}))))
+
 (defn- qualify-sym
   [sym ns-sym]
   (cond
@@ -21,19 +45,66 @@
   (or (get accessor-summaries (qualify-sym classifier-sym ns-sym))
       (get accessor-summaries classifier-sym)))
 
+(defn- qualified-classifier-sym
+  [classifier-sym ns-sym accessor-summaries]
+  (let [qualified (qualify-sym classifier-sym ns-sym)]
+    (cond
+      (contains? accessor-summaries qualified) qualified
+      (contains? accessor-summaries classifier-sym) classifier-sym
+      :else qualified)))
+
 (defn- selected-keys
   [cases literal-set]
   (vec (sort (keep (fn [[k v]] (when (contains? literal-set v) k)) cases))))
 
+(defn- literal-form?
+  [form]
+  (or (keyword? form)
+      (string? form)
+      (number? form)
+      (boolean? form)
+      (nil? form)))
+
+(defn- classifier-call-for-param
+  [form param]
+  (when (and (seq? form)
+             (= 2 (count form))
+             (symbol? (first form))
+             (= param (second form)))
+    (first form)))
+
+(defn- equality-classifier-descriptor
+  [body params ns-sym accessor-summaries]
+  (when (and (= 1 (count params))
+             (equality-call? body))
+    (let [[left right] (rest body)
+          param (first params)
+          [lit classifier-sym] (cond
+                                 (and (literal-form? left)
+                                      (classifier-call-for-param right param))
+                                 [left (classifier-call-for-param right param)]
+
+                                 (and (literal-form? right)
+                                      (classifier-call-for-param left param))
+                                 [right (classifier-call-for-param left param)])]
+      (when classifier-sym
+        (let [summary (classifier-summary classifier-sym ns-sym accessor-summaries)]
+          (when (= :unary-map-classifier (:kind summary))
+            {:path (:path summary)
+             :classifier-sym (qualified-classifier-sym classifier-sym ns-sym accessor-summaries)
+             :values [lit]}))))))
+
 (defn predicate-form->descriptor
-  "Recognize (comp #{<lit> ...} <classifier-sym>); resolve classifier via
-   accessor-summaries (qualifying with ns-sym if needed); return
-   {:path ... :values [...]} or nil."
+  "Recognize classifier predicates; resolve classifiers via accessor-summaries
+   (qualifying with ns-sym if needed); return {:path ... :values [...]} or nil."
   [pred-form ns-sym accessor-summaries]
-  (when (comp-set-classifier? pred-form)
-    (let [literal-set (second pred-form)
-          classifier-sym (nth pred-form 2)
-          summary (classifier-summary classifier-sym ns-sym accessor-summaries)]
-      (when (= :unary-map-classifier (:kind summary))
-        {:path (:path summary)
-         :values (selected-keys (:cases summary) literal-set)}))))
+  (or
+   (when (comp-set-classifier? pred-form)
+     (let [literal-set (second pred-form)
+           classifier-sym (nth pred-form 2)
+           summary (classifier-summary classifier-sym ns-sym accessor-summaries)]
+       (when (= :unary-map-classifier (:kind summary))
+         {:path (:path summary)
+          :values (selected-keys (:cases summary) literal-set)})))
+   (when-let [{:keys [params body]} (fn-body pred-form)]
+     (equality-classifier-descriptor body params ns-sym accessor-summaries))))

@@ -11,10 +11,12 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]
+            [skeptic.test-examples.contracts]
             [skeptic.test-examples.form-refs]
             [skeptic.test-helpers :refer [T tp]]
             [skeptic.typed-decls :as td])
-  (:import [java.util IdentityHashMap]))
+  (:import [java.io File]
+           [java.util IdentityHashMap]))
 
 (declare UnboundSchemaRef
          DirectRecursiveSchemaRef
@@ -342,3 +344,19 @@
     (is (some? val-type))
     (is (= :schema (prov/source (prov/of val-type))))
     (is (= map-body-qsym (:qualified-sym (prov/of val-type))))))
+
+(deftest source-intake-named-conditional-reference-keeps-branch-predicate-source-test
+  (let [ns-sym 'skeptic.test-examples.contracts
+        source-file (File. "test/skeptic/test_examples/contracts.clj")
+        form-refs (collect/build-form-refs! (IdentityHashMap.) ns-sym source-file)
+        result (binding [*ns* (the-ns ns-sym)
+                         ab/*form-refs* form-refs]
+                 (td/typed-ns-results {} ns-sym))
+        repro-type (get-in result [:dict 'skeptic.test-examples.contracts/repro])
+        input-type (-> repro-type at/fun-methods first at/fn-method-inputs first)
+        pred-forms (mapv #(nth % 2) (:branches input-type))]
+    (is (= 2 (count pred-forms)))
+    (is (every? seq? pred-forms))
+    (is (every? #(= 'fn* (first %)) pred-forms))
+    (is (= #{:a :b} (set (filter keyword? (tree-seq coll? seq pred-forms)))))
+    (is (= '#{choose} (set (filter #(= 'choose %) (tree-seq coll? seq pred-forms)))))))
