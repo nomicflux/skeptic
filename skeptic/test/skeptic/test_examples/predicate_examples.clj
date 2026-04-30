@@ -18,3 +18,18 @@
 
 (defn ^{:malli/schema [:=> [:cat int?] :int]} malli-int-pred-input-success
   [n] (inc n))
+
+(s/defn narrow-via-call-keyword-fn
+  [x :- s/Keyword]
+  x)
+
+(s/defn narrow-via-call-keyword-failure
+  [x :- s/Any]
+  (let [_ (narrow-via-call-keyword-fn x)]
+    (+ x 1)))
+
+(s/defn narrow-via-let-bound-pred-keyword-failure
+  [x :- s/Any]
+  (let [y (keyword? x)]
+    (when y
+      (+ x 1))))

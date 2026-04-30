@@ -116,12 +116,13 @@
   (let [type (as-type type)
         ground (:ground type)
         klass (numeric-ground-class type)]
-    (or (= ground :int)
-        (and klass
-             (class? klass)
-             (or (isa? klass Number)
-                 (= klass Number)
-                 (= klass java.lang.Number))))))
+    (boolean
+     (or (= ground :int)
+         (and klass
+              (class? klass)
+              (or (isa? klass Number)
+                  (= klass Number)
+                  (= klass java.lang.Number)))))))
 
 (s/defn non-int-numeric-ground-type? :- s/Bool
   [type :- s/Any]

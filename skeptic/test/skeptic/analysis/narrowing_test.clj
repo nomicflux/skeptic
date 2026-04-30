@@ -36,8 +36,20 @@
     (is (at/value-type? sneg))
     (is (nil? (:value sneg)))))
 
-(deftest partition-dyn-unchanged-test
-  (is (at/type=? (at/Dyn tp) (an/partition-type-for-predicate (at/Dyn tp) {:pred :string?} true))))
+(deftest partition-dyn-narrows-on-classifying-positive-test
+  (testing "positive ground-classifying predicate narrows Dyn to the ground"
+    (is (at/type=? (atst/T s/Str)
+                   (an/partition-type-for-predicate (at/Dyn tp) {:pred :string?} true)))
+    (is (at/type=? (atst/T s/Keyword)
+                   (an/partition-type-for-predicate (at/Dyn tp) {:pred :keyword?} true))))
+  (testing "negative polarity leaves Dyn unchanged (no complement type)"
+    (is (at/type=? (at/Dyn tp)
+                   (an/partition-type-for-predicate (at/Dyn tp) {:pred :string?} false))))
+  (testing "non-classifying predicate leaves Dyn unchanged on either polarity"
+    (is (at/type=? (at/Dyn tp)
+                   (an/partition-type-for-predicate (at/Dyn tp) {:pred :fn?} true)))
+    (is (at/type=? (at/Dyn tp)
+                   (an/partition-type-for-predicate (at/Dyn tp) {:pred :fn?} false)))))
 
 (deftest apply-truthy-local-test
   (let [u (ato/union-type tp #{(at/->ValueT tp (at/->GroundT tp :bool 'Bool) false)

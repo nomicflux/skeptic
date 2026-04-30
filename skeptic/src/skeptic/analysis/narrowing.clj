@@ -148,6 +148,20 @@
       polarity (case c :matches t :does-not-match (ato/bottom t) :unknown t)
       :else (case c :matches (ato/bottom t) :does-not-match t :unknown t))))
 
+(defn- dyn-narrow-positive
+  [prov pred-info]
+  (case (:pred pred-info)
+    :string?  (at/->GroundT prov :str 'Str)
+    :keyword? (at/->GroundT prov :keyword 'Keyword)
+    :integer? (at/->GroundT prov :int 'Int)
+    :boolean? (at/->GroundT prov :bool 'Bool)
+    :symbol?  (at/->GroundT prov :symbol 'Symbol)
+    :nil?     (ato/exact-value-type prov nil)
+    :number?  (at/->NumericDynT prov)
+    :instance? (when-let [^Class c (:class pred-info)]
+                 (at/->GroundT prov {:class c} (symbol (.getName c))))
+    nil))
+
 (defn- partition-maybe
   [inner pred-info polarity]
   (let [prov (ato/derive-prov inner)
@@ -172,7 +186,10 @@
   [type pred-info polarity]
   (let [type (ato/normalize type)]
     (cond
-      (at/dyn-type? type) type
+      (at/dyn-type? type)
+      (if polarity
+        (or (dyn-narrow-positive (ato/derive-prov type) pred-info) type)
+        type)
       (at/placeholder-type? type) type
       (at/inf-cycle-type? type) type
 

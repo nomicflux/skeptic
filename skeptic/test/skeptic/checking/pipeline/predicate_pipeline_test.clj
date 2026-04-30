@@ -32,3 +32,19 @@
     (is (no-errors? (ps/check-fixture
                      'skeptic.test-examples.predicate-examples/malli-int-pred-input-success
                      {:keep-empty true})))))
+
+(deftest narrowing-conflict-flags-ground-mismatch
+  (testing "successful Keyword-typed call narrows arg, exposing (+ x 1) as conflict"
+    (let [results (ps/check-fixture
+                   'skeptic.test-examples.predicate-examples/narrow-via-call-keyword-failure)]
+      (is (seq results)
+          "expected at least one result for narrow-via-call-keyword-failure")
+      (is (some (comp seq :errors) results)
+          "expected (+ x 1) to be flagged after keyword-typed call narrows x")))
+  (testing "let-bound predicate result carries truthy refinement into (when y ...)"
+    (let [results (ps/check-fixture
+                   'skeptic.test-examples.predicate-examples/narrow-via-let-bound-pred-keyword-failure)]
+      (is (seq results)
+          "expected at least one result for narrow-via-let-bound-pred-keyword-failure")
+      (is (some (comp seq :errors) results)
+          "expected (+ x 1) to be flagged after (when y) narrows x to Keyword"))))
