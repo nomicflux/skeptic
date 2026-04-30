@@ -404,6 +404,13 @@
     :a (handle-variant-a-strict v)
     :b (handle-variant-b-strict v)))
 
+(s/defn variant-let-bound-dispatch
+  [x :- Variants]
+  (let [k-route (:k x)]
+    (case k-route
+      :a (handle-variant-a-strict x)
+      :b (handle-variant-b-strict x))))
+
 (s/defn cond-branch-pick-success :- (s/maybe (s/conditional :x {:x s/Int}))
   []
   {:x 1})
