@@ -1,6 +1,7 @@
 (ns skeptic.analysis.origin
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.narrowing :as an]
@@ -801,8 +802,8 @@
            :assumptions new-assumptions
            :locals (refine-locals-for-assumption ctx locals new-assumptions))))
 
-(defn- ground-classifying-pred-info
-  [type]
+(s/defn ^:private ground-classifying-pred-info :- (s/maybe aos/PredInfo)
+  [type :- ats/SemanticType]
   (let [type (ato/normalize type)]
     (cond
       (at/numeric-dyn-type? type) {:pred :number?}
@@ -817,25 +818,34 @@
           (= g :symbol) {:pred :symbol?}
           (and (map? g) (:class g)) {:pred :instance? :class (:class g)})))))
 
-(s/defn call-arg-contract-assumptions :- [aos/Assumption]
-  [ctx :- s/Any
-   node :- s/Any]
-  (if-not (contains? #{:invoke :static-call} (:op node))
+(s/defn ^:private contract-root-origin :- (s/maybe aos/RootOrigin)
+  [arg-node :- aas/AnnotatedNode]
+  (let [origin (aapi/node-origin arg-node)]
+    (cond
+      (= :root (:kind origin)) origin
+
+      (aapi/local-node? arg-node)
+      (when-let [type (aapi/node-type arg-node)]
+        (when (at/semantic-type-value? type)
+          (root-origin (aapi/node-form arg-node) type)))
+
+      :else nil)))
+
+(s/defn ^:private call-arg-contract-assumption :- (s/maybe aos/TypePredicateAssumption)
+  [arg-node :- aas/AnnotatedNode
+   arg-type :- ats/SemanticType]
+  (when (aapi/stable-identity-node? arg-node)
+    (when-let [pred-info (ground-classifying-pred-info arg-type)]
+      (when-let [root (contract-root-origin arg-node)]
+        (type-predicate-assumption root pred-info true)))))
+
+(s/defn call-arg-contract-assumptions :- [aos/TypePredicateAssumption]
+  [node :- (s/maybe aas/AnnotatedNode)]
+  (if-not (and node (aapi/call-node? node))
     []
-    (let [args (or (:args node) (aapi/call-args node))
-          info (ac/call-info ctx (:fn node) args)]
+    (let [args (aapi/call-args node)
+          expected-argtypes (aapi/call-expected-argtypes node)]
       (vec
        (keep (fn [[arg-node arg-type]]
-               (when (aapi/stable-identity-node? arg-node)
-                 (when-let [pred-info (ground-classifying-pred-info arg-type)]
-                   (when-let [root (local-root-origin ctx arg-node)]
-                     (type-predicate-assumption root pred-info true)))))
-             (map vector args (:expected-argtypes info)))))))
-
-(s/defn apply-contract-assumptions :- s/Any
-  [ctx :- s/Any
-   assumptions :- [aos/Assumption]]
-  (case (count assumptions)
-    0 ctx
-    1 (apply-guard-assumption ctx (first assumptions))
-    (apply-guard-assumption ctx (conjunction-assumption assumptions))))
+               (call-arg-contract-assumption arg-node arg-type))
+             (map vector args expected-argtypes))))))

@@ -28,6 +28,17 @@
   (let [_ (narrow-via-call-keyword-fn x)]
     (+ x 1)))
 
+(s/defn narrow-via-static-plus-number-failure
+  [x :- s/Any]
+  (let [_ (+ x 1)]
+    (narrow-via-call-keyword-fn x)))
+
+(s/defn narrow-via-call-contract-next-binding-failure
+  [x :- s/Any]
+  (let [_ (narrow-via-call-keyword-fn x)
+        y (+ x 1)]
+    y))
+
 (s/defn narrow-via-let-bound-pred-keyword-failure
   [x :- s/Any]
   (let [y (keyword? x)]

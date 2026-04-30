@@ -80,10 +80,14 @@
         (reduce (fn [[acc inner-ctx] stmt]
                   (let [annotated ((:recurse inner-ctx) inner-ctx stmt)
                         guard (ao/guard-assumption annotated)
-                        contracts (ao/call-arg-contract-assumptions inner-ctx annotated)
+                        contracts (ao/call-arg-contract-assumptions annotated)
+                        contract-assumption (case (count contracts)
+                                              0 nil
+                                              1 (first contracts)
+                                              (ao/conjunction-assumption contracts))
                         next-ctx (cond-> inner-ctx
                                    guard (ao/apply-guard-assumption guard)
-                                   (seq contracts) (ao/apply-contract-assumptions contracts))]
+                                   contract-assumption (ao/apply-guard-assumption contract-assumption))]
                     [(conj acc annotated) next-ctx]))
                 [[] ctx]
                 (:statements node))
@@ -181,9 +185,13 @@
   (let [[bindings final-ctx]
         (reduce (fn [[acc inner-ctx] binding]
                   (let [[annotated next-locals] (annotate-let-binding inner-ctx (:locals inner-ctx) binding)
-                        contracts (ao/call-arg-contract-assumptions inner-ctx (:init annotated))
+                        contracts (ao/call-arg-contract-assumptions (:init annotated))
+                        contract-assumption (case (count contracts)
+                                              0 nil
+                                              1 (first contracts)
+                                              (ao/conjunction-assumption contracts))
                         next-ctx (cond-> (assoc inner-ctx :locals next-locals)
-                                   (seq contracts) (ao/apply-contract-assumptions contracts))]
+                                   contract-assumption (ao/apply-guard-assumption contract-assumption))]
                     [(conj acc annotated) next-ctx]))
                 [[] ctx]
                 (:bindings node))

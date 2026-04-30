@@ -47,4 +47,18 @@
       (is (seq results)
           "expected at least one result for narrow-via-let-bound-pred-keyword-failure")
       (is (some (comp seq :errors) results)
-          "expected (+ x 1) to be flagged after (when y) narrows x to Keyword"))))
+          "expected (+ x 1) to be flagged after (when y) narrows x to Keyword")))
+  (testing "static-call input contract narrows arg"
+    (let [results (ps/check-fixture
+                   'skeptic.test-examples.predicate-examples/narrow-via-static-plus-number-failure)]
+      (is (seq results)
+          "expected at least one result for narrow-via-static-plus-number-failure")
+      (is (some (comp seq :errors) results)
+          "expected keyword call to be flagged after static-call narrows x to Number")))
+  (testing "call contract in one let binding narrows later bindings"
+    (let [results (ps/check-fixture
+                   'skeptic.test-examples.predicate-examples/narrow-via-call-contract-next-binding-failure)]
+      (is (seq results)
+          "expected at least one result for narrow-via-call-contract-next-binding-failure")
+      (is (some (comp seq :errors) results)
+          "expected later (+ x 1) binding to be flagged after keyword contract narrows x"))))

@@ -66,6 +66,27 @@
     (is (= {:pred :instance? :class String}
            (s/validate aos/PredInfo instance-info)))))
 
+(deftest call-arg-contract-assumptions-test
+  (testing "static-call expected arg metadata yields a type-predicate assumption"
+    (let [root (atst/analyze-form atst/analysis-dict
+                                  '(+ x 1)
+                                  {:locals {'x (atst/T s/Any)}})
+          assumptions (ao/call-arg-contract-assumptions root)
+          assumption (first assumptions)]
+      (is (= :static-call (aapi/node-op root)))
+      (is (= 1 (count assumptions)))
+      (is (= :type-predicate (:kind assumption)))
+      (is (= 'x (get-in assumption [:root :sym])))
+      (is (= :number? (:pred assumption)))))
+  (testing "nil and non-call nodes are no-ops"
+    (is (= [] (ao/call-arg-contract-assumptions nil)))
+    (is (= [] (ao/call-arg-contract-assumptions {:op :const :val 1 :type (atst/T s/Int)}))))
+  (testing "calls without a single classifying input type are no-ops"
+    (let [root (atst/analyze-form atst/analysis-dict
+                                  '(str x)
+                                  {:locals {'x (atst/T s/Any)}})]
+      (is (= [] (ao/call-arg-contract-assumptions root))))))
+
 (deftest path-type-predicate-assumption-shape-test
   (let [root-type (atst/T {:x {:k (s/maybe s/Str)}})
         kq-x (amo/exact-key-query tp :x)
