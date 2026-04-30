@@ -800,3 +800,42 @@
     (assoc ctx
            :assumptions new-assumptions
            :locals (refine-locals-for-assumption ctx locals new-assumptions))))
+
+(defn- ground-classifying-pred-info
+  [type]
+  (let [type (ato/normalize type)]
+    (cond
+      (at/numeric-dyn-type? type) {:pred :number?}
+      (at/value-type? type) (when (nil? (:value type)) {:pred :nil?})
+      (at/ground-type? type)
+      (let [g (:ground type)]
+        (cond
+          (= g :str) {:pred :string?}
+          (= g :keyword) {:pred :keyword?}
+          (= g :int) {:pred :integer?}
+          (= g :bool) {:pred :boolean?}
+          (= g :symbol) {:pred :symbol?}
+          (and (map? g) (:class g)) {:pred :instance? :class (:class g)})))))
+
+(s/defn call-arg-contract-assumptions :- [aos/Assumption]
+  [ctx :- s/Any
+   node :- s/Any]
+  (if-not (contains? #{:invoke :static-call} (:op node))
+    []
+    (let [args (or (:args node) (aapi/call-args node))
+          info (ac/call-info ctx (:fn node) args)]
+      (vec
+       (keep (fn [[arg-node arg-type]]
+               (when (aapi/stable-identity-node? arg-node)
+                 (when-let [pred-info (ground-classifying-pred-info arg-type)]
+                   (when-let [root (local-root-origin ctx arg-node)]
+                     (type-predicate-assumption root pred-info true)))))
+             (map vector args (:expected-argtypes info)))))))
+
+(s/defn apply-contract-assumptions :- s/Any
+  [ctx :- s/Any
+   assumptions :- [aos/Assumption]]
+  (case (count assumptions)
+    0 ctx
+    1 (apply-guard-assumption ctx (first assumptions))
+    (apply-guard-assumption ctx (conjunction-assumption assumptions))))

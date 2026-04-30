@@ -80,9 +80,10 @@
         (reduce (fn [[acc inner-ctx] stmt]
                   (let [annotated ((:recurse inner-ctx) inner-ctx stmt)
                         guard (ao/guard-assumption annotated)
-                        next-ctx (if guard
-                                   (ao/apply-guard-assumption inner-ctx guard)
-                                   inner-ctx)]
+                        contracts (ao/call-arg-contract-assumptions inner-ctx annotated)
+                        next-ctx (cond-> inner-ctx
+                                   guard (ao/apply-guard-assumption guard)
+                                   (seq contracts) (ao/apply-contract-assumptions contracts))]
                     [(conj acc annotated) next-ctx]))
                 [[] ctx]
                 (:statements node))
@@ -176,14 +177,17 @@
                                 :track-fn-binding? true}))]))
 
 (s/defn annotate-let :- aas/AnnotatedNode
-  [{:keys [locals] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [[bindings final-locals]
-        (reduce (fn [[acc env] binding]
-                  (let [[annotated next-env] (annotate-let-binding ctx env binding)]
-                    [(conj acc annotated) next-env]))
-                [[] locals]
+  [ctx :- s/Any node :- aas/AnnotatedNode]
+  (let [[bindings final-ctx]
+        (reduce (fn [[acc inner-ctx] binding]
+                  (let [[annotated next-locals] (annotate-let-binding inner-ctx (:locals inner-ctx) binding)
+                        contracts (ao/call-arg-contract-assumptions inner-ctx (:init annotated))
+                        next-ctx (cond-> (assoc inner-ctx :locals next-locals)
+                                   (seq contracts) (ao/apply-contract-assumptions contracts))]
+                    [(conj acc annotated) next-ctx]))
+                [[] ctx]
                 (:bindings node))
-        body ((:recurse ctx) (assoc ctx :locals final-locals) (:body node))]
+        body ((:recurse final-ctx) final-ctx (:body node))]
     (assoc node :bindings bindings :body body :type (:type body))))
 
 (defn- loop-recur-nodes
