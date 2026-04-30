@@ -84,7 +84,10 @@ Sequence schemas used inside arrow inputs include `:cat`, `:catn` (named childre
 
 ## Function-schema Var annotations
 
-Per the Defn Schemas section of `docs/function-schemas.md`, there are three ways to attach a schema to a `defn`:
+Per the Defn Schemas section of `docs/function-schemas.md`, Malli itself has
+several ways to attach a schema to a function. Skeptic currently discovers only
+the `:malli/schema` metadata form below; registry-based `m/=>` and
+`malli.experimental/defn` discovery are deferred.
 
 1. `m/=>` — stores the var → schema mapping in the global registry.
 
@@ -112,7 +115,8 @@ Per the Defn Schemas section of `docs/function-schemas.md`, there are three ways
       (* x y))
     ```
 
-All three land in the function registry, queryable via `malli.core/function-schemas`. Its shape (per the README section of the same name):
+Registry-backed function schemas are queryable via `malli.core/function-schemas`
+in Malli itself. Skeptic does not currently read that registry.
 
 ```clojure
 (m/function-schemas)
@@ -134,13 +138,13 @@ Current boundary (pinned to Malli 0.20.1):
 
 - Discovery (`skeptic.malli-spec.collect`):
   - Reads `:malli/schema` from var metadata.
-  - Reads `m/function-schemas` and pulls each entry's canonical spec. This covers both `m/=>` and `mx/defn`.
+  - Does not read `m/function-schemas`; `m/=>` and `mx/defn` discovery are deferred.
   - Never reads `:schema` from var metadata — that key belongs to Plumatic Schema.
 - Admission (`skeptic.analysis.malli-spec.bridge/admit-malli-spec`):
   - Calls `malli.core/schema` and returns `malli.core/form` on success.
   - Raises `IllegalArgumentException` on failure, carried up as a declaration-phase error.
 - Conversion (`skeptic.analysis.malli-spec.bridge/malli-spec->type`):
-  - Takes a `Provenance` (source `:malli-spec`) as first argument and threads it through every sub-constructor it produces. `FunT`, `FnMethodT`, `MaybeT`, each `UnionT` member, and every primitive leaf carry that `:malli-spec` prov on their `:prov` field. `prov/of` on any returned sub-Type will report `:malli-spec`.
+  - Takes a `Provenance` (source `:malli`) as first argument and threads it through every sub-constructor it produces. `FunT`, `FnMethodT`, `MaybeT`, each `UnionT` member, and every primitive leaf carry that `:malli` prov on their `:prov` field. `prov/of` on any returned sub-Type will report `:malli`.
   - Recursive runner over the admitted form.
     - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
     - `[:maybe X]` → `MaybeT` over the converted inner.
@@ -148,17 +152,17 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
     - Bare predicate symbols registered in `skeptic.analysis.predicates` (e.g. `string?`, `int?`, `keyword?`, `pos?`, `nil?`) route through that registry's `witness-type`, mirroring the Schema `(s/pred f)` rule. Predicate symbols outside the registry → `Dyn`.
-    - Anything else → `Dyn`.
+    - Anything else currently converts to `Dyn`.
 
 ### Direct dict admission flow
 
-Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = Type`. There is no intermediate entry-map shape between the bridge and the dict — `skeptic.typed-decls.malli/typed-ns-malli-results` inserts the bare converted `Type` into the dict keyed by qualified symbol, and carries the MalliSpec origin separately as a `Provenance` record (source `:malli-spec`) in the parallel `:provenance` map. Once the entry is in the dict, analysis treats it identically to a Schema-admitted entry.
+Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = Type`. There is no intermediate entry-map shape between the bridge and the dict — `skeptic.typed-decls.malli/typed-ns-malli-results` inserts the bare converted `Type` into the dict keyed by qualified symbol, and carries the MalliSpec origin separately as a `Provenance` record (source `:malli`) in the parallel `:provenance` map. Once the entry is in the dict, analysis treats it identically to a Schema-admitted entry.
 
 ## Stubbed now vs. later
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` all convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
 - Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
 - Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
@@ -166,6 +170,7 @@ Stubbed now:
 
 Deferred:
 
+- Registry-based discovery through `m/=>`, `malli.experimental/defn`, and `malli.core/function-schemas`.
 - Conflict handling when the same var has both a Plumatic `:schema` declaration and a MalliSpec declaration. In this pass, merge order is the only resolution.
 - `.skeptic/config.edn` `:type-overrides` and `:skeptic/type` metadata parity. Those remain Schema-only; MalliSpec does not participate.
 - Any reverse conversion. `Schema → MalliSpec` and `Type → MalliSpec` do not exist and are not planned.

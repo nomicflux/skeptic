@@ -28,9 +28,12 @@ parse the machine-readable stream.
   "kind": "finding",
   "ns": "foo.bar",
   "report_kind": "input",
-  "file": "src/foo/bar.clj",
-  "line": 42,
-  "column": 3,
+  "location": {
+    "file": "src/foo/bar.clj",
+    "line": 42,
+    "column": 3,
+    "source": "schema"
+  },
   "blame": "(+ 1 :x)",
   "blame_side": "term",
   "blame_polarity": "positive",
@@ -47,6 +50,8 @@ parse the machine-readable stream.
 ```
 
 `report_kind` is `"input"` (argument/call site) or `"output"` (return value).
+`location.source` identifies where the reported type came from: `"schema"`,
+`"malli"`, `"native"`, `"type-override"`, or `"inferred"`.
 `actual_type` and `expected_type` are structured, tagged representations of
 Skeptic's type system — see [Structured type tags](#structured-type-tags)
 below. The `*_str` fields mirror the same type as a human-readable string;
@@ -60,8 +65,11 @@ wants a quick display without walking nested JSON.
   "kind": "exception",
   "ns": "foo.bar",
   "phase": "declaration",
-  "file": "src/foo/bar.clj",
-  "line": 99,
+  "location": {
+    "file": "src/foo/bar.clj",
+    "line": 99,
+    "source": "schema"
+  },
   "blame": "my-fn",
   "exception_class": "java.lang.RuntimeException",
   "exception_message": "could not resolve schema",
@@ -102,6 +110,8 @@ naming the type constructor. The full set:
 | `any`           | _(no payload)_                                                                   |
 | `bottom`        | _(no payload)_                                                                   |
 | `ground`        | `name`                                                                           |
+| `numeric-dyn`   | `name`                                                                           |
+| `named`         | `name`, `source`                                                                 |
 | `refinement`    | `name`                                                                           |
 | `adapter`       | `name`                                                                           |
 | `value`         | `value` (stringified via `pr-str`)                                               |
@@ -110,6 +120,7 @@ naming the type constructor. The full set:
 | `sealed`        | `ground` (type)                                                                  |
 | `inf-cycle`     | `ref` (optional)                                                                 |
 | `maybe`         | `inner` (type)                                                                   |
+| `conditional`   | `branches` (array of types)                                                      |
 | `union`         | `members` (array of types, sorted for stability)                                 |
 | `intersection`  | `members` (array of types)                                                       |
 | `map`           | `entries` (array of `{"key": type, "val": type}`)                                |
@@ -121,6 +132,10 @@ naming the type constructor. The full set:
 | `placeholder`   | `name`                                                                           |
 | `fn-method`     | `inputs` (array of types), `output` (type), `variadic` (bool), `min_arity` (int) |
 | `fun`           | `methods` (array of `fn-method` objects)                                         |
+
+By default, Schema, Malli, and type-override declarations may serialize as
+`{"t": "named", ...}` when a declared name can stand in for a larger structure.
+Pass `--explain-full` to emit the expanded structural form instead.
 
 ## Combining with `--profile`
 

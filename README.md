@@ -55,6 +55,8 @@ Options:
 - `-a`, `--analyzer`: print the analyzer forms for the namespace being checked.
 - `-k`, `--keep-empty`: include analyzed expressions even when they produced no
   mismatches.
+- `--explain-full`: show fully expanded structural forms in type-mismatch
+  output instead of compact declared names.
 - `-p`, `--porcelain`: emit machine-readable JSONL (one JSON object per line)
   instead of the default human-readable output. See [Output](#output) below.
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
@@ -67,7 +69,13 @@ Options:
 ### Text (default)
 
 The default output is a human-readable, ANSI-coloured report, one block per
-inconsistency, grouped by namespace.
+inconsistency, grouped by namespace. Findings include the source of the
+reported type, such as Schema, Malli, a built-in/native declaration, a type
+override, or inference.
+
+By default, declared Schema, Malli, and type-override names may be used to keep
+large structural types compact in reports. Use `--explain-full` to print the
+expanded structural form instead.
 
 ### JSONL (`-p` / `--porcelain`)
 
@@ -75,7 +83,9 @@ inconsistency, grouped by namespace.
 `ns-discovery-warning` record per non-blocking namespace load failure, one
 `finding` record per type mismatch, one `exception` record per namespace-local
 failure hit during checking, and always a final `run-summary` line — even on
-clean runs. Exit code matches text mode (`0` clean, `1` otherwise).
+clean runs. Finding and exception records include a nested `location` object;
+`location.source` carries the same source attribution as text output. Exit code
+matches text mode (`0` clean, `1` otherwise).
 
 ```json
 {
@@ -129,6 +139,26 @@ side-effecting functions whose declared schemas are unhelpful.
 ```
 
 After this, call sites of `infof` are checked as returning `nil`.
+
+## Experimental Malli support
+
+Skeptic can read simple Malli function declarations from `:malli/schema` var
+metadata:
+
+```clojure
+(defn takes-int
+  {:malli/schema [:=> [:cat :int] :string]}
+  [x]
+  (str x))
+```
+
+Full Malli support is in progress. Current useful forms include
+`[:=> [:cat ...] out]`, primitive leaves such as `:int`, `:string`,
+`:keyword`, `:boolean`, and `:any`, plus `:maybe`, `:or`, `:enum`, and bare
+predicate symbols that Skeptic recognizes.
+
+Broader Malli forms are still experimental. Unsupported forms are admitted when
+Malli accepts them; their Skeptic type is currently dynamic.
 
 ## Suppressing checks
 
@@ -192,6 +222,11 @@ annotations you've written on vars and functions, infers a type for each
 expression in your code, and compares the inferred types against the declared
 schemas on function inputs and outputs. Each mismatch is reported with a
 source location, the inferred type, and the expected type.
+
+During `lein skeptic`, the checker runs with Plumatic Schema function
+validation disabled around the analysis pass. Projects that enable runtime
+Schema validation still keep that behavior for their own code; Skeptic simply
+avoids paying that validation cost while it is inspecting the project.
 
 ## Attribution
 

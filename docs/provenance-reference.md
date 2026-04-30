@@ -13,10 +13,10 @@ Type in Skeptic carries a `:prov` field as its first record slot.
 Provenance is metadata, not identity: two Types with the same structure but
 different provs are `type=?`. See §9.
 
-Record definition — `skeptic/src/skeptic/provenance.clj:3`:
+Record definition — `skeptic/src/skeptic/provenance.clj:7`:
 
 ```clojure
-(defrecord Provenance [source qualified-sym declared-in var-meta])
+(defrecord Provenance [source qualified-sym declared-in var-meta refs])
 ```
 
 | Field           | Meaning                                                       |
@@ -25,16 +25,17 @@ Record definition — `skeptic/src/skeptic/provenance.clj:3`:
 | `qualified-sym` | The qualified symbol of the declaration (or `sym`/`fn` name). |
 | `declared-in`   | The namespace symbol (or `nil` for `:native`, `:type-override`). |
 | `var-meta`      | The declaring var's metadata (or `nil` in most cases).        |
+| `refs`          | Constituent provenances referenced by a derived provenance.   |
 
 ## 2. The five sources
 
-All five live in `provenance.clj:41-46` (`source-rank-map`). Ranked
+All five live in `provenance.clj:9-14` (`source-rank-map`). Ranked
 high-to-low priority (lower number = higher priority):
 
 | Rank | Source           | Origin                                               |
 |------|------------------|------------------------------------------------------|
 | 0    | `:type-override` | Explicit user override via `:skeptic/type-overrides` |
-| 1    | `:malli-spec`    | Malli `:malli/schema` on a var                       |
+| 1    | `:malli`         | Malli `:malli/schema` on a var                       |
 | 2    | `:schema`        | Plumatic `s/defn` / `s/defschema` on a var           |
 | 3    | `:native`        | Skeptic's built-in native-fn registry                |
 | 4    | `:inferred`      | Flow analysis (no declared type)                     |
@@ -52,9 +53,9 @@ high-to-low priority (lower number = higher priority):
   (`skeptic/src/skeptic/schema/collect.clj:223-239`). Each var with
   `:schema` metadata yields one entry keyed on its qualified-sym.
 
-- **`:malli-spec`** — `skeptic/src/skeptic/typed_decls/malli.clj:13`
+- **`:malli`** — `skeptic/src/skeptic/typed_decls/malli.clj:13-17`
   ```clojure
-  (prov/make-provenance :malli-spec qualified-sym ns nil)
+  (prov/make-provenance :malli qualified-sym ns nil)
   ```
   Gathered from vars carrying `:malli/schema` metadata by
   `skeptic.malli-spec.collect/ns-malli-spec-results`
@@ -76,11 +77,11 @@ high-to-low priority (lower number = higher priority):
   one of these. Consumed via `pipeline/native-result`
   (`skeptic/src/skeptic/checking/pipeline.clj:382-386`).
 
-- **`:inferred`** — `skeptic/src/skeptic/provenance.clj:9-11`
+- **`:inferred`** — `skeptic/src/skeptic/provenance.clj:46-49`
   ```clojure
   (defn inferred
     [{:keys [name ns]}]
-    (make-provenance :inferred name ns nil))
+    (make-provenance :inferred name ns nil []))
   ```
   Used when no declared type exists. Seed sites:
   - `skeptic/src/skeptic/analysis/annotate.clj:99,106` — the outer ctx for
@@ -93,40 +94,39 @@ high-to-low priority (lower number = higher priority):
 
 From `skeptic/src/skeptic/provenance.clj`:
 
-| Function                              | Purpose                                                                          |
-|---------------------------------------|----------------------------------------------------------------------------------|
-| `make-provenance [src qsym ns vmeta]` | Build a `Provenance`.                                                            |
-| `inferred [{:keys [name ns]}]`        | Build an `:inferred` prov.                                                       |
-| `provenance? [x]`                     | Predicate — true iff `x` is a `Provenance` record.                               |
-| `source [p]`                          | Return `:source` of a prov.                                                      |
-| `of [t]`                              | Return `t`'s `:prov`. **Throws** `IllegalArgumentException` if `:prov` is nil.   |
-| `with-ctx [ctx]`                      | Read the current prov out of an analyzer ctx. **Throws** if ctx lacks a prov.    |
-| `set-ctx [ctx p]`                     | Return ctx with `p` installed.                                                   |
-| `merge-provenances [p1 p2]`           | Return the higher-ranked of the two provs. §4.                                   |
+| Function                                      | Purpose                                                                        |
+|-----------------------------------------------|--------------------------------------------------------------------------------|
+| `make-provenance [src qsym ns vmeta]`         | Build a `Provenance` with empty `refs`.                                        |
+| `make-provenance [src qsym ns vmeta refs]`    | Build a `Provenance` with explicit constituent `refs`.                         |
+| `with-refs [prov refs]`                       | Return `prov` with `:refs` replaced.                                           |
+| `inferred [{:keys [name ns]}]`                | Build an `:inferred` prov.                                                     |
+| `provenance? [x]`                             | Predicate — true iff `x` is a `Provenance` record.                             |
+| `source [p]`                                  | Return `:source` of a prov.                                                    |
+| `of [t]`                                      | Return `t`'s `:prov`. **Throws** if `t` is not a Type or `:prov` is nil.       |
+| `with-ctx [ctx]`                              | Read the current prov out of an analyzer ctx. **Throws** if ctx lacks a prov.  |
+| `set-ctx [ctx p]`                             | Return ctx with `p` installed.                                                 |
+| `merge-provenances [p1 p2]`                   | Return the higher-ranked of the two provs. §4.                                 |
 
-The ctx key is private: `:skeptic.provenance/ctx-provenance` (L13).
+The ctx key is private: `:skeptic.provenance/ctx-provenance` (L51).
 
 ## 4. Merge semantics
 
-`merge-provenances` (provenance.clj:52-57):
+`merge-provenances` (provenance.clj:87-92):
 
 ```clojure
 (defn merge-provenances
   [p1 p2]
-  (let [p1-val (if (sequential? p1) (first p1) p1)]
-    (if (<= (source-rank p1-val) (source-rank p2))
-      p1-val
-      p2)))
+  (if (<= (source-rank p1) (source-rank p2))
+    p1
+    p2))
 ```
 
 - Picks the **lower numeric rank** (higher-priority source).
 - Reduces across many provs via `reduce`. See tests
   `skeptic/test/skeptic/provenance_test.clj:31-45` — three-way reduce, order
   independent.
-- Tolerates a sequential `p1` by taking its `first` — defensive for callers
-  that accidentally pass a seq.
 - **Verified examples**:
-  - `:schema` vs `:malli-spec` → wins `:malli-spec` (test L18-23).
+  - `:schema` vs `:malli` → wins `:malli` (test L18-23).
   - `:schema` vs `:native` → wins `:schema` (test L25-29).
   - `:schema` vs `:inferred` → wins `:schema` either order (test L55-59).
 
@@ -157,10 +157,10 @@ in the codebase is expected to pass a real prov.
 
 **Every Type has a real prov. `prov/of` throws on missing. Do not guard.**
 
-- `prov/of` is written to throw by design (provenance.clj:35-39).
-- `derive-prov` (type_ops.clj:11-14) also throws if called with inputs that
+- `prov/of` is written to throw by design (provenance.clj:74-81).
+- `derive-prov` (type_ops.clj:9-16) also throws if called with inputs that
   have no prov — "signalling a caller without real provenance context".
-- `prov/with-ctx` throws if the ctx lacks a prov (provenance.clj:15-20).
+- `prov/with-ctx` throws if the ctx lacks a prov (provenance.clj:53-58).
 - `prov/unknown` does not exist and is forbidden anywhere in the codebase.
 
 A missing prov is an **upstream defect to surface**, never a renderer /
@@ -248,15 +248,16 @@ constructors (`dyn`, `bottom`, `numeric-dyn`, `union`, `intersection`,
   derive the prov from the inputs via `derive-prov` — i.e. merge over the
   members' provs, picking the higher-ranked.
 
-`derive-prov` (L7-14):
+`derive-prov` (L9-16):
 
 ```clojure
 (defn derive-prov
   "Merge attached provenance of typed inputs. Requires at least one input
-  that carries prov — throws otherwise."
+  — throws otherwise."
   [& types]
-  (or (reduce prov/merge-provenances nil (keep prov/of types))
-      (throw (IllegalArgumentException. ...))))
+  (if (seq types)
+    (reduce prov/merge-provenances (map prov/of types))
+    (throw (IllegalArgumentException. ...))))
 ```
 
 ### 7.4 Localize (Type → Type, prov preserved)
@@ -298,15 +299,14 @@ schema'd, malli'd, native, or inferred declaration.
 
 ## 9. Equality ignores prov
 
-`skeptic/src/skeptic/analysis/types.clj:318-342`:
+`skeptic/src/skeptic/analysis/types.clj:390-657`:
 
-- `strip-prov` walks any value, nil-ing every `:prov` slot on semantic-type
-  records (and recursing into generic collections).
-- `type=?` compares two values after stripping provs — so two
-  structurally-identical Types with different provs are equal.
-- `dedup-types` uses `strip-prov` as the dedup key, keeping the first
-  representative. When a union folds duplicates, the surviving prov is
-  whichever Type came first in the dedup reduce.
+- `type=?` recursively compares semantic fields directly and intentionally
+  omits `:prov`, so two structurally-identical Types with different provs are
+  equal.
+- `dedup-types` buckets by a provenance-insensitive semantic hash and confirms
+  equality with `type=?`, preserving original Type values rather than building
+  provenance-stripped copies.
 - `type-equal?` = `strip-runtime-closures` then `type=?`.
 
 **Implication**: provenance is purely informational. It plays no role in
@@ -351,7 +351,7 @@ and the `:provenance` entry match by construction.
 
 To add a new provenance source:
 
-1. Add the keyword to `source-rank-map` in `provenance.clj:41-46` with a
+1. Add the keyword to `source-rank-map` in `provenance.clj:9-14` with a
    rank placing it relative to existing sources.
 2. Add a per-source admit module (parallel to `typed_decls.clj` /
    `typed_decls/malli.clj` / `native_fns.clj`) that:
@@ -380,8 +380,8 @@ the `check-fn` + `test-dict` pattern used in
 
 Core:
 - `skeptic/src/skeptic/provenance.clj` — record, API, rank, merge.
-- `skeptic/src/skeptic/analysis/types.clj` — 24 Type records, `strip-prov`,
-  `type=?`.
+- `skeptic/src/skeptic/analysis/types.clj` — Type records, `type=?`,
+  `dedup-types`.
 
 Admission:
 - `skeptic/src/skeptic/schema/collect.clj` — scans vars for `:schema` meta.
@@ -390,7 +390,7 @@ Admission:
 - `skeptic/src/skeptic/typed_decls.clj` — builds per-ns `:schema` /
   `:type-override` results; `merge-type-dicts`.
 - `skeptic/src/skeptic/typed_decls/malli.clj` — builds per-ns
-  `:malli-spec` results.
+  Malli results from internal `:malli-spec` descriptors.
 - `skeptic/src/skeptic/analysis/native_fns.clj` — `:native` dict +
   provenance map.
 - `skeptic/src/skeptic/analysis/bridge.clj` — plumatic schema →

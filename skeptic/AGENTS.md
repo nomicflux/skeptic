@@ -134,7 +134,7 @@ Tests:
    Convert schemas into semantic types at the boundary, do the real analysis in the type domain, and only deal in raw schema forms when interacting with external schema-facing APIs.
 
 5. The declaration dict holds bare Types. No sidecar data on dict values.
-   Once admitted, each dict value is a Type, with no `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, `:type`, or other wrappers. Domain origin survives only as a `Provenance` record in a parallel map.
+   Once admitted, each dict value is a Type, with no `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, `:type`, or other wrappers. Each Type carries its own `:prov`, and declaration-level origin is also surfaced as a `Provenance` record in a parallel map.
 
 ## API Boundaries
 
@@ -242,7 +242,7 @@ In short:
 
 Once Schema and MalliSpec values have crossed their respective boundaries into the Type domain, the per-namespace declaration dict returned by `skeptic.checking.pipeline/namespace-dict` holds bare Types keyed by qualified symbol. No `:typings`, `:output-type`, `:arglists`, `:accessor-summary`, `:type`, or other sidecar wrappers live on dict values.
 
-The origin of an entry (Schema, MalliSpec, native, or user type-override) is **not** carried on the dict value. It is surfaced separately as a `Provenance` record (see `skeptic.provenance`) in the parallel `:provenance` map produced by `namespace-dict`, keyed by the same qualified symbol. Downstream checking consumes the dict for real type reasoning and consults provenance only to attach `:source` on findings — never to reconstruct the original schema/malli-spec.
+The origin of an entry (Schema, MalliSpec, native, or user type-override) is carried on each admitted Type's `:prov` field and is also surfaced as a `Provenance` record (see `skeptic.provenance`) in the parallel `:provenance` map produced by `namespace-dict`, keyed by the same qualified symbol. Downstream checking consumes the dict for real type reasoning and consults provenance only to attach `:source` on findings — never to reconstruct the original schema/malli-spec.
 
 The direct admission flow per source is:
 

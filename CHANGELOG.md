@@ -6,28 +6,43 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Basic, experimental Malli declaration support for `:malli/schema` var
+  metadata. Skeptic now converts simple `[:=> [:cat ...] out]` function
+  schemas, primitive leaves, `:maybe`, `:or`, `:enum`, and recognized
+  predicate symbols into the checker type domain. Unsupported Malli forms
+  currently remain dynamic.
+- Finding output now carries source attribution so text and JSONL consumers can
+  distinguish types that came from Schema, Malli, built-in/native declarations,
+  type overrides, or inference.
+
 ### Changed
 
+- Default type rendering now uses declared Schema, Malli, and type-override
+  names for more compact reports when possible. Use `--explain-full` to show
+  fully expanded structural forms.
+- `lein skeptic` runs the analysis pass under
+  `schema.core/without-fn-validation`, avoiding Plumatic Schema function
+  validation overhead in projects that have runtime Schema validation enabled.
+- Annotation and reporting hot paths have been tightened to reduce repeated
+  type rendering, provenance, and checker work.
+
 ### Fixed
+
+- Additional nullability and conditional-narrowing cases now preserve
+  flow-sensitive facts through aliases, let-bound vars, path-shaped map
+  projections, conditional branches, and enum/sum-type tests.
+- Analysis no longer throws `Expected typed entry` on Malli `:map` or other
+  unsupported Malli forms encountered while building the per-namespace
+  declaration dict.
+- Multi-arity `defn` output is now checked per arity against the declared
+  return type for that specific arity, instead of comparing every analyzed
+  method against the first arity's declared output.
 
 ## [0.7.1] - 2026-04-22
 
 ### Added
 
 - `-o`/`--output OUTPUT_FILE` on `lein skeptic` so skeptic's findings, summary, or JSONL stream can be written to a file while lein/JVM chatter stays on stdout (#2).
-- Malli `:maybe` and `:or` combinators in `:malli/schema` annotations now
-  produce real semantic types (`MaybeT` and unions via `ato/union-type`) in
-  the type domain instead of `Dyn`, enabling cast checking against
-  fixtures like `[:=> [:cat [:maybe :int]] [:or :int :string]]`.
-- Every finding now carries a `:source` field identifying the origin
-  domain (`:schema`, `:malli-spec`, `:native`, `:type-override`, or
-  `:inferred`), attached at construction from the blamed Type's `:prov`
-  field. The text output unconditionally appends `[source: X]` to the
-  location line and the porcelain JSON unconditionally emits `:source`
-  on each finding — no conditional rendering, no missing-source fallback.
-  Internally, every semantic Type is a `defrecord` whose first field is
-  `:prov`, and there is no `prov/unknown` sentinel anywhere in the
-  system.
 
 ### Changed
 
@@ -38,12 +53,6 @@ All notable changes to this project will be documented in this file.
   `(str/blank? a)` or `(some? a)` guard on a `{:keys [a]}` destructure refines
   the local `a` itself, not only the parent map, so downstream reads of `a`
   see the narrowed type.
-- Analysis no longer throws `Expected typed entry` on Malli `:map` or other
-  unknown Malli forms encountered while building the per-namespace
-  declaration dict.
-- Multi-arity `defn` output is now checked per-arity against the declared
-  return type for that specific arity, instead of comparing every analyzed
-  method against the first arity's declared output.
 
 ## [0.7.0] - 2026-04-19
 
