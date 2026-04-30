@@ -192,6 +192,8 @@
                                       :rule :leaf-overlap
                                       :actual-type (T s/Keyword)
                                       :expected-type (T s/Str)
+                                      :blame-side :term
+                                      :blame-polarity :positive
                                       :path [{:kind :map-key :key :name}]}]})
         [error] (:errors summary)
         text (strip-ansi error)]
@@ -229,6 +231,8 @@
                                       :rule :source-union
                                       :actual-type (ato/union-type tp [(T s/Int) (T s/Str)])
                                       :expected-type (T s/Int)
+                                      :blame-side :term
+                                      :blame-polarity :positive
                                       :path []}]})
         [error] (:errors summary)
         text (strip-ansi error)]
@@ -248,6 +252,8 @@
                                       :rule :leaf-overlap
                                       :actual-type (T s/Any)
                                       :expected-type (T s/Int)
+                                      :blame-side :term
+                                      :blame-polarity :positive
                                       :path []}]})
         [error] (:errors summary)]
     (is (str/includes? error "has inferred output type:"))
@@ -289,8 +295,11 @@
                   :blame '(int-add y nil)
                   :focuses [nil]
                   :cast-diagnostics [{:reason :nullable-source
+                                      :rule :leaf-overlap
                                       :actual-type (T (s/maybe s/Any))
                                       :expected-type (T s/Int)
+                                      :blame-side :term
+                                      :blame-polarity :positive
                                       :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
@@ -304,8 +313,11 @@
                   :blame '(int-add x y nil)
                   :focuses ['y nil]
                   :cast-diagnostics [{:reason :nullable-source
+                                      :rule :leaf-overlap
                                       :actual-type (T (s/maybe s/Any))
                                       :expected-type (T s/Int)
+                                      :blame-side :term
+                                      :blame-polarity :positive
                                       :path []}]})
         [error] (:errors summary)]
     (is (= 1 (count (:errors summary))))
@@ -319,12 +331,18 @@
                                                   {:actual-type sealed
                                                    :expected-type (T s/Int)
                                                    :rule :is-tamper
-                                                   :reason :is-tamper})
+                                                   :reason :is-tamper
+                                                   :path []
+                                                   :blame-side :term
+                                                   :blame-polarity :positive})
         escape-message (sut/cast-result->message sample-ctx
                                                  {:actual-type sealed
                                                   :expected-type type-var
                                                   :rule :nu-tamper
-                                                  :reason :nu-tamper})]
+                                                  :reason :nu-tamper
+                                                  :path []
+                                                  :blame-side :term
+                                                  :blame-polarity :positive})]
     (is (str/includes? inspect-message "inspect a sealed value"))
     (is (str/includes? inspect-message "(sealed X)"))
     (is (str/includes? escape-message "move a sealed value out of scope"))
@@ -397,6 +415,8 @@
                                     :rule :leaf-overlap
                                     :actual-type actual-type
                                     :expected-type outer-map
+                                    :blame-side :term
+                                    :blame-polarity :positive
                                     :path []}]}
         folded (-> (sut/report-summary report {})
                    :errors

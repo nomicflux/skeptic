@@ -77,7 +77,10 @@
 
 (deftest type-constructors-reject-missing-prov
   (testing "prov/of throws when given a non-Type value"
-    (is (thrown? Exception (prov/of 5))))
-  (testing "prov/of on a Type with nil prov throws"
-    (let [bad (at/->GroundT nil :int 'Int)]
-      (is (thrown? Exception (prov/of bad))))))
+    (is (thrown? Exception (prov/of 5)))
+    (is (thrown? Exception (prov/of {:prov tp})))
+    (is (thrown? Exception (prov/of nil))))
+  (testing "Type record constructors reject nil provenance"
+    (is (thrown? Exception (at/->GroundT nil :int 'Int)))
+    (is (thrown? Exception (at/->MapT nil {})))
+    (is (thrown? Exception (at/->FunT nil [])))))

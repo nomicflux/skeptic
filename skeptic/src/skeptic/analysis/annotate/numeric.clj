@@ -98,7 +98,7 @@
        (integral-type? (second arg-types))))
 
 (s/defn invoke-integral-math-narrow-type :- (s/maybe ats/SemanticType)
-  [anchor-prov :- provs/Provenance, call-sym :- s/Any, args :- [s/Any], actual-argtypes :- [ats/SemanticType]]
+  [anchor-prov :- provs/Provenance, call-sym :- (s/maybe s/Symbol), args :- [s/Any], actual-argtypes :- [ats/SemanticType]]
   (let [arity (count args)]
     (cond
       (and (contains? ac/inc-invoke-syms call-sym) (= 1 arity)

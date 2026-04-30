@@ -19,8 +19,8 @@
            (amo/query-key-type query)))))
 
 (deftest explicit-map-key-query-contract-test
-  (let [exact-query (amo/exact-key-query nil :a :a)
-        optional-query (amo/exact-key-query nil :a :a)
+  (let [exact-query (amo/exact-key-query tp :a :a)
+        optional-query (amo/exact-key-query tp :a :a)
         domain-query (amo/domain-key-query (ab/schema->type tp s/Keyword) 'k)]
     (is (= :exact (:kind exact-query)))
     (is (= :a (:value exact-query)))
@@ -34,7 +34,7 @@
   (let [mtype (ab/schema->type tp {:a s/Int
                                 s/Keyword s/Str})
         entries (:entries mtype)
-        exact-query (amo/exact-key-query (ab/schema->type tp s/Keyword) :a :a)
+        exact-query (amo/exact-key-query tp :a :a)
         domain-query (amo/domain-key-query (ab/schema->type tp s/Keyword) 'k)
         descriptor (amo/map-entry-descriptor entries)]
     (is (= :required-explicit

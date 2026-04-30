@@ -5,10 +5,11 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
 (s/defn class->type :- ats/SemanticType
-  [prov :- s/Any klass :- s/Any]
+  [prov :- provs/Provenance klass :- s/Any]
   (let [klass (sb/canonical-scalar-schema klass)]
     (cond
       (= klass s/Int) (at/->GroundT prov :int 'Int)
@@ -30,22 +31,22 @@
 (declare type-of-value type-join*)
 
 (s/defn exact-runtime-value-type :- ats/SemanticType
-  [prov :- s/Any value :- s/Any]
+  [prov :- provs/Provenance value :- s/Any]
   (at/->ValueT prov (type-of-value prov value) value))
 
 (s/defn collection-element-type :- ats/SemanticType
-  [prov :- s/Any values :- s/Any]
+  [prov :- provs/Provenance values :- s/Any]
   (if (seq values)
     (type-join* prov (map #(type-of-value prov %) values))
     (at/Dyn prov)))
 
 (s/defn homogeneous-seq-type :- ats/SemanticType
-  [prov :- s/Any constructor :- s/Any values :- s/Any]
+  [prov :- provs/Provenance constructor :- s/Any values :- s/Any]
   (let [element (collection-element-type prov values)]
     (constructor (prov/with-refs prov [(prov/of element)]) [element] true)))
 
 (s/defn map-value-type :- ats/SemanticType
-  [prov :- s/Any m :- s/Any]
+  [prov :- provs/Provenance m :- s/Any]
   (let [entries (into {}
                       (map (fn [[k v]]
                              [(exact-runtime-value-type prov k)
@@ -55,7 +56,7 @@
     (at/->MapT (prov/with-refs prov refs) entries)))
 
 (s/defn type-of-value :- ats/SemanticType
-  [prov :- s/Any value :- s/Any]
+  [prov :- provs/Provenance value :- s/Any]
   (cond
     (nil? value) (ato/exact-value-type prov nil)
     (or (integer? value)
@@ -75,7 +76,7 @@
     :else (class->type prov (class value))))
 
 (s/defn type-join* :- ats/SemanticType
-  [prov :- s/Any types :- s/Any]
+  [prov :- provs/Provenance types :- [ats/SemanticType]]
   (let [types (vec (remove nil? (map #(ato/normalize-type prov %) types)))
         non-bottom (vec (remove at/bottom-type? types))]
     (cond
@@ -86,5 +87,5 @@
 (s/defn join :- ats/SemanticType
   "Join item types into a union. The result's provenance is `anchor-prov`
   (the container's); item provs stay on the items."
-  [anchor-prov :- s/Any types :- s/Any]
+  [anchor-prov :- provs/Provenance types :- [ats/SemanticType]]
   (type-join* anchor-prov types))

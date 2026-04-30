@@ -6,7 +6,8 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]
-            [skeptic.provenance :as prov])
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs])
   (:import [clojure.lang LazySeq]))
 
 (defn const-long-value
@@ -169,7 +170,7 @@
     (at/->SeqT (prov/with-refs (ato/derive-prov elem) [(prov/of elem)]) [elem] true)))
 
 (s/defn concat-output-type :- (s/maybe ats/SemanticType)
-  [anchor-prov :- s/Any, args :- [s/Any]]
+  [anchor-prov :- provs/Provenance, args :- [s/Any]]
   (let [arg-types (map :type args)
         elems (keep seqish-element-type arg-types)]
     (cond
@@ -232,7 +233,7 @@
                   body-type (if (at/maybe-type? body-type)
                               (ato/normalize (:inner body-type))
                               body-type)]
-              (if (ato/unknown? body-type)
+              (if (ato/uninformative-for-narrowing? body-type)
                 (or (some-> (for-body-element-type body) ato/normalize)
                     (at/Dyn prov))
                 body-type))

@@ -154,13 +154,17 @@
 (deftest report-summary-collapses-output-into-single-entry
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-summary {:actual-type (ab/schema->type tp {:name s/Keyword})
+                  :blame 'bad-user
+                  :cast-summary {:rule :map
+                                :actual-type (ab/schema->type tp {:name s/Keyword})
                                 :expected-type (ab/schema->type tp {:name s/Str})}
                   :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :path [{:kind :map-key :key :name}]
                                   :actual-type (ab/schema->type tp s/Keyword)
-                                  :expected-type (ab/schema->type tp s/Str)}]})]
+                                  :expected-type (ab/schema->type tp s/Str)
+                                  :blame-side :term
+                                  :blame-polarity :positive}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "declared return type")))
     (is (some-> summary :errors first (.contains "Problem fields:")))
@@ -170,11 +174,18 @@
 (deftest report-summary-hides-internal-cast-branches
   (let [summary (inrep/report-summary
                  {:report-kind :output
-                  :cast-summary {:actual-type (ab/schema->type tp {:b s/Int})
+                  :blame 'bad-user
+                  :cast-summary {:rule :map
+                                :actual-type (ab/schema->type tp {:b s/Int})
                                 :expected-type (ab/schema->type tp {:b s/Int})}
                   :cast-diagnostics [{:reason :missing-key
+                                  :rule :map
                                   :path [{:kind :source-union-branch :index 1}
-                                         {:kind :map-key :key :b}]}]})]
+                                         {:kind :map-key :key :b}]
+                                  :actual-type (ab/schema->type tp {:b s/Int})
+                                  :expected-type (ab/schema->type tp {:b s/Int})
+                                  :blame-side :term
+                                  :blame-polarity :positive}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "[:b] is missing")))
     (assert-no-ui-internals (first (:errors summary)))))
@@ -186,13 +197,19 @@
                   :focuses [:bad]
                   :errors ["err-1" "err-2"]
                   :cast-diagnostics [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
                                   :actual-type (ab/schema->type tp s/Keyword)
                                   :expected-type (ab/schema->type tp s/Int)
-                                  :path [{:kind :target-union-branch :index 0}]}
+                                  :path [{:kind :target-union-branch :index 0}]
+                                  :blame-side :term
+                                  :blame-polarity :positive}
                                  {:reason :leaf-mismatch
+                                  :rule :leaf-overlap
                                   :actual-type (ab/schema->type tp s/Keyword)
                                   :expected-type (ab/schema->type tp s/Str)
-                                  :path [{:kind :target-union-branch :index 1}]}]})]
+                                  :path [{:kind :target-union-branch :index 1}]
+                                  :blame-side :term
+                                  :blame-polarity :positive}]})]
     (is (= 1 (count (:errors summary))))
     (is (some-> summary :errors first (.contains "expected type")))
     (is (some-> summary :errors first (.contains "Keyword does not match any of: Int, Str")))
@@ -211,9 +228,12 @@
                                                                        false)]
                                                            true)}
                   :cast-diagnostics [{:reason :leaf-mismatch
+                                  :rule :leaf-overlap
                                   :actual-type (ab/schema->type tp s/Any)
                                   :expected-type placeholder
-                                  :path [{:kind :vector-index :index 0}]}]})
+                                  :path [{:kind :vector-index :index 0}]
+                                  :blame-side :term
+                                  :blame-polarity :positive}]})
         fields (text/report-fields summary)
         printed (str/join "\n"
                           (concat (map (fn [[label value]]
@@ -234,7 +254,9 @@
 (deftest report-fields-prefer-top-level-cast-metadata-in-verbose-mode
   (let [fields (text/report-fields
                 (inrep/report-summary
-                 {:rule :leaf-overlap
+                 {:report-kind :output
+                  :blame '(takes-either-branch :bad)
+                  :rule :leaf-overlap
                   :actual-type (ab/schema->type tp s/Keyword)
                   :expected-type (ab/schema->type tp s/Int)
                   :cast-summary {:rule :target-union
@@ -257,6 +279,7 @@
                                           [string? (ab/schema->type tp s/Str)]])
         summary (inrep/report-summary
                  {:report-kind :output
+                  :blame 'bad-user
                   :rule :source-union
                   :actual-type actual-result
                   :expected-type (ab/schema->type tp s/Keyword)
@@ -267,7 +290,9 @@
                                   :rule :source-union
                                   :actual-type actual-result
                                   :expected-type (ab/schema->type tp s/Keyword)
-                                  :path []}]})
+                                  :path []
+                                  :blame-side :term
+                                  :blame-polarity :positive}]})
         fields (text/report-fields summary true)]
     (is (some #{["Cast rule: \t\t" "source-union"]} fields))
     (is (some (fn [[label value]]

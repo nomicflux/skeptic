@@ -99,7 +99,7 @@
       nil)))
 
 (s/defn analyzed-def-entry :- s/Any
-  [ns-sym :- s/Any analyzed :- aas/AnnotatedNode]
+  [ns-sym :- (s/maybe s/Symbol) analyzed :- aas/AnnotatedNode]
   (letfn [(literal-keyword [node]
             (when (ac/literal-map-key? node)
               (let [value (ac/literal-node-value node)]
@@ -266,7 +266,7 @@
                           :errors (:errors report)})))))))))
 
 (s/defn input-error-group :- s/Any
-  [expr arg-node :- (s/maybe aas/AnnotatedNode) expected actual]
+  [expr arg-node :- (s/maybe aas/AnnotatedNode) expected :- ats/SemanticType actual :- ats/SemanticType]
   (let [arg-expr (if (some? arg-node)
                    (aapi/node-form arg-node)
                    arg-node)
@@ -318,7 +318,7 @@
      :errors (vec (mapcat :errors error-groups))}))
 
 (s/defn match-s-exprs :- s/Any
-  [enclosing-form node :- aas/AnnotatedNode keep-empty]
+  [enclosing-form node :- aas/AnnotatedNode keep-empty :- s/Bool]
   (when (ca/call-node? node)
     (let [expected-arglist (vec (aapi/call-expected-argtypes node))
           actual-arglist (vec (aapi/call-actual-argtypes node))]
@@ -341,7 +341,7 @@
             (input-cast-result enclosing-form node [])))))))
 
 (s/defn enclosing-form :- s/Any
-  [ns-sym source-form]
+  [ns-sym :- (s/maybe s/Symbol) source-form]
   (if (and (seq? source-form)
            (symbol? (second source-form))
            (symbol? (first source-form)))
@@ -359,7 +359,7 @@
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (s/defn check-resolved-form :- s/Any
-  [dict ignore-body ns-sym source-file source-form analyzed :- aas/AnnotatedNode {:keys [keep-empty remove-context debug] :as opts}]
+  [dict ignore-body :- #{s/Symbol} ns-sym :- s/Symbol source-file source-form analyzed :- aas/AnnotatedNode {:keys [keep-empty remove-context debug] :or {keep-empty false} :as opts}]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? ignore-body ns-sym source-form)
         results (if ignored?
@@ -406,7 +406,7 @@
          doall)))
 
 (s/defn read-exception-result :- s/Any
-  [source-file e]
+  [source-file e :- Throwable]
   {:report-kind :exception
    :phase :read
    :blame (cf/source-file-path source-file)
@@ -437,7 +437,7 @@
        :exception e})))
 
 (s/defn expression-exception-result :- s/Any
-  [ns-sym source-file source-form e]
+  [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable]
   {:report-kind :exception
    :phase :expression
    :blame source-form
@@ -453,7 +453,7 @@
   (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
 
 (s/defn check-ns-form :- s/Any
-  [dict ignore-body ns source-file source-form opts]
+  [dict ignore-body :- #{s/Symbol} ns :- s/Symbol source-file source-form opts]
   (try
     (let [{:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form])]
       {:results (vec (check-resolved-form dict
@@ -488,7 +488,7 @@
    :errors []})
 
 (s/defn namespace-dict :- s/Any
-  [opts ns-sym source-file]
+  [opts ns-sym :- s/Symbol source-file]
   (require ns-sym)
   (let [form-refs (java.util.IdentityHashMap.)]
     (when source-file
@@ -514,7 +514,7 @@
      :accessor-summaries {}}))
 
 (s/defn check-s-expr :- s/Any
-  [s-expr {:keys [keep-empty remove-context ns source-file check-def] :as opts}]
+  [s-expr {:keys [keep-empty remove-context ns source-file check-def] :or {keep-empty false} :as opts}]
   (binding [*ns* (the-ns ns)]
     (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)
           source-form (find-source-form s-expr source-file check-def)
@@ -542,7 +542,7 @@
        res#)))
 
 (s/defn check-ns :- s/Any
-  [ns source-file opts]
+  [ns :- s/Symbol source-file opts]
   (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
@@ -557,7 +557,7 @@
               :read-error (recur (update acc :results conj (read-exception-result source-file exception))))))))))
 
 (s/defn load-exception-result :- s/Any
-  [ns-sym e]
+  [ns-sym :- s/Symbol e :- Throwable]
   {:report-kind :exception
    :phase :load
    :blame ns-sym
@@ -572,7 +572,7 @@
   "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
   (typed declarations and form checking). Returns
   {:results [...] :provenance {sym → Provenance}}."
-  [opts ns-sym source-file]
+  [opts ns-sym :- s/Symbol source-file]
   (try
     (let [{:keys [errors provenance]} (namespace-dict opts ns-sym source-file)
           {check-results :results check-provenance :provenance} (check-ns ns-sym source-file opts)]

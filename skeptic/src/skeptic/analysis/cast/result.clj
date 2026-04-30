@@ -14,7 +14,7 @@
   [cast-result :- csch/CastResult]
   (boolean (:ok? cast-result)))
 
-(s/defn root-summary :- {s/Keyword s/Any}
+(s/defn root-summary :- csch/RootSummary
   [cast-result :- csch/CastResult]
   {:ok?            (:ok? cast-result)
    :rule           (:rule cast-result)
@@ -23,8 +23,8 @@
    :actual-type    (:source-type cast-result)
    :expected-type  (:target-type cast-result)})
 
-(s/defn ^:private project-leaf :- {s/Keyword s/Any}
-  [leaf :- csch/CastResult path :- s/Any]
+(s/defn ^:private project-leaf :- csch/LeafDiagnostic
+  [leaf :- csch/CastResult path :- [s/Any]]
   (cond-> {:rule           (:rule leaf)
            :reason         (:reason leaf)
            :path           path
@@ -36,10 +36,10 @@
     (contains? leaf :expected-key)      (assoc :expected-key (:expected-key leaf))
     (contains? leaf :source-key-domain) (assoc :source-key-domain (:source-key-domain leaf))))
 
-(s/defn leaf-diagnostics :- [{s/Keyword s/Any}]
+(s/defn leaf-diagnostics :- [csch/LeafDiagnostic]
   ([cast-result :- (s/maybe csch/CastResult)]
    (leaf-diagnostics cast-result []))
-  ([cast-result :- (s/maybe csch/CastResult) parent-path :- s/Any]
+  ([cast-result :- (s/maybe csch/CastResult) parent-path :- [s/Any]]
    (let [path (into (vec parent-path) (or (:path cast-result) []))]
      (cond
        (or (nil? cast-result) (:ok? cast-result))
@@ -56,7 +56,7 @@
        :else
        [(project-leaf cast-result path)]))))
 
-(s/defn primary-diagnostic :- {s/Keyword s/Any}
+(s/defn primary-diagnostic :- csch/LeafDiagnostic
   [cast-result :- csch/CastResult]
   (or (first (leaf-diagnostics cast-result))
       (project-leaf cast-result (or (:path cast-result) []))))

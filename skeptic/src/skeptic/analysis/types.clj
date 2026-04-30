@@ -193,6 +193,37 @@
 (defrecord ConditionalT [prov branches]
   proto/SemanticType (semantic-tag [_] conditional-type-tag))
 
+(defn- ensure-prov!
+  [record-name prov]
+  (when (nil? prov)
+    (throw (IllegalArgumentException.
+            (format "%s requires non-nil provenance" record-name)))))
+
+(s/defn ->DynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "DynT" prov) (DynT. prov))
+(s/defn ->BottomT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "BottomT" prov) (BottomT. prov))
+(s/defn ->GroundT :- ats/SemanticType [prov :- provs/Provenance ground display-form] (ensure-prov! "GroundT" prov) (GroundT. prov ground display-form))
+(s/defn ->NumericDynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "NumericDynT" prov) (NumericDynT. prov))
+(s/defn ->RefinementT :- ats/SemanticType [prov :- provs/Provenance base display-form accepts? adapter-data] (ensure-prov! "RefinementT" prov) (RefinementT. prov base display-form accepts? adapter-data))
+(s/defn ->AdapterLeafT :- ats/SemanticType [prov :- provs/Provenance adapter display-form accepts? adapter-data] (ensure-prov! "AdapterLeafT" prov) (AdapterLeafT. prov adapter display-form accepts? adapter-data))
+(s/defn ->OptionalKeyT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "OptionalKeyT" prov) (OptionalKeyT. prov inner))
+(s/defn ->FnMethodT :- ats/SemanticType [prov :- provs/Provenance inputs output min-arity variadic? names] (ensure-prov! "FnMethodT" prov) (FnMethodT. prov inputs output min-arity variadic? names))
+(s/defn ->FunT :- ats/SemanticType [prov :- provs/Provenance methods] (ensure-prov! "FunT" prov) (FunT. prov methods))
+(s/defn ->MaybeT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "MaybeT" prov) (MaybeT. prov inner))
+(s/defn ->UnionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "UnionT" prov) (UnionT. prov members))
+(s/defn ->IntersectionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "IntersectionT" prov) (IntersectionT. prov members))
+(s/defn ->MapT :- ats/SemanticType [prov :- provs/Provenance entries] (ensure-prov! "MapT" prov) (MapT. prov entries))
+(s/defn ->VectorT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "VectorT" prov) (VectorT. prov items homogeneous?))
+(s/defn ->SetT :- ats/SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetT. prov members homogeneous?))
+(s/defn ->SeqT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "SeqT" prov) (SeqT. prov items homogeneous?))
+(s/defn ->VarT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "VarT" prov) (VarT. prov inner))
+(s/defn ->PlaceholderT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderT. prov ref))
+(s/defn ->InfCycleT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleT. prov ref))
+(s/defn ->ValueT :- ats/SemanticType [prov :- provs/Provenance inner value] (ensure-prov! "ValueT" prov) (ValueT. prov inner value))
+(s/defn ->TypeVarT :- ats/SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarT. prov name))
+(s/defn ->ForallT :- ats/SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallT. prov binder body))
+(s/defn ->SealedDynT :- ats/SemanticType [prov :- provs/Provenance ground] (ensure-prov! "SealedDynT" prov) (SealedDynT. prov ground))
+(s/defn ->ConditionalT :- ats/SemanticType [prov :- provs/Provenance branches] (ensure-prov! "ConditionalT" prov) (ConditionalT. prov branches))
+
 (s/defn Dyn :- ats/SemanticType
   [prov :- provs/Provenance]
   (->DynT prov))
