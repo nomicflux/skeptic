@@ -142,4 +142,4 @@
 
 (deftest conditional-classifier-case-narrows-across-functions
   (are [sym] (= [] (ps/check-fixture sym))
-    'skeptic.test-examples.contracts/repro))
+    'skeptic.test-examples.contracts/chooses-conditional-success))

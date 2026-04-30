@@ -558,7 +558,7 @@
   [x :- B]
   [])
 
-(s/defn repro :- [s/Any]
+(s/defn chooses-conditional-success :- [s/Any]
   [x :- In]
   (case (choose x)
     :a (f-a x)

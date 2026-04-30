@@ -233,34 +233,39 @@
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, all-lits :- [s/Any]]
   (narrow-conditional-default anchor-prov branches discriminator all-lits))
 
+(s/defn ^:private case-then-assumption :- (s/maybe aos/Assumption)
+  [anchor-prov :- provs/Provenance, discriminator :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any, lits :- [s/Any]]
+  (let [disc-root (discriminator-root discriminator)]
+    (cond
+      (and use-conditional? disc-root (seq lits))
+      {:kind :conditional-branch
+       :root disc-root
+       :narrowed-type (case-conditional-narrow-for-lits
+                       anchor-prov cond-branches discriminator lits)
+       :polarity true}
+
+      (and (root-discriminator? discriminator) disc-root (seq lits))
+      {:kind :value-equality
+       :root disc-root
+       :values lits
+       :polarity true}
+
+      :else nil)))
+
 (s/defn annotate-case-one-then :- s/Any
   [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], discriminator :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any]
   (let [lits (vec (distinct (case-test-literals (nth tests i))))
-        disc-root (discriminator-root discriminator)
-        assumption (cond
-                     (and use-conditional? disc-root (seq lits))
-                     {:kind :conditional-branch
-                      :root disc-root
-                      :narrowed-type (case-conditional-narrow-for-lits
-                                      anchor-prov cond-branches discriminator lits)
-                      :polarity true}
-
-                     (and (root-discriminator? discriminator) disc-root (seq lits))
-                     {:kind :value-equality
-                      :root disc-root
-                      :values lits
-                      :polarity true}
-                     :else nil)
+        assumption (case-then-assumption anchor-prov discriminator
+                                         use-conditional? cond-branches lits)
         envs (ao/branch-local-envs ctx locals assumptions
                                     (if assumption
                                       {:then-conjuncts [assumption] :else-conjuncts []}
                                       {:then-conjuncts [] :else-conjuncts []}))
-        then-body (:then (nth thens i))
         annotated ((:recurse ctx)
                    (assoc ctx
                           :locals (:then-locals envs)
                           :assumptions (:then-assumptions envs))
-                   then-body)]
+                   (:then (nth thens i)))]
     (assoc (nth thens i) :then annotated)))
 
 (s/defn ^:private default-assumption :- (s/maybe aos/Assumption)
@@ -294,6 +299,35 @@
                    branch-types
                    (conj branch-types (:type default-node)))))
 
+(s/defn ^:private case-discriminator-and-cond-branches :- s/Any
+  [ctx :- s/Any, discriminant-expr :- s/Any]
+  (let [discriminator (or (case-discriminator-info ctx discriminant-expr)
+                          (when-let [leaf (some-> discriminant-expr case-discriminant-leaf-node)]
+                            (when-let [root (case-assumption-root-for-local ctx leaf)]
+                              {:kind :root :root root :type (:type root)})))
+        cond-branches (when (and discriminator (conditional-discriminator? discriminator))
+                        (case-conditional-branches-from-type
+                         (:type (discriminator-root discriminator))))]
+    {:discriminator discriminator
+     :cond-branches cond-branches
+     :use-conditional? (boolean (seq cond-branches))}))
+
+(s/defn ^:private annotate-case-default :- s/Any
+  [ctx :- s/Any, anchor-prov :- provs/Provenance, locals :- s/Any, assumptions :- s/Any,
+   default-form :- s/Any, discriminator :- s/Any, use-conditional? :- s/Any,
+   cond-branches :- s/Any, all-values :- s/Any]
+  (let [assumption (default-assumption anchor-prov use-conditional?
+                                       discriminator cond-branches all-values)
+        envs (ao/branch-local-envs ctx locals assumptions
+                                    (if assumption
+                                      {:then-conjuncts [assumption] :else-conjuncts []}
+                                      {:then-conjuncts [] :else-conjuncts []}))]
+    ((:recurse ctx)
+     (assoc ctx
+            :locals (:then-locals envs)
+            :assumptions (:then-assumptions envs))
+     default-form)))
+
 (s/defn annotate-case :- aas/AnnotatedNode
   [{:keys [locals assumptions] :as ctx} :- s/Any, node :- aas/CaseNode]
   (let [anchor-prov (prov/with-ctx ctx)
@@ -302,38 +336,18 @@
         tests (:tests node)
         thens (:thens node)
         n (min (count tests) (count thens))
-        discriminator (or (case-discriminator-info ctx discriminant-expr)
-                          (when-let [leaf (some-> discriminant-expr case-discriminant-leaf-node)]
-                            (when-let [root (case-assumption-root-for-local ctx leaf)]
-                              {:kind :root
-                               :root root
-                               :type (:type root)})))
-        cond-branches (when (and discriminator (conditional-discriminator? discriminator))
-                        (case-conditional-branches-from-type (:type (discriminator-root discriminator))))
-        use-conditional? (seq cond-branches)
+        {:keys [discriminator cond-branches use-conditional?]}
+        (case-discriminator-and-cond-branches ctx discriminant-expr)
         all-values (into [] (distinct (mapcat case-test-literals (take n tests))))
-        annotated-thens (mapv (fn [i]
-                                (annotate-case-one-then
-                                 anchor-prov ctx locals assumptions i tests thens
-                                 discriminator use-conditional? cond-branches))
+        annotated-thens (mapv #(annotate-case-one-then anchor-prov ctx locals assumptions
+                                                       % tests thens discriminator
+                                                       use-conditional? cond-branches)
                               (range n))
-        assumption (default-assumption anchor-prov use-conditional? discriminator cond-branches all-values)
-        envs (ao/branch-local-envs ctx locals assumptions
-                                    (if assumption
-                                      {:then-conjuncts [assumption] :else-conjuncts []}
-                                      {:then-conjuncts [] :else-conjuncts []}))
-        default-node ((:recurse ctx)
-                      (assoc ctx
-                             :locals (:then-locals envs)
-                             :assumptions (:then-assumptions envs))
-                      (:default node))
+        default-node (annotate-case-default ctx anchor-prov locals assumptions
+                                            (:default node) discriminator
+                                            use-conditional? cond-branches all-values)
         branch-types (mapv (comp :type :then) annotated-thens)
-        exhaustive? (exhaustive-values? (:type test-node) all-values)
-        joined (case-joined-type (prov/with-ctx ctx) branch-types default-node exhaustive?)]
-    (assoc node
-           :test test-node
-           :tests (vec (take n tests))
-           :thens annotated-thens
-           :default default-node
-           :type joined
-           :origin (ao/opaque-origin joined))))
+        joined (case-joined-type anchor-prov branch-types default-node
+                                 (exhaustive-values? (:type test-node) all-values))]
+    (assoc node :test test-node :tests (vec (take n tests)) :thens annotated-thens
+           :default default-node :type joined :origin (ao/opaque-origin joined))))

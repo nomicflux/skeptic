@@ -352,8 +352,8 @@
         result (binding [*ns* (the-ns ns-sym)
                          ab/*form-refs* form-refs]
                  (td/typed-ns-results {} ns-sym))
-        repro-type (get-in result [:dict 'skeptic.test-examples.contracts/repro])
-        input-type (-> repro-type at/fun-methods first at/fn-method-inputs first)
+        fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
+        input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
         pred-forms (mapv #(nth % 2) (:branches input-type))]
     (is (= 2 (count pred-forms)))
     (is (every? seq? pred-forms))

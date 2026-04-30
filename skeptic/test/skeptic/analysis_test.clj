@@ -261,7 +261,7 @@
           {dict :dict accessor-summaries :accessor-summaries}
           (#'checking/preanalyzed-ns-dict base-dict fixture-ns fixture-file)
           dict (#'checking/enrich-conditional-descriptors dict fixture-ns accessor-summaries)
-          form (->> 'skeptic.test-examples.contracts/repro
+          form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})
                     read-string)
           ast (first (:resolved (checking/analyze-source-exprs dict
