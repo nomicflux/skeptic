@@ -5,13 +5,13 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
-(s/defn type-var-name :- s/Any
+(s/defn type-var-name :- (s/maybe s/Symbol)
   [type :- s/Any]
   (when (at/type-var-type? type)
     (:name type)))
 
-(s/defn type-free-vars :- #{s/Any}
-  [type :- s/Any]
+(s/defn type-free-vars :- #{s/Symbol}
+  [type :- ats/SemanticType]
   (let [type (ato/normalize type)]
     (cond
       (or (at/dyn-type? type)
@@ -79,9 +79,9 @@
       #{})))
 
 (s/defn type-substitute :- ats/SemanticType
-  [type        :- s/Any
+  [type        :- ats/SemanticType
    binder      :- s/Any
-   replacement :- s/Any]
+   replacement :- ats/SemanticType]
   (let [type (ato/normalize type)
         replacement (ato/normalize replacement)
         prov (ato/derive-prov type replacement)]

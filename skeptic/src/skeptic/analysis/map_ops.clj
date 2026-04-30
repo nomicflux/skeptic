@@ -6,7 +6,8 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
 (defn- check-cast'
   ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
@@ -57,9 +58,9 @@
   (at/tagged-map? query map-key-query-tag true))
 
 (s/defn exact-key-query :- {s/Keyword s/Any}
-  ([prov :- s/Any value :- s/Any]
+  ([prov :- provs/Provenance value :- s/Any]
    (exact-key-query prov value nil))
-  ([prov :- s/Any value :- s/Any source-form :- s/Any]
+  ([prov :- provs/Provenance value :- s/Any source-form :- s/Any]
    {map-key-query-tag true
     :kind :exact
     :prov prov
@@ -287,7 +288,7 @@
          (ato/dyn m))))))
 
 (s/defn merge-map-types :- ats/SemanticType
-  [anchor-prov :- s/Any types :- [s/Any]]
+  [anchor-prov :- provs/Provenance types :- [ats/SemanticType]]
   (let [types (mapv as-type types)]
     (cond
       (empty? types) (at/Dyn anchor-prov)

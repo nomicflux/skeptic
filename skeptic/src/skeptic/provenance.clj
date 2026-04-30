@@ -1,5 +1,7 @@
 (ns skeptic.provenance
   (:require [schema.core :as s]
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance.schema :as provs]))
 
 (defrecord Provenance [source qualified-sym declared-in var-meta refs])
@@ -43,8 +45,7 @@
 
 (s/defn inferred :- provs/Provenance
   [{:keys [name ns]} :- {:name (s/maybe s/Symbol)
-                         :ns (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
-                         s/Keyword s/Any}]
+                         :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}]
   (make-provenance :inferred name ns nil []))
 
 (def ^:private ctx-key :skeptic.provenance/ctx-provenance)
@@ -66,24 +67,26 @@
   [x :- s/Any]
   (instance? Provenance x))
 
-(s/defn source :- (s/maybe provs/Source)
-  [{:keys [source]} :- (s/maybe provs/Provenance)]
+(s/defn source :- provs/Source
+  [{:keys [source]} :- provs/Provenance]
   source)
 
 (s/defn of :- provs/Provenance
-  [t :- {s/Keyword s/Any}]
+  [t :- ats/SemanticType]
+  (when-not (at/semantic-type-value? t)
+    (throw (IllegalArgumentException.
+            (format "prov/of called on non-Type value: %s" (pr-str t)))))
   (or (:prov t)
       (throw (IllegalArgumentException.
-              "prov/of called on value without provenance"))))
+              "prov/of called on Type with nil provenance"))))
 
 (defn- source-rank
   [p]
   (get source-rank-map (source p) 999))
 
 (s/defn merge-provenances :- provs/Provenance
-  [p1 :- (s/maybe provs/Provenance)
+  [p1 :- provs/Provenance
    p2 :- provs/Provenance]
-  (let [p1-val (if (sequential? p1) (first p1) p1)]
-    (if (<= (source-rank p1-val) (source-rank p2))
-      p1-val
-      p2)))
+  (if (<= (source-rank p1) (source-rank p2))
+    p1
+    p2))

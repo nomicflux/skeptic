@@ -3,12 +3,8 @@
             [clojure.string :as str]
             [skeptic.colours :as colours]
             [skeptic.analysis.types.schema :as ats]
-            [skeptic.inconsistence.display :as disp]))
-
-(s/defschema ErrorMsgCtx
-  {:expr s/Any
-   :arg s/Any
-   s/Keyword s/Any})
+            [skeptic.inconsistence.display :as disp]
+            [skeptic.inconsistence.schema :as isch]))
 
 (def ^:private pretty-type-threshold 80)
 
@@ -248,7 +244,7 @@
             (str/join ", " (map #(disp/describe-type % opts) expected-types)))))))
 
 (s/defn missing-key-message :- (s/maybe s/Str)
-  [{:keys [expr arg]} :- ErrorMsgCtx
+  [{:keys [expr arg]} :- isch/ReportCtx
    missing :- #{s/Any}]
   (when (seq missing)
     (format "%s\n\tin\n\n%s\nhas missing keys:\n\n\t- %s"
@@ -256,7 +252,7 @@
             (str/join "\n\t- " (mapv #(colours/yellow (disp/describe-item %)) missing)))))
 
 (s/defn nullable-key-message :- (s/maybe s/Str)
-  [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
+  [{:keys [expr arg expected-keys]} :- isch/ReportCtx
    nullables :- #{s/Any}]
   (when (seq nullables)
     (format "%s\n\tin\n\n%s\nin potentially nullable, but the type doesn't allow that:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"
@@ -265,7 +261,7 @@
             (str/join "\n\t- " (mapv #(colours/yellow (disp/describe-item %)) nullables)))))
 
 (s/defn superfluous-key-message :- (s/maybe s/Str)
-  [{:keys [expr arg expected-keys]} :- ErrorMsgCtx
+  [{:keys [expr arg expected-keys]} :- isch/ReportCtx
    actual-keys :- #{s/Any}]
   (when (seq actual-keys)
     (format "%s\n\tin\n\n%s\nhas disallowed keys:\n\n%s\nexpected, but\n\n\t- %s\nprovided\n"

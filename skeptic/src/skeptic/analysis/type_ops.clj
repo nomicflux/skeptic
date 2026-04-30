@@ -7,13 +7,13 @@
             [skeptic.provenance.schema :as provs]))
 
 (s/defn derive-prov :- provs/Provenance
-  "Merge attached provenance of typed inputs. Requires at least one input
-  that carries prov — throws otherwise, signalling a caller without real
-  provenance context."
-  [& types :- [s/Any]]
-  (or (reduce prov/merge-provenances nil (keep prov/of types))
-      (throw (IllegalArgumentException.
-              "derive-prov called without any typed input carrying provenance"))))
+  "Merge attached provenance of typed inputs. Requires at least one input —
+  throws otherwise, signalling a caller without real provenance context."
+  [& types :- [ats/SemanticType]]
+  (if (seq types)
+    (reduce prov/merge-provenances (map prov/of types))
+    (throw (IllegalArgumentException.
+            "derive-prov called without any typed input carrying provenance"))))
 
 (s/defn literal-ground-type :- (s/maybe ats/SemanticType)
   [prov  :- provs/Provenance
@@ -50,6 +50,14 @@
       (and (at/conditional-type? t)
            (some nil-bearing-member? (map second (:branches t))))))
 
+(defn- non-nil-bases
+  [t]
+  (cond
+    (nil-value-type? t) []
+    (at/maybe-type? t) [(:inner t)]
+    (at/conditional-type? t) (mapcat (comp non-nil-bases second) (:branches t))
+    :else [t]))
+
 (defn- maybe-bases-without-dyn
   [plain-members maybe-bases]
   (let [non-dyn (set (remove at/dyn-type? maybe-bases))]
@@ -60,7 +68,7 @@
 
 (s/defn nil-bearing-type-members :- {:nil-bearing?    s/Bool
                                      :has-nil-value?  s/Bool
-                                     :members         #{s/Any}}
+                                     :members         #{ats/SemanticType}}
   [norm-fn :- (s/pred fn?)
    prov    :- provs/Provenance
    members :- s/Any]
@@ -74,10 +82,7 @@
           (let [nil-bearing? (some nil-bearing-member? members)
                 {nil-bearing-members true
                  plain-members false} (group-by nil-bearing-member? members)
-                maybe-bases (->> nil-bearing-members
-                                 (remove nil-value-type?)
-                                 (map :inner)
-                                 set)
+                maybe-bases (into #{} (mapcat non-nil-bases) nil-bearing-members)
                 maybe-bases (maybe-bases-without-dyn plain-members maybe-bases)]
             {:nil-bearing? (boolean nil-bearing?)
              :has-nil-value? (boolean (some nil-value-type? nil-bearing-members))
@@ -164,43 +169,41 @@
       :else
       type)))
 
-(s/defn unknown-type? :- s/Any
-  [prov :- provs/Provenance
-   type :- s/Any]
-  (let [type (normalize-type prov type)]
-    (cond
-      (at/dyn-type? type) true
-      (at/placeholder-type? type) true
-      (at/inf-cycle-type? type) true
-      (at/maybe-type? type) (unknown-type? prov (:inner type))
-      (at/union-type? type) (some #(unknown-type? prov %) (:members type))
-      (at/conditional-type? type) (some #(unknown-type? prov %) (map second (:branches type)))
-      :else false)))
+(s/defn uninformative-for-narrowing? :- s/Bool
+  "True when t carries no shape that would refine a narrowing partition.
+  Distinct from `at/dyn-type?` because narrowing must also bail on
+  unresolved resolver states (PlaceholderT, InfCycleT) and on structural
+  carriers whose members include any of the above."
+  [t :- ats/SemanticType]
+  (boolean
+   (cond
+     (at/dyn-type? t) true
+     (at/placeholder-type? t) true
+     (at/inf-cycle-type? t) true
+     (at/maybe-type? t) (uninformative-for-narrowing? (:inner t))
+     (at/union-type? t) (some uninformative-for-narrowing? (:members t))
+     (at/conditional-type? t) (some uninformative-for-narrowing? (map second (:branches t)))
+     :else false)))
 
 (s/defn normalize :- ats/SemanticType
   "Convenience: derives prov from the typed input."
-  [value :- s/Any]
+  [value :- ats/SemanticType]
   (normalize-type (derive-prov value) value))
 
 (s/defn union :- ats/SemanticType
   "Convenience: derives prov from members."
-  [members :- [s/Any]]
+  [members :- [ats/SemanticType]]
   (union-type (apply derive-prov members) members))
 
 (s/defn intersection :- ats/SemanticType
   "Convenience: derives prov from members."
-  [members :- [s/Any]]
+  [members :- [ats/SemanticType]]
   (intersection-type (apply derive-prov members) members))
 
 (s/defn de-maybe :- ats/SemanticType
   "Convenience: derives prov from the typed input."
   [type :- ats/SemanticType]
   (de-maybe-type (derive-prov type) type))
-
-(s/defn unknown? :- s/Any
-  "Convenience: derives prov from the typed input."
-  [type :- ats/SemanticType]
-  (unknown-type? (derive-prov type) type))
 
 (s/defn dyn :- ats/SemanticType
   "Convenience: produce an at/Dyn with prov derived from typed inputs."

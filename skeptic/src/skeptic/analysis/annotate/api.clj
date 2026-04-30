@@ -33,10 +33,6 @@
   [ctx value]
   (ato/de-maybe-type (prov/with-ctx ctx) value))
 
-(s/defn unknown-type? :- s/Any
-  [ctx value]
-  (ato/unknown-type? (prov/with-ctx ctx) value))
-
 (def ^:private legacy-schema-mirror-keys
   #{:schema :output :expected-arglist :actual-arglist})
 

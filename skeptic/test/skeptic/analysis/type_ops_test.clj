@@ -63,10 +63,10 @@
          (ato/normalize-type tp nil)))
   (is (at/type=? (at/->GroundT tp :int 'Int)
          (ato/de-maybe-type tp (at/->MaybeT tp (at/->GroundT tp :int 'Int)))))
-  (is (ato/unknown-type? tp (at/Dyn tp)))
-  (is (ato/unknown-type? tp (at/->PlaceholderT tp 'example/x)))
-  (is (ato/unknown-type? tp (at/->InfCycleT tp 'example/self)))
-  (is (not (ato/unknown-type? tp (ab/schema->type tp s/Int)))))
+  (is (ato/uninformative-for-narrowing? (at/Dyn tp)))
+  (is (ato/uninformative-for-narrowing? (at/->PlaceholderT tp 'example/x)))
+  (is (ato/uninformative-for-narrowing? (at/->InfCycleT tp 'example/self)))
+  (is (not (ato/uninformative-for-narrowing? (ab/schema->type tp s/Int)))))
 
 (deftest strict-normalize-type-contract-test
   (let [semantic-map (at/->MapT tp {(at/->GroundT tp :keyword 'Keyword)
@@ -114,8 +114,8 @@
         str-t (ab/schema->type tp s/Str)
         all-concrete (at/->ConditionalT tp [[pred1 int-t nil] [pred2 str-t nil]])
         with-dyn (at/->ConditionalT tp [[pred1 int-t nil] [pred2 (at/Dyn tp) nil]])]
-    (is (not (ato/unknown-type? tp all-concrete)))
-    (is (ato/unknown-type? tp with-dyn))))
+    (is (not (ato/uninformative-for-narrowing? all-concrete)))
+    (is (ato/uninformative-for-narrowing? with-dyn))))
 
 (deftest union-with-conditional-member-preserves-nilability-test
   (let [pred1 :map?

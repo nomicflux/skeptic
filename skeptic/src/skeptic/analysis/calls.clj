@@ -56,7 +56,7 @@
 
 (s/defn lookup-type :- s/Any
   [dict :- s/Any
-   ns-sym :- s/Any
+   ns-sym :- (s/maybe s/Symbol)
    node :- s/Any]
   (let [candidates (remove nil?
                            [(aapi/node-form node)
@@ -152,11 +152,12 @@
     clojure.core/seq? :seq?, seq? :seq?
     clojure.core/fn? :fn?, fn? :fn?})
 
-(defn resolved-call-sym
-  [fn-node]
+(s/defn resolved-call-sym :- (s/maybe s/Symbol)
+  [fn-node :- s/Any]
   (or (var->sym (aapi/node-var fn-node))
       (some-> (aapi/binding-init fn-node) resolved-call-sym)
-      (aapi/node-form fn-node)))
+      (let [form (aapi/node-form fn-node)]
+        (when (symbol? form) form))))
 
 (s/defn seq-call? :- s/Bool
   [fn-node :- s/Any]
@@ -193,8 +194,8 @@
        (class? (aapi/node-value node))))
 
 (s/defn type-predicate-assumption-info-for-sym :- (s/maybe aos/PredInfo)
-  [sym :- s/Any
-   args :- s/Any]
+  [sym :- (s/maybe s/Symbol)
+   args :- [s/Any]]
   (let [n (count args)]
     (cond
       (contains? instance-call-syms sym)
@@ -211,12 +212,12 @@
 
 (s/defn type-predicate-assumption-info :- (s/maybe aos/PredInfo)
   [fn-node :- s/Any
-   args :- s/Any]
+   args :- [s/Any]]
   (type-predicate-assumption-info-for-sym (resolved-call-sym fn-node) args))
 
 (s/defn type-predicate-call? :- s/Bool
   [fn-node :- s/Any
-   args :- s/Any]
+   args :- [s/Any]]
   (boolean (type-predicate-assumption-info fn-node args)))
 
 (s/defn keyword-invoke-on-local? :- s/Bool
@@ -231,7 +232,7 @@
       (and (= :keyword-invoke (aapi/node-op node))
            (= :local (aapi/node-op (aapi/node-target node))))))
 
-(s/defn keyword-invoke-kw-and-target :- (s/maybe s/Any)
+(s/defn keyword-invoke-kw-and-target :- (s/maybe [(s/one s/Keyword "kw") (s/one s/Any "target")])
   "When `keyword-invoke-on-local?`, returns `[kw-keyword target-node]`."
   [node :- s/Any]
   (cond

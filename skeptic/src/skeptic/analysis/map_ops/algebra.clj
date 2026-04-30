@@ -4,7 +4,8 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
 (defn- exact-key-for-literal
   [prov key-lit]
@@ -71,7 +72,7 @@
     (assoc-type m-type key-lit out)))
 
 (s/defn merge-types :- ats/SemanticType
-  [anchor-prov :- s/Any types :- [ats/SemanticType]]
+  [anchor-prov :- provs/Provenance types :- [ats/SemanticType]]
   (let [types (mapv ato/normalize types)]
     (cond
       (empty? types) (at/Dyn anchor-prov)

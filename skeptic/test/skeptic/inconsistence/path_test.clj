@@ -130,7 +130,10 @@
                   :rule :map-nullable-key
                   :reason :nullable-key
                   :actual-key (s/optional-key :a)
-                  :expected-key :a})]
+                  :expected-key :a
+                  :path []
+                  :blame-side :term
+                  :blame-polarity :positive})]
     (is (str/includes? message "potentially nullable"))))
 
 (deftest vector-cast-report-includes-index-path-test
@@ -152,6 +155,8 @@
                   :expected-type (ab/schema->type tp s/Str)
                   :rule :leaf-overlap
                   :reason :leaf-mismatch
+                  :blame-side :term
+                  :blame-polarity :positive
                   :path [{:kind :source-union-branch :index 1}
                          {:kind :map-key :key :name}]})]
     (is (str/includes? message "[:name]"))

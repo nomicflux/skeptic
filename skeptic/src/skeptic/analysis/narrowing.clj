@@ -188,7 +188,7 @@
       (at/maybe-type? type)
       (partition-maybe (:inner type) pred-info polarity)
 
-      (ato/unknown? type) type
+      (ato/uninformative-for-narrowing? type) type
 
       :else (partition-leaf type pred-info polarity))))
 
@@ -285,7 +285,6 @@
       (at/dyn-type? type) type
       (at/placeholder-type? type) type
       (at/inf-cycle-type? type) type
-      (ato/unknown? type) type
       (at/union-type? type)
       (combine-parts (ato/derive-prov type)
                      (map #(partition-type-for-values % values polarity) (:members type)))

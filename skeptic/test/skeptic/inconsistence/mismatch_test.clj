@@ -40,8 +40,8 @@
 
 (deftest unknown-output-type-test
   (is (sut/unknown-output-type? (ab/schema->type tp s/Any)))
-  (is (sut/unknown-output-type? (ab/schema->type tp (s/maybe s/Any))))
-  (is (sut/unknown-output-type? (ab/schema->type tp (sb/placeholder-schema [:output 'example/f]))))
+  (is (not (sut/unknown-output-type? (ab/schema->type tp (s/maybe s/Any)))))
+  (is (not (sut/unknown-output-type? (ab/schema->type tp (sb/placeholder-schema [:output 'example/f])))))
   (is (not (sut/unknown-output-type? (ab/schema->type tp s/Int)))))
 
 (deftest mismatched-messages-shape-test
