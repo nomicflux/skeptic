@@ -3,6 +3,7 @@
             [leiningen.core.main]
             [leiningen.core.eval]
             [leiningen.core.project]
+            [schema.core]
             [skeptic.core]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
@@ -50,9 +51,10 @@ Options:
               writer# (when output-path# (clojure.java.io/writer output-path#))
               exit-code# (try
                            (binding [*out* (or writer# *out*)]
-                             (skeptic.profiling/run ~opts ~(str (:root project) "/target")
-                               (fn [] (skeptic.core/check-project ~opts ~(:root project) ~@paths))))
+                             (schema.core/without-fn-validation
+                               (skeptic.profiling/run ~opts ~(str (:root project) "/target")
+                                 (fn [] (skeptic.core/check-project ~opts ~(:root project) ~@paths)))))
                            (finally
                              (when writer# (.flush writer#) (.close writer#))))]
           (System/exit exit-code#))
-       '(do (require 'skeptic.core) (require 'skeptic.profiling) (require 'clojure.java.io))))))
+       '(do (require 'skeptic.core) (require 'schema.core) (require 'skeptic.profiling) (require 'clojure.java.io))))))
