@@ -56,3 +56,13 @@
     (is (not (avc/value-satisfies-type? {:c 3} cond-type)))
     (testing "value matching pred but not branch type -> false"
       (is (not (avc/value-satisfies-type? {:a "not-int"} cond-type))))))
+
+(deftest numeric-ground-type-non-numeric-grounds-return-false
+  (testing "Keyword ground returns false, not nil"
+    (is (false? (avc/numeric-ground-type? (ab/schema->type tp s/Keyword)))))
+  (testing "Str ground returns false"
+    (is (false? (avc/numeric-ground-type? (ab/schema->type tp s/Str)))))
+  (testing "Bool ground returns false"
+    (is (false? (avc/numeric-ground-type? (ab/schema->type tp s/Bool)))))
+  (testing "Int ground returns true"
+    (is (true? (avc/numeric-ground-type? (ab/schema->type tp s/Int))))))
