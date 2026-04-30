@@ -121,76 +121,76 @@
     sealed-dyn-type-tag
     conditional-type-tag})
 
-(defrecord DynT [prov]
+(defrecord DynTRec [prov]
   proto/SemanticType (semantic-tag [_] dyn-type-tag))
 
-(defrecord BottomT [prov]
+(defrecord BottomTRec [prov]
   proto/SemanticType (semantic-tag [_] bottom-type-tag))
 
-(defrecord GroundT [prov ground display-form]
+(defrecord GroundTRec [prov ground display-form]
   proto/SemanticType (semantic-tag [_] ground-type-tag))
 
-(defrecord NumericDynT [prov]
+(defrecord NumericDynTRec [prov]
   proto/SemanticType (semantic-tag [_] numeric-dyn-type-tag))
 
-(defrecord RefinementT [prov base display-form accepts? adapter-data]
+(defrecord RefinementTRec [prov base display-form accepts? adapter-data]
   proto/SemanticType (semantic-tag [_] refinement-type-tag))
 
-(defrecord AdapterLeafT [prov adapter display-form accepts? adapter-data]
+(defrecord AdapterLeafTRec [prov adapter display-form accepts? adapter-data]
   proto/SemanticType (semantic-tag [_] adapter-leaf-type-tag))
 
-(defrecord OptionalKeyT [prov inner]
+(defrecord OptionalKeyTRec [prov inner]
   proto/SemanticType (semantic-tag [_] optional-key-type-tag))
 
-(defrecord FnMethodT [prov inputs output min-arity variadic? names]
+(defrecord FnMethodTRec [prov inputs output min-arity variadic? names]
   proto/SemanticType (semantic-tag [_] fn-method-type-tag))
 
-(defrecord FunT [prov methods]
+(defrecord FunTRec [prov methods]
   proto/SemanticType (semantic-tag [_] fun-type-tag))
 
-(defrecord MaybeT [prov inner]
+(defrecord MaybeTRec [prov inner]
   proto/SemanticType (semantic-tag [_] maybe-type-tag))
 
-(defrecord UnionT [prov members]
+(defrecord UnionTRec [prov members]
   proto/SemanticType (semantic-tag [_] union-type-tag))
 
-(defrecord IntersectionT [prov members]
+(defrecord IntersectionTRec [prov members]
   proto/SemanticType (semantic-tag [_] intersection-type-tag))
 
-(defrecord MapT [prov entries]
+(defrecord MapTRec [prov entries]
   proto/SemanticType (semantic-tag [_] map-type-tag))
 
-(defrecord VectorT [prov items homogeneous?]
+(defrecord VectorTRec [prov items homogeneous?]
   proto/SemanticType (semantic-tag [_] vector-type-tag))
 
-(defrecord SetT [prov members homogeneous?]
+(defrecord SetTRec [prov members homogeneous?]
   proto/SemanticType (semantic-tag [_] set-type-tag))
 
-(defrecord SeqT [prov items homogeneous?]
+(defrecord SeqTRec [prov items homogeneous?]
   proto/SemanticType (semantic-tag [_] seq-type-tag))
 
-(defrecord VarT [prov inner]
+(defrecord VarTRec [prov inner]
   proto/SemanticType (semantic-tag [_] var-type-tag))
 
-(defrecord PlaceholderT [prov ref]
+(defrecord PlaceholderTRec [prov ref]
   proto/SemanticType (semantic-tag [_] placeholder-type-tag))
 
-(defrecord InfCycleT [prov ref]
+(defrecord InfCycleTRec [prov ref]
   proto/SemanticType (semantic-tag [_] inf-cycle-type-tag))
 
-(defrecord ValueT [prov inner value]
+(defrecord ValueTRec [prov inner value]
   proto/SemanticType (semantic-tag [_] value-type-tag))
 
-(defrecord TypeVarT [prov name]
+(defrecord TypeVarTRec [prov name]
   proto/SemanticType (semantic-tag [_] type-var-type-tag))
 
-(defrecord ForallT [prov binder body]
+(defrecord ForallTRec [prov binder body]
   proto/SemanticType (semantic-tag [_] forall-type-tag))
 
-(defrecord SealedDynT [prov ground]
+(defrecord SealedDynTRec [prov ground]
   proto/SemanticType (semantic-tag [_] sealed-dyn-type-tag))
 
-(defrecord ConditionalT [prov branches]
+(defrecord ConditionalTRec [prov branches]
   proto/SemanticType (semantic-tag [_] conditional-type-tag))
 
 (defn- ensure-prov!
@@ -199,30 +199,30 @@
     (throw (IllegalArgumentException.
             (format "%s requires non-nil provenance" record-name)))))
 
-(s/defn ->DynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "DynT" prov) (DynT. prov))
-(s/defn ->BottomT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "BottomT" prov) (BottomT. prov))
-(s/defn ->GroundT :- ats/SemanticType [prov :- provs/Provenance ground display-form] (ensure-prov! "GroundT" prov) (GroundT. prov ground display-form))
-(s/defn ->NumericDynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "NumericDynT" prov) (NumericDynT. prov))
-(s/defn ->RefinementT :- ats/SemanticType [prov :- provs/Provenance base display-form accepts? adapter-data] (ensure-prov! "RefinementT" prov) (RefinementT. prov base display-form accepts? adapter-data))
-(s/defn ->AdapterLeafT :- ats/SemanticType [prov :- provs/Provenance adapter display-form accepts? adapter-data] (ensure-prov! "AdapterLeafT" prov) (AdapterLeafT. prov adapter display-form accepts? adapter-data))
-(s/defn ->OptionalKeyT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "OptionalKeyT" prov) (OptionalKeyT. prov inner))
-(s/defn ->FnMethodT :- ats/SemanticType [prov :- provs/Provenance inputs output min-arity variadic? names] (ensure-prov! "FnMethodT" prov) (FnMethodT. prov inputs output min-arity variadic? names))
-(s/defn ->FunT :- ats/SemanticType [prov :- provs/Provenance methods] (ensure-prov! "FunT" prov) (FunT. prov methods))
-(s/defn ->MaybeT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "MaybeT" prov) (MaybeT. prov inner))
-(s/defn ->UnionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "UnionT" prov) (UnionT. prov members))
-(s/defn ->IntersectionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "IntersectionT" prov) (IntersectionT. prov members))
-(s/defn ->MapT :- ats/SemanticType [prov :- provs/Provenance entries] (ensure-prov! "MapT" prov) (MapT. prov entries))
-(s/defn ->VectorT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "VectorT" prov) (VectorT. prov items homogeneous?))
-(s/defn ->SetT :- ats/SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetT. prov members homogeneous?))
-(s/defn ->SeqT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "SeqT" prov) (SeqT. prov items homogeneous?))
-(s/defn ->VarT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "VarT" prov) (VarT. prov inner))
-(s/defn ->PlaceholderT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderT. prov ref))
-(s/defn ->InfCycleT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleT. prov ref))
-(s/defn ->ValueT :- ats/SemanticType [prov :- provs/Provenance inner value] (ensure-prov! "ValueT" prov) (ValueT. prov inner value))
-(s/defn ->TypeVarT :- ats/SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarT. prov name))
-(s/defn ->ForallT :- ats/SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallT. prov binder body))
-(s/defn ->SealedDynT :- ats/SemanticType [prov :- provs/Provenance ground] (ensure-prov! "SealedDynT" prov) (SealedDynT. prov ground))
-(s/defn ->ConditionalT :- ats/SemanticType [prov :- provs/Provenance branches] (ensure-prov! "ConditionalT" prov) (ConditionalT. prov branches))
+(s/defn ->DynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "DynT" prov) (DynTRec. prov))
+(s/defn ->BottomT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "BottomT" prov) (BottomTRec. prov))
+(s/defn ->GroundT :- ats/SemanticType [prov :- provs/Provenance ground display-form] (ensure-prov! "GroundT" prov) (GroundTRec. prov ground display-form))
+(s/defn ->NumericDynT :- ats/SemanticType [prov :- provs/Provenance] (ensure-prov! "NumericDynT" prov) (NumericDynTRec. prov))
+(s/defn ->RefinementT :- ats/SemanticType [prov :- provs/Provenance base display-form accepts? adapter-data] (ensure-prov! "RefinementT" prov) (RefinementTRec. prov base display-form accepts? adapter-data))
+(s/defn ->AdapterLeafT :- ats/SemanticType [prov :- provs/Provenance adapter display-form accepts? adapter-data] (ensure-prov! "AdapterLeafT" prov) (AdapterLeafTRec. prov adapter display-form accepts? adapter-data))
+(s/defn ->OptionalKeyT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "OptionalKeyT" prov) (OptionalKeyTRec. prov inner))
+(s/defn ->FnMethodT :- ats/SemanticType [prov :- provs/Provenance inputs output min-arity variadic? names] (ensure-prov! "FnMethodT" prov) (FnMethodTRec. prov inputs output min-arity variadic? names))
+(s/defn ->FunT :- ats/SemanticType [prov :- provs/Provenance methods] (ensure-prov! "FunT" prov) (FunTRec. prov methods))
+(s/defn ->MaybeT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "MaybeT" prov) (MaybeTRec. prov inner))
+(s/defn ->UnionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "UnionT" prov) (UnionTRec. prov members))
+(s/defn ->IntersectionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "IntersectionT" prov) (IntersectionTRec. prov members))
+(s/defn ->MapT :- ats/SemanticType [prov :- provs/Provenance entries] (ensure-prov! "MapT" prov) (MapTRec. prov entries))
+(s/defn ->VectorT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "VectorT" prov) (VectorTRec. prov items homogeneous?))
+(s/defn ->SetT :- ats/SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetTRec. prov members homogeneous?))
+(s/defn ->SeqT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "SeqT" prov) (SeqTRec. prov items homogeneous?))
+(s/defn ->VarT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "VarT" prov) (VarTRec. prov inner))
+(s/defn ->PlaceholderT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderTRec. prov ref))
+(s/defn ->InfCycleT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleTRec. prov ref))
+(s/defn ->ValueT :- ats/SemanticType [prov :- provs/Provenance inner value] (ensure-prov! "ValueT" prov) (ValueTRec. prov inner value))
+(s/defn ->TypeVarT :- ats/SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarTRec. prov name))
+(s/defn ->ForallT :- ats/SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallTRec. prov binder body))
+(s/defn ->SealedDynT :- ats/SemanticType [prov :- provs/Provenance ground] (ensure-prov! "SealedDynT" prov) (SealedDynTRec. prov ground))
+(s/defn ->ConditionalT :- ats/SemanticType [prov :- provs/Provenance branches] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches))
 
 (s/defn Dyn :- ats/SemanticType
   [prov :- provs/Provenance]
@@ -240,30 +240,30 @@
   [value]
   (satisfies? proto/SemanticType value))
 
-(s/defn dyn-type? :- s/Bool [t :- s/Any] (instance? DynT t))
-(s/defn bottom-type? :- s/Bool [t :- s/Any] (instance? BottomT t))
-(s/defn ground-type? :- s/Bool [t :- s/Any] (instance? GroundT t))
-(s/defn numeric-dyn-type? :- s/Bool [t :- s/Any] (instance? NumericDynT t))
-(s/defn refinement-type? :- s/Bool [t :- s/Any] (instance? RefinementT t))
-(s/defn adapter-leaf-type? :- s/Bool [t :- s/Any] (instance? AdapterLeafT t))
-(s/defn optional-key-type? :- s/Bool [t :- s/Any] (instance? OptionalKeyT t))
-(s/defn fn-method-type? :- s/Bool [t :- s/Any] (instance? FnMethodT t))
-(s/defn fun-type? :- s/Bool [t :- s/Any] (instance? FunT t))
-(s/defn maybe-type? :- s/Bool [t :- s/Any] (instance? MaybeT t))
-(s/defn union-type? :- s/Bool [t :- s/Any] (instance? UnionT t))
-(s/defn intersection-type? :- s/Bool [t :- s/Any] (instance? IntersectionT t))
-(s/defn map-type? :- s/Bool [t :- s/Any] (instance? MapT t))
-(s/defn vector-type? :- s/Bool [t :- s/Any] (instance? VectorT t))
-(s/defn set-type? :- s/Bool [t :- s/Any] (instance? SetT t))
-(s/defn seq-type? :- s/Bool [t :- s/Any] (instance? SeqT t))
-(s/defn var-type? :- s/Bool [t :- s/Any] (instance? VarT t))
-(s/defn type-var-type? :- s/Bool [t :- s/Any] (instance? TypeVarT t))
-(s/defn forall-type? :- s/Bool [t :- s/Any] (instance? ForallT t))
-(s/defn sealed-dyn-type? :- s/Bool [t :- s/Any] (instance? SealedDynT t))
-(s/defn conditional-type? :- s/Bool [t :- s/Any] (instance? ConditionalT t))
-(s/defn placeholder-type? :- s/Bool [t :- s/Any] (instance? PlaceholderT t))
-(s/defn inf-cycle-type? :- s/Bool [t :- s/Any] (instance? InfCycleT t))
-(s/defn value-type? :- s/Bool [t :- s/Any] (instance? ValueT t))
+(s/defn dyn-type? :- s/Bool [t :- s/Any] (instance? DynTRec t))
+(s/defn bottom-type? :- s/Bool [t :- s/Any] (instance? BottomTRec t))
+(s/defn ground-type? :- s/Bool [t :- s/Any] (instance? GroundTRec t))
+(s/defn numeric-dyn-type? :- s/Bool [t :- s/Any] (instance? NumericDynTRec t))
+(s/defn refinement-type? :- s/Bool [t :- s/Any] (instance? RefinementTRec t))
+(s/defn adapter-leaf-type? :- s/Bool [t :- s/Any] (instance? AdapterLeafTRec t))
+(s/defn optional-key-type? :- s/Bool [t :- s/Any] (instance? OptionalKeyTRec t))
+(s/defn fn-method-type? :- s/Bool [t :- s/Any] (instance? FnMethodTRec t))
+(s/defn fun-type? :- s/Bool [t :- s/Any] (instance? FunTRec t))
+(s/defn maybe-type? :- s/Bool [t :- s/Any] (instance? MaybeTRec t))
+(s/defn union-type? :- s/Bool [t :- s/Any] (instance? UnionTRec t))
+(s/defn intersection-type? :- s/Bool [t :- s/Any] (instance? IntersectionTRec t))
+(s/defn map-type? :- s/Bool [t :- s/Any] (instance? MapTRec t))
+(s/defn vector-type? :- s/Bool [t :- s/Any] (instance? VectorTRec t))
+(s/defn set-type? :- s/Bool [t :- s/Any] (instance? SetTRec t))
+(s/defn seq-type? :- s/Bool [t :- s/Any] (instance? SeqTRec t))
+(s/defn var-type? :- s/Bool [t :- s/Any] (instance? VarTRec t))
+(s/defn type-var-type? :- s/Bool [t :- s/Any] (instance? TypeVarTRec t))
+(s/defn forall-type? :- s/Bool [t :- s/Any] (instance? ForallTRec t))
+(s/defn sealed-dyn-type? :- s/Bool [t :- s/Any] (instance? SealedDynTRec t))
+(s/defn conditional-type? :- s/Bool [t :- s/Any] (instance? ConditionalTRec t))
+(s/defn placeholder-type? :- s/Bool [t :- s/Any] (instance? PlaceholderTRec t))
+(s/defn inf-cycle-type? :- s/Bool [t :- s/Any] (instance? InfCycleTRec t))
+(s/defn value-type? :- s/Bool [t :- s/Any] (instance? ValueTRec t))
 
 (s/defn fun-methods :- [ats/SemanticType]
   [fun-t :- ats/SemanticType]
