@@ -95,6 +95,10 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/variant-strict-dispatch))
 
+(deftest case-on-let-bound-discriminator-narrows-variant
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/variant-let-bound-dispatch))
+
 (deftest type-narrowing-examples
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/conditional-dispatch-success

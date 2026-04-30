@@ -36,9 +36,10 @@
 
 (s/defn case-discriminant-expr-node :- s/Any
   [test-node :- s/Any]
-  (if (and (= :local (:op test-node)) (:binding-init test-node))
-    (:binding-init test-node)
-    test-node))
+  (loop [n test-node]
+    (if (and (= :local (:op n)) (:binding-init n))
+      (recur (:binding-init n))
+      n)))
 
 (s/defn case-discriminant-leaf-node :- s/Any
   [node :- s/Any]
