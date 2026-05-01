@@ -129,3 +129,31 @@
     (is (not (at/bottom-type? result)))
     (is (at/map-type? result))
     (is (= "b" (:value (amo/map-get-type result (amo/exact-key-query tp :disc :disc)))))))
+
+(deftest refine-by-contains-key-promotes-optional-key
+  (let [root (ab/schema->type tp {(s/optional-key :k) s/Int})
+        result (amo/refine-by-contains-key root :k true)
+        k-val (amo/map-get-type result (amo/exact-key-query tp :k :k))]
+    (is (at/map-type? result))
+    (is (at/type=? (ab/schema->type tp s/Int) k-val))))
+
+(deftest refine-by-contains-key-drops-optional-key
+  (let [root (ab/schema->type tp {(s/optional-key :k) s/Int})
+        result (amo/refine-by-contains-key root :k false)]
+    (is (at/map-type? result))
+    (is (empty? (:entries result)))))
+
+(deftest refine-by-contains-key-required-negative-is-bottom
+  (let [root (ab/schema->type tp {:k s/Int})
+        result (amo/refine-by-contains-key root :k false)]
+    (is (at/bottom-type? result))))
+
+(deftest refine-by-contains-key-missing-positive-is-bottom
+  (let [root (ab/schema->type tp {:other s/Int})
+        result (amo/refine-by-contains-key root :k true)]
+    (is (at/bottom-type? result))))
+
+(deftest refine-by-contains-key-keeps-domain-entry-map
+  (let [root (ab/schema->type tp {s/Keyword s/Int})
+        result (amo/refine-by-contains-key root :k true)]
+    (is (at/type=? root result))))

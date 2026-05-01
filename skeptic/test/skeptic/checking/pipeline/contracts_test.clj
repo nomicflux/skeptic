@@ -51,15 +51,15 @@
     'skeptic.test-examples.contracts/both-int-str-output-str-failure "hi"))
 
 (deftest conditional-contract-contains-key-refinement
-  (are [sym] (= [] (ps/check-fixture sym))
-    'skeptic.test-examples.contracts/conditional-map-if-a-success
-    'skeptic.test-examples.contracts/conditional-map-if-b-success
-    'skeptic.test-examples.contracts/conditional-map-alias-success
-    'skeptic.test-examples.contracts/conditional-map-cond-thread-success)
-  (are [sym blame] (ps/single-failure? sym blame)
-    'skeptic.test-examples.contracts/conditional-map-if-a-bad-branch '(takes-has-b x)
-    'skeptic.test-examples.contracts/conditional-map-if-b-bad-branch '(takes-has-a x)
-    'skeptic.test-examples.contracts/optional-map-contains-does-not-refine '(takes-has-a x)))
+	  (are [sym] (= [] (ps/check-fixture sym))
+	    'skeptic.test-examples.contracts/conditional-map-if-a-success
+	    'skeptic.test-examples.contracts/conditional-map-if-b-success
+	    'skeptic.test-examples.contracts/conditional-map-alias-success
+	    'skeptic.test-examples.contracts/conditional-map-cond-thread-success
+	    'skeptic.test-examples.contracts/optional-map-contains-refines-success)
+	  (are [sym blame] (ps/single-failure? sym blame)
+	    'skeptic.test-examples.contracts/conditional-map-if-a-bad-branch '(takes-has-b x)
+	    'skeptic.test-examples.contracts/conditional-map-if-b-bad-branch '(takes-has-a x)))
 
 (deftest conditional-contract-cond-thread-output-construction
   (are [sym] (= [] (ps/check-fixture sym))

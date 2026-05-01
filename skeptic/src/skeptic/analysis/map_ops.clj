@@ -296,6 +296,95 @@
                                              (apply merge (map :entries types)))
       :else (apply ato/dyn types))))
 
+(defn- exact-entry-value
+  [entry-key]
+  (let [inner-key (if (at/optional-key-type? entry-key) (:inner entry-key) entry-key)]
+    (when (at/value-type? inner-key)
+      (:value inner-key))))
+
+(defn- optional-exact-entry-for?
+  [entry-key exact-value]
+  (and (at/optional-key-type? entry-key)
+       (= exact-value (exact-entry-value entry-key))))
+
+(defn- promote-optional-entry
+  [entries exact-value]
+  (into {}
+        (map (fn [[entry-key entry-value]]
+               (if (optional-exact-entry-for? entry-key exact-value)
+                 [(:inner entry-key) entry-value]
+                 [entry-key entry-value])))
+        entries))
+
+(defn- drop-optional-entry
+  [entries exact-value]
+  (into {}
+        (remove (fn [[entry-key _entry-value]]
+                  (optional-exact-entry-for? entry-key exact-value)))
+        entries))
+
+(defn- refine-map-by-exact-key
+  [root-type exact-value polarity]
+  (let [prov (ato/derive-prov root-type)
+        descriptor (map-entry-descriptor (:entries root-type))
+        exact-entry (exact-key-entry descriptor exact-value)
+        candidates (exact-key-candidates descriptor exact-value)]
+    (cond
+      (nil? exact-entry)
+      (if (seq candidates)
+        root-type
+        (if polarity (at/BottomType prov) root-type))
+
+      polarity
+      (case (:kind exact-entry)
+        :optional-explicit (at/->MapT prov (promote-optional-entry (:entries root-type) exact-value))
+        :required-explicit root-type
+        root-type)
+
+      (= :optional-explicit (:kind exact-entry))
+      (at/->MapT prov (drop-optional-entry (:entries root-type) exact-value))
+
+      (= :required-explicit (:kind exact-entry))
+      (at/BottomType prov)
+
+      :else
+      root-type)))
+
+(s/defn refine-by-contains-key :- ats/SemanticType
+  [type :- ats/SemanticType key :- s/Any polarity :- s/Bool]
+  (let [type (as-type type)]
+    (cond
+      (at/map-type? type)
+      (refine-map-by-exact-key type key polarity)
+
+      (at/union-type? type)
+      (let [refined (keep (fn [member]
+                            (let [r (refine-by-contains-key member key polarity)]
+                              (when-not (at/bottom-type? r) r)))
+                          (:members type))]
+        (if (empty? refined)
+          (at/BottomType (ato/derive-prov type))
+          (ato/union refined)))
+
+      (at/conditional-type? type)
+      (let [refined (keep (fn [[_pred branch]]
+                            (let [r (refine-by-contains-key branch key polarity)]
+                              (when-not (at/bottom-type? r) r)))
+                          (:branches type))]
+        (if (empty? refined)
+          (at/BottomType (ato/derive-prov type))
+          (ato/union refined)))
+
+      (at/maybe-type? type)
+      (let [inner (refine-by-contains-key (:inner type) key polarity)]
+        (cond
+          (at/bottom-type? inner) (if polarity (at/BottomType (ato/derive-prov type)) type)
+          polarity inner
+          :else (at/->MaybeT (ato/derive-prov type) inner)))
+
+      :else
+      type)))
+
 (declare refine-map-path)
 
 (defn- update-entry-by-exact-value

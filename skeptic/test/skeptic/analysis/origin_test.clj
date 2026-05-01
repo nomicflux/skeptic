@@ -341,6 +341,51 @@
     (is (= :true (ao/assumption-truth query [d1 d2 d3])))
     (is (= :unknown (ao/assumption-truth query [d1 d2])))))
 
+(deftest opposite-polarity-negates-conjunction-with-truthy-local
+  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
+        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+        pred (ao/truthy-local-assumption pred-root true)
+        nil-m (ao/type-predicate-assumption m-root {:pred :nil?} true)
+        result (ao/opposite-polarity (ao/conjunction-assumption [pred nil-m]))]
+    (is (= :disjunction (:kind result)))
+    (is (= [{:kind :truthy-local
+             :root pred-root
+             :polarity false}
+            {:kind :type-predicate
+             :root m-root
+             :pred :nil?
+             :polarity false}]
+           (:parts result)))))
+
+(deftest simplify-assumptions-flattens-conjunction
+  (let [a (bp 'a true)
+        b (bp 'b true)
+        c (bp 'c true)
+        d (bp 'd true)]
+    (is (= [a b c d]
+           (ao/simplify-assumptions [a (ao/conjunction-assumption [b c]) d])))))
+
+(deftest simplify-assumptions-reduces-disjunction-to-singleton
+  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
+        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+        pred-true (ao/truthy-local-assumption pred-root true)
+        pred-false (assoc pred-true :polarity false)
+        non-nil-m (ao/type-predicate-assumption m-root {:pred :nil?} false)
+        assumption (ao/disjunction-assumption [pred-false non-nil-m])]
+    (is (= [pred-true non-nil-m]
+           (ao/simplify-assumptions [pred-true assumption])))))
+
+(deftest simplify-assumptions-marks-zero-survivor-as-contradicted
+  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
+        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+        pred-true (ao/truthy-local-assumption pred-root true)
+        pred-false (assoc pred-true :polarity false)
+        nil-m (ao/type-predicate-assumption m-root {:pred :nil?} true)
+        non-nil-m (assoc nil-m :polarity false)
+        assumption (ao/disjunction-assumption [pred-false non-nil-m])]
+    (is (= [pred-true nil-m {:kind :contradicted}]
+           (ao/simplify-assumptions [pred-true nil-m assumption])))))
+
 (deftest chained-keyword-invoke-yields-path-origin
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(:k (:x x))

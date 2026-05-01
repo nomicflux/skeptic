@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.analysis.value-check :as avc]))
@@ -40,8 +41,8 @@
         has-b (ab/schema->type tp {:b s/Int})
         cond-type (at/->ConditionalT tp [[#(contains? % :a) has-a nil]
                                          [#(contains? % :b) has-b nil]])
-        refined-true (avc/refine-type-by-contains-key cond-type :a true)
-        refined-false (avc/refine-type-by-contains-key cond-type :a false)]
+        refined-true (amo/refine-by-contains-key cond-type :a true)
+        refined-false (amo/refine-by-contains-key cond-type :a false)]
     (is (at/type=? has-a refined-true))
     (is (at/type=? has-b refined-false))))
 

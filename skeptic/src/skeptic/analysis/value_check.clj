@@ -4,8 +4,7 @@
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats])
+            [skeptic.analysis.types :as at])
   (:import [java.lang Number Object]))
 
 (declare value-satisfies-type?)
@@ -81,26 +80,6 @@
 
       :else
       :unknown)))
-
-(s/defn refine-type-by-contains-key :- ats/SemanticType
-  [type :- ats/SemanticType key :- s/Any polarity :- s/Any]
-  (let [type (as-type type)
-        branches (cond
-                   (at/union-type? type) (:members type)
-                   (at/conditional-type? type) (map second (:branches type))
-                   :else #{type})
-        kept (->> branches
-                  (keep (fn [branch]
-                          (let [classification (contains-key-type-classification branch key)]
-                            (case [polarity classification]
-                              [true :never] nil
-                              [false :always] nil
-                              branch))))
-                  set)]
-    (cond
-      (empty? kept) (ato/bottom type)
-      (= 1 (count kept)) (first kept)
-      :else (ato/union kept))))
 
 (def integral-ground-classes
   #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})

@@ -98,6 +98,9 @@
   {:kind  (s/eq :disjunction)
    :parts [(s/recursive #'Assumption)]})
 
+(s/defschema ContradictedAssumption
+  {:kind (s/eq :contradicted)})
+
 (s/defschema RootedAssumption
   (s/conditional
     #(= :truthy-local        (:kind %)) TruthyLocalAssumption
@@ -121,7 +124,8 @@
     #(= :path-type-predicate (:kind %)) PathTypePredicateAssumption
     #(= :conditional-branch  (:kind %)) ConditionalBranchAssumption
     #(= :conjunction         (:kind %)) ConjunctionAssumption
-    #(= :disjunction         (:kind %)) DisjunctionAssumption))
+    #(= :disjunction         (:kind %)) DisjunctionAssumption
+    #(= :contradicted        (:kind %)) ContradictedAssumption))
 
 (s/defschema Conjuncts
   {:then-conjuncts [Assumption]

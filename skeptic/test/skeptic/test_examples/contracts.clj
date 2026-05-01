@@ -250,9 +250,9 @@
       y)))
 
 (s/defschema MaybeHasA
-  {(s/optional-key :a) s/Int})
+  {(s/optional-key :a) basics/PosInt})
 
-(s/defn optional-map-contains-does-not-refine
+(s/defn optional-map-contains-refines-success
   [x :- MaybeHasA]
   (if (contains? x :a)
     (takes-has-a x)

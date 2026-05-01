@@ -146,21 +146,13 @@
   {:kind :disjunction
    :parts (vec parts)})
 
-(s/defn node-origin :- (s/maybe aos/Origin)
-  [node :- s/Any]
-  (or (aapi/node-origin node)
-      (when-let [type (aapi/node-type node)]
-        (opaque-origin type))))
-
-(s/defn opposite-polarity :- (s/maybe aos/Assumption)
-  [assumption :- aos/Assumption]
-  (case (:kind assumption)
-    (:conjunction :disjunction) nil
-    (update assumption :polarity not)))
+(def ^:private contradicted-assumption
+  {:kind :contradicted})
 
 (defn- invertible-assumption?
   [assumption]
   (contains? #{:type-predicate
+               :truthy-local
                :boolean-proposition
                :contains-key
                :blank-check
@@ -170,15 +162,32 @@
                :conditional-branch}
              (:kind assumption)))
 
+(defn- flip-assumption-polarity
+  [assumption]
+  (update assumption :polarity not))
+
+(defn- negate-conjunct-list
+  [conjuncts]
+  (when (every? invertible-assumption? conjuncts)
+    (disjunction-assumption (mapv flip-assumption-polarity conjuncts))))
+
+(s/defn opposite-polarity :- (s/maybe aos/Assumption)
+  [assumption :- aos/Assumption]
+  (case (:kind assumption)
+    :conjunction (negate-conjunct-list (:parts assumption))
+    (:disjunction :contradicted) nil
+    (flip-assumption-polarity assumption)))
+
 (s/defn invert-assumption :- (s/maybe aos/Assumption)
   [assumption :- aos/Assumption]
   (when (invertible-assumption? assumption)
     (opposite-polarity assumption)))
 
-(defn- negate-conjunct-list
-  [conjuncts]
-  (when (every? invertible-assumption? conjuncts)
-    (disjunction-assumption (mapv invert-assumption conjuncts))))
+(s/defn node-origin :- (s/maybe aos/Origin)
+  [node :- s/Any]
+  (or (aapi/node-origin node)
+      (when-let [type (aapi/node-type node)]
+        (opaque-origin type))))
 
 (s/defn same-assumption? :- s/Bool
   [left :- aos/Assumption
@@ -206,6 +215,7 @@
          :disjunction (and (= :disjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
                            (every? true? (map same-assumption? (:parts left) (:parts right))))
+         :contradicted true
          false)))
 
 (s/defn opposite-assumption? :- s/Bool
@@ -241,12 +251,18 @@
          :disjunction (and (= :disjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
                            (every? true? (map same-assumption-proposition? (:parts a) (:parts b))))
+         :contradicted true
          false)))
 
 (s/defn assumption-root? :- s/Bool
   [assumption :- aos/Assumption
    root :- aos/RootOrigin]
   (= (get-in assumption [:root :sym]) (:sym root)))
+
+(defn- assumption-applies?
+  [assumption root]
+  (or (= :contradicted (:kind assumption))
+      (assumption-root? assumption root)))
 
 (s/defn apply-assumption-to-root-type :- ats/SemanticType
   [type :- ats/SemanticType
@@ -255,6 +271,9 @@
             (let [non-nil (an/partition-type-for-predicate t {:pred :some?} true)]
               (an/partition-type-for-predicate non-nil {:pred :string?} true)))]
     (case (:kind assumption)
+      :contradicted
+      (at/BottomType (ato/derive-prov type))
+
       :truthy-local
       (an/apply-truthy-local type (:polarity assumption))
 
@@ -264,7 +283,7 @@
         (non-blank-string-type type))
 
       :contains-key
-      (avc/refine-type-by-contains-key type (:key assumption) (:polarity assumption))
+      (amo/refine-by-contains-key type (:key assumption) (:polarity assumption))
 
       :type-predicate
       (an/partition-type-for-predicate type
@@ -293,7 +312,7 @@
   [root :- aos/RootOrigin
    assumptions :- [aos/Assumption]]
   (reduce (fn [type assumption]
-            (if (assumption-root? assumption root)
+            (if (assumption-applies? assumption root)
               (apply-assumption-to-root-type type assumption)
               type))
           (:type root)
@@ -444,12 +463,44 @@
               (every? #{:false} ts) :false
               :else :unknown))
 
-      (let [q  (assumption->formula assumption)
-            cs (keep assumption->formula assumptions)]
-        (cond
-          (and q (sums/formulas-cover? (cons q (mapv negate-formula cs)))) :true
-          (and q (sums/formulas-cover? (cons (negate-formula q) (mapv negate-formula cs)))) :false
-          :else :unknown)))))
+	      (let [q  (assumption->formula assumption)
+	            cs (keep assumption->formula assumptions)]
+	        (cond
+	          (and q (sums/formulas-cover? (cons q (mapv negate-formula cs)))) :true
+	          (and q (sums/formulas-cover? (cons (negate-formula q) (mapv negate-formula cs)))) :false
+	          :else :unknown)))))
+
+(defn- expand-assumptions-once
+  [assumptions]
+  (vec
+   (mapcat
+    (fn [assumption]
+      (case (:kind assumption)
+        :conjunction
+        (:parts assumption)
+
+        :disjunction
+        (let [other-assumptions (filterv #(not (identical? assumption %)) assumptions)
+              survivors (filterv #(not= :false (assumption-truth % other-assumptions))
+                                  (:parts assumption))]
+          (case (count survivors)
+            0 [contradicted-assumption]
+            1 survivors
+            [assumption]))
+
+        [assumption]))
+    assumptions)))
+
+(s/defn simplify-assumptions :- [aos/Assumption]
+  "Simplify environment assumptions. This is a pure query pass: it asks
+  `assumption-truth`, which may reach type refinement, but it does not mutate
+  state or recursively invoke simplification."
+  [assumptions :- [aos/Assumption]]
+  (loop [current (vec assumptions)]
+    (let [next (expand-assumptions-once current)]
+      (if (= next current)
+        current
+        (recur next)))))
 
 (s/defn origin-type :- ats/SemanticType
   [origin :- aos/Origin
@@ -764,8 +815,8 @@
    assumptions :- [aos/Assumption]
    conjuncts :- aos/Conjuncts]
   (let [{:keys [then-conjuncts else-conjuncts]} conjuncts
-        then-assumptions (into (vec assumptions) then-conjuncts)
-        else-assumptions (into (vec assumptions) else-conjuncts)]
+        then-assumptions (simplify-assumptions (into (vec assumptions) then-conjuncts))
+        else-assumptions (simplify-assumptions (into (vec assumptions) else-conjuncts))]
     (if (= then-assumptions else-assumptions)
       (let [refined-locals (refine-locals-for-assumption ctx locals then-assumptions)]
         {:then-locals refined-locals
@@ -797,7 +848,7 @@
         parts (if (and assumption (= :conjunction (:kind assumption)))
                 (:parts assumption)
                 (if assumption [assumption] []))
-        new-assumptions (into (vec assumptions) parts)]
+        new-assumptions (simplify-assumptions (into (vec assumptions) parts))]
     (assoc ctx
            :assumptions new-assumptions
            :locals (refine-locals-for-assumption ctx locals new-assumptions))))
