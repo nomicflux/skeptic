@@ -204,3 +204,21 @@
   [m :- {:n s/Int}]
   {:pre [(pos? (:n m))]}
   (take-val (:n m)))
+
+(s/defn when-and-pred-nil-throw-correlated-success
+  [pred?
+   m :- (s/maybe s/Str)]
+  (when (and pred? (nil? m))
+    (throw (Exception. "err")))
+  (if pred?
+    (takes-non-nil-str m)
+    nil))
+
+(s/defn when-and-pred-not-contains-throw-correlated-success
+  [pred?
+   m :- {(s/optional-key :k) s/Int}]
+  (when (and pred? (not (contains? m :k)))
+    (throw (Exception. "err")))
+  (if pred?
+    (take-val (:k m))
+    nil))

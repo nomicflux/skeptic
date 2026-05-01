@@ -100,3 +100,13 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/pre-pos?-narrows-map-key-success)]
     (is (empty? (ps/result-errors results))
         (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest when-and-pred-nil-throw-correlated
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-and-pred-nil-throw-correlated-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest when-and-pred-not-contains-throw-correlated
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-and-pred-not-contains-throw-correlated-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
