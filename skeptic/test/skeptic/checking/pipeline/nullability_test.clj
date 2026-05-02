@@ -125,3 +125,14 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/chained-maybe-into-int-arg-failure)]
     (is (seq (ps/result-errors results))
         "expected checker error: chained (maybe Int) into non-null Int arg")))
+
+;; Only the first (+ y x) is asserted: once a let-RHS use of `x` produces a
+;; type error, subsequent uses are downstream of an inconsistency and not
+;; guaranteed to be flagged.
+(deftest let-bound-maybe-int-into-plus-fails
+  (let [results (ps/check-fixture
+                  'skeptic.test-examples.nullability/let-bound-maybe-int-into-plus-failure)
+        blames  (set (map (comp pr-str :blame) results))
+        plus-y-x '(. clojure.lang.Numbers (add y x))]
+    (is (contains? blames (pr-str plus-y-x))
+        (str "expected (+ y x) to be blamed; got blames: " (pr-str blames)))))

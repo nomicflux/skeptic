@@ -104,11 +104,12 @@
 
 (s/defn test-const-node :- s/Any
   [value :- s/Any]
-  {:op :const :val value})
+  {:op :const :form value :val value})
 
 (s/defn test-invoke-node :- s/Any
   [fn-node :- s/Any args :- s/Any expected :- s/Any actual :- s/Any]
   {:op :invoke
+   :form (cons (:form fn-node) (mapv :form args))
    :fn fn-node
    :args args
    :expected-argtypes expected
@@ -120,8 +121,8 @@
 
 (s/defn test-with-meta-node :- s/Any
   [expr :- s/Any]
-  {:op :with-meta :expr expr})
+  {:op :with-meta :form (:form expr) :expr expr})
 
 (s/defn test-static-call-node :- s/Any
   [class :- s/Any method :- s/Any]
-  {:op :static-call :class class :method method})
+  {:op :static-call :form (list '. class method) :class class :method method})

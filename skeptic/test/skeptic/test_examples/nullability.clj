@@ -250,3 +250,16 @@
   (if pred?
     (take-val (:k m))
     nil))
+
+(s/defn return-maybe :- (s/maybe s/Int)
+  []
+  nil)
+
+(s/defn let-bound-maybe-int-into-plus-failure
+  []
+  (let [x (return-maybe)
+        y (+ 1 1)
+        z (+ 1 y)
+        w (+ 1 z)
+        u (+ y x)]
+    (+ x w)))

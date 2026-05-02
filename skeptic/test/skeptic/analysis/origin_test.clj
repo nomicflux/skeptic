@@ -80,7 +80,7 @@
       (is (= :number? (:pred assumption)))))
   (testing "nil and non-call nodes are no-ops"
     (is (= [] (ao/call-arg-contract-assumptions nil)))
-    (is (= [] (ao/call-arg-contract-assumptions {:op :const :val 1 :type (T s/Int)}))))
+    (is (= [] (ao/call-arg-contract-assumptions {:op :const :form 1 :val 1 :type (T s/Int)}))))
   (testing "calls without a single classifying input type are no-ops"
     (let [root (atst/analyze-form atst/analysis-dict
                                   '(str x)
@@ -98,6 +98,7 @@
                                                   [kq-x kq-k]
                                                   [amo/no-default amo/no-default])}
         some-node {:op :invoke
+                   :form '(some? (:k (:x x)))
                    :fn {:op :var :form 'some?}
                    :args [target]}
         assumption (ao/test->assumption tp some-node)]
@@ -590,6 +591,7 @@
   (let [var-targ {:op :var :form 'server-str :type (T s/Str)
                   :origin (ao/root-origin 'server-str (T s/Str))}
         invoke-node {:op :invoke
+                     :form '(clojure.string/blank? server-str)
                      :fn {:op :var :form 'clojure.string/blank?}
                      :args [var-targ]}
         assumption (ao/test->assumption tp invoke-node)]
@@ -608,7 +610,9 @@
   (let [var-node {:op :var :form 'server :type (T {:host s/Str :port s/Int})
                   :origin (ao/root-origin 'server (T {:host s/Str :port s/Int}))}
         key-node {:op :const :val :host :form :host}
-        get-node {:op :static-call :fn {:op :var :form 'clojure.lang.RT/get}
+        get-node {:op :static-call
+                  :form '(. clojure.lang.RT (get server :host))
+                  :fn {:op :var :form 'clojure.lang.RT/get}
                   :args [var-node key-node]
                   :class clojure.lang.RT :method 'get}
         result (am/case-kw-and-target get-node)]

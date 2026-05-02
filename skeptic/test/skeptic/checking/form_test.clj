@@ -53,7 +53,7 @@
 
 (deftest display-expr-and-node-error-context-test
   (let [expr (with-meta '(f x) {:source "(f x)" :file "f.clj" :line 1 :column 1})
-        node {:form expr}
+        node {:op :invoke :form expr}
         disp (cf/display-expr node)
         ctx (cf/node-error-context node 'some.ns/wrapper)]
     (is (= '(f x) (:expr disp)))

@@ -13,3 +13,8 @@
   []
   (when (some? server)
     (use-host (:host server))))
+
+(s/defn report-kind-cased
+  [report :- {:report-kind (s/eq 1)}]
+  (let [report-kind (:report-kind report)]
+    (case report-kind 1)))

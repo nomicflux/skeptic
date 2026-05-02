@@ -220,14 +220,14 @@
                       {:source-schema schema})))
 
 (defn- unary-node-result
-  [ctx-prov ctor source child-result]
+  [ctx-prov name-claimed? ctor source child-result]
   (let [child-prov (prov/of (:type child-result))
-        node-p (node-prov ctx-prov source [child-prov])]
+        node-p (node-prov ctx-prov source [child-prov] name-claimed?)]
     (import-result (ctor node-p (:type child-result))
                    (:closed-refs child-result))))
 
 (defn- collection-import-type
-  [run {:keys [owner-ref prov] :as ctx} schemas source fixed-ctor union-ctor]
+  [run {:keys [owner-ref prov name-claimed?] :as ctx} schemas source fixed-ctor union-ctor]
   (let [inner-ctx (descend-ctx ctx)
         child-results (mapv (fn [i s]
                               (run (assoc inner-ctx :schema s :source (child-source source i))))
@@ -235,15 +235,15 @@
         child-types (mapv :type child-results)
         child-provs (mapv prov/of child-types)
         closed-refs (merge-closed-refs child-results)
-        node-p (node-prov prov source child-provs)
+        node-p (node-prov prov source child-provs name-claimed?)
         type (if (and owner-ref (contains? closed-refs owner-ref))
-               (let [joined-p (node-prov prov nil child-provs)]
+               (let [joined-p (node-prov prov nil child-provs name-claimed?)]
                  (union-ctor node-p (ato/union-type joined-p child-types)))
                (fixed-ctor node-p child-types))]
     (import-result type closed-refs)))
 
 (defn- map-import-type
-  [run {:keys [prov] :as ctx} schema source]
+  [run {:keys [prov name-claimed?] :as ctx} schema source]
   (let [inner-ctx (descend-ctx ctx)
         entry-results (mapv (fn [[k v]]
                               (let [entry-source (get-in source [:map-entries k])
@@ -255,7 +255,7 @@
         child-provs (mapcat (fn [{:keys [entry]}]
                               [(prov/of (first entry)) (prov/of (second entry))])
                             entry-results)
-        node-p (node-prov prov source child-provs)]
+        node-p (node-prov prov source child-provs name-claimed?)]
     (import-result
      (at/->MapT node-p (into {} (map :entry) entry-results))
      (merge-closed-refs entry-results))))
@@ -267,7 +267,7 @@
     (get-in arglists [k :input-sources])))
 
 (defn- function-import-type
-  [run {:keys [prov] :as ctx} schema source]
+  [run {:keys [prov name-claimed?] :as ctx} schema source]
   (let [defn? (and (map? source) (= :defn (:kind source)))
         output-source (when defn? (:output-source source))
         inner-ctx (descend-ctx ctx)
@@ -283,7 +283,7 @@
                                                           inputs))
                                      child-results (conj input-results output-result)
                                      input-provs (mapv (comp prov/of :type) input-results)
-                                     method-p (node-prov prov nil (conj input-provs (prov/of (:type output-result))))
+                                     method-p (node-prov prov nil (conj input-provs (prov/of (:type output-result))) name-claimed?)
                                      names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
                                  {:type (at/->FnMethodT method-p
                                                         (mapv :type input-results)
@@ -294,13 +294,13 @@
                                   :closed-refs (merge-closed-refs child-results)}))
                              input-schemas)
         method-provs (mapv (comp prov/of :type) method-results)
-        fun-p (node-prov prov nil method-provs)]
+        fun-p (node-prov prov nil method-provs name-claimed?)]
     (import-result
      (at/->FunT fun-p (mapv :type method-results))
      (merge-closed-refs (conj method-results output-result)))))
 
 (defn- branch-import-type
-  [run {:keys [prov] :as ctx} schemas source build]
+  [run {:keys [prov name-claimed?] :as ctx} schemas source build]
   (let [inner-ctx (descend-ctx ctx)
         child-results (mapv (fn [i schema]
                               (run (assoc inner-ctx
@@ -309,12 +309,12 @@
                             (range)
                             schemas)
         child-types (mapv :type child-results)
-        node-p (node-prov prov nil (mapv prov/of child-types))]
+        node-p (node-prov prov nil (mapv prov/of child-types) name-claimed?)]
     (import-result (build node-p child-types)
                    (merge-closed-refs child-results))))
 
 (defn- conditional-import-type
-  [run {:keys [prov] :as ctx} schema source]
+  [run {:keys [prov name-claimed?] :as ctx} schema source]
   (let [inner-ctx (descend-ctx ctx)
         branch-results (mapv (fn [i [pred branch]]
                                (let [branch-source (get-in source [:conditional-branches i])
@@ -326,7 +326,7 @@
                              (range)
                              (:preds-and-schemas schema))
         branch-provs (mapv (fn [{:keys [branch]}] (prov/of (second branch))) branch-results)
-        node-p (node-prov prov nil branch-provs)]
+        node-p (node-prov prov nil branch-provs name-claimed?)]
     (import-result
      (at/->ConditionalT node-p (mapv :branch branch-results))
      (merge-closed-refs branch-results))))
@@ -338,7 +338,7 @@
                                          name-sym
                                          (:declared-in prov)
                                          (:var-meta prov))]
-    (run (assoc ctx :schema (sb/de-named schema) :prov named-prov))))
+    (run (assoc ctx :schema (sb/de-named schema) :prov named-prov :name-claimed? false))))
 
 (defn- var-import-type
   [run {:keys [prov active-refs] :as ctx} schema-var]
@@ -350,11 +350,12 @@
       (bound? schema-var)
       (let [hit (when *var-provs*
                   (.get ^java.util.IdentityHashMap *var-provs* schema-var))]
-        (run (assoc ctx
-                    :schema @schema-var
-                    :prov (or hit prov)
-                    :active-refs (conj active-refs var-ref)
-                    :owner-ref var-ref)))
+        (run (cond-> (assoc ctx
+                            :schema @schema-var
+                            :prov (or hit prov)
+                            :active-refs (conj active-refs var-ref)
+                            :owner-ref var-ref)
+               hit (assoc :name-claimed? false))))
 
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
@@ -375,23 +376,22 @@
   (and p (:qualified-sym p) (contains? schema-foldable-sources (:source p))))
 
 (defn- node-prov
-  [ctx-prov source child-provs]
+  [ctx-prov source child-provs name-claimed?]
   (or (:named-prov source)
-      (when (schema-named-prov? ctx-prov) ctx-prov)
+      (when (and (not name-claimed?) (schema-named-prov? ctx-prov)) ctx-prov)
       (when (seq child-provs)
         (composite-node-prov ctx-prov child-provs))
-      ctx-prov))
+      (if (and name-claimed? (schema-named-prov? ctx-prov))
+        (assoc ctx-prov :qualified-sym nil)
+        ctx-prov)))
 
 (defn- descend-ctx
   [ctx]
-  (let [p (:prov ctx)]
-    (if (schema-named-prov? p)
-      (assoc ctx :prov (assoc p :qualified-sym nil))
-      ctx)))
+  (assoc ctx :name-claimed? true))
 
 (defn- import-schema-type*
-  [run {:keys [schema prov source] :as ctx}]
-  (let [prov (node-prov prov source [])
+  [run {:keys [schema prov source name-claimed?] :as ctx}]
+  (let [prov (node-prov prov source [] name-claimed?)
         ctx (assoc ctx :prov prov :source nil)
         schema (one-step-schema-node schema)
         scalar-schema (sb/canonical-scalar-schema schema)]
@@ -428,7 +428,7 @@
       (import-result (ato/exact-value-type prov schema))
 
       (s/optional-key? schema)
-      (unary-node-result prov at/->OptionalKeyT source
+      (unary-node-result prov name-claimed? at/->OptionalKeyT source
                          (run (assoc (descend-ctx ctx)
                                      :schema (:k schema)
                                      :source (unary-source source))))
@@ -446,7 +446,7 @@
       (function-import-type run ctx schema source)
 
       (sb/maybe? schema)
-      (unary-node-result prov at/->MaybeT source
+      (unary-node-result prov name-claimed? at/->MaybeT source
                          (run (assoc (descend-ctx ctx)
                                      :schema (:schema schema)
                                      :source (unary-source source))))
@@ -474,12 +474,12 @@
                                      :schema (:schema schema)
                                      :source (unary-source source)))
             child-prov (prov/of (:type inner-result))
-            node-p (node-prov prov source [child-prov])]
+            node-p (node-prov prov source [child-prov] name-claimed?)]
         (import-result (at/->ValueT node-p (:type inner-result) (:value schema))
                        (:closed-refs inner-result)))
 
       (sb/variable? schema)
-      (unary-node-result prov at/->VarT source
+      (unary-node-result prov name-claimed? at/->VarT source
                          (run (assoc (descend-ctx ctx)
                                      :schema (:schema schema)
                                      :source (unary-source source))))

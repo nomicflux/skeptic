@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate
   (:require [schema.core :as s]
             [clojure.tools.analyzer :as ta]
+            [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.annotate.control :as control]
@@ -112,7 +113,13 @@
     source-file
     (assoc :file source-file)))
 
-(s/defn analyze-form :- s/Any
+(s/defn ^:private normalize-raw-ast :- aas/AnnotatedNode
+  [ast :- aas/RawAnalyzerAst]
+  (ana.ast/prewalk ast (fn [node]
+                         (cond-> node
+                           (= :const (:op node)) (dissoc :type)))))
+
+(s/defn analyze-form :- aas/AnnotatedNode
   ([form :- s/Any]
    (analyze-form form {}))
   ([form :- s/Any {:keys [locals ns source-file]} :- s/Any]
@@ -120,7 +127,7 @@
          env (binding [*ns* target-ns]
                (analyze-env target-ns locals source-file))]
      (binding [*ns* target-ns]
-       (ana.jvm/analyze form env)))))
+       (normalize-raw-ast (ana.jvm/analyze form env))))))
 
 (s/defn annotate-form-loop :- aas/AnnotatedNode
   ([dict :- s/Any form :- s/Any]
