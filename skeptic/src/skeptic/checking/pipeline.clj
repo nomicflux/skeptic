@@ -277,9 +277,11 @@
 
 (s/defn def-output-results :- s/Any
   [dict ns-sym source-file source-form enclosing-form node :- aas/AnnotatedNode]
-  (let [declared-t (ac/lookup-type dict ns-sym node)
-        init-node (some-> node aapi/def-init-node ca/unwrap-with-meta)
-        methods (when init-node (aapi/function-methods init-node))]
+  (let [declared-t (when (aapi/def-node? node) (ac/lookup-type dict ns-sym node))
+        init-node (when (aapi/def-node? node)
+                    (some-> node aapi/def-init-node ca/unwrap-with-meta))
+        methods (when (and init-node (= :fn (aapi/node-op init-node)))
+                  (aapi/function-methods init-node))]
     (when (and declared-t (seq methods))
       (->> (map vector methods (cf/defn-decls source-form))
            (keep (fn [[method decl]]
