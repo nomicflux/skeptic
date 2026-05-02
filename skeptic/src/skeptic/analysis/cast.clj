@@ -5,6 +5,7 @@
             [skeptic.analysis.cast.function :as fun]
             [skeptic.analysis.cast.map :as cmap]
             [skeptic.analysis.cast.quantified :as quant]
+            [skeptic.analysis.cast.resolve :as resolve]
             [skeptic.analysis.cast.result :as result]
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
@@ -45,6 +46,16 @@
 
       (or (at/conditional-type? target-type) (at/conditional-type? source-type))
       (branch/check-conditional-cast child-run source-type target-type opts)
+
+      (or (at/placeholder-type? target-type) (at/inf-cycle-type? target-type))
+      (if-let [resolved (resolve/resolve-named target-type)]
+        (resolve/with-active (:ref target-type) #(run-cast source-type resolved opts))
+        (ascs/cast-ok source-type target-type :residual-dynamic))
+
+      (or (at/placeholder-type? source-type) (at/inf-cycle-type? source-type))
+      (if-let [resolved (resolve/resolve-named source-type)]
+        (resolve/with-active (:ref source-type) #(run-cast resolved target-type opts))
+        (ascs/cast-ok source-type target-type :residual-dynamic))
 
       (or (at/maybe-type? source-type) (at/maybe-type? target-type))
       (branch/check-maybe-cast child-run source-type target-type opts)

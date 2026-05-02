@@ -58,6 +58,34 @@
     (throw (ex-info "no x" {})))
   (take-val x))
 
+(s/defn maybe-int-into-int-arg-failure :- s/Int
+  []
+  (take-val (maybe-x)))
+
+(s/defn take-symbol :- s/Symbol
+  [x :- s/Symbol]
+  x)
+
+(s/defn maybe-symbol :- (s/maybe s/Symbol)
+  []
+  nil)
+
+(s/defn maybe-symbol-into-symbol-arg-failure :- s/Symbol
+  []
+  (take-symbol (maybe-symbol)))
+
+(s/defn lookup-int :- (s/maybe s/Int)
+  [m :- {s/Keyword s/Int} k :- s/Keyword]
+  (get m k))
+
+(s/defn add-ints :- s/Int
+  [x :- s/Int y :- s/Int]
+  (+ x y))
+
+(s/defn chained-maybe-into-int-arg-failure :- s/Int
+  []
+  (add-ints (lookup-int {} :a) (lookup-int {} :b)))
+
 (s/defschema S
   {:k1 s/Str :k2 s/Str})
 

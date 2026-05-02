@@ -110,3 +110,18 @@
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/when-and-pred-not-contains-throw-correlated-success)]
     (is (empty? (ps/result-errors results))
         (str "expected no checker errors; got: " (pr-str (ps/result-errors results))))))
+
+(deftest c1-maybe-int-into-int-arg-fails
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/maybe-int-into-int-arg-failure)]
+    (is (seq (ps/result-errors results))
+        "expected checker error: (maybe Int) into non-null Int arg")))
+
+(deftest c2-maybe-symbol-into-symbol-arg-fails
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/maybe-symbol-into-symbol-arg-failure)]
+    (is (seq (ps/result-errors results))
+        "expected checker error: (maybe Symbol) into non-null Symbol arg")))
+
+(deftest c3-chained-maybe-into-int-arg-fails
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/chained-maybe-into-int-arg-failure)]
+    (is (seq (ps/result-errors results))
+        "expected checker error: chained (maybe Int) into non-null Int arg")))
