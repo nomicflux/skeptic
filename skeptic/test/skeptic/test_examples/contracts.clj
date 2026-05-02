@@ -563,3 +563,49 @@
   (case (choose x)
     :a (f-a x)
     :b (f-b x)))
+
+(s/defschema PlainDefnDiscA {})
+(defn plain-defn-disc-f [m] (get m :k :a))
+(s/defschema PlainDefnDiscIn
+  (s/conditional
+    #(= :a (plain-defn-disc-f %)) PlainDefnDiscA
+    #(= :b (plain-defn-disc-f %)) {(s/optional-key :k) s/Any}))
+
+(s/defn plain-defn-disc-g
+  [_m :- PlainDefnDiscA]
+  nil)
+
+(s/defn plain-defn-disc-repro-success
+  [m :- PlainDefnDiscIn]
+  (case (plain-defn-disc-f m)
+    :a (plain-defn-disc-g m)))
+
+(s/defschema PlainDefnKindKind (s/enum :a :b))
+(s/defschema PlainDefnKindInA
+  {(s/optional-key :k) (s/eq :a)
+   :k1 (s/constrained s/Str string? 'PlainDefnKindARefined)
+   :k2 (s/constrained s/Str string? 'PlainDefnKindARefined)})
+
+(s/defschema PlainDefnKindInB
+  {:k (s/eq :b)
+   :k3 (s/constrained s/Int integer? 'PlainDefnKindBRefined)})
+
+(declare plain-defn-kind-params->kind)
+
+(s/defschema PlainDefnKindIn
+  (s/conditional
+    #(= :a (plain-defn-kind-params->kind %)) PlainDefnKindInA
+    #(= :b (plain-defn-kind-params->kind %)) PlainDefnKindInB))
+
+(defn plain-defn-kind-params->kind
+  [params]
+  (keyword (get params :k :a)))
+
+(s/defn plain-defn-kind-f-a :- s/Any
+  [params :- PlainDefnKindInA]
+  nil)
+
+(s/defn plain-defn-kind-repro-success :- s/Any
+  [params :- PlainDefnKindIn]
+  (case (plain-defn-kind-params->kind params)
+    :a (plain-defn-kind-f-a params)))

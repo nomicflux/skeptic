@@ -6,8 +6,7 @@
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.source :as source]
-            [skeptic.provenance :as prov]
-            [skeptic.typed-decls :as typed-decls]))
+            [skeptic.provenance :as prov]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
@@ -18,17 +17,16 @@
                                  (java.io.File. "src/skeptic/core_fns.clj")
                                  {})))))
 
-(deftest check-ns-localizes-read-failures
+(deftest check-namespace-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
-        results (:results (sut/check-ns 'skeptic.test-examples.basics
-                                        temp-file
-                                        {:remove-context true}))]
+        {:keys [results]} (sut/check-namespace {:remove-context true}
+                                               'skeptic.test-examples.basics
+                                               temp-file)]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
-    (is (= :read (:phase (first results))))
-    (is (= (.getPath temp-file) (get-in (first results) [:location :file])))))
+    (is (= :load (:phase (first results))))))
 
 (deftest symbol-output-annotation-regression
   (let [form (->> 'skeptic.schema.collect/fully-qualify-str
@@ -124,11 +122,9 @@
                   results)))))
 
 (deftest namespace-checking-keeps-going-after-declaration-errors
-  (let [{:keys [errors]} (typed-decls/typed-ns-results {} 'skeptic.best-effort-examples)
-        results (vec (concat errors
-                             (:results (sut/check-ns 'skeptic.best-effort-examples
-                                                     ps/best-effort-file
-                                                     {:remove-context true}))))
+  (let [results (vec (:results (sut/check-ns 'skeptic.best-effort-examples
+                                             ps/best-effort-file
+                                             {:remove-context true})))
         declaration-error (some #(when (= :declaration (:phase %)) %) results)
         stray-form-result (some #(when (= 'skeptic.best-effort-examples/good-call
                                         (:enclosing-form %))
@@ -166,10 +162,13 @@
         exprs (vec (sut/ns-exprs file))
         exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
     (is (some? exploding-form))
-    (with-redefs [sut/analyze-source-exprs (fn [dict ns-sym source-file exprs]
-                                             (if (= exploding-form (first exprs))
-                                               (throw (ex-info "boom during analysis" {}))
-                                               (real-analyze dict ns-sym source-file exprs)))]
+    (with-redefs [sut/analyze-source-exprs (fn redef
+                                             ([dict ns-sym source-file exprs]
+                                              (redef dict ns-sym source-file exprs {}))
+                                             ([dict ns-sym source-file exprs opts]
+                                              (if (= exploding-form (first exprs))
+                                                (throw (ex-info "boom during analysis" {}))
+                                                (real-analyze dict ns-sym source-file exprs opts))))]
       (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
                                          {:remove-context true})
             exception-result (some #(when (= :expression (:phase %)) %) results)

@@ -121,22 +121,16 @@
            rendered))
     (assert-no-producer-name rendered)))
 
-(deftest case-f-conditional-branches-keep-names
+(deftest case-f-conditional-branches-narrow-on-literal
   (let [result (public-output-result (q 'visible-conditional-branch-mismatch))
         rendered (render/render-type-form (:actual-type result))]
-    (is (= {:result (list 'conditional (q 'IntBranch) (q 'StrBranch))}
-           rendered))
-    (is (not= {:result '(union Int Str)} rendered))
-    (is (not= {:result '(conditional Int Str)} rendered))
+    (is (= {:result 'Int} rendered))
     (assert-no-producer-name rendered)))
 
-(deftest adjacent-branch-combinators-keep-names
-  (assert-public-render 'visible-either-branch-mismatch
-                        {:result (list 'union (q 'IntBranch) (q 'StrBranch))})
-  (assert-public-render 'visible-cond-pre-branch-mismatch
-                        {:result (list 'union (q 'IntBranch) (q 'StrBranch))})
-  (assert-public-render 'visible-both-branch-mismatch
-                        {:result (list 'intersection (q 'IntBranch) (q 'StrBranch))}))
+(deftest adjacent-branch-combinators-narrow-on-literal
+  (assert-public-render 'visible-either-branch-mismatch  {:result 'Int})
+  (assert-public-render 'visible-cond-pre-branch-mismatch {:result 'Int})
+  (assert-public-render 'visible-both-branch-mismatch    {:result 'Int}))
 
 (deftest adjacent-unary-combinators-keep-names
   (assert-public-render 'visible-maybe-branch-mismatch

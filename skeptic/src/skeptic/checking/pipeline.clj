@@ -526,7 +526,9 @@
 (s/defn check-ns-form :- s/Any
   [dict ignore-body :- #{s/Symbol} ns :- s/Symbol source-file source-form opts]
   (try
-    (let [{:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form])]
+    (let [accessor-summaries (or (:accessor-summaries opts) {})
+          {:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form]
+                                                                 {:accessor-summaries accessor-summaries})]
       {:results (vec (check-resolved-form dict
                                           ignore-body
                                           ns
@@ -584,23 +586,27 @@
     {:dict dict
      :accessor-summaries {}}))
 
+(defn- prepare-namespace
+  [opts ns-sym source-file]
+  (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)]
+    (binding [*ns* (the-ns ns-sym)]
+      (let [{dict :dict accessor-summaries :accessor-summaries}
+            (preanalyzed-ns-dict dict ns-sym source-file)
+            dict (enrich-conditional-descriptors dict ns-sym accessor-summaries)]
+        {:dict dict
+         :ignore-body ignore-body
+         :accessor-summaries accessor-summaries
+         :errors errors
+         :provenance provenance}))))
+
 (s/defn check-s-expr :- s/Any
-  [s-expr {:keys [keep-empty remove-context ns source-file check-def] :or {keep-empty false} :as opts}]
+  [s-expr {:keys [ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)
+    (let [{:keys [dict ignore-body accessor-summaries]} (prepare-namespace opts ns source-file)
           source-form (find-source-form s-expr source-file check-def)
-          {:keys [dict accessor-summaries]} (preanalyzed-ns-dict dict ns source-file)
-          dict (enrich-conditional-descriptors dict ns accessor-summaries)
-          {:keys [resolved]} (analyze-source-exprs dict ns source-file [source-form] {:accessor-summaries accessor-summaries})]
-      (vec (check-resolved-form dict
-                                ignore-body
-                                ns
-                                source-file
-                                source-form
-                                (first resolved)
-                                {:keep-empty keep-empty
-                                 :remove-context remove-context
-                                 :accessor-summaries accessor-summaries})))))
+          form-opts (assoc opts :accessor-summaries accessor-summaries)
+          {:keys [results]} (check-ns-form dict ignore-body ns source-file source-form form-opts)]
+      (vec results))))
 
 (defmacro block-in-ns
   [_ns ^File file & body]
@@ -614,17 +620,18 @@
 
 (s/defn check-ns :- s/Any
   [ns :- s/Symbol source-file opts]
-  (let [{:keys [dict ignore-body]} (namespace-dict opts ns source-file)]
+  (let [{:keys [dict ignore-body accessor-summaries errors provenance]} (prepare-namespace opts ns source-file)
+        form-opts (assoc opts :accessor-summaries accessor-summaries)]
     (binding [*ns* (the-ns ns)]
       (with-open [reader (file/pushback-reader source-file)]
-        (loop [acc {:results [] :provenance {}}]
+        (loop [acc {:results (vec errors) :provenance {}}]
           (let [{:keys [kind form exception]} (next-checkable-form reader)]
             (case kind
-              :eof acc
-              :form (let [{:keys [results provenance]} (check-ns-form dict ignore-body ns source-file form opts)]
+              :eof (update acc :provenance #(merge % (or provenance {})))
+              :form (let [{form-results :results form-prov :provenance} (check-ns-form dict ignore-body ns source-file form form-opts)]
                       (recur (-> acc
-                                 (update :results into results)
-                                 (update :provenance merge provenance))))
+                                 (update :results into form-results)
+                                 (update :provenance merge form-prov))))
               :read-error (recur (update acc :results conj (read-exception-result source-file exception))))))))))
 
 (s/defn load-exception-result :- s/Any
@@ -645,10 +652,7 @@
   {:results [...] :provenance {sym → Provenance}}."
   [opts ns-sym :- s/Symbol source-file]
   (try
-    (let [{:keys [errors provenance]} (namespace-dict opts ns-sym source-file)
-          {check-results :results check-provenance :provenance} (check-ns ns-sym source-file opts)]
-      {:results (vec (concat errors check-results))
-       :provenance (merge check-provenance provenance)})
+    (check-ns ns-sym source-file opts)
     (catch Exception e
       {:results [(load-exception-result ns-sym e)]
        :provenance {}})))

@@ -143,3 +143,8 @@
 (deftest conditional-classifier-case-narrows-across-functions
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/chooses-conditional-success))
+
+(deftest plain-defn-discriminator-case-narrowing
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/plain-defn-disc-repro-success
+    'skeptic.test-examples.contracts/plain-defn-kind-repro-success))
