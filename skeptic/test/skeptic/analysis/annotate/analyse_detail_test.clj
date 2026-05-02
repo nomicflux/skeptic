@@ -3,7 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
-            [skeptic.analysis.types :as at]
+            [skeptic.test-helpers :refer [is-type= T]]
             [skeptic.analysis-test :as atst]))
 
 (deftest detailed-let-and-if-shape-test
@@ -21,4 +21,6 @@
       (is (= :def (aapi/node-op ast)))
       (is (= 'sample (aapi/node-name ast)))
       (is (= :with-meta (aapi/node-op (aapi/def-init-node ast))))
-      (is (at/type=? [(atst/T s/Any)] (aapi/arglist-types (aapi/unwrap-with-meta (aapi/def-init-node ast)) 1))))))
+      (let [arglist (aapi/arglist-types (aapi/unwrap-with-meta (aapi/def-init-node ast)) 1)]
+        (is (= 1 (count arglist)))
+        (is-type= (T s/Any) (first arglist))))))

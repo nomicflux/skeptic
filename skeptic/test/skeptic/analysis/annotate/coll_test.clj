@@ -2,25 +2,24 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.annotate.coll :as sut]
-            [skeptic.analysis-test :as atst]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.test-helpers :refer [tp]]))
+            [skeptic.test-helpers :refer [is-type= T tp]]))
 
 (def ^:private other-prov
   (prov/make-provenance :schema 'other 'other.ns nil))
 
 (deftest collection-shape-helpers-test
-  (let [vec-type (atst/T [s/Int s/Int])
-        seq-type (atst/T [s/Int])]
-    (is (sut/vec-homogeneous-items? [(atst/T s/Int) (atst/T s/Int)]))
-    (is (at/type=? (atst/T s/Int) (sut/vector-slot-type vec-type 0)))
-    (is (at/type=? (atst/T s/Int) (sut/coll-first-type vec-type)))
-    (is (at/type=? (atst/T s/Int) (sut/coll-last-type seq-type)))
-    (is (at/type=? (atst/T [s/Int]) (sut/coll-take-prefix-type vec-type 1)))))
+  (let [vec-type (T [s/Int s/Int])
+        seq-type (T [s/Int])]
+    (is (sut/vec-homogeneous-items? [(T s/Int) (T s/Int)]))
+    (is-type= (T s/Int) (sut/vector-slot-type vec-type 0))
+    (is-type= (T s/Int) (sut/coll-first-type vec-type))
+    (is-type= (T s/Int) (sut/coll-last-type seq-type))
+    (is-type= (T [s/Int]) (sut/coll-take-prefix-type vec-type 1))))
 
 (deftest collection-output-helpers-test
-  (let [args [{:type (atst/T [s/Int])} {:type (atst/T [s/Int])}]]
+  (let [args [{:type (T [s/Int])} {:type (T [s/Int])}]]
     (is (at/seq-type? (sut/concat-output-type tp args)))
     (is (some? (sut/into-output-type args)))))
 

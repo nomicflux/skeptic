@@ -14,43 +14,43 @@
             [skeptic.checking.pipeline :as checking]
             [skeptic.provenance :as prov]
             [skeptic.test-examples.catalog :as catalog]
-            [skeptic.test-helpers :refer [tp]]
+            [skeptic.test-helpers :refer [is-type= T tp]]
             [skeptic.typed-decls :as typed-decls])
   (:import [clojure.lang Numbers]))
 
 (deftest origin-constructors-unit-test
   (testing "opaque origin tags normalized type"
-    (is (= :opaque (:kind (ao/opaque-origin (atst/T s/Int))))))
+    (is (= :opaque (:kind (ao/opaque-origin (T s/Int))))))
   (testing "root origin carries sym and type"
-    (let [o (ao/root-origin 'x (atst/T s/Str))]
+    (let [o (ao/root-origin 'x (T s/Str))]
       (is (= :root (:kind o)))
       (is (= 'x (:sym o)))
-      (is (at/type=? (atst/T s/Str) (:type o)))))
+      (is-type= (T s/Str) (:type o))))
   (testing "effective-type returns refined type"
-    (is (at/type=? (atst/T s/Int) (ao/effective-type tp 'x (atst/T s/Int) [])))))
+    (is-type= (T s/Int) (ao/effective-type tp 'x (T s/Int) []))))
 
 (deftest effective-type-entry-shapes-preserve-types-test
   (let [ctx (prov/set-ctx {} tp)
-        str-type (atst/T s/Str)
-        maybe-str-type (atst/T (s/maybe s/Str))
+        str-type (T s/Str)
+        maybe-str-type (T (s/maybe s/Str))
         root (ao/root-origin 'x maybe-str-type)
         some-assumption (ao/type-predicate-assumption root {:pred :some?} true)]
     (testing "semantic type entries are returned unchanged when no assumptions refine them"
       (is (identical? str-type (ao/effective-type ctx 'x str-type []))))
     (testing "map entries with origins still refine through their origin"
-      (is (at/type=? str-type
-                     (ao/effective-type ctx
-                                        'x
-                                        {:type maybe-str-type
-                                         :origin root}
-                                        [some-assumption]))))
+      (is-type= str-type
+          (ao/effective-type ctx
+                             'x
+                             {:type maybe-str-type
+                              :origin root}
+                             [some-assumption])))
     (testing "fallback entries still produce dyn with the context provenance"
       (let [fallback (ao/effective-type ctx 'missing nil [])]
         (is (at/dyn-type? fallback))
         (is (= :inferred (get-in fallback [:prov :source])))))))
 
 (deftest normalized-origin-private-helpers-match-public-constructors-test
-  (let [str-type (atst/T s/Str)]
+  (let [str-type (T s/Str)]
     (is (= (ao/root-origin 'x str-type)
            (#'ao/root-origin* 'x str-type)))
     (is (= (ao/opaque-origin str-type)
@@ -70,7 +70,7 @@
   (testing "static-call expected arg metadata yields a type-predicate assumption"
     (let [root (atst/analyze-form atst/analysis-dict
                                   '(+ x 1)
-                                  {:locals {'x (atst/T s/Any)}})
+                                  {:locals {'x (T s/Any)}})
           assumptions (ao/call-arg-contract-assumptions root)
           assumption (first assumptions)]
       (is (= :static-call (aapi/node-op root)))
@@ -80,20 +80,20 @@
       (is (= :number? (:pred assumption)))))
   (testing "nil and non-call nodes are no-ops"
     (is (= [] (ao/call-arg-contract-assumptions nil)))
-    (is (= [] (ao/call-arg-contract-assumptions {:op :const :val 1 :type (atst/T s/Int)}))))
+    (is (= [] (ao/call-arg-contract-assumptions {:op :const :val 1 :type (T s/Int)}))))
   (testing "calls without a single classifying input type are no-ops"
     (let [root (atst/analyze-form atst/analysis-dict
                                   '(str x)
-                                  {:locals {'x (atst/T s/Any)}})]
+                                  {:locals {'x (T s/Any)}})]
       (is (= [] (ao/call-arg-contract-assumptions root))))))
 
 (deftest path-type-predicate-assumption-shape-test
-  (let [root-type (atst/T {:x {:k (s/maybe s/Str)}})
+  (let [root-type (T {:x {:k (s/maybe s/Str)}})
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
         target {:op :keyword-invoke
                 :form '(:k (:x x))
-                :type (atst/T (s/maybe s/Str))
+                :type (T (s/maybe s/Str))
                 :origin (ao/map-key-lookup-origin (ao/root-origin 'x root-type)
                                                   [kq-x kq-k]
                                                   [amo/no-default amo/no-default])}
@@ -111,12 +111,12 @@
     (is (= assumption (s/validate aos/PathTypePredicateAssumption assumption)))))
 
 (deftest branch-origin-with-conjunction-satisfies-schema-test
-  (let [root (ao/root-origin 'x (atst/T (s/maybe s/Str)))
+  (let [root (ao/root-origin 'x (T (s/maybe s/Str)))
         left (ao/type-predicate-assumption root {:pred :some?} true)
         right (ao/type-predicate-assumption root {:pred :string?} true)
         test (ao/conjunction-assumption [left right])
-        then-origin (ao/opaque-origin (atst/T s/Str))
-        else-origin (ao/opaque-origin (atst/T nil))
+        then-origin (ao/opaque-origin (T s/Str))
+        else-origin (ao/opaque-origin (T nil))
         origin (ao/branch-origin test then-origin else-origin)]
     (is (= :branch (:kind origin)))
     (is (= :conjunction (get-in origin [:test :kind])))
@@ -127,20 +127,20 @@
     (let [or-let (atst/analyze-form '(let [y nil
                                            x (or y 1)]
                                        (skeptic.test-examples.basics/int-add x 2)))]
-      (is (at/type=? (atst/T s/Int) (aapi/node-type or-let)))
+      (is-type= (T s/Int) (aapi/node-type or-let))
       (is (aapi/find-node or-let #(and (= :if (aapi/node-op %))
-                                       (at/type=? (atst/T s/Int) (aapi/node-type %)))))))
+                                       (at/type=? (T s/Int) (aapi/node-type %)))))))
   (testing "if refinement and joins"
     (let [literal-if (atst/analyze-form '(if (even? 2) true "hello"))
           local-if (atst/analyze-form '(if (pos? x) 1 -1)
                                       (atst/locals 'x))
           maybe-if (atst/analyze-form '(let [x nil] (if x x 1)))
           or-form (atst/analyze-form '(or nil 1))]
-      (is (at/type=? (atst/T (sb/join s/Bool s/Str)) (aapi/node-type literal-if)))
-      (is (at/type=? (atst/T s/Int) (aapi/node-type local-if)))
-      (is (at/type=? (atst/T s/Int) (aapi/node-type maybe-if)))
+      (is-type= (T (sb/join s/Bool s/Str)) (aapi/node-type literal-if))
+      (is-type= (T s/Int) (aapi/node-type local-if))
+      (is-type= (T s/Int) (aapi/node-type maybe-if))
       (is (= :let (aapi/node-op or-form)))
-      (is (at/type=? (atst/T s/Int) (aapi/node-type or-form))))))
+      (is-type= (T s/Int) (aapi/node-type or-form)))))
 
 (deftest attach-type-branch-refinement-test
   (testing "or/let typed setup exposes branch join on inner if"
@@ -148,26 +148,27 @@
                                   '(let [y nil
                                          x (or y 1)]
                                      (skeptic.test-examples.basics/int-add x 2)))]
-      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))
+      (is-type= (T s/Int) (aapi/node-type root))
       (is (aapi/find-node root #(and (= :if (aapi/node-op %))
-                                     (at/type=? (atst/T s/Int) (aapi/node-type %)))))))
+                                     (at/type=? (T s/Int) (aapi/node-type %)))))))
   (testing "literal if join"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(if (even? 2) true "hello"))]
-      (is (at/type=? (atst/T (sb/join s/Bool s/Str)) (aapi/node-type root)))))
+      (is-type= (T (sb/join s/Bool s/Str)) (aapi/node-type root))))
   (testing "symbol test if keeps output type when branches agree"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
-                                  '(if (pos? x) 1 -1))]
-      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))))
+                                  '(if (pos? x) 1 -1)
+                                  (atst/locals 'x))]
+      (is-type= (T s/Int) (aapi/node-type root))))
   (testing "maybe-refinement if joins nilable branch with default"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(let [x nil] (if x x 1)))]
-      (is (at/type=? (atst/T s/Int) (aapi/node-type root)))))
+      (is-type= (T s/Int) (aapi/node-type root))))
   (testing "or macro matches expanded branch join"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(or nil 1))]
       (is (= :let (aapi/node-op root)))
-      (is (at/type=? (atst/T s/Int) (aapi/node-type root))))))
+      (is-type= (T s/Int) (aapi/node-type root)))))
 
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
@@ -187,24 +188,24 @@
                                                      'skeptic.examples
                                                      atst/examples-file
                                                      (atst/source-exprs-in 'skeptic.examples atst/examples-file))]
-      (is (at/type=? (atst/T (sb/join s/Int s/Str))
-             (aapi/resolved-def-output-type (:resolved-defs control-flow-res)
-                                            'skeptic.test-examples.control-flow/sample-if-mixed-fn)))
-      (is (at/type=? (atst/T s/Int)
-             (aapi/resolved-def-output-type (:resolved-defs resolution-res)
-                                            'skeptic.test-examples.resolution/flat-multi-step-g)))
-      (is (at/type=? (atst/T (s/maybe s/Int))
-             (aapi/resolved-def-output-type (:resolved-defs example-res)
-                                            'skeptic.examples/flat-maybe-multi-step-f)))
-      (is (at/type=? (atst/T {:value (s/maybe s/Int)})
-             (aapi/resolved-def-output-type (:resolved-defs example-res)
-                                            'skeptic.examples/nested-maybe-multi-step-f))))))
+      (is-type= (T (sb/join s/Int s/Str))
+          (aapi/resolved-def-output-type (:resolved-defs control-flow-res)
+                                         'skeptic.test-examples.control-flow/sample-if-mixed-fn))
+      (is-type= (T s/Int)
+          (aapi/resolved-def-output-type (:resolved-defs resolution-res)
+                                         'skeptic.test-examples.resolution/flat-multi-step-g))
+      (is-type= (T (s/maybe s/Int))
+          (aapi/resolved-def-output-type (:resolved-defs example-res)
+                                         'skeptic.examples/flat-maybe-multi-step-f))
+      (is-type= (T {:value (s/maybe s/Int)})
+          (aapi/resolved-def-output-type (:resolved-defs example-res)
+                                         'skeptic.examples/nested-maybe-multi-step-f)))))
 
 (deftest region-conjuncts-and-shape-two-some-test
   (testing "let+if and-shape collects each some? conjunct on the truthy side and emits a disjunction of negations on the falsy side"
     (let [root (atst/analyze-form atst/analysis-dict '(and (some? x) (some? y))
-                                  {:locals {'x (atst/T (s/maybe s/Int))
-                                            'y (atst/T (s/maybe s/Str))}})
+                                  {:locals {'x (T (s/maybe s/Int))
+                                            'y (T (s/maybe s/Str))}})
           {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
       (is (= 2 (count then-conjuncts)))
       (is (every? #(and (= :type-predicate (:kind %))
@@ -223,14 +224,14 @@
 (deftest equality-test-assumptions
   (testing "local equals literal"
     (let [root (atst/analyze-form atst/analysis-dict '(= x :a)
-                                  {:locals {'x (atst/T (s/enum :a :b))}})
+                                  {:locals {'x (T (s/enum :a :b))}})
           assumption (ao/test->assumption tp root)]
       (is (= :value-equality (:kind assumption)))
       (is (= 'x (get-in assumption [:root :sym])))
       (is (= [:a] (:values assumption)))))
   (testing "literal equals local"
     (let [root (atst/analyze-form atst/analysis-dict '(= :a x)
-                                  {:locals {'x (atst/T (s/enum :a :b))}})
+                                  {:locals {'x (T (s/enum :a :b))}})
           assumption (ao/test->assumption tp root)]
       (is (= :value-equality (:kind assumption)))
       (is (= 'x (get-in assumption [:root :sym])))
@@ -243,37 +244,37 @@
                                      (let [x input
                                            x (if (nil? x) nil (skeptic.test-examples.nullability/non-null-transform x))]
                                        (if (nil? x) nil (#(- %) x))))
-                                  {:locals {'input (atst/T (s/maybe s/Num))}})
+                                  {:locals {'input (T (s/maybe s/Num))}})
           minus (aapi/find-node root
                                 #(and (= :static-call (aapi/node-op %))
                                       (= Numbers (aapi/node-class %))
                                       (= 'minus (aapi/node-method %))))]
       (is (some? minus) "expected unary - lowered to Numbers/minus")
-      (is (at/type=? atst/numeric-dyn (first (aapi/call-actual-argtypes minus)))))))
+      (is-type= atst/numeric-dyn (first (aapi/call-actual-argtypes minus))))))
 
 (deftest negated-assumptions-and-narrowing-alias-roots-test
   (testing "not around nil? inverts the branch assumption"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(if (not (nil? x)) x "fallback")
-                                  {:locals {'x (atst/T (s/maybe s/Str))}})
+                                  {:locals {'x (T (s/maybe s/Str))}})
           if-node (aapi/find-node root #(= :if (aapi/node-op %)))
           then-x (aapi/find-node (aapi/then-node if-node)
                                  #(and (= :local (aapi/node-op %))
                                        (= 'x (aapi/node-form %))))]
-      (is (at/type=? (atst/T s/Str) (aapi/node-type if-node)))
-      (is (at/type=? (atst/T s/Str) (aapi/node-type then-x)))))
+      (is-type= (T s/Str) (aapi/node-type if-node))
+      (is-type= (T s/Str) (aapi/node-type then-x))))
 
   (testing "narrowing-preserving aliases get their own root for later refinement"
     (let [root (atst/analyze-form atst/typed-test-examples-dict
                                   '(let [raw input
                                          p (when (some? raw) raw)]
                                      (if (some? p) p nil))
-                                  {:locals {'input (atst/T (s/maybe s/Str))}})
+                                  {:locals {'input (T (s/maybe s/Str))}})
           then-p (aapi/find-node root
                                  #(and (= :local (aapi/node-op %))
                                        (= 'p (aapi/node-form %))
-                                       (= (atst/T s/Str) (aapi/node-type %))))]
-      (is (at/type=? (atst/T s/Str) (aapi/node-type then-p)))
+                                       (= (T s/Str) (aapi/node-type %))))]
+      (is-type= (T s/Str) (aapi/node-type then-p))
       (is (= 'p (:sym (ao/local-root-origin tp then-p)))))))
 
 (deftest guarded-keys-maybe-s-caller-origin-test
@@ -296,8 +297,8 @@
     (is (= 2 (count lookup-nodes)))
     (doseq [lookup lookup-nodes]
       (is (= :map-key-lookup (:kind (aapi/node-origin lookup))))
-      (is (at/type=? (atst/T s/Str)
-                     (ao/origin-type (aapi/node-origin lookup) [pair-assumption]))))))
+      (is-type= (T s/Str)
+          (ao/origin-type (aapi/node-origin lookup) [pair-assumption])))))
 
 (defn- bp [expr polarity] {:kind :boolean-proposition :expr expr :polarity polarity})
 (defn- disj* [& parts] {:kind :disjunction :parts (vec parts)})
@@ -315,7 +316,7 @@
 
 (deftest region-conjuncts-and-shape-emits-disjunction
   (let [root (atst/analyze-form atst/analysis-dict '(and (pos? x) (pos? y))
-                                {:locals {'x (atst/T s/Int) 'y (atst/T s/Int)}})
+                                {:locals {'x (T s/Int) 'y (T s/Int)}})
         {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
     (is (= 2 (count then-conjuncts)))
     (is (every? #(and (= :boolean-proposition (:kind %))
@@ -342,8 +343,8 @@
     (is (= :unknown (ao/assumption-truth query [d1 d2])))))
 
 (deftest opposite-polarity-negates-conjunction-with-truthy-local
-  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
-        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+  (let [pred-root (ao/root-origin 'pred? (T s/Any))
+        m-root (ao/root-origin 'm (T (s/maybe s/Str)))
         pred (ao/truthy-local-assumption pred-root true)
         nil-m (ao/type-predicate-assumption m-root {:pred :nil?} true)
         result (ao/opposite-polarity (ao/conjunction-assumption [pred nil-m]))]
@@ -366,8 +367,8 @@
            (ao/simplify-assumptions [a (ao/conjunction-assumption [b c]) d])))))
 
 (deftest simplify-assumptions-reduces-disjunction-to-singleton
-  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
-        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+  (let [pred-root (ao/root-origin 'pred? (T s/Any))
+        m-root (ao/root-origin 'm (T (s/maybe s/Str)))
         pred-true (ao/truthy-local-assumption pred-root true)
         pred-false (assoc pred-true :polarity false)
         non-nil-m (ao/type-predicate-assumption m-root {:pred :nil?} false)
@@ -376,8 +377,8 @@
            (ao/simplify-assumptions [pred-true assumption])))))
 
 (deftest simplify-assumptions-marks-zero-survivor-as-contradicted
-  (let [pred-root (ao/root-origin 'pred? (atst/T s/Any))
-        m-root (ao/root-origin 'm (atst/T (s/maybe s/Str)))
+  (let [pred-root (ao/root-origin 'pred? (T s/Any))
+        m-root (ao/root-origin 'm (T (s/maybe s/Str)))
         pred-true (ao/truthy-local-assumption pred-root true)
         pred-false (assoc pred-true :polarity false)
         nil-m (ao/type-predicate-assumption m-root {:pred :nil?} true)
@@ -389,7 +390,7 @@
 (deftest chained-keyword-invoke-yields-path-origin
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(:k (:x x))
-                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+                                {:locals {'x (T {:x {:k s/Str}})}})
         outer (aapi/find-node root #(= :keyword-invoke (aapi/node-op %)))
         origin (aapi/node-origin outer)]
     (is (= :map-key-lookup (:kind origin)))
@@ -402,7 +403,7 @@
 (deftest destructured-projection-binding-origin
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(let [{:keys [k]} (:x x)] k)
-                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+                                {:locals {'x (T {:x {:k s/Str}})}})
         k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
                                            (= 'k (aapi/node-form %))
                                            (= :static-call (aapi/node-op (:binding-init %)))))
@@ -413,12 +414,12 @@
     (is (= 2 (count (:path origin))))
     (is (= :x (:value (first (:path origin)))))
     (is (= :k (:value (second (:path origin)))))
-    (is (at/type=? (atst/T s/Str) (ao/origin-type origin [])))))
+    (is-type= (T s/Str) (ao/origin-type origin []))))
 
 (deftest destructure-as-alias-preserves-root-origin
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(let [{{:keys [k]} :x :as x} input] x)
-                                {:locals {'input (atst/T {:x {:k s/Str}})}})
+                                {:locals {'input (T {:x {:k s/Str}})}})
         x-local (aapi/find-node root #(and (= :local (aapi/node-op %))
                                            (= 'x (aapi/node-form %))
                                            (nil? (:init %))))
@@ -429,7 +430,7 @@
 (deftest nested-destructure-double-shim-yields-full-path
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(let [{{{:keys [k]} :inner} :x :as x} input] k)
-                                {:locals {'input (atst/T {:x {:inner {:k s/Str}}})}})
+                                {:locals {'input (T {:x {:inner {:k s/Str}}})}})
         k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
                                            (= 'k (aapi/node-form %))
                                            (= :static-call (aapi/node-op (:binding-init %)))))
@@ -443,21 +444,21 @@
     (is (= :k (:value (nth (:path origin) 2))))))
 
 (deftest origin-type-folds-path
-  (let [map-type (atst/T {:x {:k s/Str}})
+  (let [map-type (T {:x {:k s/Str}})
         root (ao/root-origin 'x map-type)
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
         origin {:kind :map-key-lookup :root root :path [kq-x kq-k]
                 :defaults [amo/no-default amo/no-default]}
         result (ao/origin-type origin [])]
-    (is (at/type=? (atst/T s/Str) result))))
+    (is-type= (T s/Str) result)))
 
 (deftest static-get-with-default-yields-path-origin
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(let [g (clojure.core/get x :x nil)
                                        k (clojure.core/get g :k nil)]
                                    k)
-                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+                                {:locals {'x (T {:x {:k s/Str}})}})
         k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
                                            (= 'k (aapi/node-form %))))
         origin (aapi/node-origin k-local)]
@@ -471,7 +472,7 @@
 (deftest equality-value-assumption-path-shape
   (let [root (atst/analyze-form atst/analysis-dict
                                 '(let [{:keys [k]} (:x x)] (= k "b"))
-                                {:locals {'x (atst/T {:x {:k s/Str}})}})
+                                {:locals {'x (T {:x {:k s/Str}})}})
         eq-node (aapi/find-node root #(or (and (= :invoke (aapi/node-op %))
                                               (some-> (aapi/call-fn-node %) ac/equality-call?))
                                          (and (= :static-call (aapi/node-op %))
@@ -486,7 +487,7 @@
     (is (true? (:polarity assumption)))))
 
 (deftest apply-path-value-equality-refines-root
-  (let [root-type (atst/T {:x {:k s/Str}})
+  (let [root-type (T {:x {:k s/Str}})
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
         assumption {:kind :path-value-equality
@@ -496,10 +497,10 @@
                     :polarity true}
         refined (ao/apply-assumption-to-root-type root-type assumption)
         inner-k (amo/map-get-type (amo/map-get-type refined kq-x) kq-k)]
-    (is (at/type=? (atst/T (s/eq "b")) inner-k))))
+    (is-type= (T (s/eq "b")) inner-k)))
 
 (deftest branch-local-envs-refines-x-via-nested-equality
-  (let [root-type (atst/T {:x {:k s/Str}})
+  (let [root-type (T {:x {:k s/Str}})
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
         assumption {:kind :path-value-equality
@@ -513,12 +514,12 @@
                   :defaults [amo/no-default]}
         x-type (ao/origin-type x-origin [assumption])
         inner-k (amo/map-get-type x-type kq-k)]
-    (is (at/type=? (atst/T (s/eq "b")) inner-k))
-    (is (at/type=? (atst/T {:k (s/eq "b")}) x-type))))
+    (is-type= (T (s/eq "b")) inner-k)
+    (is-type= (T {:k (s/eq "b")}) x-type)))
 
 (deftest branch-local-envs-refines-cross-symbol-origin-dependency
-  (let [root-type (atst/T {:x {:k s/Str}})
-        x-type (atst/T {:k s/Str})
+  (let [root-type (T {:x {:k s/Str}})
+        x-type (T {:k s/Str})
         kq-x (amo/exact-key-query tp :x)
         kq-k (amo/exact-key-query tp :k)
         assumption {:kind :path-value-equality
@@ -538,10 +539,10 @@
                                    []
                                    {:then-conjuncts [assumption]
                                     :else-conjuncts []})]
-    (is (at/type=? (atst/T {:k (s/eq "b")})
-                   (get-in envs [:then-locals 'x :type])))
-    (is (at/type=? x-type
-                   (get-in envs [:else-locals 'x :type])))))
+    (is-type= (T {:k (s/eq "b")})
+        (get-in envs [:then-locals 'x :type]))
+    (is-type= x-type
+        (get-in envs [:else-locals 'x :type]))))
 
 (def ^:private vn-dict (catalog/typed-test-example-entries))
 (def ^:private vn-ns 'skeptic.test-examples.var-narrowing)
@@ -586,8 +587,8 @@
     (is (= [:foo] (:values assumption)))))
 
 (deftest blank-call-on-var-yields-blank-check-assumption-test
-  (let [var-targ {:op :var :form 'server-str :type (atst/T s/Str)
-                  :origin (ao/root-origin 'server-str (atst/T s/Str))}
+  (let [var-targ {:op :var :form 'server-str :type (T s/Str)
+                  :origin (ao/root-origin 'server-str (T s/Str))}
         invoke-node {:op :invoke
                      :fn {:op :var :form 'clojure.string/blank?}
                      :args [var-targ]}
@@ -604,8 +605,8 @@
     (is (= 'server (:sym origin)))))
 
 (deftest case-on-var-projection-narrows-test
-  (let [var-node {:op :var :form 'server :type (atst/T {:host s/Str :port s/Int})
-                  :origin (ao/root-origin 'server (atst/T {:host s/Str :port s/Int}))}
+  (let [var-node {:op :var :form 'server :type (T {:host s/Str :port s/Int})
+                  :origin (ao/root-origin 'server (T {:host s/Str :port s/Int}))}
         key-node {:op :const :val :host :form :host}
         get-node {:op :static-call :fn {:op :var :form 'clojure.lang.RT/get}
                   :args [var-node key-node]
@@ -616,10 +617,10 @@
     (is (= 'server (aapi/node-form (second result))))))
 
 (deftest do-forwards-ret-origin-test
-  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+  (let [local-origin (ao/root-origin 'some-local (T s/Str))
         root (atst/analyze-form atst/analysis-dict
                                 '(do (println :x) some-local)
-                                {:locals {'some-local {:type (atst/T s/Str)
+                                {:locals {'some-local {:type (T s/Str)
                                                        :origin local-origin}}})
         origin (aapi/node-origin root)]
     (is (= :do (aapi/node-op root)))
@@ -627,33 +628,33 @@
     (is (= 'some-local (:sym origin)))))
 
 (deftest try-zero-catch-forwards-body-origin-test
-  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+  (let [local-origin (ao/root-origin 'some-local (T s/Str))
         root (atst/analyze-form atst/analysis-dict
                                 '(try some-local (finally (cleanup!)))
-                                {:locals {'some-local {:type (atst/T s/Str)
+                                {:locals {'some-local {:type (T s/Str)
                                                        :origin local-origin}
-                                          'cleanup! {:type (atst/T s/Any)}}})
+                                          'cleanup! {:type (T s/Any)}}})
         origin (aapi/node-origin root)]
     (is (= :try (aapi/node-op root)))
     (is (= :root (:kind origin)))
     (is (= 'some-local (:sym origin)))))
 
 (deftest try-with-catch-stays-opaque-test
-  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+  (let [local-origin (ao/root-origin 'some-local (T s/Str))
         root (atst/analyze-form atst/analysis-dict
                                 '(try some-local (catch Exception _ :default))
-                                {:locals {'some-local {:type (atst/T s/Str)
+                                {:locals {'some-local {:type (T s/Str)
                                                        :origin local-origin}}})
         origin (aapi/node-origin root)]
     (is (= :try (aapi/node-op root)))
     (is (nil? origin))))
 
 (deftest with-meta-forwards-expr-origin-test
-  (let [local-origin (ao/root-origin 'some-local (atst/T s/Str))
+  (let [local-origin (ao/root-origin 'some-local (T s/Str))
         form (with-meta 'some-local {:foo 1})
         root (atst/analyze-form atst/analysis-dict
                                 form
-                                {:locals {'some-local {:type (atst/T s/Str)
+                                {:locals {'some-local {:type (T s/Str)
                                                        :origin local-origin}}})
         origin (aapi/node-origin root)]
     (is (= :root (:kind origin)))

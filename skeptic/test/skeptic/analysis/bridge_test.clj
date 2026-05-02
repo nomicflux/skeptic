@@ -7,13 +7,14 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.schema-base :as sb]
+            [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect :as collect]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.form-refs]
-            [skeptic.test-helpers :refer [T tp]]
+            [skeptic.test-helpers :refer [is-type= T tp]]
             [skeptic.typed-decls :as td])
   (:import [java.io File]
            [java.util IdentityHashMap]))
@@ -73,14 +74,14 @@
   (is (= 'skeptic.analysis.bridge-test/UnboundSchemaRef
          (->> #'UnboundSchemaRef
               (ab/schema->type tp)
-             :ref)))
+              :ref)))
   (let [unbound-root (.getRawRoot ^clojure.lang.Var #'UnboundSchemaRef)]
     (is (= (sb/placeholder-schema 'skeptic.analysis.bridge-test/UnboundSchemaRef)
            (abc/canonicalize-schema unbound-root)))
     (is (= 'skeptic.analysis.bridge-test/UnboundSchemaRef
            (->> unbound-root
                 (ab/schema->type tp)
-               :ref))))
+                :ref))))
   (is (= [(sb/placeholder-schema 'skeptic.analysis.bridge-test/RecursiveSchemaRef)]
          (abc/canonicalize-schema #'RecursiveSchemaRef)))
   (let [recursive-type (ab/schema->type tp #'RecursiveSchemaRef)]
@@ -98,27 +99,27 @@
         joined-vector (T #'JoinedRecursiveSchemaRef)
         joined-seq (T #'RecursiveSeqRef)
         joined-set (T #'RecursiveSetRef)]
-    (is (at/type=? (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
-           (T #'DirectRecursiveSchemaRef)))
+    (is-type= (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
+              (T #'DirectRecursiveSchemaRef))
     (is (at/vector-type? joined-vector))
     (is (:homogeneous? joined-vector))
-    (is (at/type=? expected-join (first (:items joined-vector))))
+    (is-type= expected-join (first (:items joined-vector)))
     (is (at/seq-type? joined-seq))
     (is (:homogeneous? joined-seq))
-    (is (at/type=? (ato/union-type tp [(T s/Int)
-                                        (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
-                                        (T s/Str)])
-                   (first (:items joined-seq))))
+    (is-type= (ato/union-type tp [(T s/Int)
+                                  (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
+                                  (T s/Str)])
+              (first (:items joined-seq)))
     (is (at/set-type? joined-set))
     (is (:homogeneous? joined-set))
-    (is (at/type=? (ato/union-type tp [(T s/Int)
-                                        (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSetRef)
-                                        (T s/Str)])
-                   (first (:members joined-set))))))
+    (is-type= (ato/union-type tp [(T s/Int)
+                                  (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSetRef)
+                                  (T s/Str)])
+              (first (:members joined-set)))))
 
 (deftest broad-numeric-schemas-import-to-numeric-dyn-test
-  (is (at/type=? (at/NumericDyn tp) (T s/Num)))
-  (is (at/type=? (at/NumericDyn tp) (T java.lang.Number))))
+  (is-type= (at/NumericDyn tp) (T s/Num))
+  (is-type= (at/NumericDyn tp) (T java.lang.Number)))
 
 (deftest admit-schema-defines-the-shared-schema-boundary-test
   (let [regex (ab/admit-schema #"^[a-z]+$")]
@@ -283,6 +284,25 @@
     (is (= :inferred (prov/source p)))
     (is (nil? (:qualified-sym p)))
     (is (= map-body-qsym (-> p :refs first :qualified-sym)))))
+
+(deftest source-intake-recursive-leaf-position-test
+  (let [t (ab/import-schema-type tp #'skeptic.test-examples.form-refs/RX)]
+    (is-type= (at/->GroundT tp :int 'Int) t)))
+
+(deftest source-intake-self-recursive-test
+  (let [t (ab/import-schema-type tp #'skeptic.test-examples.form-refs/Tree)]
+    (is-type= (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :children)
+                             (at/->VectorT tp [(at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree)] true)})
+              t)))
+
+(deftest source-intake-conditional-with-recursion-test
+  (let [t (ab/import-schema-type tp #'skeptic.analysis.origin.schema/Origin)
+        map-key-lookup-branch (second (nth (:branches t) 2))
+        root-slot (entry-val-by-key map-key-lookup-branch :root)]
+    (is (at/conditional-type? t))
+    (is (at/map-type? map-key-lookup-branch))
+    (is (some? root-slot))
+    (is (not (at/adapter-leaf-type? root-slot)))))
 
 (deftest source-intake-class-symbol-total-test
   (let [result (ab/schema->type tp String 'String)]

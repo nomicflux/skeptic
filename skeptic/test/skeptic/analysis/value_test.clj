@@ -5,7 +5,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]
-            [skeptic.test-helpers :refer [T tp]]))
+            [skeptic.test-helpers :refer [is-type= T tp]]))
 
 (def ^:private other-prov
   (prov/make-provenance :schema 'other 'other.ns nil))
@@ -40,34 +40,34 @@
 
 (deftest type-of-value-collections-test
   (testing "empty list"
-    (is (at/type=? (at/->SeqT tp [(at/Dyn tp)] true) (av/type-of-value tp '()))))
+    (is-type= (at/->SeqT tp [(at/Dyn tp)] true) (av/type-of-value tp '())))
   (testing "simple vector"
-    (is (at/type=? (T [s/Int s/Int]) (av/type-of-value tp [1 2]))))
+    (is-type= (T [s/Int s/Int]) (av/type-of-value tp [1 2])))
   (testing "nested vector with map and set"
     (let [type (av/type-of-value tp '[1 {:a 2 :b {:c #{3 4}}} 5])]
-      (is (at/type=? (at/->VectorT tp [(T s/Int)
-                            (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :a) (at/->ValueT tp (T s/Int) 2)
-                                        (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :c)
-                                                                                                   (at/->ValueT tp (at/->SetT tp #{(T s/Int)} true) #{3 4})})
-                                                                                 {:c #{3 4}})})
-                            (T s/Int)]
-                           false)
-             type))))
+      (is-type= (at/->VectorT tp [(T s/Int)
+                                  (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :a) (at/->ValueT tp (T s/Int) 2)
+                                                 (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->MapT tp {(at/->ValueT tp (T s/Keyword) :c)
+                                                                                                                  (at/->ValueT tp (at/->SetT tp #{(T s/Int)} true) #{3 4})})
+                                                                                                {:c #{3 4}})})
+                                  (T s/Int)]
+                              false)
+                type)))
   (testing "nested map"
     (let [type (av/type-of-value tp '{:a 1 :b [:z "hello" #{1 2}]
-                                  :c {:d 7 :e {:f 9}}})]
-      (is (at/type=? (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :a) (at/->ValueT tp (T s/Int) 1)
-               (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->VectorT tp [(T s/Keyword)
-                                                                           (T s/Str)
-                                                                           (at/->SetT tp #{(T s/Int)} true)]
-                                                                          false)
-                                                            [:z "hello" #{1 2}])
-               (at/->ValueT tp (T s/Keyword) :c) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :d) (at/->ValueT tp (T s/Int) 7)
-                                                                                 (at/->ValueT tp (T s/Keyword) :e) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :f)
-                                                                                                                                                 (at/->ValueT tp (T s/Int) 9)})
-                                                                                                                          {:f 9})})
-                                                            {:d 7 :e {:f 9}})})
-             type)))))
+                                      :c {:d 7 :e {:f 9}}})]
+      (is-type= (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :a) (at/->ValueT tp (T s/Int) 1)
+                                        (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->VectorT tp [(T s/Keyword)
+                                                                                                            (T s/Str)
+                                                                                                            (at/->SetT tp #{(T s/Int)} true)]
+                                                                                                        false)
+                                                                                       [:z "hello" #{1 2}])
+                                        (at/->ValueT tp (T s/Keyword) :c) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :d) (at/->ValueT tp (T s/Int) 7)
+                                                                                                                  (at/->ValueT tp (T s/Keyword) :e) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :f)
+                                                                                                                                                                                            (at/->ValueT tp (T s/Int) 9)})
+                                                                                                                                                                 {:f 9})})
+                                                                                       {:d 7 :e {:f 9}})})
+                type))))
 
 (deftest type-of-value-vector-arm-threads-refs-test
   (testing "vector input threads item provs into result's refs"

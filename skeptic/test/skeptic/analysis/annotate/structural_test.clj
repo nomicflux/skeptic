@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.test-helpers :refer [is-type= T]]
             [skeptic.analysis-test :as atst]
             [skeptic.analysis.types :as at]))
 
@@ -28,4 +29,4 @@
     (is (= :const (aapi/node-op vec-ast)))
     (is (= :const (aapi/node-op map-ast)))
     (is (= :const (aapi/node-op set-ast)))
-    (is (at/type=? (atst/T [s/Int s/Int]) (aapi/node-type vec-ast)))))
+    (is-type= (T [s/Int s/Int]) (aapi/node-type vec-ast))))

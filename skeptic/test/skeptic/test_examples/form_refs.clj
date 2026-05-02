@@ -20,3 +20,6 @@
 (s/defn fn-with-composed-body :- {:result RecursiveNamed :cache MapBody}
   []
   {:result [(produce-inner-set)] :cache (produce-map-body)})
+(s/defschema X s/Int)
+(s/defschema RX (s/recursive #'X))
+(s/defschema Tree {:children [(s/recursive #'Tree)]})

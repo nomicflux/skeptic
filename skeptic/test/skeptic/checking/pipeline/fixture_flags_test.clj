@@ -1,12 +1,12 @@
 (ns skeptic.checking.pipeline.fixture-flags-test
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.config :as config]
             [skeptic.inconsistence.mismatch :as incm]
-            [skeptic.typed-decls :as typed-decls]))
+            [skeptic.typed-decls :as typed-decls]
+            [skeptic.test-helpers :refer [is-type=]]))
 
 (deftest ignore-body-fixtures
   (is (empty? (ps/check-fixture 'skeptic.test-examples.fixture-flags/ignored-body-fn))
@@ -35,9 +35,8 @@
   (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
         result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags)]
-    (is (at/type=? (ps/T s/Int)
-                   (get-in result [:dict 'some.ns/some-fn]))
-        "typed-ns-results must merge :skeptic/type-overrides into :dict")))
+    (is-type= (ps/T s/Int)
+              (get-in result [:dict 'some.ns/some-fn]))))
 
 (deftest failing-functions
   (are [sym errors] (= (set (partition 2 errors))

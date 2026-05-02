@@ -9,7 +9,7 @@
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs])
   (:import [clojure.lang IPersistentCollection]
-           [schema.core One]))
+           [schema.core One Recursive]))
 
 (def ^:dynamic *var-provs* nil)
 (def ^:dynamic *form-refs* nil)
@@ -401,6 +401,9 @@
 
       (instance? clojure.lang.Var schema)
       (var-import-type run ctx schema)
+
+      (instance? Recursive schema)
+      (var-import-type run ctx (:derefable schema))
 
       (nil? schema)
       (import-result (at/->MaybeT prov (at/Dyn prov)))

@@ -2,13 +2,10 @@
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
-            [skeptic.analysis.types :as at]
-            [skeptic.config :as sut]
-            [skeptic.provenance :as prov])
+            [skeptic.test-helpers :refer [is-type= tp]]
+            [skeptic.config :as sut])
   (:import [java.io File]
            [java.nio.file Files]))
-
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
 (defn- make-temp-dir []
   (.toFile (Files/createTempDirectory "skeptic-config-test"
@@ -80,8 +77,8 @@
 
 (deftest compile-overrides-produces-bare-type
   (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:schema '(s/eq nil)}})]
-    (is (at/type=? (ab/schema->type tp (s/eq nil))
-                   (get result 'clojure.tools.logging/infof)))))
+    (is-type= (ab/schema->type tp (s/eq nil))
+              (get result 'clojure.tools.logging/infof))))
 
 (deftest compile-overrides-symbol-is-key
   (let [result (sut/compile-overrides {'clojure.tools.logging/infof {:schema 's/Int}})]

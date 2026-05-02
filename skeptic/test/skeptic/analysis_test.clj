@@ -3,13 +3,12 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
-            [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
-            [skeptic.provenance :as prov]
             [skeptic.source :as source]
             [skeptic.test-examples.catalog :as catalog]
-            [skeptic.test-examples.contracts :as contracts])
+            [skeptic.test-examples.contracts :as contracts]
+            [skeptic.test-helpers :refer [is-type= T tp]])
   (:import [java.io File]))
 
 (defn set-cache-value
@@ -31,17 +30,6 @@
 (defn start
   [& _args]
   nil)
-
-(def x nil)
-(def y nil)
-(def z nil)
-(def cache nil)
-
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
-
-(defn T
-  [schema]
-  (ab/schema->type tp schema))
 
 ;; Broad numeric annotation for native math when the checker only knows
 ;; "numeric, but not whether Int or non-Int numeric".
@@ -93,24 +81,7 @@
 (def typed-test-examples-dict
   (catalog/typed-test-example-entries))
 
-(def sample-dict
-  {'f
-   {:name "f"
-    :type (T (s/=> s/Int s/Int))
-    :output-type (T s/Int)
-    :arglists {1 {:arglist ['x]
-                   :count 1
-                   :types [{:type (T s/Int) :optional? false :name 'x}]}
-               2 {:arglist ['y 'z]
-                  :count 2
-                  :types [{:type (T s/Str) :optional? false :name 'y}
-                          {:type (T s/Int) :optional? false :name 'z}]}}}})
-
 (def examples-file (File. "src/skeptic/examples.clj"))
-
-(defn fixture-file
-  ^File [sym]
-  (:file (catalog/owner-of sym)))
 
 (defn fixture-file-for-ns
   ^File [ns-sym]
@@ -143,28 +114,6 @@
    (aat/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test}
                                             opts))))
 
-(def stable-keys aat/stable-keys)
-
-(defn arglist-types
-  [root arity]
-  (aat/arglist-types root arity))
-
-(defn project-ast
-  [root]
-  (aat/project-ast root))
-
-(defn projected-nodes
-  [root]
-  (aat/projected-nodes root))
-
-(defn find-projected-node
-  [root pred]
-  (aat/find-projected-node root pred))
-
-(defn child-projection
-  [node key]
-  (aat/child-projection node key))
-
 (defn ast-by-name
   [asts sym]
   (aat/ast-by-name asts sym))
@@ -186,7 +135,7 @@
                     read-string)
           ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
-      (is (at/type=? (T s/Any) (aapi/node-type call-node)))
+      (is-type= (T s/Any) (aapi/node-type call-node))
       (is (not (at/union-type? (aapi/node-type call-node))))))
 
   (testing "declared helper chains use declared outputs exactly"
@@ -194,14 +143,16 @@
           fixture-ns 'skeptic.test-examples.resolution
           fixture-file (fixture-file-for-ns fixture-ns)
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
-                                                                         fixture-ns
-                                                                         fixture-file
-                                                                         (source-exprs-in fixture-ns fixture-file))
+                                                                          fixture-ns
+                                                                          fixture-file
+                                                                          (source-exprs-in fixture-ns fixture-file))
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is (at/type=? (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f)))
-      (is (at/type=? (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g)))
-      (is (at/type=? [(T s/Int)] (aapi/call-actual-argtypes call-node)))
+      (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f))
+      (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g))
+      (let [args (aapi/call-actual-argtypes call-node)]
+        (is (= 1 (count args)))
+        (is-type= (T s/Int) (first args)))
       (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
                                                               'skeptic.test-examples.resolution/flat-multi-step-g)))))))
 
@@ -251,8 +202,8 @@
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-b v) (aapi/node-form %))))]
-      (is (at/type=? (T contracts/VariantA) (first (aapi/call-actual-argtypes handle-a))))
-      (is (at/type=? (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b))))))
+      (is-type= (T contracts/VariantA) (first (aapi/call-actual-argtypes handle-a)))
+      (is-type= (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b)))))
 
   (testing "classifier case narrowing crosses helper function boundaries"
     (let [fixture-ns 'skeptic.test-examples.contracts
@@ -273,5 +224,5 @@
                                         (= '(f-a x) (aapi/node-form %))))
           f-b (aapi/find-node ast #(and (aapi/call-node? %)
                                         (= '(f-b x) (aapi/node-form %))))]
-      (is (at/type=? (T contracts/A) (first (aapi/call-actual-argtypes f-a))))
-      (is (at/type=? (T contracts/B) (first (aapi/call-actual-argtypes f-b)))))))
+      (is-type= (T contracts/A) (first (aapi/call-actual-argtypes f-a)))
+      (is-type= (T contracts/B) (first (aapi/call-actual-argtypes f-b))))))

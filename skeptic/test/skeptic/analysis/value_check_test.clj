@@ -4,10 +4,8 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]
-            [skeptic.analysis.value-check :as avc]))
-
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+            [skeptic.analysis.value-check :as avc]
+            [skeptic.test-helpers :refer [is-type= tp]]))
 
 (deftest contains-key-type-classification-regression-test
   (is (= :unknown
@@ -43,8 +41,8 @@
                                          [#(contains? % :b) has-b nil]])
         refined-true (amo/refine-by-contains-key cond-type :a true)
         refined-false (amo/refine-by-contains-key cond-type :a false)]
-    (is (at/type=? has-a refined-true))
-    (is (at/type=? has-b refined-false))))
+    (is-type= has-a refined-true)
+    (is-type= has-b refined-false)))
 
 (deftest value-satisfies-conditional-test
   (let [has-a (ab/schema->type tp {:a s/Int})

@@ -2,11 +2,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
-            [skeptic.inconsistence.report :as inrep]))
+            [skeptic.inconsistence.report :as inrep]
+            [skeptic.test-helpers :refer [is-type=]]))
 
 (deftest resolution-path-resolutions
   (let [results (ps/check-fixture 'skeptic.test-examples.control-flow/sample-bad-local-provenance-fn
@@ -14,18 +14,18 @@
         call-result (first (filter #(= '(int-add x y z) (:blame %)) results))
         local-vars (get-in call-result [:context :local-vars])]
     (is (some? call-result))
-    (is (at/type=? [] (:errors call-result)))
-    (is (at/type=? (ps/T s/Any) (get-in local-vars ['x :type])))
-    (is (at/type=? [] (get-in local-vars ['x :resolution-path])))
-    (is (at/type=? (ps/T s/Int) (get-in local-vars ['y :type])))
-    (is (at/type=? ['(int-add 1 nil) 'int-add]
+    (is (empty? (:errors call-result)))
+    (is-type= (ps/T s/Any) (get-in local-vars ['x :type]))
+    (is (empty? (get-in local-vars ['x :resolution-path])))
+    (is-type= (ps/T s/Int) (get-in local-vars ['y :type]))
+    (is (= ['(int-add 1 nil) 'int-add]
            (mapv :form (get-in local-vars ['y :resolution-path]))))
-    (is (at/type=? (ps/T s/Int) (-> local-vars (get 'y) :resolution-path first :type)))
-    (is (at/type=? (ps/T s/Int) (get-in local-vars ['z :type])))
-    (is (at/type=? ['(int-add 2 3) 'int-add]
+    (is-type= (ps/T s/Int) (-> local-vars (get 'y) :resolution-path first :type))
+    (is-type= (ps/T s/Int) (get-in local-vars ['z :type]))
+    (is (= ['(int-add 2 3) 'int-add]
            (mapv :form (get-in local-vars ['z :resolution-path]))))
-    (is (at/type=? (ps/T s/Int) (-> local-vars (get 'z) :resolution-path first :type)))
-    (is (at/type=? ['int-add]
+    (is-type= (ps/T s/Int) (-> local-vars (get 'z) :resolution-path first :type))
+    (is (= ['int-add]
            (mapv :form (get-in call-result [:context :refs]))))
     (is (every? some? (mapv :type (get-in call-result [:context :refs]))))))
 
@@ -66,10 +66,10 @@
     (is (= '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
            (:blame nested-result)))
     (is (= [(incm/mismatched-ground-type-msg
-              {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
-               :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
-              (ps/T s/Int)
-              (ps/T s/Str))]
+             {:expr '(nested-multi-step-takes-str (get (nested-multi-step-g) :value))
+              :arg '(. clojure.lang.RT (clojure.core/get (nested-multi-step-g) :value))}
+             (ps/T s/Int)
+             (ps/T s/Str))]
            (:errors nested-result)))
     (is (nil? (some #(when (= 'skeptic.static-call-examples/nested-multi-step-success
                               (:enclosing-form %))

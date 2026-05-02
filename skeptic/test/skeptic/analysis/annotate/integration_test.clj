@@ -4,7 +4,8 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis-test :as atst]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.test-helpers :refer [is-type= T]]))
 
 (deftest annotate-form-loop-integration-test
   (testing "annotation stays first-order and keeps typed call metadata"
@@ -12,8 +13,14 @@
                                       '(skeptic.test-examples.basics/int-add 1 2)
                                       {:ns 'skeptic.analysis-test})]
       (is (= :invoke (aapi/node-op ast)))
-      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-actual-argtypes ast)))
-      (is (at/type=? [(atst/T s/Int) (atst/T s/Int)] (aapi/call-expected-argtypes ast)))
+      (let [args (aapi/call-actual-argtypes ast)]
+        (is (= 2 (count args)))
+        (is-type= (T s/Int) (nth args 0))
+        (is-type= (T s/Int) (nth args 1)))
+      (let [args (aapi/call-expected-argtypes ast)]
+        (is (= 2 (count args)))
+        (is-type= (T s/Int) (nth args 0))
+        (is-type= (T s/Int) (nth args 1)))
       (is (aapi/typed-call-metadata-only? ast))
       (is (not-any? at/forall-type? (keep aapi/node-type (aapi/annotated-nodes ast))))
       (is (not-any? at/type-var-type? (keep aapi/node-type (aapi/annotated-nodes ast))))

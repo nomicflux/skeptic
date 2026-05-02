@@ -3,7 +3,7 @@
             [skeptic.analysis.type-algebra :as sut]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.test-helpers :refer [tp]]))
+            [skeptic.test-helpers :refer [is-type= tp]]))
 
 (defn- int-t [prov] (at/->GroundT prov :int 'Int))
 
@@ -56,6 +56,6 @@
         substituted (sut/type-substitute cond-type 'X int-t')]
     (is (at/conditional-type? substituted))
     (is (= 2 (count (:branches substituted))))
-    (is (at/type=? int-t' (second (first (:branches substituted)))))
-    (is (at/type=? int-t' (second (second (:branches substituted)))))
+    (is-type= int-t' (second (first (:branches substituted))))
+    (is-type= int-t' (second (second (:branches substituted))))
     (is (= :integer? (first (first (:branches substituted)))))))
