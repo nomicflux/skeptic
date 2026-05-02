@@ -12,11 +12,6 @@
   (and (map? value)
        (= tag (get value tag-key))))
 
-(defn same-class-name?
-  [value class-name]
-  (and (some? value)
-       (= class-name (.getName (class value)))))
-
 (defn read-instance-field
   [value field-name]
   (let [field (.getDeclaredField (class value) field-name)]
@@ -238,7 +233,7 @@
 
 (defn semantic-type-value?
   [value]
-  (satisfies? proto/SemanticType value))
+  (instance? skeptic.analysis.types.proto.SemanticType value))
 
 (s/defn dyn-type? :- s/Bool [t :- s/Any] (instance? DynTRec t))
 (s/defn bottom-type? :- s/Bool [t :- s/Any] (instance? BottomTRec t))

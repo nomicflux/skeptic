@@ -8,7 +8,7 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs])
-  (:import [clojure.lang IPersistentCollection]
+  (:import [clojure.lang IPersistentCollection Var$Unbound]
            [schema.core One Recursive]))
 
 (def ^:dynamic *var-provs* nil)
@@ -72,7 +72,7 @@
 (defn- one-step-schema-node
   [schema]
   (let [schema (cond
-                 (at/same-class-name? schema "clojure.lang.Var$Unbound")
+                 (instance? Var$Unbound schema)
                  (at/read-instance-field schema "v")
 
                  :else

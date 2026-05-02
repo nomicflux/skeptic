@@ -62,7 +62,7 @@
   [value seen-vars]
   (cond
     (nil? value) nil
-    (at/same-class-name? value "clojure.lang.Var$Unbound")
+    (instance? clojure.lang.Var$Unbound value)
     (localize-unbound-var value seen-vars)
     (instance? clojure.lang.Var value)
     (localize-var value seen-vars)
