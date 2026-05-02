@@ -17,7 +17,7 @@
 
 (defn nil-test-leaf-node
   [node]
-  (case (:op node)
+  (case (aapi/node-op node)
     :do (nil-test-leaf-node (:ret node))
     :let (nil-test-leaf-node (:body node))
     node))
@@ -26,27 +26,28 @@
   [test-node binding-sym]
   (let [node (nil-test-leaf-node test-node)]
     (cond
-      (and (= :invoke (:op node))
+      (and (aapi/invoke-node? node)
            (ac/type-predicate-call? (:fn node) (:args node)))
       (when (= :nil? (:pred (ac/type-predicate-assumption-info (:fn node) (:args node))))
         (let [target (first (:args node))]
-          (and (= :local (:op target))
+          (and target
+               (aapi/local-node? target)
                (= (:form target) binding-sym))))
 
-      (and (= :static-call (:op node)) (ac/static-nil?-call? node))
+      (and (aapi/static-call-node? node) (ac/static-nil?-call? node))
       (when-let [target (ac/static-nil?-target node)]
-        (and (= :local (:op target))
+        (and (aapi/local-node? target)
              (= (:form target) binding-sym)))
       :else false)))
 
 (defn if-init-nil-check-binds-same-name?
   [init-node binding-sym]
-  (and (= :if (:op init-node))
+  (and (aapi/if-node? init-node)
        (nil-check-local-form-in-test? (:test init-node) binding-sym)))
 
 (defn- alias-leaf-node
   [node]
-  (case (:op node)
+  (case (aapi/node-op node)
     :do (alias-leaf-node (:ret node))
     :let (alias-leaf-node (:body node))
     node))
@@ -58,12 +59,12 @@
 (defn- nilish-alias-branch?
   [node]
   (let [node (alias-leaf-node node)]
-    (or (and (= :const (:op node)) (nil? (:val node)))
+    (or (aapi/const-nil? node)
         (at/bottom-type? (:type node)))))
 
 (defn- narrowing-alias-root-sym
   [ctx init-node base-origin]
-  (when (= :if (:op init-node))
+  (when (aapi/if-node? init-node)
     (let [test-root-sym (get-in base-origin [:test :root :sym])
           then-root-sym (alias-root-sym ctx (:then init-node))
           else-root-sym (alias-root-sym ctx (:else init-node))
@@ -120,18 +121,19 @@
   [test-node]
   (let [args (or (:args test-node) [])]
     (when (and (= 1 (count args))
-               (= :local (:op (first args)))
-               (contains? #{:invoke :static-call} (:op test-node)))
+               (aapi/local-node? (first args))
+               (or (aapi/invoke-node? test-node)
+                   (aapi/static-call-node? test-node)))
       (first args))))
 
 (defn- destructure-shim?
   [binding]
   (let [init (:init binding)]
-    (when (= :if (:op init))
+    (when (and init (aapi/if-node? init))
       (let [inner (seq-test-inner-local (:test init))
             else (:else init)]
         (and inner
-             (= :local (:op else))
+             (aapi/local-node? else)
              (= (:form inner) (:form else))
              (= (:form binding) (:form inner)))))))
 
@@ -148,7 +150,7 @@
                    fallback-origin
                    (:origin base-entry))]
     (cond-> (assoc base-entry :origin origin)
-      (and track-fn-binding? (= :fn (:op init)))
+      (and track-fn-binding? init (aapi/fn-node? init))
       (assoc :fn-binding-node init)
 
       (some? init)
@@ -200,7 +202,7 @@
 
 (defn- loop-recur-nodes
   [body loop-id]
-  (filterv #(and (= :recur (:op %)) (= loop-id (:loop-id %)))
+  (filterv #(and (aapi/recur-node? %) (= loop-id (:loop-id %)))
            (sac/ast-nodes body)))
 
 (s/defn widen-int-loop-counter-recur-targets :- [ats/SemanticType]
@@ -323,7 +325,7 @@
 
 (defn- truthy-literal?
   [test-node]
-  (when (#{:const :quote} (:op test-node))
+  (when (aapi/const-or-quote? test-node)
     (let [value (ac/literal-node-value test-node)]
       (and (some? value) (not (false? value))))))
 
@@ -334,7 +336,7 @@
 
 (defn- nil-const-node?
   [node]
-  (and (= :const (:op node)) (nil? (:val node))))
+  (aapi/const-nil? node))
 
 (s/defn ^:private branch-origin :- aos/Origin
   [then-conjuncts :- [aos/Assumption] then-node :- s/Any else-node :- s/Any joined-type :- ats/SemanticType]

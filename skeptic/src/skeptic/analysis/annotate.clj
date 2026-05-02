@@ -23,7 +23,7 @@
 
 (s/defn ^:private annotate-dispatch :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (case (:op node)
+  (case (aapi/node-op node)
     :binding (base/annotate-binding ctx node)
     :const (base/annotate-const ctx node)
     :def (data/annotate-def ctx node)

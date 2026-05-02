@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.numeric
   (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -92,8 +93,8 @@
 (s/defn binary-integral-locals-narrow? :- s/Bool
   [arg-nodes :- [s/Any], arg-types :- [ats/SemanticType]]
   (and (= 2 (count arg-nodes))
-       (not= :const (:op (first arg-nodes)))
-       (not= :const (:op (second arg-nodes)))
+       (not (aapi/const-node? (first arg-nodes)))
+       (not (aapi/const-node? (second arg-nodes)))
        (integral-type? (first arg-types))
        (integral-type? (second arg-types))))
 
@@ -108,12 +109,12 @@
       (and (or (contains? ac/plus-invoke-syms call-sym)
                (contains? ac/multiply-invoke-syms call-sym))
            (seq args)
-           (every? #(not= :const (:op %)) args)
+           (not-any? aapi/const-node? args)
            (every? integral-type? actual-argtypes))
       (at/->GroundT anchor-prov :int 'Int)
 
       (and (contains? ac/minus-invoke-syms call-sym) (= 1 arity)
-           (not= :const (:op (first args)))
+           (not (aapi/const-node? (first args)))
            (integral-type? (first actual-argtypes)))
       (at/->GroundT anchor-prov :int 'Int)
 
@@ -135,7 +136,7 @@
         (when (= 'minus method)
           (cond
             (and (= 1 (count args))
-                 (not= :const (:op (first args)))
+                 (not (aapi/const-node? (first args)))
                  (integral-type? (first actual-argtypes)))
             (at/->GroundT anchor-prov :int 'Int)
 

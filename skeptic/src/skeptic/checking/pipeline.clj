@@ -70,8 +70,8 @@
 (s/defn ^:private case-test-literal-nodes :- s/Any
   [t :- aas/AnnotatedNode]
   (cond
-    (#{:const :quote} (:op t)) [t]
-    (= :case-test (:op t)) [(:test t)]
+    (aapi/const-or-quote? t) [t]
+    (aapi/case-test-node? t) [(:test t)]
     :else (let [raw (or (:tests t) (:test t))]
             (when raw (if (vector? raw) raw [raw])))))
 
@@ -92,7 +92,7 @@
 (s/defn ^:private body-as-classifier-case-node :- (s/maybe aas/AnnotatedNode)
   [body :- aas/AnnotatedNode]
   (let [body (aapi/unwrap-with-meta body)]
-    (case (:op body)
+    (case (aapi/node-op body)
       :case body
       :let (body-as-classifier-case-node (:body body))
       :do (body-as-classifier-case-node (:ret body))
@@ -114,7 +114,8 @@
           key (when (ac/literal-map-key? key-node)
                 (ac/literal-node-value key-node))]
       (when (and (keyword? key)
-                 (= :local (:op target))
+                 target
+                 (aapi/local-node? target)
                  (= param-sym (:form target)))
         (cond-> {:path [{:value key}]}
           (and (some? default-node)
@@ -180,7 +181,8 @@
                       kw-node (:keyword body)
                       kw (literal-keyword kw-node)]
                   (when (and kw
-                             (= :local (:op target))
+                             target
+                             (aapi/local-node? target)
                              (= param-sym (:form target)))
                     {:kind :unary-map-accessor
                      :kw kw}))
@@ -190,7 +192,8 @@
                 (let [[target key-node] (aapi/call-args body)
                       kw (literal-keyword key-node)]
                   (when (and kw
-                             (= :local (:op target))
+                             target
+                             (aapi/local-node? target)
                              (= param-sym (:form target)))
                     {:kind :unary-map-accessor
                      :kw kw}))
@@ -200,7 +203,8 @@
                 (let [[target key-node] (aapi/call-args body)
                       kw (literal-keyword key-node)]
                   (when (and kw
-                             (= :local (:op target))
+                             target
+                             (aapi/local-node? target)
                              (= param-sym (:form target)))
                     {:kind :unary-map-accessor
                      :kw kw}))

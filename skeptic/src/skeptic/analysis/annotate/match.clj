@@ -18,17 +18,17 @@
   [case-test-entry :- s/Any]
   (when case-test-entry
     (let [candidates (cond
-                       (#{:const :quote} (:op case-test-entry))
+                       (aapi/const-or-quote? case-test-entry)
                        [case-test-entry]
 
-                       (= :case-test (:op case-test-entry))
+                       (aapi/case-test-node? case-test-entry)
                        [(:test case-test-entry)]
 
                        :else
                        (let [raw (or (:tests case-test-entry) (:test case-test-entry))]
                          (when raw (if (vector? raw) raw [raw]))))]
       (when candidates
-        (vec (filter #(#{:const :quote} (:op %)) candidates))))))
+        (vec (filter aapi/const-or-quote? candidates))))))
 
 (s/defn case-test-literals :- [s/Any]
   [case-test-node :- s/Any]
@@ -37,13 +37,13 @@
 (s/defn case-discriminant-expr-node :- s/Any
   [test-node :- s/Any]
   (loop [n test-node]
-    (if (and (= :local (:op n)) (:binding-init n))
+    (if (aapi/local-with-init? n)
       (recur (:binding-init n))
       n)))
 
 (s/defn case-discriminant-leaf-node :- s/Any
   [node :- s/Any]
-  (case (:op node)
+  (case (aapi/node-op node)
     :do (case-discriminant-leaf-node (:ret node))
     :let (case-discriminant-leaf-node (:body node))
     node))
@@ -51,19 +51,19 @@
 (s/defn case-assumption-root-for-local :- (s/maybe aos/RootOrigin)
   [ctx :- s/Any, target :- s/Any]
   (or (ao/local-root-origin ctx target)
-      (when (= :local (:op target))
+      (when (and target (aapi/local-node? target))
         (ao/root-origin (:form target) (or (:type target) (aapi/dyn ctx))))))
 
 (defn- case-get-access-kw-and-target
   [node]
   (cond
-    (and (= :invoke (:op node)) (ac/get-call? (:fn node)))
+    (and (aapi/invoke-node? node) (ac/get-call? (:fn node)))
     (let [[target key-node] (:args node)]
       (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
         (let [key (ac/literal-node-value key-node)]
           (when (keyword? key) [key target]))))
 
-    (and (= :static-call (:op node)) (ac/static-get-call? node))
+    (and (aapi/static-call-node? node) (ac/static-get-call? node))
     (let [[target key-node] (:args node)]
       (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
         (let [key (ac/literal-node-value key-node)]
@@ -73,7 +73,7 @@
 (s/defn case-kw-and-target :- (s/maybe [s/Any])
   [node :- s/Any]
   (or (ac/keyword-invoke-kw-and-target node)
-      (when (and (contains? aapi/invoke-ops (:op node))
+      (when (and (aapi/invoke-like? node)
                  (= 1 (count (:args node))))
         (let [summary (get-in node [:fn :accessor-summary])
               target (first (:args node))]
@@ -92,7 +92,7 @@
 
 (defn- case-classifier-info-for-node
   [ctx node]
-  (when (and (contains? aapi/invoke-ops (:op node))
+  (when (and (aapi/invoke-like? node)
              (= 1 (count (:args node))))
     (let [summary (get-in node [:fn :accessor-summary])
           target (first (:args node))]

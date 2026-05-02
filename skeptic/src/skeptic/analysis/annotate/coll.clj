@@ -1,5 +1,6 @@
 (ns skeptic.analysis.annotate.coll
   (:require [schema.core :as s]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
@@ -12,7 +13,7 @@
 
 (defn const-long-value
   [node]
-  (when (= :const (:op node))
+  (when (and node (aapi/const-node? node))
     (let [value (:val node)]
       (when (integer? value) value))))
 
@@ -208,7 +209,7 @@
   (let [cons-types
         (->> (sac/ast-nodes body)
              (keep (fn [node]
-                     (when (= :invoke (:op node))
+                     (when (aapi/invoke-node? node)
                        (let [fn-sym (or (ac/var->sym (:var (:fn node)))
                                         (-> node :fn :form))]
                          (when (contains? #{'clojure.core/cons 'cons} fn-sym)
@@ -219,13 +220,13 @@
 
 (s/defn lazy-seq-new-type :- (s/maybe ats/SemanticType)
   [class-node :- s/Any, args :- [s/Any]]
-  (when (and (= :const (:op class-node))
+  (when (and (aapi/const-node? class-node)
              (= LazySeq (:val class-node)))
     (let [fn-arg (first args)
           prov (ato/derive-prov (:type fn-arg))
           elem
           (if (and (seq args)
-                   (= :fn (:op fn-arg))
+                   (aapi/fn-node? fn-arg)
                    (= 1 (count (:methods fn-arg)))
                    (empty? (:params (first (:methods fn-arg)))))
             (let [body (:body (first (:methods fn-arg)))

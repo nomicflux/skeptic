@@ -12,16 +12,17 @@
 
 (s/defn resolve-unary-fn-arg-type-hint :- (s/maybe s/Any)
   [ctx fn-ast args]
-  (let [local-fn (when (= :local (:op fn-ast))
+  (let [local-fn (when (aapi/local-node? fn-ast)
                    (some-> (get (:locals ctx) (:form fn-ast))
                            :fn-binding-node))
         source-fn (cond
-                    (and (= :fn (:op fn-ast))
+                    (and (aapi/fn-node? fn-ast)
                          (= 1 (count (:methods fn-ast)))
                          (= 1 (count args)))
                     fn-ast
 
-                    (and (= :fn (:op local-fn))
+                    (and local-fn
+                         (aapi/fn-node? local-fn)
                          (= 1 (count (:methods local-fn)))
                          (= 1 (count args)))
                     local-fn

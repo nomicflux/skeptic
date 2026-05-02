@@ -133,8 +133,48 @@
   [node :- aas/AnnotatedNode]
   (= :recur (:op node)))
 
+(s/defn const-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :const (:op node)))
+
+(s/defn quote-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :quote (:op node)))
+
+(s/defn const-or-quote? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (contains? #{:const :quote} (:op node)))
+
+(s/defn invoke-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :invoke (:op node)))
+
+(s/defn static-call-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :static-call (:op node)))
+
+(s/defn fn-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :fn (:op node)))
+
+(s/defn case-test-node? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (= :case-test (:op node)))
+
+(s/defn const-nil? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (and (const-node? node) (nil? (:val node))))
+
+(s/defn local-with-init? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (and (local-node? node) (some? (:binding-init node))))
+
 (def invoke-ops
   #{:instance-call :invoke :keyword-invoke :prim-invoke :protocol-invoke :static-call})
+
+(s/defn invoke-like? :- s/Any
+  [node :- aas/AnnotatedNode]
+  (contains? invoke-ops (:op node)))
 
 (s/defn call-node? :- s/Any
   [node :- aas/AnnotatedNode]

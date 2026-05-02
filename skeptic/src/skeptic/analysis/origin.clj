@@ -604,7 +604,7 @@
 (s/defn test->assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
    test-node :- s/Any]
-  (let [op (:op test-node)
+  (let [op (aapi/node-op test-node)
         invoke? (= :invoke op)
         invoke-fn (when invoke? (:fn test-node))
         invoke-args (when invoke? (:args test-node))

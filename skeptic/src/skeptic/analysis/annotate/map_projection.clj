@@ -8,22 +8,22 @@
 
 (defn- local-node-key
   [node]
-  [(:op node)
-   (:form node)
-   (some-> node :binding-init :op)
-   (some-> node :binding-init :form)])
+  [(aapi/node-op node)
+   (aapi/node-form node)
+   (some-> node :binding-init aapi/node-op)
+   (some-> node :binding-init aapi/node-form)])
 
 (defn- prior-local-alias
   [local-node]
   (let [sym (:form local-node)
         init (:binding-init local-node)]
     (cond
-      (= :local (:op init))
+      (and init (aapi/local-node? init))
       init
 
       init
       (some (fn [node]
-              (when (and (= :local (:op node))
+              (when (and (aapi/local-node? node)
                          (= sym (:form node))
                          (:binding-init node))
                 node))
