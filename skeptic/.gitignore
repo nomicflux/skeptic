@@ -16,3 +16,4 @@ docs/current-plans
 docs/design
 .cursor/
 .clj-kondo/.cache
+.clj-kondo/imports
