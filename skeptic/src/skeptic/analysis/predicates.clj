@@ -27,8 +27,8 @@
 (def ^:private bare->qualified
   (into {} (map (fn [q] [(symbol (name q)) q])) predicate-symbols))
 
-(defn resolve-predicate-symbol
-  [sym]
+(s/defn resolve-predicate-symbol :- (s/maybe s/Symbol)
+  [sym :- s/Symbol]
   (cond
     (contains? witness-builders sym) sym
     (contains? bare->qualified sym) (get bare->qualified sym)

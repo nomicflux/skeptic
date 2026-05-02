@@ -1,5 +1,6 @@
 (ns skeptic.analysis.predicates-test
   (:require [clojure.test :refer [deftest is testing]]
+            [schema.core :as s]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -17,6 +18,12 @@
   (is (= 'clojure.core/string? (predicates/resolve-predicate-symbol 'string?)))
   (is (= 'clojure.core/string? (predicates/resolve-predicate-symbol 'clojure.core/string?)))
   (is (nil? (predicates/resolve-predicate-symbol 'foo))))
+
+(deftest resolve-predicate-symbol-output-schema-is-maybe-symbol
+  (let [fs (s/fn-schema predicates/resolve-predicate-symbol)
+        out (:output-schema fs)]
+    (is (= (s/maybe s/Symbol) out)
+        (str "expected output schema (maybe Symbol); got: " (pr-str out)))))
 
 (deftest predicate-fn-type-test
   (let [t (predicates/predicate-fn-type 'clojure.core/string?)]

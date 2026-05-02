@@ -37,8 +37,10 @@
     (= leaf :keyword) (at/->GroundT prov :keyword 'Keyword)
     (= leaf :boolean) (at/->GroundT prov :bool 'Bool)
     (= leaf :any) (at/Dyn prov)
-    (and (symbol? leaf) (predicates/predicate? leaf))
-    (predicates/witness-type (predicates/resolve-predicate-symbol leaf) prov)
+    (symbol? leaf)
+    (if-let [qsym (predicates/resolve-predicate-symbol leaf)]
+      (predicates/witness-type qsym prov)
+      (at/Dyn prov))
     :else (at/Dyn prov)))
 
 (defn- function-shape?
