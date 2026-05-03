@@ -28,7 +28,7 @@
                                                temp-file)]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
-    (is (= :load (:phase (first results))))))
+    (is (= :read (:phase (first results))))))
 
 (deftest symbol-output-annotation-regression
   (let [form (->> 'skeptic.schema.collect/fully-qualify-str

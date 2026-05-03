@@ -42,16 +42,11 @@
 
 (defn- classifier-summary
   [classifier-sym ns-sym accessor-summaries]
-  (or (get accessor-summaries (qualify-sym classifier-sym ns-sym))
-      (get accessor-summaries classifier-sym)))
+  (get accessor-summaries (qualify-sym classifier-sym ns-sym)))
 
 (defn- qualified-classifier-sym
-  [classifier-sym ns-sym accessor-summaries]
-  (let [qualified (qualify-sym classifier-sym ns-sym)]
-    (cond
-      (contains? accessor-summaries qualified) qualified
-      (contains? accessor-summaries classifier-sym) classifier-sym
-      :else qualified)))
+  [classifier-sym ns-sym _accessor-summaries]
+  (qualify-sym classifier-sym ns-sym))
 
 (defn- selected-keys
   [cases literal-set]
@@ -95,8 +90,9 @@
              :values [lit]}))))))
 
 (defn predicate-form->descriptor
-  "Recognize classifier predicates; resolve classifiers via accessor-summaries
-   (qualifying with ns-sym if needed); return {:path ... :values [...]} or nil."
+  "Recognize classifier predicates against the project-wide accessor-summaries
+   map; ns-sym is the defining ns of the schema that owns the pred-form, used
+   to qualify bare classifier symbols. Returns {:path ... :values [...]} or nil."
   [pred-form ns-sym accessor-summaries]
   (or
    (when (comp-set-classifier? pred-form)

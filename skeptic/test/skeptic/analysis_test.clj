@@ -157,16 +157,12 @@
                                                               'skeptic.test-examples.resolution/flat-multi-step-g)))))))
 
 (deftest accessor-helper-resolution-contract-test
-  (let [dict (catalog/typed-test-example-entries)
-        contracts-ns 'skeptic.test-examples.contracts
+  (let [contracts-ns 'skeptic.test-examples.contracts
         contracts-file (fixture-file-for-ns contracts-ns)
         nullability-ns 'skeptic.test-examples.nullability
         nullability-file (fixture-file-for-ns nullability-ns)]
     (testing "accessor summaries are emitted only for supported unary projection helpers"
-      (let [summaries (:accessor-summaries (checking/analyze-source-exprs dict
-                                                                          contracts-ns
-                                                                          contracts-file
-                                                                          (source-exprs-in contracts-ns contracts-file)))
+      (let [summaries (checking/project-accessor-summaries {} [[contracts-ns contracts-file]])
             choose-summary (get summaries 'skeptic.test-examples.contracts/choose)]
         (is (= {:kind :unary-map-projection :path [{:value :k}]}
                (get summaries 'skeptic.test-examples.contracts/vtype)))
@@ -175,21 +171,16 @@
         (is (= :a (:default choose-summary)))
         (is (= :keyword (:result-transform choose-summary)))
         (is (= #{:a :b} (set (:values choose-summary)))))
-      (is (nil? (get (:accessor-summaries (checking/analyze-source-exprs dict
-                                                                         nullability-ns
-                                                                         nullability-file
-                                                                         (source-exprs-in nullability-ns nullability-file)))
+      (is (nil? (get (checking/project-accessor-summaries
+                      {} [[nullability-ns nullability-file]])
                      'skeptic.test-examples.nullability/non-null-transform)))))
 
   (testing "prepass exposes helper accessor summaries to later case narrowing"
     (let [dict (catalog/typed-test-example-entries)
           fixture-ns 'skeptic.test-examples.contracts
           fixture-file (fixture-file-for-ns fixture-ns)
-          exprs (source-exprs-in fixture-ns fixture-file)
-          {:keys [accessor-summaries]} (checking/analyze-source-exprs dict
-                                                                      fixture-ns
-                                                                      fixture-file
-                                                                      exprs)
+          accessor-summaries (checking/project-accessor-summaries
+                              {} [[fixture-ns fixture-file]])
           form (->> 'skeptic.test-examples.contracts/conditional-dispatch-success
                     (source/get-fn-code {})
                     read-string)
@@ -210,8 +201,7 @@
           fixture-file (fixture-file-for-ns fixture-ns)
           accessor-summaries (checking/project-accessor-summaries
                               {} [[fixture-ns fixture-file]])
-          {base-dict :dict} (checking/namespace-dict {} fixture-ns fixture-file)
-          {dict :dict} (#'checking/preanalyzed-ns-dict base-dict fixture-ns fixture-file accessor-summaries)
+          {dict :dict} (checking/namespace-dict {} fixture-ns fixture-file)
           dict (#'checking/enrich-conditional-descriptors dict accessor-summaries)
           form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})

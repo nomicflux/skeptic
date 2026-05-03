@@ -256,21 +256,62 @@
 
 (defn- run-analyze-source-exprs
   [dict ns-sym source-file exprs accessor-summaries]
-  (let [{:keys [analyzed entries accessor-summaries]}
+  (let [{:keys [analyzed entries]}
         (reduce #(accumulate-analysis dict ns-sym source-file %1 %2)
                 {:analyzed [] :entries [] :accessor-summaries accessor-summaries}
                 exprs)]
     {:analysis-dict dict
      :analyzed analyzed
      :resolved analyzed
-     :resolved-defs (into {} (map (juxt :sym :entry)) entries)
-     :accessor-summaries accessor-summaries}))
+     :resolved-defs (into {} (map (juxt :sym :entry)) entries)}))
 
 (s/defn analyze-source-exprs :- s/Any
   ([dict ns-sym source-file exprs]
    (run-analyze-source-exprs dict ns-sym source-file exprs {}))
   ([dict ns-sym source-file exprs {:keys [accessor-summaries]}]
    (run-analyze-source-exprs dict ns-sym source-file exprs (or accessor-summaries {}))))
+
+(s/defschema AccessorPathElem
+  ;; get-call-summary / accessor-summary-from-body emit `{:value Keyword}`.
+  ;; case-classifier branch emits `amo/exact-key-query` maps with `:value Any`,
+  ;; `:kind :exact`, `:prov`, `:source-form`, plus ::amo/map-key-query.
+  {:value                       s/Any
+   s/Keyword                    s/Any})
+
+(s/defschema AccessorSummary
+  ;; Producer-faithful shape. `:default` and `:cases` values are heterogeneous:
+  ;; literal map-key values from get-call-summary, or raw source forms from
+  ;; the case-classifier branch (`(:form (:then ...))`). `:values` from
+  ;; `enrich-summary-with-declared-output` are ValueT inner :value, which the
+  ;; semantic type layer leaves as `s/Any`.
+  {:kind                                (s/enum :unary-identity :unary-map-projection)
+   (s/optional-key :path)               [AccessorPathElem]
+   (s/optional-key :default)            s/Any
+   (s/optional-key :values)             [s/Any]
+   (s/optional-key :cases)              {s/Any s/Any}
+   (s/optional-key :result-transform)   (s/enum :keyword)})
+
+(s/defschema AccessorSummaries
+  {s/Symbol AccessorSummary})
+
+(s/defn ^:private collect-accessor-summaries-for-ns :- AccessorSummaries
+  [dict :- {s/Symbol ats/SemanticType}
+   ns-sym :- s/Symbol
+   source-file :- (s/maybe File)
+   exprs :- [(s/pred seq?)]
+   seed-summaries :- AccessorSummaries]
+  (reduce
+   (fn [acc expr]
+     (let [analyzed (analyze-source-expr dict ns-sym source-file acc expr)]
+       (if-let [entry (some->> analyzed
+                               (analyzed-def-entry ns-sym)
+                               (enrich-summary-with-declared-output dict))]
+         (if-let [summary (:summary entry)]
+           (assoc acc (:sym entry) summary)
+           acc)
+         acc)))
+   seed-summaries
+   exprs))
 
 (s/defn method-output-type :- ats/SemanticType
   [method]
@@ -575,7 +616,7 @@
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
         merged))))
 
-(s/defn project-accessor-summaries :- {s/Symbol s/Any}
+(s/defn project-accessor-summaries :- AccessorSummaries
   "Source-of-truth for classifier accessor summaries across the project.
   Runs the same per-namespace source-analysis used to derive accessor summaries
   today, but accumulates them into a single project-wide map keyed by
@@ -589,35 +630,20 @@
        (let [{:keys [dict]} (namespace-dict opts ns-sym source-file)]
          (if (and source-file ns-sym)
            (binding [*ns* (the-ns ns-sym)]
-             (let [exprs (ns-exprs source-file)
-                   {:keys [accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
-               (merge acc accessor-summaries)))
+             (collect-accessor-summaries-for-ns dict ns-sym source-file
+                                                (ns-exprs source-file)
+                                                acc))
            acc))
        (catch Exception _ acc)))
    {}
    nss-with-source-files))
-
-(defn- preanalyzed-ns-dict
-  [dict ns-sym source-file project-accessor-summaries]
-  (if (and source-file ns-sym)
-    (let [exprs (ns-exprs source-file)
-          {:keys [resolved-defs accessor-summaries]}
-          (analyze-source-exprs dict ns-sym source-file exprs
-                                {:accessor-summaries project-accessor-summaries})
-          local-summaries (apply dissoc accessor-summaries (keys project-accessor-summaries))]
-      {:dict (merge (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym))
-                                                         (at/Dyn (prov/inferred {:name sym :ns ns-sym})))]))
-                          local-summaries)
-                    dict)})
-    {:dict dict}))
 
 (defn- prepare-namespace
   [opts ns-sym source-file]
   (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
         {:keys [accessor-summaries]} opts]
     (binding [*ns* (the-ns ns-sym)]
-      (let [{dict :dict} (preanalyzed-ns-dict dict ns-sym source-file accessor-summaries)
-            dict (enrich-conditional-descriptors dict accessor-summaries)]
+      (let [dict (enrich-conditional-descriptors dict accessor-summaries)]
         {:dict dict
          :ignore-body ignore-body
          :accessor-summaries accessor-summaries
