@@ -29,11 +29,11 @@ badges above reflect the latest published versions.
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.7.1"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.0"]]
 ```
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.0-SNAPSHOT"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.1-SNAPSHOT"]]
 ```
 
 If you need to override the default dependency profile, define a `:skeptic`
