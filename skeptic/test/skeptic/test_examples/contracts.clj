@@ -1,7 +1,8 @@
 (ns skeptic.test-examples.contracts
   (:require [clojure.string :as str]
             [schema.core :as s]
-            [skeptic.test-examples.basics :as basics]))
+            [skeptic.test-examples.basics :as basics]
+            [skeptic.test-examples.contracts-xns-schema :as xns]))
 
 (s/defschema ConditionalIntOrStr
   (s/conditional integer? s/Int string? s/Str))
@@ -609,3 +610,12 @@
   [params :- PlainDefnKindIn]
   (case (plain-defn-kind-params->kind params)
     :a (plain-defn-kind-f-a params)))
+
+(s/defn xns-consume-a
+  [_m :- xns/XnsA]
+  nil)
+
+(s/defn xns-cross-ns-conditional-narrowing-success
+  [m :- xns/XnsIn]
+  (case (xns/xns-dispatch m)
+    :a (xns-consume-a m)))

@@ -1,6 +1,7 @@
 (ns skeptic.test-examples.catalog
   (:require [skeptic.test-examples.basics]
             [skeptic.test-examples.collections]
+            [skeptic.test-examples.contracts-xns-schema]
             [skeptic.test-examples.control-flow]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
@@ -17,6 +18,7 @@
    :control-flow
    :collections
    :resolution
+   :contracts-xns-schema
    :contracts
    :nullability
    :fixture-flags
@@ -35,6 +37,8 @@
                  :file (File. "test/skeptic/test_examples/collections.clj")}
    :resolution {:ns 'skeptic.test-examples.resolution
                 :file (File. "test/skeptic/test_examples/resolution.clj")}
+   :contracts-xns-schema {:ns 'skeptic.test-examples.contracts-xns-schema
+                          :file (File. "test/skeptic/test_examples/contracts_xns_schema.clj")}
    :contracts {:ns 'skeptic.test-examples.contracts
                :file (File. "test/skeptic/test_examples/contracts.clj")}
    :nullability {:ns 'skeptic.test-examples.nullability

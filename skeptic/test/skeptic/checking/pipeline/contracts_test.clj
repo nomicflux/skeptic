@@ -148,3 +148,7 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/plain-defn-disc-repro-success
     'skeptic.test-examples.contracts/plain-defn-kind-repro-success))
+
+(deftest cross-namespace-conditional-discriminator-narrowing
+  (is (= [] (ps/check-fixture
+              'skeptic.test-examples.contracts/xns-cross-ns-conditional-narrowing-success))))
