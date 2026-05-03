@@ -10,7 +10,6 @@
             [skeptic.analysis.map-ops.algebra :as amoa]
             [skeptic.analysis.native-fns :as nf]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]
             [skeptic.test-helpers :refer [some!]]))

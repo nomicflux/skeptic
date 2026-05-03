@@ -16,14 +16,14 @@
     (is (= []
            (:results (sut/check-ns 'skeptic.core-fns
                                    file
-                                   {:accessor-summaries (ps/summaries-for 'skeptic.core-fns file)}))))))
+                                   {:project-state (ps/project-state-for 'skeptic.core-fns file)}))))))
 
 (deftest check-namespace-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
         {:keys [results]} (sut/check-namespace {:remove-context true
-                                                :accessor-summaries (ps/summaries-for 'skeptic.test-examples.basics temp-file)}
+                                                :project-state (ps/project-state-for 'skeptic.test-examples.basics temp-file)}
                                                'skeptic.test-examples.basics
                                                temp-file)]
     (is (= 1 (count results)))
@@ -38,7 +38,7 @@
                                        {:ns 'skeptic.schema.collect
                                         :source-file ps/schema-collect-file
                                         :remove-context true
-                                        :accessor-summaries (ps/summaries-for 'skeptic.schema.collect ps/schema-collect-file)}))]
+                                        :project-state (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)}))]
     (is (= [] results))))
 
 (deftest collect-annotations-output-annotation-regression
@@ -49,14 +49,14 @@
                                        {:ns 'skeptic.schema.collect
                                         :source-file ps/schema-collect-file
                                         :remove-context true
-                                        :accessor-summaries (ps/summaries-for 'skeptic.schema.collect ps/schema-collect-file)}))]
+                                        :project-state (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)}))]
     (is (= [] results))))
 
 (deftest static-call-examples-check-ns
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -101,7 +101,7 @@
   (let [results (:results (sut/check-ns 'skeptic.examples
                                         ps/examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.examples ps/examples-file)}))]
+                                         :project-state (ps/project-state-for 'skeptic.examples ps/examples-file)}))]
     (is (some #(when (= 'skeptic.examples/flat-maybe-base-type-failure
                         (:enclosing-form %))
                  %)
@@ -131,7 +131,7 @@
   (let [results (vec (:results (sut/check-ns 'skeptic.best-effort-examples
                                              ps/best-effort-file
                                              {:remove-context true
-                                              :accessor-summaries (ps/summaries-for 'skeptic.best-effort-examples ps/best-effort-file)})))
+                                              :project-state (ps/project-state-for 'skeptic.best-effort-examples ps/best-effort-file)})))
         declaration-error (some #(when (= :declaration (:phase %)) %) results)
         stray-form-result (some #(when (= 'skeptic.best-effort-examples/good-call
                                         (:enclosing-form %))
@@ -143,7 +143,7 @@
 
 (deftest check-namespace-full-flow-localizes-declaration-errors
   (let [{:keys [results]} (sut/check-namespace {:remove-context true
-                                                :accessor-summaries (ps/summaries-for 'skeptic.best-effort-examples ps/best-effort-file)}
+                                                :project-state (ps/project-state-for 'skeptic.best-effort-examples ps/best-effort-file)}
                                                'skeptic.best-effort-examples
                                                ps/best-effort-file)
         declaration-errors (filterv #(= :declaration (:phase %)) results)

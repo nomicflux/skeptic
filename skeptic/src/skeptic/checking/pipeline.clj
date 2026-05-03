@@ -657,11 +657,6 @@
      :accessor-summaries accessor-summaries
      :per-ns per-ns}))
 
-(s/defn ^{:deprecated "Phase 3 will delete; transitional during project-state migration."}
-  project-accessor-summaries :- AccessorSummaries
-  [opts nss-with-source-files]
-  (:accessor-summaries (project-state opts nss-with-source-files)))
-
 (defn- prepare-namespace
   [opts ns-sym source-file]
   (let [{:keys [project-state]} opts
@@ -676,11 +671,10 @@
            :errors errors
            :provenance provenance})
         (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
-              accessor-summaries (or (:accessor-summaries opts) {})
-              dict (enrich-conditional-descriptors dict accessor-summaries)]
+              dict (enrich-conditional-descriptors dict {})]
           {:dict dict
            :ignore-body ignore-body
-           :accessor-summaries accessor-summaries
+           :accessor-summaries {}
            :errors errors
            :provenance provenance})))))
 

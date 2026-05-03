@@ -10,7 +10,7 @@
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
                               (:enclosing-form %))
                         %)
@@ -25,7 +25,7 @@
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -46,7 +46,7 @@
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
                               (:enclosing-form %))
                         %)
@@ -61,7 +61,7 @@
 
 (deftest namespace-dict-surfaces-schema-source-for-schema-declared-syms
   (let [{:keys [provenance]} (sut/check-namespace {:remove-context true
-                                                   :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}
+                                                   :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}
                                                   'skeptic.static-call-examples
                                                   ps/static-call-examples-file)]
     (is (= :schema (prov/source (get provenance 'skeptic.static-call-examples/bad-rebuilt-user))))
@@ -71,7 +71,7 @@
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
                                         {:remove-context true
-                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

@@ -83,11 +83,6 @@
   [ns-sym source-file]
   (sut/project-state {} [[ns-sym source-file]]))
 
-(defn ^{:deprecated "Phase 3 will delete; transitional during project-state migration."}
-  summaries-for
-  [ns-sym source-file]
-  (:accessor-summaries (project-state-for ns-sym source-file)))
-
 (defn check-fixture
   ([sym]
    (check-fixture sym {}))
