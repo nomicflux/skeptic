@@ -1,4 +1,4 @@
-(defproject org.clojars.nomicflux/lein-skeptic "0.8.0-SNAPSHOT"
+(defproject org.clojars.nomicflux/lein-skeptic "0.8.0"
   :description "Static type checking for Clojure projects that use Plumatic Schema"
   :url "https://github.com/nomicflux/skeptic"
   :license {:name "MIT License"
@@ -11,6 +11,6 @@
    ["snapshots" {:url "https://repo.clojars.org"
                  :username :env/CLOJARS_USERNAME
                  :password :env/CLOJARS_LEIN_SKEPTIC_TOKEN}]]
-  :dependencies [[org.clojars.nomicflux/skeptic "0.8.0-SNAPSHOT"]
+  :dependencies [[org.clojars.nomicflux/skeptic "0.8.0"]
                  [org.clojure/tools.cli "1.0.214"]]
   :eval-in-leiningen true)
