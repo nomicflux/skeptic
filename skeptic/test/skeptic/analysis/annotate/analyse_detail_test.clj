@@ -3,7 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
-            [skeptic.test-helpers :refer [is-type= T]]
+            [skeptic.test-helpers :refer [is-type= T some!]]
             [skeptic.analysis-test :as atst]))
 
 (deftest detailed-let-and-if-shape-test
@@ -17,10 +17,11 @@
 
 (deftest detailed-def-and-fn-shape-test
   (testing "defn produces def with wrapped fn init"
-    (let [ast (aat/annotate-form-loop {} '(defn sample [x] x) {:ns 'user})]
+    (let [ast (aat/annotate-form-loop {} '(defn sample [x] x) {:ns 'user})
+          init-node (some! (aapi/def-init-node ast))]
       (is (= :def (aapi/node-op ast)))
       (is (= 'sample (aapi/node-name ast)))
-      (is (= :with-meta (aapi/node-op (aapi/def-init-node ast))))
-      (let [arglist (aapi/arglist-types (aapi/unwrap-with-meta (aapi/def-init-node ast)) 1)]
+      (is (= :with-meta (aapi/node-op init-node)))
+      (let [arglist (aapi/arglist-types (aapi/unwrap-with-meta init-node) 1)]
         (is (= 1 (count arglist)))
         (is-type= (T s/Any) (first arglist))))))

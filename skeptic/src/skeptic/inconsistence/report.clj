@@ -113,8 +113,12 @@
   ([report :- isch/OutputReport
     opts :- isch/ReportOpts]
    (let [{:keys [cast-summary actual-type expected-type]} report
-         actual-type (or (:actual-type cast-summary) actual-type)
-         expected-type (or (:expected-type cast-summary) expected-type)]
+         actual-type (or (:actual-type cast-summary)
+                         actual-type
+                         (throw (ex-info "OutputReport missing actual-type" {:report report})))
+         expected-type (or (:expected-type cast-summary)
+                           expected-type
+                           (throw (ex-info "OutputReport missing expected-type" {:report report})))]
      (format "%s\n\n%s\n\nbut the declared return type expects:\n\n%s"
              (output-summary-headline report "has inferred output type:")
              (colours/yellow (disp/describe-type-block actual-type opts))

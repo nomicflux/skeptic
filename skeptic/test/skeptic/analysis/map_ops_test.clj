@@ -6,7 +6,7 @@
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
-            [skeptic.test-helpers :refer [is-type= tp]]))
+            [skeptic.test-helpers :refer [is-type= tp some!]]))
 
 (deftest domain-query-stores-semantic-type-test
   (let [query (amo/domain-key-query (ab/schema->type tp s/Keyword) 'k)]
@@ -96,7 +96,7 @@
         path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
         result (amo/refine-map-path-by-values root path ["b"] true)]
     (is (at/map-type? result))
-    (let [x-val (amo/map-get-type result (amo/exact-key-query tp :x :x))
+    (let [x-val (some! (amo/map-get-type result (amo/exact-key-query tp :x :x)))
           k-val (amo/map-get-type x-val (amo/exact-key-query tp :k :k))]
       (is (at/value-type? k-val))
       (is (= "b" (:value k-val))))))

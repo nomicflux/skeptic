@@ -68,12 +68,12 @@
   (let [target ((:recurse ctx) ctx (:target node))
         keyword-node ((:recurse ctx) ctx (:keyword node))
         query (ac/get-key-query ctx keyword-node)
-        type (amo/map-get-type (:type target) query)]
-    (cond-> (assoc node
-                   :target target
-                   :keyword keyword-node
-                   :type type
-                   :actual-argtypes [(:type target)]
-                   :expected-argtypes [(aapi/dyn ctx)])
-      true
-      (assoc :origin (map-projection/map-key-lookup-origin ctx target query amo/no-default)))))
+        target-type (or (aapi/node-type target) (aapi/dyn ctx))
+        type (or (amo/map-get-type target-type query) (aapi/dyn ctx))]
+    (assoc node
+           :target target
+           :keyword keyword-node
+           :type type
+           :actual-argtypes [target-type]
+           :expected-argtypes [(aapi/dyn ctx)]
+           :origin (map-projection/map-key-lookup-origin ctx target query amo/no-default))))

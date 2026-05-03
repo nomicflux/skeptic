@@ -21,3 +21,11 @@
                (str "type=? mismatch\n"
                     "  expected: " (pr-str (abr/render-type-form e#)) "\n"
                     "  actual:   " (pr-str (abr/render-type-form a#))))))
+
+(defmacro some!
+  "Discharge a (maybe X) at a test site to X. Throws at runtime if the
+   expression evaluates to nil; skeptic narrows the result via the
+   `(or expr (throw …))` shape so call sites see the non-maybe type."
+  [expr]
+  `(or ~expr
+       (throw (ex-info "some! got nil" {:expr (quote ~expr)}))))

@@ -5,7 +5,8 @@
             [skeptic.analysis.bridge.render :as render]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as pipeline]
-            [skeptic.test-examples.named-fold-contract-probe])
+            [skeptic.test-examples.named-fold-contract-probe]
+            [skeptic.test-helpers :refer [some!]])
   (:import [java.io File]))
 
 (def fixture-file (File. "test/skeptic/test_examples/named_fold_contract_probe.clj"))
@@ -32,12 +33,13 @@
 
 (defn- actual-output-type
   [{:keys [analyzed]} target-sym]
-  (let [target-form (some (fn [a]
-                            (let [n (some-> a aapi/unwrap-with-meta)
-                                  [sym _] (aapi/analyzed-def-entry fixture-ns n)]
-                              (when (= sym target-sym) n)))
-                          analyzed)
-        init-node (some-> target-form aapi/def-init-node aapi/unwrap-with-meta)
+  (let [target-form (some! (some (fn [a]
+                                   (let [n (aapi/unwrap-with-meta a)]
+                                     (when-some [entry (aapi/analyzed-def-entry fixture-ns n)]
+                                       (let [[sym _] entry]
+                                         (when (= sym target-sym) n)))))
+                                 analyzed))
+        init-node (aapi/unwrap-with-meta (some! (aapi/def-init-node target-form)))
         method (first (aapi/function-methods init-node))]
     (-> method aapi/method-result-type :output-type ato/normalize)))
 

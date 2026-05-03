@@ -63,12 +63,14 @@
   [type :- (s/maybe ats/SemanticType)
    opts :- s/Any]
   (let [opts (merge default-render-opts opts)
-        type (ato/normalize type)
-        fold-hit (and (not (:explain-full opts))
+        type (some-> type ato/normalize)
+        fold-hit (and type
+                      (not (:explain-full opts))
                       (folded-name type))]
     (if fold-hit
       fold-hit
       (cond
+        (nil? type) nil
         (at/dyn-type? type) 'Any
         (at/bottom-type? type) 'Bottom
         (at/ground-type? type) (:display-form type)

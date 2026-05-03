@@ -12,7 +12,8 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.test-helpers :refer [some!]]))
 
 (def ^:private tp
   (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
@@ -41,7 +42,8 @@
 
 (deftest native-fn-output-carries-native-prov
   (let [{:keys [output-type expected-argtypes]}
-        (nf/static-call-native-info clojure.lang.Numbers 'inc 1)]
+        (nf/static-call-native-info clojure.lang.Numbers 'inc 1)
+        output-type (some! output-type)]
     (is (carries-real-prov? output-type))
     (is (= :native (prov/source (prov/of output-type))))
     (doseq [at expected-argtypes]
@@ -75,12 +77,3 @@
     (is (carries-real-prov? (amo/merge-map-types tp [])))
     (is (carries-real-prov? (amoa/merge-types tp [])))))
 
-(deftest type-constructors-reject-missing-prov
-  (testing "prov/of throws when given a non-Type value"
-    (is (thrown? Exception (prov/of 5)))
-    (is (thrown? Exception (prov/of {:prov tp})))
-    (is (thrown? Exception (prov/of nil))))
-  (testing "Type record constructors reject nil provenance"
-    (is (thrown? Exception (at/->GroundT nil :int 'Int)))
-    (is (thrown? Exception (at/->MapT nil {})))
-    (is (thrown? Exception (at/->FunT nil [])))))

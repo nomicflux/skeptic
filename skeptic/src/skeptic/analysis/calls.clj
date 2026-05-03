@@ -36,7 +36,7 @@
    node :- s/Any]
   (if (literal-map-key? node)
     (amo/exact-key-query (prov/with-ctx ctx) (literal-node-value node) (aapi/node-form node))
-    (amo/domain-key-query (aapi/node-type node) (aapi/node-form node))))
+    (amo/domain-key-query (or (aapi/node-type node) (aapi/dyn ctx)) (aapi/node-form node))))
 
 (s/defn var->sym :- (s/maybe s/Symbol)
   [var :- s/Any]
@@ -389,16 +389,19 @@
 
 (defn- fun-type-call-info
   [ft arity]
-  (let [method (at/select-method (at/fun-methods ft) arity)
-        inputs (at/fn-method-inputs method)
-        output (or (:output method) (ato/dyn ft))
-        c (count inputs)
-        argtypes (cond
-                   (zero? c) (vec (repeat arity (ato/dyn ft)))
-                   (>= c arity) (subvec (vec inputs) 0 arity)
-                   :else (vec (concat inputs (repeat (- arity c) (peek inputs)))))]
-    {:expected-argtypes argtypes
-     :output-type output
+  (if-let [method (at/select-method (at/fun-methods ft) arity)]
+    (let [inputs (at/fn-method-inputs method)
+          output (or (:output method) (ato/dyn ft))
+          c (count inputs)
+          argtypes (cond
+                     (zero? c) (vec (repeat arity (ato/dyn ft)))
+                     (>= c arity) (subvec (vec inputs) 0 arity)
+                     :else (vec (concat inputs (repeat (- arity c) (peek inputs)))))]
+      {:expected-argtypes argtypes
+       :output-type output
+       :fn-type ft})
+    {:expected-argtypes (vec (repeat arity (ato/dyn ft)))
+     :output-type (ato/dyn ft)
      :fn-type ft}))
 
 (s/defn call-info :- s/Any

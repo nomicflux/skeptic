@@ -73,15 +73,20 @@
                                                  read-string)))))
            sym))))
 
-(def ^:private fixture-accessor-summaries
+(def ^:private fixture-project-state
   (delay
-    (sut/project-accessor-summaries
+    (sut/project-state
      {}
      (map (juxt :ns :file) (vals catalog/fixture-envs)))))
 
-(defn summaries-for
+(defn project-state-for
   [ns-sym source-file]
-  (sut/project-accessor-summaries {} [[ns-sym source-file]]))
+  (sut/project-state {} [[ns-sym source-file]]))
+
+(defn ^{:deprecated "Phase 3 will delete; transitional during project-state migration."}
+  summaries-for
+  [ns-sym source-file]
+  (:accessor-summaries (project-state-for ns-sym source-file)))
 
 (defn check-fixture
   ([sym]
@@ -91,7 +96,7 @@
                      (assoc opts
                             :ns (fixture-ns sym)
                             :source-file (fixture-file sym)
-                            :accessor-summaries @fixture-accessor-summaries))))
+                            :project-state @fixture-project-state))))
 
 (defn fixture-exprs
   [ns-sym]
@@ -103,11 +108,11 @@
   [ns-sym opts]
   (:results (sut/check-ns ns-sym
                           (fixture-file-for-ns ns-sym)
-                          (assoc opts :accessor-summaries @fixture-accessor-summaries))))
+                          (assoc opts :project-state @fixture-project-state))))
 
 (defn check-fixture-namespace
   [ns-sym opts]
-  (:results (sut/check-namespace (assoc opts :accessor-summaries @fixture-accessor-summaries)
+  (:results (sut/check-namespace (assoc opts :project-state @fixture-project-state)
                                  ns-sym
                                  (fixture-file-for-ns ns-sym))))
 

@@ -873,7 +873,10 @@
   [arg-node :- aas/AnnotatedNode]
   (let [origin (aapi/node-origin arg-node)]
     (cond
-      (= :root (:kind origin)) origin
+      (and origin (= :root (:kind origin)))
+      (root-origin (:sym origin)
+                   (or (:type origin)
+                       (throw (ex-info "RootOrigin missing :type" {:origin origin}))))
 
       (aapi/local-node? arg-node)
       (when-let [type (aapi/node-type arg-node)]
@@ -892,11 +895,11 @@
 
 (s/defn call-arg-contract-assumptions :- [aos/TypePredicateAssumption]
   [node :- (s/maybe aas/AnnotatedNode)]
-  (if-not (and node (aapi/call-node? node))
-    []
-    (let [args (aapi/call-args node)
-          expected-argtypes (aapi/call-expected-argtypes node)]
+  (if-let [call (when (and node (aapi/call-node? node)) node)]
+    (let [args (aapi/call-args call)
+          expected-argtypes (aapi/call-expected-argtypes call)]
       (vec
        (keep (fn [[arg-node arg-type]]
                (call-arg-contract-assumption arg-node arg-type))
-             (map vector args expected-argtypes))))))
+             (map vector args expected-argtypes))))
+    []))

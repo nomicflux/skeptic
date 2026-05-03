@@ -616,39 +616,73 @@
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
         merged))))
 
-(s/defn project-accessor-summaries :- AccessorSummaries
-  "Source-of-truth for classifier accessor summaries across the project.
-  Runs the same per-namespace source-analysis used to derive accessor summaries
-  today, but accumulates them into a single project-wide map keyed by
-  qualified symbol. Threaded into every per-namespace check so cross-namespace
-  conditional discriminators resolve regardless of which namespace consumes
-  the schema."
+(s/defn project-state :- s/Any
+  "Source-of-truth for the project pass: per-ns admission once, dicts merged
+  into a project-wide dict; accessor summaries collected per-ns against the
+  merged dict; conditional descriptors enriched once on the merged dict.
+  Returns {:dict <enriched-merged> :accessor-summaries <merged>
+           :per-ns {ns-sym {:ignore-body :errors :provenance}}}.
+  Threaded into every per-namespace check so cross-namespace var resolution
+  and conditional discriminators ride the same project pass."
   [opts nss-with-source-files]
-  (reduce
-   (fn [acc [ns-sym source-file]]
-     (try
-       (let [{:keys [dict]} (namespace-dict opts ns-sym source-file)]
-         (if (and source-file ns-sym)
-           (binding [*ns* (the-ns ns-sym)]
-             (collect-accessor-summaries-for-ns dict ns-sym source-file
-                                                (ns-exprs source-file)
-                                                acc))
-           acc))
-       (catch Exception _ acc)))
-   {}
-   nss-with-source-files))
+  (let [per-ns-admission
+        (reduce (fn [acc [ns-sym source-file]]
+                  (try
+                    (assoc acc ns-sym (namespace-dict opts ns-sym source-file))
+                    (catch Exception _ acc)))
+                {}
+                nss-with-source-files)
+        merged-dict (reduce-kv (fn [m _ {:keys [dict]}] (merge m dict))
+                               {}
+                               per-ns-admission)
+        accessor-summaries
+        (reduce
+         (fn [acc [ns-sym source-file]]
+           (try
+             (if (and source-file ns-sym (contains? per-ns-admission ns-sym))
+               (binding [*ns* (the-ns ns-sym)]
+                 (collect-accessor-summaries-for-ns merged-dict ns-sym source-file
+                                                    (ns-exprs source-file)
+                                                    acc))
+               acc)
+             (catch Exception _ acc)))
+         {}
+         nss-with-source-files)
+        enriched-dict (enrich-conditional-descriptors merged-dict accessor-summaries)
+        per-ns (reduce-kv (fn [m k v]
+                            (assoc m k (select-keys v [:ignore-body :errors :provenance])))
+                          {}
+                          per-ns-admission)]
+    {:dict enriched-dict
+     :accessor-summaries accessor-summaries
+     :per-ns per-ns}))
+
+(s/defn ^{:deprecated "Phase 3 will delete; transitional during project-state migration."}
+  project-accessor-summaries :- AccessorSummaries
+  [opts nss-with-source-files]
+  (:accessor-summaries (project-state opts nss-with-source-files)))
 
 (defn- prepare-namespace
   [opts ns-sym source-file]
-  (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
-        {:keys [accessor-summaries]} opts]
+  (let [{:keys [project-state]} opts
+        per-ns-entry (get-in project-state [:per-ns ns-sym])]
     (binding [*ns* (the-ns ns-sym)]
-      (let [dict (enrich-conditional-descriptors dict accessor-summaries)]
-        {:dict dict
-         :ignore-body ignore-body
-         :accessor-summaries accessor-summaries
-         :errors errors
-         :provenance provenance}))))
+      (if (and project-state per-ns-entry)
+        (let [{:keys [dict accessor-summaries]} project-state
+              {:keys [ignore-body errors provenance]} per-ns-entry]
+          {:dict dict
+           :ignore-body ignore-body
+           :accessor-summaries accessor-summaries
+           :errors errors
+           :provenance provenance})
+        (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
+              accessor-summaries (or (:accessor-summaries opts) {})
+              dict (enrich-conditional-descriptors dict accessor-summaries)]
+          {:dict dict
+           :ignore-body ignore-body
+           :accessor-summaries accessor-summaries
+           :errors errors
+           :provenance provenance})))))
 
 (s/defn check-s-expr :- s/Any
   [s-expr {:keys [ns source-file check-def] :as opts}]

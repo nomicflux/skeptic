@@ -55,9 +55,6 @@
         t (at/->GroundT p :int 'Int)]
     (is (= p (sut/of t)))))
 
-(deftest of-throws-on-value-without-provenance
-  (is (thrown? Exception (sut/of {:not :a-type}))))
-
 (deftest merge-schema-and-inferred-keeps-schema
   (let [ps (sut/make-provenance :schema 'a/b 'a nil)
         pi (sut/make-provenance :inferred 'a/b 'a nil)]

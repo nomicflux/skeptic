@@ -6,7 +6,7 @@
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.test-helpers :refer [is-type= T tp]]))
+            [skeptic.test-helpers :refer [is-type= T tp some!]]))
 
 (deftest integral-ground-type-test
   (is (sut/integral-ground-type? (T s/Int)))
@@ -52,7 +52,7 @@
     (let [int-at-other (at/->GroundT other-prov :int 'Int)
           args [(aat/test-typed-node :local 'x int-at-other)
                 (aat/test-typed-node :local 'y int-at-other)]
-          result (sut/invoke-integral-math-narrow-type tp '+ args (mapv :type args))]
+          result (some! (sut/invoke-integral-math-narrow-type tp '+ args (mapv :type args)))]
       (is-type= (at/->GroundT tp :int 'Int) result)
       (is (= tp (prov/of result))))))
 
@@ -61,7 +61,7 @@
     (let [int-at-other (at/->GroundT other-prov :int 'Int)
           args [(aat/test-typed-node :local 'x int-at-other)
                 (aat/test-typed-node :local 'y int-at-other)]
-          result (sut/narrow-static-numbers-output
-                  tp {:method 'add} args (mapv :type args) {:output-type (at/NumericDyn tp)})]
+          result (some! (sut/narrow-static-numbers-output
+                         tp {:method 'add} args (mapv :type args) {:output-type (at/NumericDyn tp)}))]
       (is-type= (at/->GroundT tp :int 'Int) result)
       (is (= tp (prov/of result))))))

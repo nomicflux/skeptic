@@ -258,15 +258,15 @@
      (cond
        (at/maybe-type? m)
        (ato/union
-        [(map-get-type (:inner m) key-query default)
+        [(or (map-get-type (:inner m) key-query default) (ato/dyn m))
          (or default-type (at/->MaybeT (ato/derive-prov m) (ato/dyn m)))])
 
        (at/union-type? m)
-       (ato/union (map #(map-get-type % key-query default) (:members m)))
+       (ato/union (keep #(map-get-type % key-query default) (:members m)))
 
        (at/map-type? m)
        (if-let [candidates (seq (map-lookup-candidates (:entries m) key-query))]
-         (let [base-value (candidate-value-type candidates)
+         (let [base-value (ato/union (map :value candidates))
                base-value (if (and (exact-key-query? key-query)
                                    (= 1 (count candidates))
                                    (= :optional-explicit (:kind (first candidates)))
@@ -276,7 +276,7 @@
                               (at/->MaybeT (ato/derive-prov base-value) base-value))
                             base-value)]
            (if default-provided?
-             (ato/union [base-value default-type])
+             (ato/union [base-value (or default-type (ato/dyn m))])
              base-value))
          (if default-provided?
            default-type
@@ -284,7 +284,7 @@
 
        :else
        (if default-provided?
-         (ato/union [(ato/dyn m) default-type])
+         (ato/union [(ato/dyn m) (or default-type (ato/dyn m))])
          (ato/dyn m))))))
 
 (s/defn merge-map-types :- ats/SemanticType

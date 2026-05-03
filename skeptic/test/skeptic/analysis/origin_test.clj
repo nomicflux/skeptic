@@ -14,7 +14,7 @@
             [skeptic.checking.pipeline :as checking]
             [skeptic.provenance :as prov]
             [skeptic.test-examples.catalog :as catalog]
-            [skeptic.test-helpers :refer [is-type= T tp]]
+            [skeptic.test-helpers :refer [is-type= T tp some!]]
             [skeptic.typed-decls :as typed-decls])
   (:import [clojure.lang Numbers]))
 
@@ -288,7 +288,7 @@
         ast (atst/ast-by-name resolved 'guarded-keys-caller)
         guarded-if (aapi/find-node ast #(and (= :if (aapi/node-op %))
                                              (= 'pair (aapi/node-form (aapi/node-test %)))))
-        pair-assumption (aapi/branch-test-assumption guarded-if)
+        pair-assumption (some! (aapi/branch-test-assumption guarded-if))
         lookup-nodes (filter #(and (= :static-call (aapi/node-op %))
                                    (= clojure.lang.RT (aapi/node-class %))
                                    (= 'get (aapi/node-method %)))
@@ -297,9 +297,10 @@
     (is (= :truthy-local (:kind pair-assumption)))
     (is (= 2 (count lookup-nodes)))
     (doseq [lookup lookup-nodes]
-      (is (= :map-key-lookup (:kind (aapi/node-origin lookup))))
-      (is-type= (T s/Str)
-          (ao/origin-type (aapi/node-origin lookup) [pair-assumption])))))
+      (let [origin (some! (aapi/node-origin lookup))]
+        (is (= :map-key-lookup (:kind origin)))
+        (is-type= (T s/Str)
+            (ao/origin-type origin [pair-assumption]))))))
 
 (defn- bp [expr polarity] {:kind :boolean-proposition :expr expr :polarity polarity})
 (defn- disj* [& parts] {:kind :disjunction :parts (vec parts)})
@@ -408,7 +409,7 @@
         k-local (aapi/find-node root #(and (= :local (aapi/node-op %))
                                            (= 'k (aapi/node-form %))
                                            (= :static-call (aapi/node-op (:binding-init %)))))
-        origin (aapi/node-origin k-local)]
+        origin (some! (aapi/node-origin k-local))]
     (is (= :map-key-lookup (:kind origin)))
     (is (= :root (:kind (:root origin))))
     (is (= 'x (:sym (:root origin))))
@@ -497,7 +498,7 @@
                     :values ["b"]
                     :polarity true}
         refined (ao/apply-assumption-to-root-type root-type assumption)
-        inner-k (amo/map-get-type (amo/map-get-type refined kq-x) kq-k)]
+        inner-k (amo/map-get-type (some! (amo/map-get-type refined kq-x)) kq-k)]
     (is-type= (T (s/eq "b")) inner-k)))
 
 (deftest branch-local-envs-refines-x-via-nested-equality
