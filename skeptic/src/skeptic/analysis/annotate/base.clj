@@ -24,7 +24,8 @@
 
 (s/defn annotate-const :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (assoc node :type (av/type-of-value (prov/with-ctx ctx) (:val node))))
+  (let [prov (prov/with-ctx ctx)]
+    (assoc node :type (av/type-of-value prov (:val node)))))
 
 (s/defn annotate-binding :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]

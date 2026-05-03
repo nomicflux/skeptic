@@ -4,52 +4,57 @@
             [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]))
 
 (s/defn annotate-def :- aas/AnnotatedNode
   [{:keys [locals] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [meta-node (when-some [meta-node (:meta node)]
+  (let [prov (prov/with-ctx ctx)
+        meta-node (when-some [meta-node (:meta node)]
                     ((:recurse ctx) ctx meta-node))
         init-node (when-some [init-node (:init node)]
                     ((:recurse ctx)
                      (assoc ctx :locals locals :name (:name node))
                      init-node))
-        inner (or (:type init-node) (aapi/dyn ctx))]
-    (cond-> (assoc node :type (at/->VarT (prov/with-ctx ctx) inner))
+        inner (or (:type init-node) (at/Dyn prov))]
+    (cond-> (assoc node :type (at/->VarT prov inner))
       meta-node (assoc :meta meta-node)
       init-node (assoc :init init-node))))
 
 (s/defn annotate-vector :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [items (mapv #((:recurse ctx) ctx %) (:items node))
-        item-types (mapv #(aapi/normalize-type ctx (or (:type %) (aapi/dyn ctx))) items)]
+  (let [prov (prov/with-ctx ctx)
+        items (mapv #((:recurse ctx) ctx %) (:items node))
+        item-types (mapv #(ato/normalize-type prov (or (:type %) (at/Dyn prov))) items)]
     (assoc node
            :items items
-           :type (at/->VectorT (prov/with-refs (prov/with-ctx ctx) (mapv prov/of item-types))
+           :type (at/->VectorT (prov/with-refs prov (mapv prov/of item-types))
                                item-types
                                (coll/vec-homogeneous-items? item-types)))))
 
 (s/defn annotate-set :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [items (mapv #((:recurse ctx) ctx %) (:items node))
+  (let [prov (prov/with-ctx ctx)
+        items (mapv #((:recurse ctx) ctx %) (:items node))
         joined (if (seq items)
-                 (av/type-join* (prov/with-ctx ctx) (map :type items))
-                 (aapi/dyn ctx))
-        t (aapi/normalize-type ctx #{joined})]
+                 (av/type-join* prov (map :type items))
+                 (at/Dyn prov))
+        t (ato/normalize-type prov #{joined})]
     (assoc node :items items :type (assoc t :prov (prov/with-refs (:prov t) [(prov/of joined)])))))
 
 (s/defn annotate-map :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [keys (mapv #((:recurse ctx) ctx %) (:keys node))
+  (let [prov (prov/with-ctx ctx)
+        keys (mapv #((:recurse ctx) ctx %) (:keys node))
         vals (mapv #((:recurse ctx) ctx %) (:vals node))
         entries (into {}
                       (map (fn [[key-node val-node]]
                              [(ac/map-literal-key-type ctx key-node) (:type val-node)]))
                       (map vector keys vals))
         refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) entries)
-        t (aapi/normalize-type ctx entries)]
+        t (ato/normalize-type prov entries)]
     (assoc node :keys keys :vals vals :type (assoc t :prov (prov/with-refs (:prov t) refs)))))
 
 (s/defn annotate-new :- aas/AnnotatedNode
@@ -70,14 +75,16 @@
 
 (s/defn annotate-throw :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [exception ((:recurse ctx) ctx (:exception node))]
-    (assoc node :exception exception :type (aapi/bottom ctx))))
+  (let [prov (prov/with-ctx ctx)
+        exception ((:recurse ctx) ctx (:exception node))]
+    (assoc node :exception exception :type (at/BottomType prov))))
 
 (s/defn annotate-catch :- aas/AnnotatedNode
   [{:keys [locals] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [class-node ((:recurse ctx) ctx (:class node))
-        caught-type (or (some->> (:val class-node) (av/class->type (prov/with-ctx ctx)))
-                        (aapi/dyn ctx))
+  (let [prov (prov/with-ctx ctx)
+        class-node ((:recurse ctx) ctx (:class node))
+        caught-type (or (some->> (:val class-node) (av/class->type prov))
+                        (at/Dyn prov))
         local-node (assoc (:local node) :type caught-type)
         body ((:recurse ctx)
               (assoc ctx :locals (assoc locals (:form (:local node)) {:type caught-type}))
@@ -90,11 +97,12 @@
 
 (s/defn annotate-try :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [body ((:recurse ctx) ctx (:body node))
+  (let [prov (prov/with-ctx ctx)
+        body ((:recurse ctx) ctx (:body node))
         catches (mapv #(annotate-catch ctx %) (:catches node))
         finally-node (when-some [finally-node (:finally node)]
                        ((:recurse ctx) ctx finally-node))
-        type (av/type-join* (prov/with-ctx ctx) (cons (:type body) (map :type catches)))
+        type (av/type-join* prov (cons (:type body) (map :type catches)))
         origin (when (empty? catches) (aapi/node-origin body))]
     (cond-> (assoc node :body body :catches catches :type type)
       finally-node (assoc :finally finally-node)
@@ -102,5 +110,6 @@
 
 (s/defn annotate-quote :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [expr ((:recurse ctx) ctx (:expr node))]
-    (assoc node :expr expr :type (av/type-of-value (prov/with-ctx ctx) (-> node :form second)))))
+  (let [prov (prov/with-ctx ctx)
+        expr ((:recurse ctx) ctx (:expr node))]
+    (assoc node :expr expr :type (av/type-of-value prov (-> node :form second)))))
