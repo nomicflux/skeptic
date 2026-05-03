@@ -253,7 +253,7 @@
 (defn- widen-empty-target
   [original current actual]
   (if (widenable-empty-target? original actual)
-    (if (at/type-equal? current original)
+    (if (at/type=? current original)
       (ato/normalize actual)
       (av/join (ato/derive-prov current actual) [current actual]))
     current))

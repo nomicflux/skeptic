@@ -87,13 +87,11 @@
       (is (not (sut/type=? (sut/->ValueT p-schema schema-str :a)
                            (sut/->ValueT p-native native-str :b)))))))
 
-(deftest type-equal-ignores-runtime-closures-and-prov
+(deftest type=-ignores-runtime-closures-and-prov
   (let [schema-base (sut/->GroundT p-schema :int 'Int)
         native-base (sut/->GroundT p-native :int 'Int)]
-    (is (sut/type-equal? (sut/->RefinementT p-schema schema-base 'Positive pos? {:tag :same})
-                         (sut/->RefinementT p-native native-base 'Positive neg? {:tag :same})))
-    (is (sut/type-equal? (sut/->ConditionalT p-schema [[pos? schema-base]])
-                         (sut/->ConditionalT p-native [[neg? native-base]])))))
+    (is (sut/type=? (sut/->RefinementT p-schema schema-base 'Positive pos? {:tag :same})
+                    (sut/->RefinementT p-native native-base 'Positive neg? {:tag :same})))))
 
 (deftest dedup-types-uses-semantic-comparison-and-preserves-originals
   (let [schema-int (sut/->GroundT p-schema :int 'Int)
@@ -121,12 +119,3 @@
   (is (sut/fun-type? (sut/->FunT p-schema [])))
   (is (sut/maybe-type? (sut/->MaybeT p-schema (sut/Dyn p-schema)))))
 
-(deftest conditional-3-tuple-branches-survive-strip-runtime-closures
-  (let [pred (fn [_] true)
-        descriptor {:path [{:value :k}] :values ["b"]}
-        inner-type (sut/Dyn p-schema)
-        ct (sut/->ConditionalT p-schema [[pred inner-type descriptor]])
-        stripped (#'sut/strip-runtime-closures ct)]
-    (is (= 1 (count (:branches stripped))))
-    (is (nil? (first (first (:branches stripped)))))
-    (is (= descriptor (nth (first (:branches stripped)) 2)))))

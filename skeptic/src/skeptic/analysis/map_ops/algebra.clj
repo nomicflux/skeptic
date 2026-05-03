@@ -16,9 +16,9 @@
   (let [ev (exact-key-for-literal prov key-lit)]
     (into {}
           (remove (fn [[k _]]
-                    (or (at/type-equal? k ev)
+                    (or (at/type=? k ev)
                         (and (at/optional-key-type? k)
-                             (at/type-equal? (:inner k) ev))))
+                             (at/type=? (:inner k) ev))))
                   entries))))
 
 (s/defn assoc-type :- ats/SemanticType

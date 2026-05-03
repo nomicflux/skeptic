@@ -284,54 +284,6 @@
       (when-let [eligible (seq (filter #(<= (:min-arity %) arity) methods))]
         (apply max-key :min-arity eligible))))
 
-(defn- strip-runtime-closures
-  [t]
-  (cond
-    (not (semantic-type-value? t)) t
-
-    (numeric-dyn-type? t)
-    t
-
-    (refinement-type? t)
-    (-> t (assoc :accepts? nil) (update :base strip-runtime-closures))
-
-    (adapter-leaf-type? t)
-    (assoc t :accepts? nil)
-
-    (inf-cycle-type? t)
-    t
-
-    (optional-key-type? t) (update t :inner strip-runtime-closures)
-    (maybe-type? t) (update t :inner strip-runtime-closures)
-    (var-type? t) (update t :inner strip-runtime-closures)
-    (value-type? t) (update t :inner strip-runtime-closures)
-    (forall-type? t) (update t :body strip-runtime-closures)
-    (sealed-dyn-type? t) (update t :ground strip-runtime-closures)
-
-    (conditional-type? t)
-    (update t :branches (fn [bs] (mapv (fn [[_ typ slot3]] [nil (strip-runtime-closures typ) slot3]) bs)))
-
-    (union-type? t) (update t :members #(mapv strip-runtime-closures %))
-    (intersection-type? t) (update t :members #(mapv strip-runtime-closures %))
-    (vector-type? t) (update t :items #(mapv strip-runtime-closures %))
-    (seq-type? t) (update t :items #(mapv strip-runtime-closures %))
-    (set-type? t) (update t :members #(into #{} (map strip-runtime-closures) %))
-
-    (fn-method-type? t)
-    (-> t
-        (update :inputs #(mapv strip-runtime-closures %))
-        (update :output strip-runtime-closures))
-
-    (fun-type? t)
-    (update t :methods #(mapv strip-runtime-closures %))
-
-    (map-type? t)
-    (update t :entries
-            #(into {} (map (fn [[k v]] [(strip-runtime-closures k)
-                                        (strip-runtime-closures v)])) %))
-
-    :else t))
-
 (defn- ordered-type=?
   [same? a b]
   (and (= (count a) (count b))
@@ -398,13 +350,11 @@
          (refinement-type? a)
          (and (same? (:base a) (:base b))
               (= (:display-form a) (:display-form b))
-              (= (:accepts? a) (:accepts? b))
               (same? (:adapter-data a) (:adapter-data b)))
 
          (adapter-leaf-type? a)
          (and (= (:adapter a) (:adapter b))
               (= (:display-form a) (:display-form b))
-              (= (:accepts? a) (:accepts? b))
               (same? (:adapter-data a) (:adapter-data b)))
 
          (optional-key-type? a)
@@ -534,14 +484,12 @@
                   (-> tag-hash
                       (combine-hash (hash-type (:base x)))
                       (combine-hash (hash (:display-form x)))
-                      (combine-hash (hash (:accepts? x)))
                       (combine-hash (hash-type (:adapter-data x))))
 
                   (adapter-leaf-type? x)
                   (-> tag-hash
                       (combine-hash (hash (:adapter x)))
                       (combine-hash (hash (:display-form x)))
-                      (combine-hash (hash (:accepts? x)))
                       (combine-hash (hash-type (:adapter-data x))))
 
                   (optional-key-type? x)
@@ -645,11 +593,6 @@
        vals
        (apply concat)
        (into #{})))
-
-(s/defn type-equal? :- s/Any
-  [a :- s/Any
-   b :- s/Any]
-  (type=? (strip-runtime-closures a) (strip-runtime-closures b)))
 
 (s/defn ref-display-form :- s/Symbol
   [ref :- s/Any]

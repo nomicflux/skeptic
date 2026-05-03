@@ -55,7 +55,7 @@
 
 (defn- covered?
   [covered alternative]
-  (some #(at/type-equal? alternative %) covered))
+  (some #(at/type=? alternative %) covered))
 
 (s/defn exhausted-by-types? :- s/Bool
   [sum-type      :- s/Any
