@@ -185,11 +185,17 @@
   [schema]
   (get schema placeholder-key))
 
+(def ^:private ^java.util.WeakHashMap qvs-cache
+  (java.util.WeakHashMap.))
+
 (defn qualified-var-symbol
   [v]
-  (let [{:keys [ns name]} (meta v)]
-    (when (and ns name)
-      (symbol (str (ns-name ns) "/" name)))))
+  (or (locking qvs-cache (.get qvs-cache v))
+      (let [{:keys [ns name]} (meta v)]
+        (when (and ns name)
+          (let [sym (symbol (str (ns-name ns) "/" name))]
+            (locking qvs-cache (.put qvs-cache v sym))
+            sym)))))
 
 (declare custom-schema-match-value?)
 

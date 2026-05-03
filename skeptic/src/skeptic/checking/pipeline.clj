@@ -29,6 +29,14 @@
     (cond
       (not (at/semantic-type-value? t)) t
 
+      (or (at/dyn-type? t)
+          (at/bottom-type? t)
+          (at/numeric-dyn-type? t)
+          (at/ground-type? t)
+          (at/type-var-type? t)
+          (at/placeholder-type? t)
+          (at/inf-cycle-type? t)) t
+
       (at/conditional-type? t)
       (let [ns-sym (:declared-in (prov/of t))]
         (update t :branches

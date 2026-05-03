@@ -445,19 +445,18 @@
 
 (defn- ordered-type-hash
   [type-hash-fn xs]
-  (reduce combine-hash 1 (map type-hash-fn xs)))
+  (reduce (fn [acc x] (combine-hash acc (type-hash-fn x))) 1 xs))
 
 (defn- unordered-type-hash
   [type-hash-fn xs]
-  (reduce unchecked-add-int 0 (map type-hash-fn xs)))
+  (reduce (fn [acc x] (unchecked-add-int acc (type-hash-fn x))) 0 xs))
 
 (defn- map-type-hash
   [type-hash-fn m]
-  (reduce unchecked-add-int
-          0
-          (map (fn [[k v]]
-                 (combine-hash (type-hash-fn k) (type-hash-fn v)))
-               m)))
+  (reduce-kv (fn [acc k v]
+               (unchecked-add-int acc (combine-hash (type-hash-fn k) (type-hash-fn v))))
+             0
+             m))
 
 (defn- branch-type-hash
   [type-hash-fn [pred typ]]
