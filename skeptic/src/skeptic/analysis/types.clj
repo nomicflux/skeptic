@@ -185,7 +185,7 @@
 (defrecord SealedDynTRec [prov ground]
   proto/SemanticType (semantic-tag [_] sealed-dyn-type-tag))
 
-(defrecord ConditionalTRec [prov branches]
+(defrecord ConditionalTRec [prov branches pred-forms]
   proto/SemanticType (semantic-tag [_] conditional-type-tag))
 
 (defn- ensure-prov!
@@ -217,7 +217,9 @@
 (s/defn ->TypeVarT :- ats/SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarTRec. prov name))
 (s/defn ->ForallT :- ats/SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallTRec. prov binder body))
 (s/defn ->SealedDynT :- ats/SemanticType [prov :- provs/Provenance ground] (ensure-prov! "SealedDynT" prov) (SealedDynTRec. prov ground))
-(s/defn ->ConditionalT :- ats/SemanticType [prov :- provs/Provenance branches] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches))
+(s/defn ->ConditionalT :- ats/SemanticType
+  ([prov :- provs/Provenance branches] (->ConditionalT prov branches nil))
+  ([prov :- provs/Provenance branches pred-forms] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches pred-forms)))
 
 (s/defn Dyn :- ats/SemanticType
   [prov :- provs/Provenance]
