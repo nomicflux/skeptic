@@ -152,3 +152,9 @@
 (deftest cross-namespace-conditional-discriminator-narrowing
   (is (= [] (ps/check-fixture
               'skeptic.test-examples.contracts/xns-cross-ns-conditional-narrowing-success))))
+
+(deftest xns-int-into-str-arg-fails
+  (let [results (ps/check-fixture
+                  'skeptic.test-examples.contracts/xns-int-into-str-arg-failure)]
+    (is (seq (ps/result-errors results))
+        "expected checker error: cross-ns Int from xns/f let-bound and passed into Str arg")))

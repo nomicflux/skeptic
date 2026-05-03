@@ -15,3 +15,7 @@
   (s/conditional
     #(= :a (xns-dispatch %)) XnsA
     #(= :b (xns-dispatch %)) XnsB))
+
+(s/defn f :- s/Int
+  []
+  1)

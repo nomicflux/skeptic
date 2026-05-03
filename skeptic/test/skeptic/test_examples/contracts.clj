@@ -619,3 +619,13 @@
   [m :- xns/XnsIn]
   (case (xns/xns-dispatch m)
     :a (xns-consume-a m)))
+
+(s/defn take-str :- s/Str
+  [x :- s/Str]
+  x)
+
+(s/defn xns-int-into-str-arg-failure
+  []
+  (let [x (xns/f)
+        y (take-str x)]
+    y))
