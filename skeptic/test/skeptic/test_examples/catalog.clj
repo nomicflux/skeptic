@@ -6,6 +6,7 @@
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
             [skeptic.test-examples.malli-contracts]
+            [skeptic.test-examples.nullability-xns-schema]
             [skeptic.test-examples.nullability]
             [skeptic.test-examples.predicate-examples]
             [skeptic.test-examples.resolution]
@@ -20,6 +21,7 @@
    :resolution
    :contracts-xns-schema
    :contracts
+   :nullability-xns-schema
    :nullability
    :fixture-flags
    :predicate-examples
@@ -41,6 +43,8 @@
                           :file (File. "test/skeptic/test_examples/contracts_xns_schema.clj")}
    :contracts {:ns 'skeptic.test-examples.contracts
                :file (File. "test/skeptic/test_examples/contracts.clj")}
+   :nullability-xns-schema {:ns 'skeptic.test-examples.nullability-xns-schema
+                            :file (File. "test/skeptic/test_examples/nullability_xns_schema.clj")}
    :nullability {:ns 'skeptic.test-examples.nullability
                  :file (File. "test/skeptic/test_examples/nullability.clj")}
    :fixture-flags {:ns 'skeptic.test-examples.fixture-flags

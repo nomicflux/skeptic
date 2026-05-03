@@ -136,3 +136,9 @@
         plus-y-x '(. clojure.lang.Numbers (add y x))]
     (is (contains? blames (pr-str plus-y-x))
         (str "expected (+ y x) to be blamed; got blames: " (pr-str blames)))))
+
+(deftest xns-let-bound-maybe-int-into-int-arg-fails
+  (let [results (ps/check-fixture
+                  'skeptic.test-examples.nullability/xns-let-bound-maybe-int-into-int-arg-failure)]
+    (is (seq (ps/result-errors results))
+        "expected checker error: cross-ns (maybe Int) from fn-ns/f let-bound and passed into non-null Int arg")))

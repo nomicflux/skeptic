@@ -1,7 +1,8 @@
 (ns skeptic.test-examples.nullability
   (:require [clojure.string :as str]
             [schema.core :as s]
-            [skeptic.test-examples.basics :as basics]))
+            [skeptic.test-examples.basics :as basics]
+            [skeptic.test-examples.nullability-xns-schema :as fn-ns]))
 
 (s/defn test-eq-nil :- (s/eq nil)
   []
@@ -263,3 +264,9 @@
         w (+ 1 z)
         u (+ y x)]
     (+ x w)))
+
+(s/defn xns-let-bound-maybe-int-into-int-arg-failure
+  []
+  (let [x (fn-ns/f)
+        y (take-val x)]
+    y))
