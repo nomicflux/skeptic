@@ -19,6 +19,10 @@
    "produce-either" "produce-cond-pre" "produce-both" "produce-maybe" "produce-constrained"
    "fn-with-call" "fn-with-composed" "fn-with-literal"])
 
+(defn- fixture-accessor-summaries
+  []
+  (pipeline/project-accessor-summaries {} [[fixture-ns fixture-file]]))
+
 (defn- analysis-env
   []
   (let [exprs (pipeline/ns-exprs fixture-file)
@@ -48,7 +52,8 @@
 (defn- public-output-result
   [target-sym]
   (some #(when (= target-sym (:enclosing-form %)) %)
-        (:results (pipeline/check-ns fixture-ns fixture-file {}))))
+        (:results (pipeline/check-ns fixture-ns fixture-file
+                                     {:accessor-summaries (fixture-accessor-summaries)}))))
 
 (defn- assert-no-producer-name
   [rendered]

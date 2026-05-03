@@ -47,7 +47,8 @@
                           flat-results)
         nested-results (:results (sut/check-ns 'skeptic.static-call-examples
                                                ps/static-call-examples-file
-                                               {:remove-context true}))
+                                               {:remove-context true
+                                                :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

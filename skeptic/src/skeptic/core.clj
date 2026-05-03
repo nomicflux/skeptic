@@ -60,6 +60,8 @@
         nss (cond-> discovered-nss
               namespace
               (select-keys [(symbol namespace)]))
+        opts (assoc opts :accessor-summaries
+                    (checking/project-accessor-summaries opts nss))
         {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
         (output/printer opts)
         totals (atom {:finding-count 0

@@ -9,7 +9,8 @@
 (deftest output-mismatch-renders-canonical-map-types
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
-                                        {:remove-context true}))
+                                        {:remove-context true
+                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-user
                               (:enclosing-form %))
                         %)
@@ -23,7 +24,8 @@
 (deftest output-summary-highlights-path-or-drops-redundant-self-context
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
-                                        {:remove-context true}))
+                                        {:remove-context true
+                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -43,7 +45,8 @@
 (deftest nested-output-mismatch-renders-field-paths
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
-                                        {:remove-context true}))
+                                        {:remove-context true
+                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         result (some #(when (= 'skeptic.static-call-examples/bad-rebuilt-nested-user
                               (:enclosing-form %))
                         %)
@@ -57,7 +60,8 @@
            (-> result :cast-diagnostics first :path)))))
 
 (deftest namespace-dict-surfaces-schema-source-for-schema-declared-syms
-  (let [{:keys [provenance]} (sut/check-namespace {:remove-context true}
+  (let [{:keys [provenance]} (sut/check-namespace {:remove-context true
+                                                   :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}
                                                   'skeptic.static-call-examples
                                                   ps/static-call-examples-file)]
     (is (= :schema (prov/source (get provenance 'skeptic.static-call-examples/bad-rebuilt-user))))
@@ -66,7 +70,8 @@
 (deftest check-results-carry-cast-metadata
   (let [results (:results (sut/check-ns 'skeptic.static-call-examples
                                         ps/static-call-examples-file
-                                        {:remove-context true}))
+                                        {:remove-context true
+                                         :accessor-summaries (ps/summaries-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

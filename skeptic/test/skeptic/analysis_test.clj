@@ -168,9 +168,9 @@
                                                                           contracts-file
                                                                           (source-exprs-in contracts-ns contracts-file)))
             choose-summary (get summaries 'skeptic.test-examples.contracts/choose)]
-        (is (= {:kind :unary-map-accessor :kw :k}
+        (is (= {:kind :unary-map-projection :path [{:value :k}]}
                (get summaries 'skeptic.test-examples.contracts/vtype)))
-        (is (= :unary-map-classifier (:kind choose-summary)))
+        (is (= :unary-map-projection (:kind choose-summary)))
         (is (= [:k] (mapv :value (:path choose-summary))))
         (is (= :a (:default choose-summary)))
         (is (= :keyword (:result-transform choose-summary)))
@@ -208,10 +208,11 @@
   (testing "classifier case narrowing crosses helper function boundaries"
     (let [fixture-ns 'skeptic.test-examples.contracts
           fixture-file (fixture-file-for-ns fixture-ns)
+          accessor-summaries (checking/project-accessor-summaries
+                              {} [[fixture-ns fixture-file]])
           {base-dict :dict} (checking/namespace-dict {} fixture-ns fixture-file)
-          {dict :dict accessor-summaries :accessor-summaries}
-          (#'checking/preanalyzed-ns-dict base-dict fixture-ns fixture-file)
-          dict (#'checking/enrich-conditional-descriptors dict fixture-ns accessor-summaries)
+          {dict :dict} (#'checking/preanalyzed-ns-dict base-dict fixture-ns fixture-file accessor-summaries)
+          dict (#'checking/enrich-conditional-descriptors dict accessor-summaries)
           form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})
                     read-string)

@@ -24,17 +24,18 @@
   (:import [java.io File]))
 
 (defn- enrich-conditional-type
-  [t ns-sym accessor-summaries]
-  (let [walk #(enrich-conditional-type % ns-sym accessor-summaries)]
+  [t accessor-summaries]
+  (let [walk #(enrich-conditional-type % accessor-summaries)]
     (cond
       (not (at/semantic-type-value? t)) t
 
       (at/conditional-type? t)
-      (update t :branches
-              (fn [bs] (mapv (fn [[pred typ slot3]]
-                               [pred (walk typ)
-                                (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
-                             bs)))
+      (let [ns-sym (:declared-in (prov/of t))]
+        (update t :branches
+                (fn [bs] (mapv (fn [[pred typ slot3]]
+                                 [pred (walk typ)
+                                  (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
+                               bs))))
 
       (at/maybe-type? t) (update t :inner walk)
       (at/optional-key-type? t) (update t :inner walk)
@@ -55,8 +56,8 @@
       :else t)))
 
 (defn- enrich-conditional-descriptors
-  [dict ns-sym accessor-summaries]
-  (reduce-kv (fn [m k t] (assoc m k (enrich-conditional-type t ns-sym accessor-summaries)))
+  [dict accessor-summaries]
+  (reduce-kv (fn [m k t] (assoc m k (enrich-conditional-type t accessor-summaries)))
              {}
              dict))
 
@@ -117,7 +118,8 @@
                  target
                  (aapi/local-node? target)
                  (= param-sym (:form target)))
-        (cond-> {:path [{:value key}]}
+        (cond-> {:kind :unary-map-projection
+                 :path [{:value key}]}
           (and (some? default-node)
                (ac/literal-map-key? default-node))
           (assoc :default (ac/literal-node-value default-node)))))))
@@ -128,7 +130,7 @@
     (let [[arg] (aapi/call-args body)]
       (when-let [summary (get-call-summary param-sym arg)]
         (assoc summary
-               :kind :unary-map-classifier
+               :kind :unary-map-projection
                :result-transform :keyword)))))
 
 (defn- finite-values
@@ -155,7 +157,7 @@
 
 (defn- enrich-summary-with-declared-output
   [dict {:keys [sym summary] :as entry}]
-  (if (and (= :unary-map-classifier (:kind summary))
+  (if (and (= :unary-map-projection (:kind summary))
            (not (contains? summary :values)))
     (if-let [values (declared-output-values dict sym)]
       (assoc entry :summary (assoc summary :values values))
@@ -184,8 +186,8 @@
                              target
                              (aapi/local-node? target)
                              (= param-sym (:form target)))
-                    {:kind :unary-map-accessor
-                     :kw kw}))
+                    {:kind :unary-map-projection
+                     :path [{:value kw}]}))
 
                 (and (= :invoke (aapi/node-op body))
                      (ac/get-call? (aapi/call-fn-node body)))
@@ -195,8 +197,8 @@
                              target
                              (aapi/local-node? target)
                              (= param-sym (:form target)))
-                    {:kind :unary-map-accessor
-                     :kw kw}))
+                    {:kind :unary-map-projection
+                     :path [{:value kw}]}))
 
                 (and (= :static-call (aapi/node-op body))
                      (ac/static-get-call? body))
@@ -206,15 +208,15 @@
                              target
                              (aapi/local-node? target)
                              (= param-sym (:form target)))
-                    {:kind :unary-map-accessor
-                     :kw kw}))
+                    {:kind :unary-map-projection
+                     :path [{:value kw}]}))
 
                 :else
                 (or (keyword-get-classifier-summary param-sym body)
                     (when-let [case-node (body-as-classifier-case-node body)]
                       (when-let [path (discriminant-projection-path (:test case-node) param-sym)]
                         (let [[pairs default] (case-pairs+default case-node)]
-                          {:kind :unary-map-classifier
+                          {:kind :unary-map-projection
                            :path path
                            :cases pairs
                            :default default})))))))
@@ -573,26 +575,49 @@
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
         merged))))
 
+(s/defn project-accessor-summaries :- {s/Symbol s/Any}
+  "Source-of-truth for classifier accessor summaries across the project.
+  Runs the same per-namespace source-analysis used to derive accessor summaries
+  today, but accumulates them into a single project-wide map keyed by
+  qualified symbol. Threaded into every per-namespace check so cross-namespace
+  conditional discriminators resolve regardless of which namespace consumes
+  the schema."
+  [opts nss-with-source-files]
+  (reduce
+   (fn [acc [ns-sym source-file]]
+     (try
+       (let [{:keys [dict]} (namespace-dict opts ns-sym source-file)]
+         (if (and source-file ns-sym)
+           (binding [*ns* (the-ns ns-sym)]
+             (let [exprs (ns-exprs source-file)
+                   {:keys [accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
+               (merge acc accessor-summaries)))
+           acc))
+       (catch Exception _ acc)))
+   {}
+   nss-with-source-files))
+
 (defn- preanalyzed-ns-dict
-  [dict ns-sym source-file]
+  [dict ns-sym source-file project-accessor-summaries]
   (if (and source-file ns-sym)
     (let [exprs (ns-exprs source-file)
-          {:keys [resolved-defs accessor-summaries]} (analyze-source-exprs dict ns-sym source-file exprs)]
+          {:keys [resolved-defs accessor-summaries]}
+          (analyze-source-exprs dict ns-sym source-file exprs
+                                {:accessor-summaries project-accessor-summaries})
+          local-summaries (apply dissoc accessor-summaries (keys project-accessor-summaries))]
       {:dict (merge (into {} (map (fn [[sym _]] [sym (or (:type (get resolved-defs sym))
                                                          (at/Dyn (prov/inferred {:name sym :ns ns-sym})))]))
-                          accessor-summaries)
-                    dict)
-       :accessor-summaries accessor-summaries})
-    {:dict dict
-     :accessor-summaries {}}))
+                          local-summaries)
+                    dict)})
+    {:dict dict}))
 
 (defn- prepare-namespace
   [opts ns-sym source-file]
-  (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)]
+  (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
+        {:keys [accessor-summaries]} opts]
     (binding [*ns* (the-ns ns-sym)]
-      (let [{dict :dict accessor-summaries :accessor-summaries}
-            (preanalyzed-ns-dict dict ns-sym source-file)
-            dict (enrich-conditional-descriptors dict ns-sym accessor-summaries)]
+      (let [{dict :dict} (preanalyzed-ns-dict dict ns-sym source-file accessor-summaries)
+            dict (enrich-conditional-descriptors dict accessor-summaries)]
         {:dict dict
          :ignore-body ignore-body
          :accessor-summaries accessor-summaries

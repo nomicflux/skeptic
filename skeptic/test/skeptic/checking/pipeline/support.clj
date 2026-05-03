@@ -73,6 +73,16 @@
                                                  read-string)))))
            sym))))
 
+(def ^:private fixture-accessor-summaries
+  (delay
+    (sut/project-accessor-summaries
+     {}
+     (map (juxt :ns :file) (vals catalog/fixture-envs)))))
+
+(defn summaries-for
+  [ns-sym source-file]
+  (sut/project-accessor-summaries {} [[ns-sym source-file]]))
+
 (defn check-fixture
   ([sym]
    (check-fixture sym {}))
@@ -80,7 +90,8 @@
    (sut/check-s-expr (normalize-fn-code opts sym)
                      (assoc opts
                             :ns (fixture-ns sym)
-                            :source-file (fixture-file sym)))))
+                            :source-file (fixture-file sym)
+                            :accessor-summaries @fixture-accessor-summaries))))
 
 (defn fixture-exprs
   [ns-sym]
@@ -92,11 +103,11 @@
   [ns-sym opts]
   (:results (sut/check-ns ns-sym
                           (fixture-file-for-ns ns-sym)
-                          opts)))
+                          (assoc opts :accessor-summaries @fixture-accessor-summaries))))
 
 (defn check-fixture-namespace
   [ns-sym opts]
-  (:results (sut/check-namespace opts
+  (:results (sut/check-namespace (assoc opts :accessor-summaries @fixture-accessor-summaries)
                                  ns-sym
                                  (fixture-file-for-ns ns-sym))))
 

@@ -3,7 +3,7 @@
             [skeptic.analysis.predicate-descriptor :as pd]))
 
 (def ^:private classifier-summary
-  {:kind :unary-map-classifier
+  {:kind :unary-map-projection
    :path [{:value :k}]
    :cases {"a" :a "b" :b}
    :default :unclassified})
@@ -12,7 +12,7 @@
   {'foo.ns/my-classifier classifier-summary})
 
 (def ^:private choose-summary
-  {:kind :unary-map-classifier
+  {:kind :unary-map-projection
    :path [{:value :k}]
    :default :a
    :result-transform :keyword
@@ -38,7 +38,7 @@
   (is (nil? (pd/predicate-form->descriptor '(comp #{:b} nonexistent) 'foo.ns summaries))))
 
 (deftest comp-non-classifier-summary
-  (let [accessor-summaries {'foo.ns/k-getter {:kind :unary-map-accessor :kw :k}}]
+  (let [accessor-summaries {'foo.ns/k-getter {:kind :unary-map-projection :path [{:value :k}]}}]
     (is (nil? (pd/predicate-form->descriptor '(comp #{:b} k-getter) 'foo.ns accessor-summaries)))))
 
 (deftest fn-equality-known-classifier

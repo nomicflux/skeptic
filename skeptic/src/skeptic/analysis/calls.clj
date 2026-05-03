@@ -64,6 +64,16 @@
                             (var->sym (aapi/node-var node))])]
     (some dict candidates)))
 
+(s/defn lookup-summary :- s/Any
+  [accessor-summaries :- s/Any
+   ns-sym :- (s/maybe s/Symbol)
+   node :- s/Any]
+  (let [candidates (remove nil?
+                           [(aapi/node-form node)
+                            (qualify-symbol ns-sym (aapi/node-form node))
+                            (var->sym (aapi/node-var node))])]
+    (some accessor-summaries candidates)))
+
 (s/defn fun-type->call-opts :- s/Any
   [fun-type :- ats/SemanticType]
   (let [{:keys [methods]} fun-type

@@ -89,7 +89,7 @@
                                  [right (classifier-call-for-param left param)])]
       (when classifier-sym
         (let [summary (classifier-summary classifier-sym ns-sym accessor-summaries)]
-          (when (= :unary-map-classifier (:kind summary))
+          (when (:path summary)
             {:path (:path summary)
              :classifier-sym (qualified-classifier-sym classifier-sym ns-sym accessor-summaries)
              :values [lit]}))))))
@@ -103,7 +103,7 @@
      (let [literal-set (second pred-form)
            classifier-sym (nth pred-form 2)
            summary (classifier-summary classifier-sym ns-sym accessor-summaries)]
-       (when (= :unary-map-classifier (:kind summary))
+       (when (and (:path summary) (:cases summary))
          {:path (:path summary)
           :values (selected-keys (:cases summary) literal-set)})))
    (when-let [{:keys [params body]} (fn-body pred-form)]

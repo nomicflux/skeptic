@@ -76,10 +76,13 @@
       (when (and (aapi/invoke-like? node)
                  (= 1 (count (:args node))))
         (let [summary (get-in node [:fn :accessor-summary])
-              target (first (:args node))]
-          (when (and (= :unary-map-accessor (:kind summary))
+              target (first (:args node))
+              kw (some-> summary :path first :value)]
+          (when (and (:path summary)
+                     (not (contains? summary :values))
+                     (keyword? kw)
                      (aapi/stable-identity-node? target))
-            [(:kw summary) target])))
+            [kw target])))
       (case-get-access-kw-and-target node)))
 
 (s/defn case-kw-root-info :- (s/maybe {s/Keyword s/Any})
@@ -96,7 +99,8 @@
              (= 1 (count (:args node))))
     (let [summary (get-in node [:fn :accessor-summary])
           target (first (:args node))]
-      (when (and (= :unary-map-classifier (:kind summary))
+      (when (and (:path summary)
+                 (contains? summary :values)
                  (aapi/stable-identity-node? target))
         (when-let [root (case-assumption-root-for-local ctx target)]
           {:kind :classifier
