@@ -125,3 +125,15 @@
 (s/defn maybe-target-success :- Target
   [{:keys [n]} :- Source]
   {:n n})
+
+(def one-prefixed-open-id "x")
+
+(s/defn one-prefixed-open-consumer
+  [l :- [(s/one s/Any "a")
+         (s/one s/Any "b")
+         s/Any]]
+  nil)
+
+(s/defn one-prefixed-open-success
+  []
+  (one-prefixed-open-consumer [one-prefixed-open-id "y" :k3 :k4 :k]))

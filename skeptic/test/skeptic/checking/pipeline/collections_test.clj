@@ -52,6 +52,9 @@
     (is (= '(takes-int-quad [x y z]) (:blame quad-result)))
     (is (= :vector-arity-mismatch (-> quad-result :cast-diagnostics first :reason)))))
 
+(deftest one-prefixed-open-vector-schema-accepts-trailing-any
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/one-prefixed-open-success))))
+
 (deftest printer-path-renders-only-user-facing-data
   (let [result (first (ps/check-fixture 'skeptic.test-examples.collections/nested-map-input-failure
                                         {:remove-context true}))
