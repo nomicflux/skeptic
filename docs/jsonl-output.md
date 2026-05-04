@@ -18,6 +18,8 @@ parse the machine-readable stream.
 - Zero or more `{"kind": "finding", ...}` records, one per type mismatch.
 - Zero or more `{"kind": "exception", ...}` records, one per namespace-local
   exception hit during checking.
+- Always a `{"kind": "namespace-error-summary", ...}` record immediately
+  before `run-summary`.
 - Always a final `{"kind": "run-summary", "errored": true|false, ...}` line —
   even on clean runs.
 
@@ -85,6 +87,26 @@ resolved, and the run is still able to proceed.
 ```json
 {"kind": "ns-discovery-warning", "path": "src/foo/broken.clj", "message": "..."}
 ```
+
+## `kind: "namespace-error-summary"` — per-namespace error counts
+
+Emitted once per run, immediately before `run-summary`. The `counts` map is
+keyed by namespace name (as a string) and values are integers counting
+findings plus exceptions for that namespace.
+
+```json
+{
+  "kind": "namespace-error-summary",
+  "counts": {
+    "foo.bar": 5,
+    "foo.baz": 2
+  }
+}
+```
+
+By default, namespaces with zero errors are omitted from `counts`. Pass
+`-v` / `--verbose` to include them — useful for confirming a namespace was
+actually checked rather than skipped.
 
 ## `kind: "run-summary"` — always the last line
 

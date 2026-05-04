@@ -177,6 +177,15 @@
    :form-debug print-form-debug!
    :ns-end (fn [ns _count opts]
              (print-analyzer-dump! ns opts))
-   :run-end (fn [errored? _totals]
+   :run-end (fn [errored? totals opts]
               (when-not errored?
-                (println "No inconsistencies found")))})
+                (println "No inconsistencies found"))
+              (let [{:keys [per-namespace-counts]} totals
+                    verbose? (:verbose opts)
+                    entries (cond->> per-namespace-counts
+                              (not verbose?) (filter (comp pos? val))
+                              true (sort-by (fn [[ns count]] [(- count) (str ns)])))]
+                (when (seq entries)
+                  (println "Per-namespace inconsistencies:")
+                  (doseq [[ns count] entries]
+                    (println (str "  " ns ": " count))))))})

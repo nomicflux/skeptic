@@ -100,28 +100,73 @@
     (is (= "parse error" (:message parsed)))))
 
 (deftest run-summary-always-emitted
-  (testing "clean run still emits one record"
-    (let [[line & more] (capture-lines
-                         #((:run-end sut/printer)
-                           false
-                           {:finding-count 0 :exception-count 0
-                            :namespace-count 3 :namespaces-with-findings 0}))
-          parsed (parse-line line)]
+  (testing "clean run emits namespace-error-summary then run-summary"
+    (let [lines (capture-lines
+                 #((:run-end sut/printer)
+                   false
+                   {:finding-count 0 :exception-count 0
+                    :namespace-count 3 :namespaces-with-findings 0
+                    :per-namespace-counts {'a 0 'b 0 'c 0}}
+                   {}))
+          [ns-line summary-line & more] lines
+          ns-parsed (parse-line ns-line)
+          summary-parsed (parse-line summary-line)]
       (is (empty? more))
-      (is (= "run-summary" (:kind parsed)))
-      (is (false? (:errored parsed)))
-      (is (= 3 (:namespace_count parsed)))))
+      (is (= "namespace-error-summary" (:kind ns-parsed)))
+      (is (= {} (:counts ns-parsed)))
+      (is (= "run-summary" (:kind summary-parsed)))
+      (is (false? (:errored summary-parsed)))
+      (is (= 3 (:namespace_count summary-parsed)))))
   (testing "errored run"
-    (let [[line] (capture-lines
-                  #((:run-end sut/printer)
-                    true
-                    {:finding-count 7 :exception-count 1
-                     :namespace-count 3 :namespaces-with-findings 2}))
-          parsed (parse-line line)]
-      (is (true? (:errored parsed)))
-      (is (= 7 (:finding_count parsed)))
-      (is (= 1 (:exception_count parsed)))
-      (is (= 2 (:namespaces_with_findings parsed))))))
+    (let [lines (capture-lines
+                 #((:run-end sut/printer)
+                   true
+                   {:finding-count 7 :exception-count 1
+                    :namespace-count 3 :namespaces-with-findings 2
+                    :per-namespace-counts {'foo.a 5 'foo.b 3 'foo.c 0}}
+                   {}))
+          [ns-line summary-line] lines
+          ns-parsed (parse-line ns-line)
+          summary-parsed (parse-line summary-line)]
+      (is (= "namespace-error-summary" (:kind ns-parsed)))
+      (is (= {:foo.a 5 :foo.b 3} (:counts ns-parsed)))
+      (is (true? (:errored summary-parsed)))
+      (is (= 7 (:finding_count summary-parsed)))
+      (is (= 1 (:exception_count summary-parsed)))
+      (is (= 2 (:namespaces_with_findings summary-parsed))))))
+
+(deftest namespace-error-summary-precedes-run-summary
+  (let [lines (capture-lines
+               #((:run-end sut/printer)
+                 true
+                 {:finding-count 1 :exception-count 0
+                  :namespace-count 1 :namespaces-with-findings 1
+                  :per-namespace-counts {'foo.a 1}}
+                 {}))]
+    (is (= ["namespace-error-summary" "run-summary"]
+           (mapv (comp :kind parse-line) lines)))))
+
+(deftest namespace-error-summary-filters-zeros-by-default
+  (let [[ns-line] (capture-lines
+                   #((:run-end sut/printer)
+                     true
+                     {:finding-count 5 :exception-count 0
+                      :namespace-count 3 :namespaces-with-findings 1
+                      :per-namespace-counts {'foo.a 5 'foo.b 0 'foo.c 0}}
+                     {}))
+        parsed (parse-line ns-line)]
+    (is (= {:foo.a 5} (:counts parsed)))))
+
+(deftest namespace-error-summary-includes-zeros-when-verbose
+  (let [[ns-line] (capture-lines
+                   #((:run-end sut/printer)
+                     true
+                     {:finding-count 5 :exception-count 0
+                      :namespace-count 3 :namespaces-with-findings 1
+                      :per-namespace-counts {'foo.a 5 'foo.b 0 'foo.c 0}}
+                     {:verbose true}))
+        parsed (parse-line ns-line)]
+    (is (= {:foo.a 5 :foo.b 0 :foo.c 0} (:counts parsed)))))
 
 (deftest lifecycle-noops-produce-no-output
   (is (empty? (str/trim (with-out-str ((:run-start sut/printer) {} {})))))

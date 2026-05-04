@@ -421,8 +421,10 @@
       (let [out (with-out-str
                   (is (= 0 (sut/check-project {:porcelain true} "." "."))))
             lines (parse-jsonl out)]
-        (is (= 1 (count lines)) "exactly one run-summary line on clean run")
-        (let [summary (first lines)]
+        (is (= 2 (count lines)) "namespace-error-summary then run-summary on clean run")
+        (is (= "namespace-error-summary" (:kind (first lines))))
+        (is (= {} (:counts (first lines))))
+        (let [summary (last lines)]
           (is (= "run-summary" (:kind summary)))
           (is (false? (:errored summary)))
           (is (= 1 (:namespace_count summary))))))))
@@ -452,7 +454,7 @@
       (let [out (with-out-str
                   (is (= 1 (sut/check-project {:porcelain true} "." "."))))
             lines (parse-jsonl out)]
-        (is (= 2 (count lines)) "one finding, one run-summary")
+        (is (= 3 (count lines)) "one finding, one namespace-error-summary, one run-summary")
         (testing "finding record"
           (let [finding (first lines)]
             (is (= "finding" (:kind finding)))
@@ -463,8 +465,13 @@
             (is (= "inferred" (get-in finding [:location :source])))
             (is (= "Int" (get-in finding [:expected_type :name])))
             (is (= "Keyword" (get-in finding [:actual_type :name])))))
+        (testing "namespace-error-summary precedes run-summary"
+          (let [ns-summary (second lines)]
+            (is (= "namespace-error-summary" (:kind ns-summary)))
+            (is (= {:example.ns 1} (:counts ns-summary)))))
         (testing "run-summary has errored=true"
           (let [summary (last lines)]
+            (is (= "run-summary" (:kind summary)))
             (is (true? (:errored summary)))
             (is (= 1 (:finding_count summary)))))
         (is (map? @summary-opts))
@@ -484,9 +491,10 @@
                   (sut/check-project {:porcelain true :namespace "example.ns"}
                                      "." "."))
             lines (parse-jsonl out)]
-        (is (= 2 (count lines)))
+        (is (= 3 (count lines)))
         (is (= "ns-discovery-warning" (:kind (first lines))))
         (is (= "missing" (:path (first lines))))
+        (is (= "namespace-error-summary" (:kind (second lines))))
         (is (= "run-summary" (:kind (last lines))))))))
 
 (deftest check-project-excludes-files-matching-config-patterns

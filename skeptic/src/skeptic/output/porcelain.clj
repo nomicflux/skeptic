@@ -87,6 +87,14 @@
    :namespace_count namespace-count
    :namespaces_with_findings namespaces-with-findings})
 
+(defn- namespace-error-summary-record
+  [{:keys [per-namespace-counts]} verbose?]
+  {:kind "namespace-error-summary"
+   :counts (into (sorted-map)
+                 (cond->> per-namespace-counts
+                   (not verbose?) (filter (comp pos? val))
+                   true (map (fn [[k v]] [(str k) v]))))})
+
 (def printer
   {:run-start (fn [_opts _nss])
    :discovery-warn (fn [{:keys [path message]}]
@@ -102,5 +110,6 @@
    :form-debug (fn [_ns record _opts]
                  (write-line-raw! (ser/json-safe record)))
    :ns-end (fn [_ns _count _opts])
-   :run-end (fn [errored? totals]
+   :run-end (fn [errored? totals opts]
+              (write-line-raw! (namespace-error-summary-record totals (:verbose opts)))
               (write-line! (run-summary-record errored? totals)))})

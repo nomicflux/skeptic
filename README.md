@@ -81,15 +81,23 @@ By default, declared Schema, Malli, and type-override names may be used to keep
 large structural types compact in reports. Use `--explain-full` to print the
 expanded structural form instead.
 
+When the run finds inconsistencies, the report ends with a per-namespace
+summary listing each affected namespace and its error count, sorted with the
+worst-offending namespace first. Pass `-v` / `--verbose` to include
+zero-count namespaces too.
+
 ### JSONL (`-p` / `--porcelain`)
 
 `lein skeptic -p` switches stdout to newline-delimited JSON: one
 `ns-discovery-warning` record per non-blocking namespace load failure, one
 `finding` record per type mismatch, one `exception` record per namespace-local
-failure hit during checking, and always a final `run-summary` line — even on
-clean runs. Finding and exception records include a nested `location` object;
-`location.source` carries the same source attribution as text output. Exit code
-matches text mode (`0` clean, `1` otherwise).
+failure hit during checking, a `namespace-error-summary` record listing
+per-namespace error counts immediately before the final line, and always a
+final `run-summary` line — even on clean runs. Zero-count namespaces are
+omitted from the summary unless `-v` / `--verbose` is set. Finding and
+exception records include a nested `location` object; `location.source`
+carries the same source attribution as text output. Exit code matches text
+mode (`0` clean, `1` otherwise).
 
 ```json
 {

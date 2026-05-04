@@ -67,7 +67,8 @@
         totals (atom {:finding-count 0
                       :exception-count 0
                       :namespace-count (count nss)
-                      :namespaces-with-findings 0})]
+                      :namespaces-with-findings 0
+                      :per-namespace-counts {}})]
     (run-start opts nss)
     (doseq [failure failures]
       (discovery-warn (failure->info failure)))
@@ -88,8 +89,9 @@
                 (swap! totals update
                        (if exception? :exception-count :finding-count)
                        inc))))
+          (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
           (when (pos? @ns-findings)
             (swap! totals update :namespaces-with-findings inc))
           (ns-end ns @ns-findings opts*)))
-      (run-end @errored @totals)
+      (run-end @errored @totals opts)
       (if @errored 1 0))))
