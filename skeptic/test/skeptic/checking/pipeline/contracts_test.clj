@@ -1,5 +1,5 @@
 (ns skeptic.checking.pipeline.contracts-test
-  (:require [clojure.test :refer [are deftest is testing]]
+  (:require [clojure.test :refer [are deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
 (deftest checking-conditional-input-contracts
@@ -73,15 +73,9 @@
   (are [sym blame] (ps/single-failure? sym blame)
     'skeptic.test-examples.contracts/cond-key-vector-arm-passed-to-single-fails  '(consume-key-int-single x)
     'skeptic.test-examples.contracts/cond-key-some-arm-passed-to-vec-fails       '(consume-key-int-k1-vec x)
-    'skeptic.test-examples.contracts/cond-key-some-arm-passed-to-int-k1-fails    '(consume-key-int-k1-int x)))
-
-(deftest ^:known-bug cond-some-key-refinement-known-bugs
-  (testing "else arm should not collapse to BottomType — passing to a tight consumer must produce a finding"
-    (is (seq (ps/check-fixture
-              'skeptic.test-examples.contracts/cond-key-else-arm-passed-to-single-fails))))
-  (testing "cond with no :else can return nil; non-nullable return schema must produce a finding"
-    (is (seq (ps/check-fixture
-              'skeptic.test-examples.contracts/cond-no-else-returns-int-fails)))))
+    'skeptic.test-examples.contracts/cond-key-some-arm-passed-to-int-k1-fails    '(consume-key-int-k1-int x)
+    'skeptic.test-examples.contracts/cond-key-else-arm-passed-to-single-fails    '(consume-key-int-single x)
+    'skeptic.test-examples.contracts/cond-no-else-returns-int-fails              '(cond (vector? (:k1 x)) 1 (some? (:k1 x)) 2)))
 
 (deftest conditional-contract-cond-thread-output-construction
   (are [sym] (= [] (ps/check-fixture sym))

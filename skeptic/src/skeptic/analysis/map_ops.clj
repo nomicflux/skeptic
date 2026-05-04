@@ -14,12 +14,6 @@
   ([a b] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b))
   ([a b opts] ((requiring-resolve 'skeptic.analysis.cast/check-cast) a b opts)))
 
-(defn- narrow-conditional-by-discriminator'
-  [anchor-prov branches path values]
-  ((requiring-resolve 'skeptic.analysis.annotate.match/narrow-conditional-by-discriminator)
-   anchor-prov branches path values))
-
-
 (defn- cast-ok?'
   [a b]
   ((requiring-resolve 'skeptic.analysis.cast.result/ok?) (check-cast' a b)))
@@ -368,13 +362,15 @@
           (ato/union refined)))
 
       (at/conditional-type? type)
-      (let [refined (keep (fn [arm]
-                            (let [r (refine-by-contains-key arm key polarity)]
-                              (when-not (at/bottom-type? r) r)))
-                          (ca/effective-conditional-arms type))]
-        (if (empty? refined)
-          (at/BottomType (ato/derive-prov type))
-          (ato/union refined)))
+      (let [anchor (prov/of type)
+            refined (keep (fn [[pred eff-typ slot3]]
+                            (let [r (refine-by-contains-key eff-typ key polarity)]
+                              (when-not (at/bottom-type? r) [pred r slot3])))
+                          (ca/effective-conditional-branches type))]
+        (case (count refined)
+          0 (at/BottomType anchor)
+          1 (second (first refined))
+          (at/->ConditionalT anchor (vec refined))))
 
       (at/maybe-type? type)
       (let [inner (refine-by-contains-key (:inner type) key polarity)]
@@ -418,6 +414,18 @@
     (specialize-wildcard-entry entries prov candidate key-query new-value)
     (update-entry-by-exact-value entries (:exact-value candidate) new-value)))
 
+(defn- handle-slot-bottom
+  "Slot value narrowed to BottomType is sound for required-explicit (the
+   required key cannot hold any value -> map unreachable) but NOT for
+   optional or wildcard slots, where it just means the key cannot be
+   present. Returns the map shape that records the narrowed slot."
+  [root-type prov candidate]
+  (case (:kind candidate)
+    :required-explicit (at/BottomType prov)
+    :optional-explicit (at/->MapT prov (drop-optional-entry (:entries root-type)
+                                                            (:exact-value candidate)))
+    (at/->MapT prov (:entries root-type))))
+
 (defn- refine-map-leaf
   [root-type key-query leaf-fn]
   (let [prov (ato/derive-prov root-type)
@@ -428,7 +436,7 @@
       (let [narrowed (leaf-fn prov val-type)
             candidate (first candidates)]
         (if (at/bottom-type? narrowed)
-          (at/BottomType prov)
+          (handle-slot-bottom root-type prov candidate)
           (at/->MapT prov (write-back-entries (:entries root-type) prov
                                               candidate key-query narrowed)))))))
 
@@ -442,7 +450,7 @@
             inner-type (:value candidate)
             refined-inner (refine-map-path inner-type rest-path leaf-fn cond-fn)]
         (if (at/bottom-type? refined-inner)
-          (at/BottomType prov)
+          (handle-slot-bottom root-type prov candidate)
           (at/->MapT prov (write-back-entries (:entries root-type) prov
                                               candidate key-query refined-inner)))))))
 
@@ -498,10 +506,19 @@
           val-type)))))
 
 (defn- values-cond-fn
-  [values]
+  [values polarity]
   (fn [cond-type path]
-    (narrow-conditional-by-discriminator'
-     (prov/of cond-type) (:branches cond-type) path values)))
+    (or (ca/route-conditional-by-values cond-type path values polarity)
+        (let [anchor (prov/of cond-type)
+              leaf (values-leaf-fn values polarity)
+              refined (keep (fn [[pred eff-typ slot3]]
+                              (let [r (refine-map-path eff-typ path leaf nil)]
+                                (when-not (at/bottom-type? r) [pred r slot3])))
+                            (ca/effective-conditional-branches cond-type))]
+          (case (count refined)
+            0 (at/BottomType anchor)
+            1 (second (first refined))
+            (at/->ConditionalT anchor (vec refined)))))))
 
 (s/defn refine-map-path-by-values :- ats/SemanticType
   "Refine `root-type` by asserting that the value at the nested path `path`
@@ -510,7 +527,7 @@
   [root-type :- ats/SemanticType path :- [s/Any] values :- [s/Any] polarity :- s/Bool]
   (refine-map-path root-type path
                    (values-leaf-fn values polarity)
-                   (values-cond-fn values)))
+                   (values-cond-fn values polarity)))
 
 (s/defn refine-map-path-by-predicate :- ats/SemanticType
   "Refine `root-type` by asserting that the value at `path` satisfies
@@ -519,13 +536,16 @@
   (letfn [(leaf-fn [_prov val-type]
             (an/partition-type-for-predicate val-type pred-info polarity))
           (cond-fn [cond-type cond-path]
-            (let [refined (keep (fn [arm]
-                                  (let [r (refine-map-path arm cond-path leaf-fn cond-fn)]
-                                    (when-not (at/bottom-type? r) r)))
-                                (ca/effective-conditional-arms cond-type))]
-              (if (empty? refined)
-                (at/BottomType (ato/derive-prov cond-type))
-                (ato/union refined))))]
+            (or (ca/route-conditional-by-predicate cond-type cond-path pred-info polarity)
+                (let [anchor (prov/of cond-type)
+                      refined (keep (fn [[pred eff-typ slot3]]
+                                      (let [r (refine-map-path eff-typ cond-path leaf-fn cond-fn)]
+                                        (when-not (at/bottom-type? r) [pred r slot3])))
+                                    (ca/effective-conditional-branches cond-type))]
+                  (case (count refined)
+                    0 (at/BottomType anchor)
+                    1 (second (first refined))
+                    (at/->ConditionalT anchor (vec refined))))))]
     (refine-map-path root-type path leaf-fn cond-fn)))
 
 (s/defn map-type-at-path :- (s/maybe ats/SemanticType)
