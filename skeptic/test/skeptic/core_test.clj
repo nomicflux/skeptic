@@ -223,10 +223,9 @@
                   :focuses ['[g r b]]
                   :cast-summary {:rule :vector
                                 :actual-type (ab/schema->type tp [s/Any])
-                                :expected-type (at/->VectorT tp [(at/->SetT tp #{(at/->VectorT tp [placeholder placeholder placeholder]
-                                                                             false)}
-                                                                       false)]
-                                                           true)}
+                                :expected-type (at/->VectorT tp []
+                                                              (at/->SetT tp #{(at/->VectorT tp [placeholder placeholder placeholder] nil)}
+                                                                         false))}
                   :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :actual-type (ab/schema->type tp s/Any)
@@ -244,7 +243,7 @@
                     (#{"Actual type: \t\t" "Expected type: \t"} label))
                   fields))
     (let [verbose-fields (text/report-fields summary true)]
-      (is (some #{["Actual type: \t\t" "[Any]"]} verbose-fields))
+      (is (some #{["Actual type: \t\t" "[& Any]"]} verbose-fields))
       (is (some (fn [[label value]]
                   (and (= "Expected type: \t" label)
                        (str/includes? value "Threal")))

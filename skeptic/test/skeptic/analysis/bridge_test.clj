@@ -31,8 +31,8 @@
 (defrecord IntakeRecord [x])
 (def RecursiveSchemaRef [#'RecursiveSchemaRef])
 (def DirectRecursiveSchemaRef #'DirectRecursiveSchemaRef)
-(def JoinedRecursiveSchemaRef [s/Int #'JoinedRecursiveSchemaRef s/Str])
-(def RecursiveSeqRef (list s/Int #'RecursiveSeqRef s/Str))
+(def JoinedRecursiveSchemaRef [(s/one s/Int 'a) (s/one s/Str 'b) #'JoinedRecursiveSchemaRef])
+(def RecursiveSeqRef (list (s/one s/Int 'a) (s/one s/Str 'b) #'RecursiveSeqRef))
 (def RecursiveSetRef #{s/Int #'RecursiveSetRef s/Str})
 
 (deftest resolve-placeholders-stays-bridge-only-test
@@ -86,10 +86,10 @@
          (abc/canonicalize-schema #'RecursiveSchemaRef)))
   (let [recursive-type (ab/schema->type tp #'RecursiveSchemaRef)]
     (is (at/vector-type? recursive-type))
-    (is (:homogeneous? recursive-type))
-    (is (at/inf-cycle-type? (first (:items recursive-type))))
+    (is (some? (:tail recursive-type)))
+    (is (at/inf-cycle-type? (:tail recursive-type)))
     (is (= 'skeptic.analysis.bridge-test/RecursiveSchemaRef
-           (-> recursive-type :items first :ref)))))
+           (-> recursive-type :tail :ref)))))
 
 (deftest recursive-collections-reduce-by-construction-test
   (let [ref 'skeptic.analysis.bridge-test/JoinedRecursiveSchemaRef
@@ -102,14 +102,14 @@
     (is-type= (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
               (T #'DirectRecursiveSchemaRef))
     (is (at/vector-type? joined-vector))
-    (is (:homogeneous? joined-vector))
-    (is-type= expected-join (first (:items joined-vector)))
+    (is (some? (:tail joined-vector)))
+    (is-type= expected-join (:tail joined-vector))
     (is (at/seq-type? joined-seq))
-    (is (:homogeneous? joined-seq))
+    (is (some? (:tail joined-seq)))
     (is-type= (ato/union-type tp [(T s/Int)
                                   (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
                                   (T s/Str)])
-              (first (:items joined-seq)))
+              (:tail joined-seq))
     (is (at/set-type? joined-set))
     (is (:homogeneous? joined-set))
     (is-type= (ato/union-type tp [(T s/Int)
@@ -218,7 +218,7 @@
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'RecR))
         r-qsym (sb/qualified-var-symbol #'RecR)
-        body-type (first (:items result))]
+        body-type (:tail result)]
     (is (= r-qsym (:qualified-sym (prov/of result))))
     (is (= :schema (prov/source (prov/of body-type))))
     (is (nil? (:qualified-sym (prov/of body-type))))))
@@ -271,7 +271,7 @@
   (let [vec-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/VecBody)
         result (ab/schema->type tp [s/Int]
                                 '[skeptic.test-examples.form-refs/VecBody])
-        child-type (first (:items result))]
+        child-type (:tail result)]
     (is (some? child-type))
     (is (= :schema (prov/source (prov/of child-type))))
     (is (= vec-body-qsym (:qualified-sym (prov/of child-type))))))
@@ -292,7 +292,7 @@
 (deftest source-intake-self-recursive-test
   (let [t (ab/import-schema-type tp #'skeptic.test-examples.form-refs/Tree)]
     (is-type= (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :children)
-                             (at/->VectorT tp [(at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree)] true)})
+                             (at/->VectorT tp [] (at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree))})
               t)))
 
 (deftest source-intake-conditional-with-recursion-test

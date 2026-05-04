@@ -7,13 +7,13 @@
   {:user {:name s/Str}})
 
 (s/defschema IntPair
-  [s/Int s/Int])
+  [(s/one s/Int 'a) (s/one s/Int 'b)])
 
 (s/defschema IntTriple
-  [s/Int s/Int s/Int])
+  [(s/one s/Int 'a) (s/one s/Int 'b) (s/one s/Int 'c)])
 
 (s/defschema IntQuad
-  [s/Int s/Int s/Int s/Int])
+  [(s/one s/Int 'a) (s/one s/Int 'b) (s/one s/Int 'c) (s/one s/Int 'd)])
 
 (s/defn takes-nested-name :- s/Keyword
   [x :- NestedNameDesc]
@@ -43,7 +43,7 @@
   [xs :- IntQuad]
   :ok)
 
-(s/defn bad-int-pair-helper :- [s/Int s/Str]
+(s/defn bad-int-pair-helper :- [(s/one s/Int 'a) (s/one s/Str 'b)]
   []
   [1 "oops"])
 
@@ -137,3 +137,52 @@
 (s/defn one-prefixed-open-success
   []
   (one-prefixed-open-consumer [one-prefixed-open-id "y" :k3 :k4 :k]))
+
+(s/defschema IntStrThenKws
+  [(s/one s/Int 'a) (s/one s/Str 'b) s/Keyword])
+
+(s/defn takes-int-str-then-kws :- s/Keyword
+  [xs :- IntStrThenKws]
+  :ok)
+
+(defn open-tail-success-extras    [] (takes-int-str-then-kws [1 "x" :k :j :l]))
+(defn open-tail-success-no-extras [] (takes-int-str-then-kws [1 "x"]))
+(defn open-tail-failure-prefix    [] (takes-int-str-then-kws ["x" 1 :k]))
+(defn open-tail-failure-tail-elem [] (takes-int-str-then-kws [1 "x" 99]))
+
+(s/defschema FourFixed
+  [(s/one s/Int 'a) (s/one s/Str 'b)
+   (s/one s/Keyword 'c) (s/one s/Keyword 'd)])
+
+(s/defn takes-four-fixed :- s/Keyword
+  [xs :- FourFixed]
+  :ok)
+
+(defn closed-prefix-success  [] (takes-four-fixed [1 "x" :k :j]))
+(defn closed-prefix-too-long [] (takes-four-fixed [1 "x" :k :j :extra]))
+
+(s/defschema IntThenStrOrKw
+  [(s/one s/Int 'a) (s/cond-pre s/Str s/Keyword)])
+
+(s/defn takes-int-then-str-or-kw :- s/Keyword
+  [xs :- IntThenStrOrKw]
+  :ok)
+
+(defn cond-pre-tail-success [] (takes-int-then-str-or-kw [1 "x" :k "y"]))
+(defn cond-pre-tail-failure [] (takes-int-then-str-or-kw [1 99]))
+
+(defn homogeneous-tail-element-failure [] (takes-int-vec [1 "two" 3]))
+
+(s/defn takes-empty :- s/Keyword [xs :- []] :ok)
+(defn empty-closed-success    [] (takes-empty []))
+(defn empty-closed-too-long   [] (takes-empty [1]))
+
+(s/defschema IntThenMaybeStr
+  [(s/one s/Int 'a) (s/maybe s/Str)])
+
+(s/defn takes-int-then-maybe-str :- s/Keyword
+  [xs :- IntThenMaybeStr]
+  :ok)
+
+(defn maybe-tail-success-strs    [] (takes-int-then-maybe-str [1 "x" "y"]))
+(defn maybe-tail-failure-int     [] (takes-int-then-maybe-str [1 99]))

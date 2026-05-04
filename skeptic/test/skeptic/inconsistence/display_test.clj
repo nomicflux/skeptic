@@ -70,7 +70,7 @@
 
 (deftest describe-type-honours-fold-opts
   (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
-        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)]
+        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil)]
     (is (= "foo/NamedVec"
            (sut/describe-type named-type {:root? false})))
     (is (= "[Int]"

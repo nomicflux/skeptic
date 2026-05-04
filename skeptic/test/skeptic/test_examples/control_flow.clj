@@ -135,6 +135,13 @@
       (recur (conj acc (first more)) (rest more))
       acc)))
 
+(s/defn loop-recur-rest-element-mismatch :- s/Keyword
+  []
+  (loop [more ["a" "b" "c"]]
+    (if (seq more)
+      (recur (rest [1 2 3]))
+      :done)))
+
 (s/defn loop-recur-nested-schema-map :- {:a s/Str :b [s/Int]}
   []
   (loop [m {:a "a" :b [1]} n 1]

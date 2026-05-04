@@ -160,7 +160,7 @@
 
 (deftest explain-full-controls-named-folding-in-porcelain
   (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
-        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] false)
+        named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil)
         summary (assoc example-input-summary
                        :actual-type named-type
                        :expected-type named-type)

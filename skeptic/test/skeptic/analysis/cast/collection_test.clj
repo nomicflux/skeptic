@@ -14,11 +14,11 @@
   (ab/schema->type tp schema))
 
 (deftest vector-and-cross-collection-rules-test
-  (let [tuple-any (T [s/Any s/Any s/Any])
+  (let [tuple-any (T [(s/one s/Any 'a) (s/one s/Any 'b) (s/one s/Any 'c)])
         homogeneous-int (T [s/Int])
-        triple-int (T [s/Int s/Int s/Int])
-        pair-int (T [s/Int s/Int])
-        quad-int (T [s/Int s/Int s/Int s/Int])
+        triple-int (T [(s/one s/Int 'a) (s/one s/Int 'b) (s/one s/Int 'c)])
+        pair-int (T [(s/one s/Int 'a) (s/one s/Int 'b)])
+        quad-int (T [(s/one s/Int 'a) (s/one s/Int 'b) (s/one s/Int 'c) (s/one s/Int 'd)])
         seq-int (T (list s/Int))
         seq-str (T (list s/Str))]
     (is (= :vector (:rule (sut/check-cast tuple-any homogeneous-int))))
@@ -51,4 +51,4 @@
     (is (:ok? (sut/check-cast int-g maybe-obj)))
     (is (not (:ok? (sut/check-cast maybe-obj int-g))))
     (is (avc/value-satisfies-type? [1 2 3] (T [s/Int])))
-    (is (not (avc/value-satisfies-type? [1 2 3] (T [s/Int s/Int]))))))
+    (is (not (avc/value-satisfies-type? [1 2 3] (T [(s/one s/Int 'a) (s/one s/Int 'b)]))))))

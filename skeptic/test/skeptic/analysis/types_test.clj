@@ -24,9 +24,9 @@
     (is (= p-schema (prov/of (sut/->UnionT p-schema []))))
     (is (= p-schema (prov/of (sut/->IntersectionT p-schema []))))
     (is (= p-schema (prov/of (sut/->MapT p-schema {}))))
-    (is (= p-schema (prov/of (sut/->VectorT p-schema [] true))))
+    (is (= p-schema (prov/of (sut/->VectorT p-schema [] nil))))
     (is (= p-schema (prov/of (sut/->SetT p-schema #{} true))))
-    (is (= p-schema (prov/of (sut/->SeqT p-schema [] true))))
+    (is (= p-schema (prov/of (sut/->SeqT p-schema [] nil))))
     (is (= p-schema (prov/of (sut/->VarT p-schema (sut/Dyn p-schema)))))
     (is (= p-schema (prov/of (sut/->PlaceholderT p-schema 'foo))))
     (is (= p-schema (prov/of (sut/->InfCycleT p-schema 'foo))))
@@ -66,8 +66,8 @@
     (testing "semantic containers recurse through their fields"
       (is (sut/type=? (sut/->MapT p-schema {(sut/->ValueT p-schema schema-str :a) schema-int})
                       (sut/->MapT p-native {(sut/->ValueT p-native native-str :a) native-int})))
-      (is (sut/type=? (sut/->VectorT p-schema [schema-int schema-str] false)
-                      (sut/->VectorT p-native [native-int native-str] false)))
+      (is (sut/type=? (sut/->VectorT p-schema [schema-int schema-str] nil)
+                      (sut/->VectorT p-native [native-int native-str] nil)))
       (is (sut/type=? (sut/->SetT p-schema #{schema-int schema-str} false)
                       (sut/->SetT p-native #{native-str native-int} false)))
       (is (sut/type=? (sut/->UnionT p-schema #{schema-int schema-str})
@@ -82,8 +82,8 @@
       (is (sut/type=? (sut/->ConditionalT p-schema [[:truthy schema-int] [:else schema-str]])
                       (sut/->ConditionalT p-native [[:truthy native-int] [:else native-str]]))))
     (testing "non-provenance differences still matter"
-      (is (not (sut/type=? (sut/->VectorT p-schema [schema-int] true)
-                           (sut/->VectorT p-native [native-int] false))))
+      (is (not (sut/type=? (sut/->VectorT p-schema [] schema-int)
+                           (sut/->VectorT p-native [native-int] nil))))
       (is (not (sut/type=? (sut/->ValueT p-schema schema-str :a)
                            (sut/->ValueT p-native native-str :b)))))))
 

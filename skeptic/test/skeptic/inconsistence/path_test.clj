@@ -138,8 +138,8 @@
 
 (deftest vector-cast-report-includes-index-path-test
   (let [report (inc/cast-report sample-ctx
-                               (T [s/Int s/Int])
-                               (T [s/Int s/Str]))
+                               (T [(s/one s/Int 'a) (s/one s/Int 'b)])
+                               (T [(s/one s/Int 'a) (s/one s/Str 'b)]))
         leaf (first (:cast-diagnostics report))
         error (first (:errors report))]
     (is (not (:ok? report)))

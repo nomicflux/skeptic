@@ -113,6 +113,16 @@
                                        (ps/T s/Str)
                                        (ps/T s/Int))]]))
 
+(deftest loop-recur-rest-into-mismatched-tuple-reports-element-mismatch
+  (let [results (ps/check-fixture 'skeptic.test-examples.control-flow/loop-recur-rest-element-mismatch
+                                  {:remove-context true})
+        result (first results)
+        diags (:cast-diagnostics result)]
+    (is (some? result))
+    (is (seq diags))
+    (is (every? #(not= :seq-to-vector-arity-mismatch (:reason %)) diags))
+    (is (every? #(= :seq-to-vector-element-failed (:reason %)) diags))))
+
 (deftest call-mismatch-reports-affected-input-and-location
   (let [results (ps/check-fixture-ns 'skeptic.test-examples.control-flow
                                      {:remove-context true})

@@ -155,13 +155,13 @@
 (defrecord MapTRec [prov entries]
   proto/SemanticType (semantic-tag [_] map-type-tag))
 
-(defrecord VectorTRec [prov items homogeneous?]
+(defrecord VectorTRec [prov items tail]
   proto/SemanticType (semantic-tag [_] vector-type-tag))
 
 (defrecord SetTRec [prov members homogeneous?]
   proto/SemanticType (semantic-tag [_] set-type-tag))
 
-(defrecord SeqTRec [prov items homogeneous?]
+(defrecord SeqTRec [prov items tail]
   proto/SemanticType (semantic-tag [_] seq-type-tag))
 
 (defrecord VarTRec [prov inner]
@@ -207,9 +207,9 @@
 (s/defn ->UnionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "UnionT" prov) (UnionTRec. prov members))
 (s/defn ->IntersectionT :- ats/SemanticType [prov :- provs/Provenance members] (ensure-prov! "IntersectionT" prov) (IntersectionTRec. prov members))
 (s/defn ->MapT :- ats/SemanticType [prov :- provs/Provenance entries] (ensure-prov! "MapT" prov) (MapTRec. prov entries))
-(s/defn ->VectorT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "VectorT" prov) (VectorTRec. prov items homogeneous?))
+(s/defn ->VectorT :- ats/SemanticType [prov :- provs/Provenance items tail] (ensure-prov! "VectorT" prov) (VectorTRec. prov items tail))
 (s/defn ->SetT :- ats/SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetTRec. prov members homogeneous?))
-(s/defn ->SeqT :- ats/SemanticType [prov :- provs/Provenance items homogeneous?] (ensure-prov! "SeqT" prov) (SeqTRec. prov items homogeneous?))
+(s/defn ->SeqT :- ats/SemanticType [prov :- provs/Provenance items tail] (ensure-prov! "SeqT" prov) (SeqTRec. prov items tail))
 (s/defn ->VarT :- ats/SemanticType [prov :- provs/Provenance inner] (ensure-prov! "VarT" prov) (VarTRec. prov inner))
 (s/defn ->PlaceholderT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderTRec. prov ref))
 (s/defn ->InfCycleT :- ats/SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleTRec. prov ref))
@@ -384,7 +384,9 @@
 
          (vector-type? a)
          (and (ordered-type=? same? (:items a) (:items b))
-              (= (:homogeneous? a) (:homogeneous? b)))
+              (if (nil? (:tail a))
+                (nil? (:tail b))
+                (and (some? (:tail b)) (same? (:tail a) (:tail b)))))
 
          (set-type? a)
          (and (unordered-type=? same? (:members a) (:members b))
@@ -392,7 +394,9 @@
 
          (seq-type? a)
          (and (ordered-type=? same? (:items a) (:items b))
-              (= (:homogeneous? a) (:homogeneous? b)))
+              (if (nil? (:tail a))
+                (nil? (:tail b))
+                (and (some? (:tail b)) (same? (:tail a) (:tail b)))))
 
          (var-type? a)
          (same? (:inner a) (:inner b))
@@ -520,7 +524,7 @@
                   (vector-type? x)
                   (-> tag-hash
                       (combine-hash (ordered-type-hash hash-type (:items x)))
-                      (combine-hash (hash (:homogeneous? x))))
+                      (combine-hash (if (:tail x) (hash-type (:tail x)) 0)))
 
                   (set-type? x)
                   (-> tag-hash
@@ -530,7 +534,7 @@
                   (seq-type? x)
                   (-> tag-hash
                       (combine-hash (ordered-type-hash hash-type (:items x)))
-                      (combine-hash (hash (:homogeneous? x))))
+                      (combine-hash (if (:tail x) (hash-type (:tail x)) 0)))
 
                   (var-type? x)
                   (combine-hash tag-hash (hash-type (:inner x)))

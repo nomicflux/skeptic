@@ -114,9 +114,9 @@
                                  [(normalize-type prov k)
                                   (normalize-type prov v)]))
                           value))
-    (vector? value) (at/->VectorT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
+    (vector? value) (at/->VectorT prov (mapv #(normalize-type prov %) value) nil)
     (set? value) (at/->SetT prov (into #{} (map #(normalize-type prov %)) value) (= 1 (count value)))
-    (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) (= 1 (count value)))
+    (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) nil)
     :else (invalid-normalize-type-input value)))
 
 (s/defn normalize-intersection-members :- #{ats/SemanticType}

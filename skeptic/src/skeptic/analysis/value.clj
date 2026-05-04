@@ -40,10 +40,12 @@
     (type-join* prov (map #(type-of-value prov %) values))
     (at/Dyn prov)))
 
-(s/defn homogeneous-seq-type :- ats/SemanticType
+(s/defn closed-seq-type :- ats/SemanticType
   [prov :- provs/Provenance constructor :- s/Any values :- s/Any]
-  (let [element (collection-element-type prov values)]
-    (constructor (prov/with-refs prov [(prov/of element)]) [element] true)))
+  (let [item-types (mapv #(type-of-value prov %) values)]
+    (constructor (prov/with-refs prov (mapv prov/of item-types))
+                 item-types
+                 nil)))
 
 (s/defn map-value-type :- ats/SemanticType
   [prov :- provs/Provenance m :- s/Any]
@@ -67,8 +69,8 @@
     (vector? value) (let [item-types (mapv #(type-of-value prov %) value)]
                       (at/->VectorT (prov/with-refs prov (mapv prov/of item-types))
                                     item-types
-                                    (= 1 (count value))))
-    (or (list? value) (seq? value)) (homogeneous-seq-type prov at/->SeqT value)
+                                    nil))
+    (or (list? value) (seq? value)) (closed-seq-type prov at/->SeqT value)
     (set? value) (let [element (collection-element-type prov value)]
                    (at/->SetT (prov/with-refs prov [(prov/of element)]) #{element} true))
     (map? value) (map-value-type prov value)

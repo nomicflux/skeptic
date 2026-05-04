@@ -17,8 +17,8 @@
 
 (deftest semantic-value-satisfies-type-regression-test
   (is (avc/value-satisfies-type? [1 2 3] (ab/schema->type tp [s/Int])))
-  (is (avc/value-satisfies-type? [1 2 3] (ab/schema->type tp [s/Int s/Int s/Int])))
-  (is (not (avc/value-satisfies-type? [1 2 3] (ab/schema->type tp [s/Int s/Int])))))
+  (is (avc/value-satisfies-type? [1 2 3] (ab/schema->type tp [(s/one s/Int 'a) (s/one s/Int 'b) (s/one s/Int 'c)])))
+  (is (not (avc/value-satisfies-type? [1 2 3] (ab/schema->type tp [(s/one s/Int 'a) (s/one s/Int 'b)])))))
 
 (deftest contains-key-classification-on-conditional-test
   (let [has-a (ab/schema->type tp {:a s/Int})

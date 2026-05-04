@@ -125,9 +125,9 @@ naming the type constructor. The full set:
 | `intersection`  | `members` (array of types)                                                       |
 | `map`           | `entries` (array of `{"key": type, "val": type}`)                                |
 | `optional-key`  | `inner` (type)                                                                   |
-| `vector`        | `items` (array of types)                                                         |
+| `vector`        | `items` (array of types — closed positional prefix), `tail` (type, optional — present when the schema has zero-or-more trailing elements of that type; absent when the vector is fully closed) |
 | `set`           | `members` (array of types)                                                       |
-| `seq`           | `items` (array of types)                                                         |
+| `seq`           | `items` (array of types — closed positional prefix), `tail` (type, optional — same semantics as `vector.tail`) |
 | `var`           | `inner` (type)                                                                   |
 | `placeholder`   | `name`                                                                           |
 | `fn-method`     | `inputs` (array of types), `output` (type), `variadic` (bool), `min_arity` (int) |

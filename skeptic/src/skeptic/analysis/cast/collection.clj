@@ -7,49 +7,64 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value-check :as avc]))
 
-(defn- aligned-children
-  [run-child kind source-items target-items opts]
-  (mapv (fn [idx source-item target-item]
-          (run-child (ascs/indexed-request kind idx source-item target-item opts)))
-        (range)
-        source-items
-        target-items))
-
-(defn- expand-items
-  [type slot-count]
-  (if (:homogeneous? type)
-    (vec (repeat slot-count (or (first (:items type)) (ato/dyn type))))
-    (:items type)))
-
-(defn- slot-count
+(defn- prefix-tail-cast-fails-arity?
+  "Source is incompatible with target's required arity if:
+  - target is closed but source has prefix items plus a tail (statically too long), OR
+  - source's known prefix is shorter than target's required prefix, OR
+  - both are closed and prefix lengths differ.
+  A purely homogeneous source (items=[] tail=T) has unknown runtime count and
+  never arity-fails — it is element-checked against the target's slots."
   [source-type target-type]
-  (let [source-count (count (:items source-type))
-        target-count (count (:items target-type))]
+  (let [n-source (count (:items source-type))
+        n-target (count (:items target-type))
+        s-tail (:tail source-type)
+        t-tail (:tail target-type)]
     (cond
-      (= source-count target-count) source-count
-      (and (:homogeneous? target-type) (= 1 target-count)) source-count
-      (and (:homogeneous? source-type) (= 1 source-count)) target-count
-      :else nil)))
+      (and (zero? n-source) (some? s-tail)) false
+      (and (nil? t-tail) (some? s-tail)) true
+      (< n-source n-target) true
+      (and (nil? t-tail) (not= n-source n-target)) true
+      :else false)))
 
-(defn- expanded-collection-result
-  [run-child source-type target-type opts kind rule item-failure arity-failure]
-  (if-let [count' (slot-count source-type target-type)]
-    (let [children (aligned-children run-child
-                                     kind
-                                     (expand-items source-type count')
-                                     (expand-items target-type count')
-                                     opts)]
-      (ascs/aggregate-children source-type target-type rule (:polarity opts) item-failure children))
-    (ascs/cast-fail source-type target-type rule (:polarity opts) arity-failure)))
-
-(defn- fixed-collection-result
-  [run-child source-type target-type opts kind rule item-failure arity-failure]
+(defn- prefix-tail-children
+  [run-child kind source-type target-type opts]
   (let [source-items (:items source-type)
-        target-items (:items target-type)]
-    (if (= (count source-items) (count target-items))
-      (let [children (aligned-children run-child kind source-items target-items opts)]
-        (ascs/aggregate-children source-type target-type rule (:polarity opts) item-failure children))
-      (ascs/cast-fail source-type target-type rule (:polarity opts) arity-failure))))
+        target-items (:items target-type)
+        n-source (count source-items)
+        n-target (count target-items)
+        s-tail (:tail source-type)
+        t-tail (:tail target-type)]
+    (if (and (zero? n-source) (some? s-tail))
+      (let [item-children (mapv
+                           (fn [idx target-item]
+                             (run-child (ascs/indexed-request kind idx s-tail target-item opts)))
+                           (range)
+                           target-items)
+            tail-children (when t-tail
+                            [(run-child {:source-type s-tail
+                                         :target-type t-tail
+                                         :opts opts})])]
+        (into item-children tail-children))
+      (let [item-children (mapv
+                           (fn [idx source-item]
+                             (let [target-item (if (< idx n-target)
+                                                 (nth target-items idx)
+                                                 t-tail)]
+                               (run-child (ascs/indexed-request kind idx source-item target-item opts))))
+                           (range)
+                           source-items)
+            tail-children (when (and s-tail t-tail)
+                            [(run-child {:source-type s-tail
+                                         :target-type t-tail
+                                         :opts opts})])]
+        (into item-children tail-children)))))
+
+(defn- prefix-tail-collection-result
+  [run-child source-type target-type opts kind rule item-failure arity-failure]
+  (if (prefix-tail-cast-fails-arity? source-type target-type)
+    (ascs/cast-fail source-type target-type rule (:polarity opts) arity-failure)
+    (let [children (prefix-tail-children run-child kind source-type target-type opts)]
+      (ascs/aggregate-children source-type target-type rule (:polarity opts) item-failure children))))
 
 (defn- set-member-failure
   [source-member target-members polarity]
@@ -73,47 +88,47 @@
 
 (s/defn check-vector-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
-  (expanded-collection-result run-child
-                              source-type
-                              target-type
-                              opts
-                              :vector-index
-                              :vector
-                              :vector-element-failed
-                              :vector-arity-mismatch))
+  (prefix-tail-collection-result run-child
+                                 source-type
+                                 target-type
+                                 opts
+                                 :vector-index
+                                 :vector
+                                 :vector-element-failed
+                                 :vector-arity-mismatch))
 
 (s/defn check-seq-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
-  (fixed-collection-result run-child
-                           source-type
-                           target-type
-                           opts
-                           :seq-index
-                           :seq
-                           :seq-element-failed
-                           :seq-arity-mismatch))
+  (prefix-tail-collection-result run-child
+                                 source-type
+                                 target-type
+                                 opts
+                                 :seq-index
+                                 :seq
+                                 :seq-element-failed
+                                 :seq-arity-mismatch))
 
 (s/defn check-seq-to-vector-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
-  (expanded-collection-result run-child
-                              source-type
-                              target-type
-                              opts
-                              :vector-index
-                              :seq-to-vector
-                              :seq-to-vector-element-failed
-                              :seq-to-vector-arity-mismatch))
+  (prefix-tail-collection-result run-child
+                                 source-type
+                                 target-type
+                                 opts
+                                 :vector-index
+                                 :seq-to-vector
+                                 :seq-to-vector-element-failed
+                                 :seq-to-vector-arity-mismatch))
 
 (s/defn check-vector-to-seq-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
-  (expanded-collection-result run-child
-                              source-type
-                              target-type
-                              opts
-                              :seq-index
-                              :vector-to-seq
-                              :vector-to-seq-element-failed
-                              :vector-to-seq-arity-mismatch))
+  (prefix-tail-collection-result run-child
+                                 source-type
+                                 target-type
+                                 opts
+                                 :seq-index
+                                 :vector-to-seq
+                                 :vector-to-seq-element-failed
+                                 :vector-to-seq-arity-mismatch))
 
 (s/defn check-set-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]

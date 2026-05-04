@@ -32,7 +32,7 @@
            :items items
            :type (at/->VectorT (prov/with-refs prov (mapv prov/of item-types))
                                item-types
-                               (coll/vec-homogeneous-items? item-types)))))
+                               nil))))
 
 (s/defn annotate-set :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]

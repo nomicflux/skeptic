@@ -20,7 +20,7 @@
         source-union (sut/check-cast (T (s/either s/Int s/Str)) (T s/Int))
         target-intersection (sut/check-cast (T s/Int) (T (s/both s/Any s/Int)))
         maybe-source (sut/check-cast (T (s/maybe s/Any)) (T s/Int))
-        vector-target (sut/check-cast (T [s/Any s/Any]) (T [s/Int]))
+        vector-target (sut/check-cast (T [(s/one s/Any 'a) (s/one s/Any 'b)]) (T [s/Int]))
         bottom-source (sut/check-cast (at/BottomType tp) (T s/Int))]
     (is (= :exact (:rule exact)))
     (is (= :target-dyn (:rule target-dyn)))

@@ -242,6 +242,60 @@
                (fixed-ctor node-p child-types))]
     (import-result type closed-refs)))
 
+(defn- valid-prefix-tail?
+  "A Plumatic vector/seq schema is valid iff it is leading One-instances followed
+  by at most one bare element. Any other shape (One after bare, multi-bare) is
+  not a valid prefix+tail schema."
+  [schemas]
+  (let [n-leading-ones (count (take-while #(instance? One %) schemas))
+        rest-of (drop n-leading-ones schemas)
+        n-bares (count rest-of)]
+    (and (<= n-bares 1)
+         (not-any? #(instance? One %) rest-of))))
+
+(defn- invalid-prefix-tail-leaf
+  [prov schemas]
+  (let [form (vec schemas)]
+    (import-result
+     (at/->AdapterLeafT prov
+                        :schema
+                        form
+                        (fn [_value] false)
+                        {:source-schema form :invalid-prefix-tail? true}))))
+
+(defn- prefix-tail-import-type
+  [run {:keys [owner-ref prov name-claimed?] :as ctx} schemas source ctor]
+  (if-not (valid-prefix-tail? schemas)
+    (invalid-prefix-tail-leaf prov schemas)
+    (let [inner-ctx (descend-ctx ctx)
+          n-leading-ones (count (take-while #(instance? One %) schemas))
+          prefix-schemas (take n-leading-ones schemas)
+          tail-schema (first (drop n-leading-ones schemas))
+          has-tail? (some? (seq (drop n-leading-ones schemas)))
+          prefix-results (vec (map-indexed
+                               (fn [i s]
+                                 (run (assoc inner-ctx :schema s :source (child-source source i))))
+                               prefix-schemas))
+          tail-result (when has-tail?
+                        (run (assoc inner-ctx
+                                    :schema tail-schema
+                                    :source (child-source source n-leading-ones))))
+          prefix-types (mapv :type prefix-results)
+          tail-type (when tail-result (:type tail-result))
+          all-results (cond-> prefix-results tail-result (conj tail-result))
+          all-types (cond-> prefix-types tail-type (conj tail-type))
+          child-provs (mapv prov/of all-types)
+          closed-refs (merge-closed-refs all-results)
+          node-p (node-prov prov source child-provs name-claimed?)
+          type (if (and owner-ref (contains? closed-refs owner-ref))
+                 (let [joined-p (node-prov prov nil child-provs name-claimed?)
+                       joined (if (seq all-types)
+                                (ato/union-type joined-p all-types)
+                                (at/Dyn joined-p))]
+                   (ctor node-p [] joined))
+                 (ctor node-p prefix-types tail-type))]
+      (import-result type closed-refs))))
+
 (defn- map-import-type
   [run {:keys [prov name-claimed?] :as ctx} schema source]
   (let [inner-ctx (descend-ctx ctx)
@@ -488,9 +542,7 @@
       (map-import-type run ctx schema source)
 
       (vector? schema)
-      (collection-import-type run ctx schema source
-                              (fn [p ts] (at/->VectorT p ts (= 1 (count ts))))
-                              (fn [p joined] (at/->VectorT p [joined] true)))
+      (prefix-tail-import-type run ctx schema source at/->VectorT)
 
       (set? schema)
       (collection-import-type run ctx (vec schema) source
@@ -498,9 +550,7 @@
                               (fn [p joined] (at/->SetT p #{joined} true)))
 
       (seq? schema)
-      (collection-import-type run ctx (vec schema) source
-                              (fn [p ts] (at/->SeqT p ts (= 1 (count ts))))
-                              (fn [p joined] (at/->SeqT p [joined] true)))
+      (prefix-tail-import-type run ctx (vec schema) source at/->SeqT)
 
       (sb/pred? schema)
       (let [pred-sym (sb/de-pred schema)

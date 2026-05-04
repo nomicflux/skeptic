@@ -23,7 +23,7 @@
 
 (defn- named-vector
   [prov]
-  (at/->VectorT prov [(ground-int prov)] false))
+  (at/->VectorT prov [(ground-int prov)] nil))
 
 (deftest type->json-data-scalars
   (testing "nil passthrough"
@@ -68,7 +68,7 @@
 
   (testing "Vector"
     (is (= {:t "vector" :items [{:t "ground" :name "Int"}]}
-           (sut/type->json-data (at/->VectorT tp [(at/->GroundT tp :int 'Int)] false)))))
+           (sut/type->json-data (at/->VectorT tp [(at/->GroundT tp :int 'Int)] nil)))))
 
   (testing "Map"
     (is (= {:t "map"
@@ -122,7 +122,7 @@
     (is (= {:t "set" :members [{:t "ground" :name "Int"}]}
            (sut/type->json-data (at/->SetT tp #{(at/->GroundT tp :int 'Int)} false))))
     (is (= {:t "seq" :items [{:t "ground" :name "Int"}]}
-           (sut/type->json-data (at/->SeqT tp [(at/->GroundT tp :int 'Int)] false))))
+           (sut/type->json-data (at/->SeqT tp [(at/->GroundT tp :int 'Int)] nil))))
     (is (= {:t "var" :inner {:t "ground" :name "Int"}}
            (sut/type->json-data (at/->VarT tp (at/->GroundT tp :int 'Int)))))))
 

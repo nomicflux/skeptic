@@ -40,9 +40,9 @@
 
 (deftest type-of-value-collections-test
   (testing "empty list"
-    (is-type= (at/->SeqT tp [(at/Dyn tp)] true) (av/type-of-value tp '())))
+    (is-type= (at/->SeqT tp [] nil) (av/type-of-value tp '())))
   (testing "simple vector"
-    (is-type= (T [s/Int s/Int]) (av/type-of-value tp [1 2])))
+    (is-type= (at/->VectorT tp [(T s/Int) (T s/Int)] nil) (av/type-of-value tp [1 2])))
   (testing "nested vector with map and set"
     (let [type (av/type-of-value tp '[1 {:a 2 :b {:c #{3 4}}} 5])]
       (is-type= (at/->VectorT tp [(T s/Int)
@@ -51,7 +51,7 @@
                                                                                                                   (at/->ValueT tp (at/->SetT tp #{(T s/Int)} true) #{3 4})})
                                                                                                 {:c #{3 4}})})
                                   (T s/Int)]
-                              false)
+                              nil)
                 type)))
   (testing "nested map"
     (let [type (av/type-of-value tp '{:a 1 :b [:z "hello" #{1 2}]
@@ -60,7 +60,7 @@
                                         (at/->ValueT tp (T s/Keyword) :b) (at/->ValueT tp (at/->VectorT tp [(T s/Keyword)
                                                                                                             (T s/Str)
                                                                                                             (at/->SetT tp #{(T s/Int)} true)]
-                                                                                                        false)
+                                                                                                        nil)
                                                                                        [:z "hello" #{1 2}])
                                         (at/->ValueT tp (T s/Keyword) :c) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :d) (at/->ValueT tp (T s/Int) 7)
                                                                                                                   (at/->ValueT tp (T s/Keyword) :e) (at/->ValueT tp (ato/normalize-type tp {(at/->ValueT tp (T s/Keyword) :f)
@@ -77,10 +77,10 @@
       (is (every? #(= tp %) refs)))))
 
 (deftest type-of-value-seq-arm-threads-refs-test
-  (testing "seq input threads joined element prov into result's refs"
+  (testing "seq input threads each item's prov into result's refs (closed seq)"
     (let [result (av/type-of-value tp '(1 2 3))
           refs (:refs (:prov result))]
-      (is (= 1 (count refs))))))
+      (is (= 3 (count refs))))))
 
 (deftest type-of-value-set-arm-threads-refs-test
   (testing "set input threads joined element prov into result's refs"

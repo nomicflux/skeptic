@@ -72,7 +72,7 @@
         (and (contains? ac/chunk-first-call-syms call-sym) (= 1 arity))
         (or (when-let [elem (coll/seqish-element-type (:type (first args)))]
               (let [prov (ato/derive-prov elem)]
-                (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [(ato/normalize-type prov elem)] true)))
+                (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] (ato/normalize-type prov elem))))
             output-type)
         (and (contains? ac/seq-call-syms call-sym) (= 1 arity))
         (shared-call/shared-call-output-type ctx :seq args output-type)
