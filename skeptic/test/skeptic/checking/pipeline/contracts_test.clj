@@ -61,6 +61,14 @@
 	    'skeptic.test-examples.contracts/conditional-map-if-a-bad-branch '(takes-has-b x)
 	    'skeptic.test-examples.contracts/conditional-map-if-b-bad-branch '(takes-has-a x)))
 
+(deftest cond-some-key-refinement-on-open-conditional
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/cond-key-some-narrowing-repro))
+
+(deftest cond-some-key-refinement-requires-arm-dispatch-refinement
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/cond-key-some-narrowing-int-wildcard-repro))
+
 (deftest conditional-contract-cond-thread-output-construction
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/mk-ab-unannotated-int-success

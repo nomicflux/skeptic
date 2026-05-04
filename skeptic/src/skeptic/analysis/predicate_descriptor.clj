@@ -1,4 +1,5 @@
-(ns skeptic.analysis.predicate-descriptor)
+(ns skeptic.analysis.predicate-descriptor
+  (:require [skeptic.analysis.calls :as ac]))
 
 (defn- comp-set-classifier?
   [form]
@@ -89,10 +90,76 @@
              :classifier-sym (qualified-classifier-sym classifier-sym ns-sym accessor-summaries)
              :values [lit]}))))))
 
+(defn- keyword-accessor-path
+  [form param]
+  (when (and (seq? form)
+             (= 2 (count form))
+             (keyword? (first form))
+             (= param (second form)))
+    [(first form)]))
+
+(defn- get-accessor-path
+  [form param]
+  (when (and (seq? form)
+             (= 3 (count form))
+             (#{'get 'clojure.core/get} (first form))
+             (= param (second form))
+             (keyword? (nth form 2)))
+    [(nth form 2)]))
+
+(defn- accessor-path
+  "Recognize accessor expressions on `param` and return a keyword path, or nil.
+   Handles `(:k x)`, `(get x :k)`, and nested `(:k2 (:k1 x))` (which is the
+   post-expansion shape of `(-> x :k1 :k2)`)."
+  [form param]
+  (or (keyword-accessor-path form param)
+      (get-accessor-path form param)
+      (when (and (seq? form)
+                 (= 2 (count form))
+                 (keyword? (first form))
+                 (seq? (second form)))
+        (when-let [inner (accessor-path (second form) param)]
+          (conj inner (first form))))))
+
+(defn- resolve-class
+  [sym]
+  (let [resolved (try (resolve sym) (catch Exception _ nil))]
+    (when (class? resolved) resolved)))
+
+(defn- type-pred-call-info
+  "Recognize `(TYPE-PRED ACC)` or `(instance? CLASS ACC)` on `param`. Returns
+   `{:pred kw :path [...] [:class cls]}` or nil."
+  [form param]
+  (when (and (seq? form) (symbol? (first form)))
+    (let [head (first form)]
+      (cond
+        (and (#{'instance? 'clojure.core/instance?} head)
+             (= 3 (count form))
+             (symbol? (second form)))
+        (when-let [cls (resolve-class (second form))]
+          (when-let [path (accessor-path (nth form 2) param)]
+            {:pred :instance? :path path :class cls}))
+
+        :else
+        (when-let [pred-kw (ac/type-predicate-sym->pred head)]
+          (when (= 2 (count form))
+            (when-let [path (accessor-path (second form) param)]
+              {:pred pred-kw :path path})))))))
+
+(defn- path-type-predicate-descriptor
+  [body params]
+  (when (= 1 (count params))
+    (when-let [info (type-pred-call-info body (first params))]
+      (assoc info :kind :path-type-predicate))))
+
 (defn predicate-form->descriptor
   "Recognize classifier predicates against the project-wide accessor-summaries
    map; ns-sym is the defining ns of the schema that owns the pred-form, used
-   to qualify bare classifier symbols. Returns {:path ... :values [...]} or nil."
+   to qualify bare classifier symbols. Returns one of:
+     {:path ... :values [...]} for comp/equality classifiers (existing shape), or
+     {:kind :path-type-predicate :path ... :pred kw [:class cls]} for
+       `(fn [x] (TYPE-PRED ACCESSOR))` shapes,
+   or nil."
   [pred-form ns-sym accessor-summaries]
   (or
    (when (comp-set-classifier? pred-form)
@@ -103,4 +170,5 @@
          {:path (:path summary)
           :values (selected-keys (:cases summary) literal-set)})))
    (when-let [{:keys [params body]} (fn-body pred-form)]
-     (equality-classifier-descriptor body params ns-sym accessor-summaries))))
+     (or (equality-classifier-descriptor body params ns-sym accessor-summaries)
+         (path-type-predicate-descriptor body params)))))

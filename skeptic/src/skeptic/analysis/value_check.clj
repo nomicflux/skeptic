@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at])
@@ -69,7 +70,7 @@
 
       (at/conditional-type? type)
       (let [classifications (set (map #(contains-key-type-classification % key)
-                                      (map second (:branches type))))]
+                                      (ca/effective-conditional-arms type)))]
         (cond
           (= #{:always} classifications) :always
           (= #{:never} classifications) :never

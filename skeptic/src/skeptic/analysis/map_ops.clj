@@ -2,6 +2,7 @@
   (:require [clojure.set :as set]
             [schema.core :as s]
             [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -367,10 +368,10 @@
           (ato/union refined)))
 
       (at/conditional-type? type)
-      (let [refined (keep (fn [[_pred branch]]
-                            (let [r (refine-by-contains-key branch key polarity)]
+      (let [refined (keep (fn [arm]
+                            (let [r (refine-by-contains-key arm key polarity)]
                               (when-not (at/bottom-type? r) r)))
-                          (:branches type))]
+                          (ca/effective-conditional-arms type))]
         (if (empty? refined)
           (at/BottomType (ato/derive-prov type))
           (ato/union refined)))
@@ -395,6 +396,28 @@
                          new-value v)])))
         entries))
 
+(defn- domain-candidate?
+  [candidate]
+  (nil? (:exact-value candidate)))
+
+(defn- specialize-wildcard-entry
+  "Add an explicit (s/optional-key key) -> narrowed entry to a wildcard-bearing
+   entry map. Preserves the wildcard for other keys. No-ops when the narrowed
+   type already matches the wildcard's value-type."
+  [entries prov candidate key-query narrowed]
+  (let [wildcard-val (:value candidate)]
+    (if (at/type=? wildcard-val narrowed)
+      entries
+      (let [ev (ato/exact-value-type prov (:value key-query))
+            opt-key (at/->OptionalKeyT prov ev)]
+        (assoc entries opt-key narrowed)))))
+
+(defn- write-back-entries
+  [entries prov candidate key-query new-value]
+  (if (and (domain-candidate? candidate) (exact-key-query? key-query))
+    (specialize-wildcard-entry entries prov candidate key-query new-value)
+    (update-entry-by-exact-value entries (:exact-value candidate) new-value)))
+
 (defn- refine-map-leaf
   [root-type key-query leaf-fn]
   (let [prov (ato/derive-prov root-type)
@@ -402,26 +425,26 @@
         val-type (candidate-value-type candidates)]
     (if (nil? val-type)
       root-type
-      (let [narrowed (leaf-fn prov val-type)]
+      (let [narrowed (leaf-fn prov val-type)
+            candidate (first candidates)]
         (if (at/bottom-type? narrowed)
           (at/BottomType prov)
-          (at/->MapT prov (update-entry-by-exact-value (:entries root-type)
-                                                       (:exact-value (first candidates))
-                                                       narrowed)))))))
+          (at/->MapT prov (write-back-entries (:entries root-type) prov
+                                              candidate key-query narrowed)))))))
 
 (defn- refine-map-inner
   [root-type key-query rest-path leaf-fn cond-fn]
-  (let [candidates (map-lookup-candidates (:entries root-type) key-query)]
+  (let [candidates (map-lookup-candidates (:entries root-type) key-query)
+        prov (ato/derive-prov root-type)]
     (if (empty? candidates)
       root-type
       (let [candidate (first candidates)
             inner-type (:value candidate)
             refined-inner (refine-map-path inner-type rest-path leaf-fn cond-fn)]
         (if (at/bottom-type? refined-inner)
-          (at/BottomType (ato/derive-prov root-type))
-          (at/->MapT (ato/derive-prov root-type)
-                     (update-entry-by-exact-value
-                      (:entries root-type) (:exact-value candidate) refined-inner)))))))
+          (at/BottomType prov)
+          (at/->MapT prov (write-back-entries (:entries root-type) prov
+                                              candidate key-query refined-inner)))))))
 
 (defn- refine-map-path-map
   [root-type path leaf-fn cond-fn]
@@ -493,10 +516,17 @@
   "Refine `root-type` by asserting that the value at `path` satisfies
    `pred-info` (`{:pred kw :class cls-or-nil}`) with the given `polarity`."
   [root-type :- ats/SemanticType path :- [s/Any] pred-info :- {s/Keyword s/Any} polarity :- s/Bool]
-  (refine-map-path root-type path
-                   (fn [_prov val-type]
-                     (an/partition-type-for-predicate val-type pred-info polarity))
-                   nil))
+  (letfn [(leaf-fn [_prov val-type]
+            (an/partition-type-for-predicate val-type pred-info polarity))
+          (cond-fn [cond-type cond-path]
+            (let [refined (keep (fn [arm]
+                                  (let [r (refine-map-path arm cond-path leaf-fn cond-fn)]
+                                    (when-not (at/bottom-type? r) r)))
+                                (ca/effective-conditional-arms cond-type))]
+              (if (empty? refined)
+                (at/BottomType (ato/derive-prov cond-type))
+                (ato/union refined))))]
+    (refine-map-path root-type path leaf-fn cond-fn)))
 
 (s/defn map-type-at-path :- (s/maybe ats/SemanticType)
   "Return the Type stored at `path` within `root-type`, descending through

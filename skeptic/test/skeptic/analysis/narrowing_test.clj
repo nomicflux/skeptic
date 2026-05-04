@@ -46,7 +46,14 @@
     (is-type= (at/Dyn tp)
               (an/partition-type-for-predicate (at/Dyn tp) {:pred :fn?} true))
     (is-type= (at/Dyn tp)
-              (an/partition-type-for-predicate (at/Dyn tp) {:pred :fn?} false))))
+              (an/partition-type-for-predicate (at/Dyn tp) {:pred :fn?} false)))
+  (testing "negative :some? on Dyn narrows to (eq nil)"
+    (let [r (an/partition-type-for-predicate (at/Dyn tp) {:pred :some?} false)]
+      (is (at/value-type? r))
+      (is (nil? (:value r)))))
+  (testing "positive :some? on Dyn leaves Dyn unchanged (no useful refinement)"
+    (is-type= (at/Dyn tp)
+              (an/partition-type-for-predicate (at/Dyn tp) {:pred :some?} true))))
 
 (deftest apply-truthy-local-test
   (let [u (ato/union-type tp #{(at/->ValueT tp (at/->GroundT tp :bool 'Bool) false)

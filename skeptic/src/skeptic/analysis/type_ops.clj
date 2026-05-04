@@ -1,5 +1,6 @@
 (ns skeptic.analysis.type-ops
   (:require [schema.core :as s]
+            [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]
@@ -48,14 +49,14 @@
   (or (at/maybe-type? t)
       (nil-value-type? t)
       (and (at/conditional-type? t)
-           (some nil-bearing-member? (map second (:branches t))))))
+           (some nil-bearing-member? (ca/effective-conditional-arms t)))))
 
 (defn- non-nil-bases
   [t]
   (cond
     (nil-value-type? t) []
     (at/maybe-type? t) [(:inner t)]
-    (at/conditional-type? t) (mapcat (comp non-nil-bases second) (:branches t))
+    (at/conditional-type? t) (mapcat non-nil-bases (ca/effective-conditional-arms t))
     :else [t]))
 
 (defn- maybe-bases-without-dyn
@@ -161,10 +162,13 @@
                             (:members type)))
 
       (at/conditional-type? type)
-      (at/->ConditionalT (prov/of type)
-                         (mapv (fn [[pred typ slot3]]
-                                 [pred (de-maybe-type prov typ) slot3])
-                               (:branches type)))
+      (let [eff-branches (ca/effective-conditional-branches type)]
+        (if (empty? eff-branches)
+          (at/BottomType (prov/of type))
+          (at/->ConditionalT (prov/of type)
+                             (mapv (fn [[pred eff-typ slot3]]
+                                     [pred (de-maybe-type prov eff-typ) slot3])
+                                   eff-branches))))
 
       :else
       type)))
@@ -182,7 +186,7 @@
      (at/inf-cycle-type? t) true
      (at/maybe-type? t) (uninformative-for-narrowing? (:inner t))
      (at/union-type? t) (some uninformative-for-narrowing? (:members t))
-     (at/conditional-type? t) (some uninformative-for-narrowing? (map second (:branches t)))
+     (at/conditional-type? t) (some uninformative-for-narrowing? (ca/effective-conditional-arms t))
      :else false)))
 
 (s/defn normalize :- ats/SemanticType

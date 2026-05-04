@@ -146,7 +146,7 @@
   [fn-node :- s/Any]
   (contains? blank-call-syms (resolved-call-sym fn-node)))
 
-(def ^:private type-predicate-sym->pred
+(def type-predicate-sym->pred
   '{clojure.core/nil? :nil?, nil? :nil?
     clojure.core/some? :some?, some? :some?
     clojure.core/string? :string?, string? :string?

@@ -1,5 +1,6 @@
 (ns skeptic.analysis.sum-types
   (:require [schema.core :as s]
+            [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats]))
@@ -46,7 +47,7 @@
       (at/value-type? type) [type]
       (at/maybe-type? type) (maybe-alternatives type)
       (at/union-type? type) (union-alternatives type)
-      (at/conditional-type? type) (union-alternatives (assoc type :members (mapv second (:branches type))))
+      (at/conditional-type? type) (union-alternatives (assoc type :members (ca/effective-conditional-arms type)))
       :else (bool-alternatives type))))
 
 (s/defn sum-type? :- s/Bool

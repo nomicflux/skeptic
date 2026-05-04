@@ -1,5 +1,6 @@
 (ns skeptic.analysis.narrowing
   (:require [schema.core :as s]
+            [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.types.schema :as ats])
@@ -162,6 +163,24 @@
                  (at/->GroundT prov {:class c} (symbol (.getName c))))
     nil))
 
+(defn- dyn-narrow-negative
+  "Symmetric counterpart to `dyn-narrow-positive`. Only `:some?` has a
+   finitely representable complement on Dyn, namely `(eq nil)`. Other
+   recognized predicates (and unrecognized ones) return nil so the caller
+   leaves Dyn unchanged."
+  [prov pred-info]
+  (case (:pred pred-info)
+    :some?    (ato/exact-value-type prov nil)
+    :nil?     nil
+    :string?  nil
+    :keyword? nil
+    :integer? nil
+    :boolean? nil
+    :symbol?  nil
+    :number?  nil
+    :instance? nil
+    nil))
+
 (defn- partition-maybe
   [inner pred-info polarity]
   (let [prov (ato/derive-prov inner)
@@ -189,7 +208,7 @@
       (at/dyn-type? type)
       (if polarity
         (or (dyn-narrow-positive (ato/derive-prov type) pred-info) type)
-        type)
+        (or (dyn-narrow-negative (ato/derive-prov type) pred-info) type))
       (at/placeholder-type? type) type
       (at/inf-cycle-type? type) type
 
@@ -200,7 +219,7 @@
       (at/conditional-type? type)
       (combine-parts (ato/derive-prov type)
                      (map #(partition-type-for-predicate* % pred-info polarity)
-                          (map second (:branches type))))
+                          (ca/effective-conditional-arms type)))
 
       (at/maybe-type? type)
       (partition-maybe (:inner type) pred-info polarity)
@@ -228,7 +247,7 @@
       (at/maybe-type? t) true
       (at/bottom-type? t) false
       (at/union-type? t) (boolean (some can-be-falsy-type? (:members t)))
-      (at/conditional-type? t) (boolean (some can-be-falsy-type? (map second (:branches t))))
+      (at/conditional-type? t) (boolean (some can-be-falsy-type? (ca/effective-conditional-arms t)))
       (at/value-type? t) (let [v (:value t)] (or (nil? v) (false? v)))
       (at/ground-type? t) (= :bool (:ground t))
       :else false)))
@@ -251,7 +270,7 @@
             (ato/union members)))
 
         (at/conditional-type? t)
-        (let [members (vec (remove false-bool-value-type? (map second (:branches t))))]
+        (let [members (vec (remove false-bool-value-type? (ca/effective-conditional-arms t)))]
           (if (empty? members)
             (ato/bottom t)
             (ato/union members)))
@@ -286,7 +305,7 @@
     (at/conditional-type? t)
     (combine-parts (ato/derive-prov t)
                    (map #(partition-values-leaf % values polarity)
-                        (map second (:branches t))))
+                        (ca/effective-conditional-arms t)))
 
     :else
     (if polarity (ato/bottom t) t)))
@@ -308,7 +327,7 @@
       (at/conditional-type? type)
       (combine-parts (ato/derive-prov type)
                      (map #(partition-type-for-values % values polarity)
-                          (map second (:branches type))))
+                          (ca/effective-conditional-arms type)))
       (at/maybe-type? type)
       (at/->MaybeT (ato/derive-prov type) (partition-type-for-values (:inner type) values polarity))
       :else (partition-values-leaf type values polarity))))

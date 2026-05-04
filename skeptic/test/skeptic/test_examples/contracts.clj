@@ -629,3 +629,49 @@
   (let [x (xns/f)
         y (take-str x)]
     y))
+
+(s/defschema KeyOpenBase {s/Keyword s/Any})
+
+(s/defschema KeyOpenSingle (merge KeyOpenBase {:k1 s/Str}))
+
+(s/defschema KeyOpenCond
+  (s/conditional
+   #(vector? (:k1 %)) (merge KeyOpenBase {:k1 [s/Str]})
+   #(some? (:k1 %)) (merge KeyOpenBase {:k1 s/Str})
+   :else KeyOpenBase))
+
+(s/defn consume-key-open-single :- s/Any
+  [_ :- KeyOpenSingle]
+  nil)
+
+(s/defn cond-key-some-narrowing-repro
+  [x :- KeyOpenCond]
+  (cond
+    (vector? (:k1 x)) nil
+
+    (some? (:k1 x)) (consume-key-open-single x)
+
+    :else nil))
+
+(s/defschema KeyIntBase {s/Keyword s/Int})
+
+(s/defschema KeyIntSingle (merge KeyIntBase {:k1 s/Str}))
+
+(s/defschema KeyIntCond
+  (s/conditional
+   #(vector? (:k1 %)) (merge KeyIntBase {:k1 [s/Str]})
+   #(some? (:k1 %)) (merge KeyIntBase {:k1 s/Str})
+   :else KeyIntBase))
+
+(s/defn consume-key-int-single :- s/Any
+  [_ :- KeyIntSingle]
+  nil)
+
+(s/defn cond-key-some-narrowing-int-wildcard-repro
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) nil
+
+    (some? (:k1 x)) (consume-key-int-single x)
+
+    :else nil))
