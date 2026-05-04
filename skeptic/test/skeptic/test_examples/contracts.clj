@@ -675,3 +675,43 @@
     (some? (:k1 x)) (consume-key-int-single x)
 
     :else nil))
+
+(s/defschema KeyIntK1Int (merge KeyIntBase {:k1 s/Int}))
+(s/defschema KeyIntK1Vec (merge KeyIntBase {:k1 [s/Str]}))
+
+(s/defn consume-key-int-k1-int :- s/Any [_ :- KeyIntK1Int] nil)
+(s/defn consume-key-int-k1-vec :- s/Any [_ :- KeyIntK1Vec] nil)
+
+(s/defn cond-key-vector-arm-passed-to-single-fails
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) (consume-key-int-single x)
+    (some? (:k1 x))   nil
+    :else             nil))
+
+(s/defn cond-key-some-arm-passed-to-vec-fails
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) nil
+    (some? (:k1 x))   (consume-key-int-k1-vec x)
+    :else             nil))
+
+(s/defn cond-key-some-arm-passed-to-int-k1-fails
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) nil
+    (some? (:k1 x))   (consume-key-int-k1-int x)
+    :else             nil))
+
+(s/defn cond-key-else-arm-passed-to-single-fails
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) nil
+    (some? (:k1 x))   nil
+    :else             (consume-key-int-single x)))
+
+(s/defn cond-no-else-returns-int-fails :- s/Int
+  [x :- KeyIntCond]
+  (cond
+    (vector? (:k1 x)) 1
+    (some? (:k1 x))   2))
