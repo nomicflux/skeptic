@@ -15,32 +15,37 @@ Schema](https://github.com/plumatic/schema). It reads your source code,
 infers a type for every expression, and reports the places where the inferred
 type disagrees with the type you declared on a function's inputs or output.
 
-Internally Skeptic runs a fixed sequence of phases. Source files are
-discovered by walking the project's source paths. Each namespace is
-*admitted*: declared schemas, Malli `:malli/schema` metadata, native
-function descriptors, and `:type-overrides` from `.skeptic/config.edn` are
-converted into a single dictionary of semantic Types keyed by qualified
-symbol. Each top-level form is then *annotated*: a `tools.analyzer` AST
-walk attaches a Type to every node. The annotated AST is *checked* — for
-each call site and each function return, the cast engine compares the
-inferred Type against the declared Type. Failed casts are *projected* into
-findings carrying a path, blame side, and message. The findings are then
-*rendered* — by default as ANSI-coloured text, or as newline-delimited
-JSON when `-p` is set.
+Internally Skeptic runs a fixed sequence of seven phases. The first
+six run per-namespace; the seventh runs once at end-of-run.
+Source files are discovered by walking the project's source paths.
+Each namespace is *admitted*: declared schemas, Malli `:malli/schema`
+metadata, native function descriptors, and `:type-overrides` from
+`.skeptic/config.edn` are converted into a single dictionary of
+semantic Types keyed by qualified symbol. Each top-level form is then
+*annotated*: a `tools.analyzer` AST walk attaches a Type to every
+node. The annotated AST is *checked* — for each call site and each
+function return, the cast engine compares the inferred Type against
+the declared Type. Failed casts are *projected* into findings
+carrying a path, blame side, and message. The findings are then
+*rendered* — by default as ANSI-coloured text, or as newline-
+delimited JSON when `-p` is set. Finally, after every namespace has
+finished, a *summary* phase emits the per-namespace inconsistency
+counts and the run-level summary record.
 
 *Figure: Skeptic from CLI to output. Each phase is a spoke in this Walkthrough.*
 
 ```mermaid
 flowchart LR
-  src[Source files] --> disc[Namespace discovery]
-  disc --> adm[Declaration admission]
+  src[Source files] --> disc[1 · Namespace discovery]
+  disc --> adm[2 · Declaration admission]
   cfg[(:type-overrides)] -.-> adm
-  adm --> ann[Annotation pass]
-  ann --> chk[Checking - cast]
-  chk --> blame[Blame projection]
-  blame --> out{Output}
+  adm --> ann[3 · Annotation pass]
+  ann --> chk[4 · Checking - cast]
+  chk --> blame[5 · Blame projection]
+  blame --> out{6 · Output}
   out -->|default| txt[ANSI text]
   out -->|--porcelain| jsl[JSONL]
+  out -.-> sum[7 · Namespace summary]
 ```
 
 The Walkthrough is a snapshot, not a living document. When the source
@@ -176,7 +181,7 @@ detail.
 | Flow-sensitive narrowing       | Refinement of a local's Type along a branch, using assumptions derived from the test expression.                                                 | 08    |
 | Generalize rule                | Cast into `forall X. B`: produce a polymorphic value, deferring the choice of `X`.                                                               | 10    |
 | Ground type                    | `GroundT` — a primitive named type (`Int`, `Str`, `Keyword`, `Bool`, `Symbol`, plus class grounds).                                              | 03    |
-| Instantiate rule               | Cast out of `forall X. A`: substitute `X := ?` and continue.                                                                                     | 10    |
+| Instantiate rule               | Cast out of `forall X. A`: substitute `X := Dyn` and continue.                                                                                   | 10    |
 | Marquee function               | The 3–6 named functions per spoke that anchor the spoke's mental model.                                                                          | hub   |
 | Maybe type                     | `MaybeT` — `T` or `nil`. Created by `s/maybe`, optional-key values, and union with `nil`.                                                        | 03    |
 | Numeric Dyn                    | `NumericDynT` — the gradual numeric supertype; matches numbers without committing to int vs. float.                                              | 03    |
