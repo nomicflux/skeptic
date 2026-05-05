@@ -47,13 +47,13 @@ development.
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.0"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.1"]]
 ```
 
 Or for the snapshot version:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.1-SNAPSHOT"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.2-SNAPSHOT"]]
 ```
 
 ## Running it
