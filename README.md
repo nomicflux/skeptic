@@ -4,25 +4,43 @@
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/lein-skeptic.svg)](https://clojars.org/org.clojars.nomicflux/lein-skeptic)
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/skeptic.svg)](https://clojars.org/org.clojars.nomicflux/skeptic)
 
-Skeptic is a Leiningen plugin that type-checks Clojure projects that use
-[Plumatic Schema](https://github.com/plumatic/schema). It reads your source,
-infers a type for each expression, and reports places where the inferred type
-disagrees with the Plumatic Schema annotation you declared on a function's
-inputs or output.
+Skeptic is a Leiningen plugin that statically type-checks Clojure projects based on
+[Plumatic Schema](https://github.com/plumatic/schema) annotations. 
 
 Experimental support for [Malli](https://github.com/metosin/malli) is in
 development.
 
-**Versioning:** stable releases use git tags `vX.Y.Z` and are described on
-[GitHub Releases](https://github.com/nomicflux/skeptic/releases). The Clojars
-badges above reflect the latest published versions.
-
 ## What Skeptic checks
 
-- Call sites where inferred argument types do not fit the declared input schema.
-- Return values where the inferred result does not fit the declared output
-  schema.
-- Nilability and structural mismatches that flow into declared schemas.
+- Call sites where inferred argument types do not fit the declared input schema:
+
+  ```clojure
+  (s/defn inc-int :- s/Int
+    [x :- s/Int]
+    (+ x 1))
+
+  (inc-int "1")  ; String flows into an s/Int parameter
+  ```
+
+- Return values where the inferred result does not fit the declared output schema:
+
+  ```clojure
+  (s/defn as-int :- s/Int
+    [x :- s/Int]
+    (str x))  ; body returns String, not s/Int
+  ```
+
+- Nilability and structural mismatches that flow into declared schemas:
+
+  ```clojure
+  (s/defn inc-int :- s/Int
+    [x :- s/Int]
+    (+ x 1))
+
+  (s/defn caller
+    [m :- {:n (s/maybe s/Int)}]
+    (inc-int (:n m)))  ; (:n m) is (maybe s/Int); nil case flows into s/Int
+  ```
 
 ## Installation
 
@@ -32,12 +50,11 @@ Add the plugin to the `:plugins` vector in your `project.clj`:
 :plugins [[org.clojars.nomicflux/lein-skeptic "0.8.0"]]
 ```
 
+Or for the snapshot version:
+
 ```clojure
 :plugins [[org.clojars.nomicflux/lein-skeptic "0.8.1-SNAPSHOT"]]
 ```
-
-If you need to override the default dependency profile, define a `:skeptic`
-profile in your project and Skeptic will use that instead.
 
 ## Running it
 
@@ -77,27 +94,110 @@ inconsistency, grouped by namespace. Findings include the source of the
 reported type, such as Schema, Malli, a built-in/native declaration, a type
 override, or inference.
 
-By default, declared Schema, Malli, and type-override names may be used to keep
-large structural types compact in reports. Use `--explain-full` to print the
-expanded structural form instead.
+```
+---------
+Namespace: 		skeptic.showcase
+Location: 		/Users/demouser/Code/skeptic/skeptic/src/skeptic/showcase.clj:10:3 [source: native]
+Blame: 			context( value )
+---
+(str x)
+
+has an output mismatch against the declared return type.
+
+Declared return type expects:
+
+Int
+
+Problem fields:
+
+	- Str but expected Int
+
+---------
+Namespace: 		skeptic.showcase
+Location: 		/Users/demouser/Code/skeptic/skeptic/src/skeptic/showcase.clj:14:3 [source: schema]
+Blame: 			context( value )
+---
+(:n m)
+
+	in
+
+(inc-int (:n m))
+
+has inferred type incompatible with the expected type:
+
+Problems:
+
+	- a nullable value was provided where the type requires a non-null value
+
+Per-namespace inconsistencies:
+  skeptic.showcase: 2
+```
 
 When the run finds inconsistencies, the report ends with a per-namespace
 summary listing each affected namespace and its error count, sorted with the
-worst-offending namespace first. Pass `-v` / `--verbose` to include
-zero-count namespaces too.
+worst-offending namespace first.
 
 ### JSONL (`-p` / `--porcelain`)
 
-`lein skeptic -p` switches stdout to newline-delimited JSON: one
-`ns-discovery-warning` record per non-blocking namespace load failure, one
-`finding` record per type mismatch, one `exception` record per namespace-local
-failure hit during checking, a `namespace-error-summary` record listing
-per-namespace error counts immediately before the final line, and always a
-final `run-summary` line — even on clean runs. Zero-count namespaces are
-omitted from the summary unless `-v` / `--verbose` is set. Finding and
-exception records include a nested `location` object; `location.source`
-carries the same source attribution as text output. Exit code matches text
-mode (`0` clean, `1` otherwise).
+`lein skeptic -p` switches stdout to newline-delimited JSON. One object per
+line, in this order:
+
+```json
+{"kind": "ns-discovery-warning", "path": "src/foo/broken.clj", "message": "..."}
+```
+
+```json
+{
+  "kind": "finding",
+  "ns": "foo.bar",
+  "report_kind": "input",
+  "location": {
+    "file": "src/foo/bar.clj",
+    "line": 42,
+    "column": 3,
+    "source": "schema"
+  },
+  "blame": "(+ 1 :x)",
+  "blame_side": "term",
+  "blame_polarity": "positive",
+  "rule": "ground-mismatch",
+  "actual_type":   {"t": "ground", "name": "Keyword"},
+  "expected_type": {"t": "ground", "name": "Int"},
+  "actual_type_str":   "Keyword",
+  "expected_type_str": "Int",
+  "focuses":             ["x"],
+  "enclosing_form":      "(defn f [x] (+ 1 x))",
+  "expanded_expression": "(clojure.core/+ 1 x)",
+  "messages":            ["Keyword is not compatible with Int at ..."]
+}
+```
+
+```json
+{
+  "kind": "exception",
+  "ns": "foo.bar",
+  "phase": "declaration",
+  "location": {
+    "file": "src/foo/bar.clj",
+    "line": 99,
+    "source": "schema"
+  },
+  "blame": "my-fn",
+  "exception_class": "java.lang.RuntimeException",
+  "exception_message": "could not resolve schema",
+  "messages": ["Skeptic hit an exception while checking declared schema for my-fn ..."]
+}
+```
+
+```json
+{
+  "kind": "namespace-error-summary",
+  "counts": {
+    "foo.bar": 5,
+    "foo.baz": 2
+  }
+}
+```
 
 ```json
 {
@@ -110,9 +210,7 @@ mode (`0` clean, `1` otherwise).
 }
 ```
 
-When `--profile` is also set, the profile summary is written to **stderr** so
-stdout stays pure JSONL. When `-o` is also set, JSONL still goes to the output
-file and the profile summary still goes to stderr.
+Exit code matches text mode (`0` clean, `1` otherwise).
 
 See [`docs/jsonl-output.md`](docs/jsonl-output.md) for the full per-kind field
 spec and the structured type-tag reference.
@@ -131,11 +229,8 @@ at the project root. The file is EDN and every key is optional.
 ### `:exclude-files`
 
 Vector of glob patterns matched against each file's path relative to the
-project root. Matched files are skipped entirely — their namespaces are never
-loaded or checked. Patterns use the platform's `java.nio.file.PathMatcher`
-glob syntax (`*`, `**`, `?`, character classes). Excludes apply before `-n` /
-`--namespace` selection, so if you exclude a namespace's file and also pass
-`-n` for that namespace, the run checks nothing.
+project root. Matched files are skipped entirely. Patterns use the platform's 
+`java.nio.file.PathMatcher` glob syntax (`*`, `**`, `?`, character classes). 
 
 ### `:type-overrides`
 
@@ -143,8 +238,7 @@ Map from fully-qualified symbol to an override map with any of `:schema`,
 `:output`, `:arglists`. Values are Plumatic Schema expressions evaluated with
 `[schema.core :as s]` in scope, so you can write `(s/eq nil)`, `s/Int`, etc.
 Overrides replace whatever Skeptic would otherwise infer or collect for that
-symbol at call sites. Typical use: silence noise from variadic logging or
-side-effecting functions whose declared schemas are unhelpful.
+symbol at call sites.
 
 ```clojure
 {:type-overrides {clojure.tools.logging/infof {:output (s/eq nil)}}}
@@ -164,7 +258,7 @@ metadata:
   (str x))
 ```
 
-Full Malli support is in progress. Current useful forms include
+Currently parsed forms include
 `[:=> [:cat ...] out]`, primitive leaves such as `:int`, `:string`,
 `:keyword`, `:boolean`, and `:any`, plus `:maybe`, `:or`, `:enum`, and bare
 predicate symbols that Skeptic recognizes.
@@ -175,8 +269,7 @@ Malli accepts them; their Skeptic type is currently dynamic.
 ## Suppressing checks
 
 Skeptic provides three opt-out mechanisms for when its inference is wrong or
-too dynamic. Each suppresses checks in a different scope without affecting the
-rest of your code.
+too dynamic. 
 
 ### Ignoring a function body
 
@@ -251,24 +344,19 @@ Amal Ahmed, Robert Bruce Findler, Jeremy G. Siek, and Philip Wadler.
 Principles of Programming Languages (POPL)*, Austin, TX, USA, January 2011.
 ACM. [https://doi.org/10.1145/1926385.1926409](https://doi.org/10.1145/1926385.1926409)
 
-## When to use it
-
-Skeptic is most useful when you already annotate your code with Plumatic
-Schema and want feedback about how inferred types line up with those declared
-annotations. It complements runtime Plumatic Schema validation; it does not
-replace it.
+The key takeaway is that `Any` is not treated as some sort of `Top` or `Object` type. `Any` (and internally, `Dyn`) is
+treated as a Dynamic type that should be treated as typechecking anything, until a more precise form can be inferred.
+This is what lets Skeptic work with dynamic code without requiring users to add in a library of type hints: proveable
+inconsistencies are flagged without required proof of consistency.
 
 ## Building from source
 
 To run an unreleased version of the plugin from a local checkout:
 
-1. In `lein-skeptic/`, run `lein install` to publish the plugin to your local
-   Maven repository.
-2. If you've also changed the checker library, run `lein install` in
-   `skeptic/` first so the plugin resolves your build.
-3. Add the coordinates and version from `lein-skeptic/project.clj` to the
-   target project's `:plugins` vector.
-4. Optionally run `lein test` from `skeptic/` to sanity-check your build.
+1. Running `script/install-local.sh` we delete old versions in you `.m2` cache, install the Skeptic library, then
+   install the lein-skeptic plugin. This will insure a clean run, but careful if you are running multiple versions.
+2. Otherwise, run `lein install` in the `skeptic/` directory first to install the core library, then again in the
+   `lein-skeptic/` directory to install the plugin.
 
 ## License
 
