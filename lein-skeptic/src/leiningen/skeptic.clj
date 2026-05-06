@@ -14,7 +14,10 @@
    ["-a" "--analyzer" "Use clojure.tools.analyzer to analyse code"]
    ["-k" "--keep-empty" "Print out checking results with empty error set"]
    ["-c" "--show-context" "Show context and resolution path on items"]
-   ["-n" "--namespace NAMESPACE" "Only check specific namespace"]
+   ["-n" "--namespace NAMESPACE"
+    "Only check the specified namespace (repeatable; comma-separated values supported)"
+    :multi true
+    :update-fn (fnil conj [])]
    [nil  "--explain-full" "Show fully expanded structural forms in type-mismatch output (disable name-folding)"]
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
@@ -31,7 +34,8 @@ Options:
   -a, --analyzer            Use clojure.tools.analyzer to analyse code
   -k, --keep-empty          Print out checking results with empty error set
   -c, --show-context        Show context and resolution path on items
-  -n, --namespace NS        Only check the given namespace
+  -n, --namespace NS        Only check the specified namespace
+                            (repeatable; -n a -n b or -n a,b)
       --explain-full        Show fully expanded structural forms in type-mismatch output (disable name-folding)
   -p, --porcelain           Emit machine-readable JSONL (one JSON object per line)
       --debug               Emit raw internal state for cross-environment diffing

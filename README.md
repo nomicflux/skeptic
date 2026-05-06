@@ -69,7 +69,9 @@ status `1` when it reports inconsistencies.
 
 Options:
 
-- `-n`, `--namespace NAMESPACE`: only check one namespace.
+- `-n`, `--namespace NAMESPACE`: only check the specified namespace.
+  Repeatable, and accepts comma-separated values: `-n a.ns -n b.ns` and
+  `-n a.ns,b.ns` are equivalent.
 - `-c`, `--show-context`: print local-variable and reference context for each
   result.
 - `-v`, `--verbose`: print extra progress and debugging output.

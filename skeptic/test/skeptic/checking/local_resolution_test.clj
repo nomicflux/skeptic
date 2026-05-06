@@ -16,7 +16,7 @@
      (core/check-project
       {:verbose true
        :show-context true
-       :namespace namespace-sym}
+       :namespace [(str namespace-sym)]}
       (io/file ".")
       fixture-relative-path))))
 

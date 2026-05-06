@@ -367,7 +367,7 @@
                   (fn [_opts ns _source-file]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
-      (is (= 0 (sut/check-project {:namespace "example.ns"} "." ".")))
+      (is (= 0 (sut/check-project {:namespace ["example.ns"]} "." ".")))
       (is (= ['example.ns] @checked)))))
 
 (deftest check-project-blocks-when-discovery-failure-prevents-requested-coverage
@@ -383,7 +383,7 @@
                     {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Couldn't get namespaces"
-                            (sut/check-project {:namespace "example.ns"} "." ".")))
+                            (sut/check-project {:namespace ["example.ns"]} "." ".")))
       (is (false? @checked?)))))
 
 (deftest check-project-blocks-on-discovery-failure-for-full-coverage-run
@@ -488,7 +488,7 @@
                   (fn [file] ['example.ns file])
                   checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
-                  (sut/check-project {:porcelain true :namespace "example.ns"}
+                  (sut/check-project {:porcelain true :namespace ["example.ns"]}
                                      "." "."))
             lines (parse-jsonl out)]
         (is (= 3 (count lines)))
@@ -496,6 +496,60 @@
         (is (= "missing" (:path (first lines))))
         (is (= "namespace-error-summary" (:kind (second lines))))
         (is (= "run-summary" (:kind (last lines))))))))
+
+(deftest expand-namespace-args-flattens-and-symbolizes
+  (testing "single value"
+    (is (= ['a.ns] (#'sut/expand-namespace-args ["a.ns"]))))
+  (testing "multiple repeats"
+    (is (= ['a.ns 'b.ns] (#'sut/expand-namespace-args ["a.ns" "b.ns"]))))
+  (testing "comma-split"
+    (is (= ['a.ns 'b.ns] (#'sut/expand-namespace-args ["a.ns,b.ns"]))))
+  (testing "mixed repeats and commas"
+    (is (= ['a.ns 'b.ns 'c.ns]
+           (#'sut/expand-namespace-args ["a.ns,b.ns" "c.ns"]))))
+  (testing "trims whitespace and drops blanks"
+    (is (= ['a.ns 'b.ns] (#'sut/expand-namespace-args [" a.ns , ,b.ns"])))))
+
+(deftest check-project-filters-multiple-namespaces
+  (let [source-files {'a.ns (java.io.File. "test/a.clj")
+                      'b.ns (java.io.File. "test/b.clj")
+                      'c.ns (java.io.File. "test/c.clj")}
+        checked (atom [])]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files (vec (vals source-files))
+                     :failures []})
+                  file/ns-for-clojure-file
+                  (fn [file]
+                    (some (fn [[ns f]] (when (= f file) [ns file]))
+                          source-files))
+                  checking/check-namespace
+                  (fn [_opts ns _source-file]
+                    (swap! checked conj ns)
+                    {:results [] :provenance {}})]
+      (is (= 0 (sut/check-project {:namespace ["a.ns" "c.ns"]} "." ".")))
+      (is (= #{'a.ns 'c.ns} (set @checked)))
+      (is (= 2 (count @checked))))))
+
+(deftest check-project-blocks-when-any-requested-namespace-is-missing
+  (let [source-file (java.io.File. "test/a.clj")
+        checked? (atom false)]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_]
+                    {:files [source-file]
+                     :failures [{:path "missing"
+                                 :exception (ex-info "unreadable" {})}]})
+                  file/ns-for-clojure-file
+                  (fn [file] ['a.ns file])
+                  checking/check-namespace
+                  (fn [& _]
+                    (reset! checked? true)
+                    {:results [] :provenance {}})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Couldn't get namespaces"
+                            (sut/check-project {:namespace ["a.ns" "missing.ns"]}
+                                               "." ".")))
+      (is (false? @checked?)))))
 
 (deftest check-project-excludes-files-matching-config-patterns
   (let [tmp (.toFile (Files/createTempDirectory "skeptic-core-test"

@@ -1,5 +1,6 @@
 (ns skeptic.core
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [skeptic.checking.pipeline :as checking]
             [skeptic.config :as config]
             [skeptic.file :as file]
@@ -19,12 +20,13 @@
           paths))
 
 (defn- blocking-discovery-failures
-  [namespace discovered-nss failures]
+  [requested-namespaces discovered-nss failures]
   (cond
     (empty? failures) []
-    namespace (if (contains? discovered-nss (symbol namespace))
-                []
-                failures)
+    (seq requested-namespaces) (if (every? (set (keys discovered-nss))
+                                            requested-namespaces)
+                                 []
+                                 failures)
     :else failures))
 
 (defn- failure->info
@@ -33,9 +35,19 @@
    :message (or (.getMessage ^Exception exception)
                 (str exception))})
 
+(defn- expand-namespace-args
+  [raw]
+  (->> raw
+       (mapcat #(str/split % #","))
+       (map str/trim)
+       (remove str/blank?)
+       (mapv symbol)))
+
 (defn check-project
-  [{:keys [namespace] :as opts} root & paths]
-  (let [raw-config (config/load-raw-config root)
+  [{raw-namespaces :namespace :as opts} root & paths]
+  (let [requested-namespaces (when (seq raw-namespaces)
+                               (expand-namespace-args raw-namespaces))
+        raw-config (config/load-raw-config root)
         type-overrides (config/compile-overrides (:type-overrides raw-config))
         opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
         {:keys [files failures]} (discover-project-files root paths)
@@ -47,7 +59,9 @@
                             (catch Exception e
                               (println "Couldn't get namespaces: " e)
                               (throw e)))
-        blocking-failures (blocking-discovery-failures namespace discovered-nss failures)
+        blocking-failures (blocking-discovery-failures requested-namespaces
+                                                       discovered-nss
+                                                       failures)
         _ (when (seq blocking-failures)
             (doseq [failure blocking-failures]
               (println "Couldn't get namespaces:"
@@ -58,8 +72,8 @@
             (throw (ex-info "Couldn't get namespaces"
                             {:failures blocking-failures})))
         nss (cond-> discovered-nss
-              namespace
-              (select-keys [(symbol namespace)]))
+              (seq requested-namespaces)
+              (select-keys requested-namespaces))
         opts (assoc opts :project-state
                     (checking/project-state opts nss))
         {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
