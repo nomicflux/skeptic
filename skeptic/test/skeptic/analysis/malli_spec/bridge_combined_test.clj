@@ -25,3 +25,16 @@
         seen (atom [])]
     (walk/postwalk (fn [x] (swap! seen conj x) x) result)
     (is (not-any? #(= (at/Dyn tp) %) @seen))))
+
+(deftest converter-round-trip-extended-leaves
+  (let [schema [:=> [:cat :double :qualified-keyword [:maybe :symbol]] [:or :double :nil]]
+        result (sut/malli-spec->type tp schema)
+        expected (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :double 'Double)
+                                                    (at/->GroundT tp :keyword 'Keyword)
+                                                    (at/->MaybeT tp (at/->GroundT tp :symbol 'Symbol))]
+                                                 (ato/union-type tp [(at/->GroundT tp :double 'Double)
+                                                                     (ato/exact-value-type tp nil)])
+                                                 3
+                                                 false
+                                                 '[arg0 arg1 arg2])])]
+    (is (= expected result))))

@@ -1,6 +1,7 @@
 (ns skeptic.analysis.malli-spec.bridge-test
   (:require [clojure.test :refer [deftest is]]
             [skeptic.analysis.malli-spec.bridge :as sut]
+            [skeptic.analysis.type-ops :as ato]
             [skeptic.test-helpers :refer [is-type= tp]]
             [skeptic.analysis.types :as at]))
 
@@ -37,3 +38,19 @@
   (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:map [:x :int]]))
   (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:vector :int]))
   (is-type= (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int)))
+
+(deftest malli-spec->type-handles-extended-primitive-leaves
+  (is-type= (ato/exact-value-type tp nil) (sut/malli-spec->type tp :nil))
+  (is-type= (at/->GroundT tp :symbol 'Symbol) (sut/malli-spec->type tp :symbol))
+  (is-type= (at/->GroundT tp :double 'Double) (sut/malli-spec->type tp :double))
+  (is-type= (at/->GroundT tp :keyword 'Keyword) (sut/malli-spec->type tp :qualified-keyword))
+  (is-type= (at/->GroundT tp :symbol 'Symbol) (sut/malli-spec->type tp :qualified-symbol)))
+
+(deftest malli-spec->type-uuid-falls-back-to-dyn
+  (is-type= (at/Dyn tp) (sut/malli-spec->type tp :uuid)))
+
+(deftest malli-rejects-out-of-registry-keywords
+  (doseq [k [:char :pos-int :neg-int :nat-int]]
+    (is (thrown-with-msg? IllegalArgumentException
+                          #"Expected Malli spec value"
+                          (sut/malli-spec->type tp k)))))

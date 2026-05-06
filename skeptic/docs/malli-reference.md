@@ -150,7 +150,10 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:maybe X]` → `MaybeT` over the converted inner.
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
-    - Leaves (`:int`, `:string`, `:keyword`, `:boolean`, `:any`) route through a five-entry primitive table.
+    - Leaves resolve through a registry of supported keywords:
+      - `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:symbol → Symbol`, `:boolean → Bool`, `:double → Double`, `:nil → ValueT(Dyn, nil)`, `:qualified-keyword → Keyword`, `:qualified-symbol → Symbol`, `:any → Dyn`.
+      - `:uuid` is admitted by Malli but has no Skeptic ground; it falls through to `Dyn`.
+      - `:char`, `:pos-int`, `:neg-int`, and `:nat-int` are not in Malli 0.20.1's default registry and are rejected at admission.
     - Bare predicate symbols registered in `skeptic.analysis.predicates` (e.g. `string?`, `int?`, `keyword?`, `pos?`, `nil?`) route through that registry's `witness-type`, mirroring the Schema `(s/pred f)` rule. Predicate symbols outside the registry → `Dyn`.
     - Anything else currently converts to `Dyn`.
 

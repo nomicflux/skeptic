@@ -6,3 +6,8 @@
   (is (every? #(not= :exception (:report-kind %))
               (ps/check-fixture 'skeptic.test-examples.malli-contracts/map-dyn-caller
                                 {:keep-empty true}))))
+
+(deftest malli-double-input-rejects-string
+  (is (ps/single-failure?
+       'skeptic.test-examples.malli-contracts/double-input-rejects-string
+       '(takes-double "hello"))))

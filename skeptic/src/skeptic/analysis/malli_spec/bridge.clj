@@ -28,20 +28,29 @@
     (catch IllegalArgumentException _e
       false)))
 
+(def ^:private leaf-builders
+  {:int (fn [p] (at/->GroundT p :int 'Int))
+   :string (fn [p] (at/->GroundT p :str 'Str))
+   :keyword (fn [p] (at/->GroundT p :keyword 'Keyword))
+   :boolean (fn [p] (at/->GroundT p :bool 'Bool))
+   :any (fn [p] (at/Dyn p))
+   :nil (fn [p] (ato/exact-value-type p nil))
+   :symbol (fn [p] (at/->GroundT p :symbol 'Symbol))
+   :double (fn [p] (at/->GroundT p :double 'Double))
+   :qualified-keyword (fn [p] (at/->GroundT p :keyword 'Keyword))
+   :qualified-symbol (fn [p] (at/->GroundT p :symbol 'Symbol))})
+
 (defn- malli-leaf->type
   "Convert a Malli leaf value to a semantic type."
   [prov leaf]
-  (cond
-    (= leaf :int) (at/->GroundT prov :int 'Int)
-    (= leaf :string) (at/->GroundT prov :str 'Str)
-    (= leaf :keyword) (at/->GroundT prov :keyword 'Keyword)
-    (= leaf :boolean) (at/->GroundT prov :bool 'Bool)
-    (= leaf :any) (at/Dyn prov)
-    (symbol? leaf)
-    (if-let [qsym (predicates/resolve-predicate-symbol leaf)]
-      (predicates/witness-type qsym prov)
-      (at/Dyn prov))
-    :else (at/Dyn prov)))
+  (if-let [build (get leaf-builders leaf)]
+    (build prov)
+    (cond
+      (symbol? leaf)
+      (if-let [qsym (predicates/resolve-predicate-symbol leaf)]
+        (predicates/witness-type qsym prov)
+        (at/Dyn prov))
+      :else (at/Dyn prov))))
 
 (defn- function-shape?
   "Check if canonical form is [:=> [:cat & inputs] output]."

@@ -31,3 +31,9 @@
 
 (defn ^{:malli/schema [:=> [:cat [:enum :ok :bad]] :string]} enum-input-flows-to-string
   [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :double] :double]} takes-double
+  [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :int] :double]} double-input-rejects-string
+  [] (takes-double "hello"))
