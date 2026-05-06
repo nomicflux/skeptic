@@ -40,6 +40,7 @@
     (cond
       (integral-type? type) true
       (at/numeric-dyn-type? type) true
+      (and (at/ground-type? type) (= :double (:ground type))) true
       (and (at/ground-type? type) (numeric-ground-class type)) true
       (and (at/value-type? type) (number? (:value type))) true
       (at/refinement-type? type) (numeric-type? (:base type))
@@ -52,6 +53,9 @@
         klass (numeric-ground-class type)]
     (cond
       (and (at/value-type? type) (number? (:value type)) (not (integer? (:value type))))
+      true
+
+      (and (at/ground-type? type) (= :double (:ground type)))
       true
 
       (and (at/ground-type? type) klass)
@@ -72,6 +76,9 @@
     (cond
       (at/value-type? type)
       (or (:inner type) (at/NumericDyn prov))
+
+      (and (at/ground-type? type) (= :double (:ground type)))
+      type
 
       (and (at/ground-type? type) (numeric-ground-class type))
       type

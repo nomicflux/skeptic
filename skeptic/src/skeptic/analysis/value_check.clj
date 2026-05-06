@@ -98,6 +98,7 @@
         klass (numeric-ground-class type)]
     (boolean
      (or (= ground :int)
+         (= ground :double)
          (and klass
               (class? klass)
               (or (isa? klass Number)
@@ -128,6 +129,7 @@
       (= ground :keyword) (keyword? value)
       (= ground :symbol) (symbol? value)
       (= ground :bool) (boolean? value)
+      (= ground :double) (double? value)
       (and (map? ground) (:class ground)) (instance? (:class ground) value)
       :else false)))
 
@@ -156,7 +158,7 @@
               t (:ground target-type)]
           (cond
             (= s t) true
-            (and (= s :int)
+            (and (or (= s :int) (= s :double))
                  (map? t)
                  (= Number (:class t)))
             true
@@ -164,7 +166,7 @@
                  (= Number (:class s))
                  (= t :int))
             false
-            (and (#{:int :str :keyword :symbol :bool} s)
+            (and (#{:int :str :keyword :symbol :bool :double} s)
                  (map? t)
                  (= Object (:class t)))
             true

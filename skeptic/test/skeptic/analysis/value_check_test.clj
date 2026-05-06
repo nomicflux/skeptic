@@ -64,3 +64,26 @@
     (is (false? (avc/numeric-ground-type? (ab/schema->type tp s/Bool)))))
   (testing "Int ground returns true"
     (is (true? (avc/numeric-ground-type? (ab/schema->type tp s/Int))))))
+
+(deftest double-keyword-ground-test
+  (let [d (at/->GroundT tp :double 'Double)]
+    (testing "numeric-ground-type? recognizes :double keyword ground"
+      (is (true? (avc/numeric-ground-type? d))))
+    (testing "ground-accepts-value? :double accepts doubles, rejects ints/strings"
+      (is (true? (avc/ground-accepts-value? d 1.5)))
+      (is (false? (avc/ground-accepts-value? d 1)))
+      (is (false? (avc/ground-accepts-value? d "x"))))))
+
+(deftest leaf-overlap-double-test
+  (let [d (at/->GroundT tp :double 'Double)
+        i (at/->GroundT tp :int 'Int)
+        num-class (at/->GroundT tp {:class Number} 'Number)
+        obj-class (at/->GroundT tp {:class Object} 'Object)]
+    (testing ":double overlaps with :double"
+      (is (true? (avc/leaf-overlap? d d))))
+    (testing ":double overlaps with Number-class target"
+      (is (true? (avc/leaf-overlap? d num-class))))
+    (testing ":double overlaps with Object-class target"
+      (is (true? (avc/leaf-overlap? d obj-class))))
+    (testing ":int does not overlap with :double"
+      (is (false? (avc/leaf-overlap? i d))))))

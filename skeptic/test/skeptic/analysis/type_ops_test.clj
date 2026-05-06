@@ -55,7 +55,7 @@
 (deftest type-ops-normalization-and-unknown-test
   (is-type= (at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :k)
             (ato/exact-value-type tp :k))
-  (is-type= (at/->ValueT tp (at/->GroundT tp {:class java.lang.Double} 'Double) 3.5)
+  (is-type= (at/->ValueT tp (at/->GroundT tp :double 'Double) 3.5)
             (ato/exact-value-type tp 3.5))
   (is-type= (at/->MaybeT tp (at/Dyn tp))
             (ato/normalize-type tp nil))
@@ -123,3 +123,11 @@
                                                [pred2 int-t nil]])
         result (ato/union [cond-with-maybe int-t])]
     (is (at/maybe-type? result))))
+
+(deftest literal-ground-type-double-test
+  (is-type= (at/->GroundT tp :double 'Double)
+            (ato/literal-ground-type tp 1.5))
+  (is-type= (at/->GroundT tp :int 'Int)
+            (ato/literal-ground-type tp 1))
+  (is-type= (at/->GroundT tp {:class java.math.BigDecimal} 'BigDecimal)
+            (ato/literal-ground-type tp 1M)))

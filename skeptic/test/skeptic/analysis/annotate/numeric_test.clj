@@ -41,8 +41,19 @@
 (deftest inc-on-non-int-numeric-literal-preserves-fine-ground
   (let [literal-type (ato/exact-value-type tp 3.5)
         args [(aat/test-typed-node :const 3.5 literal-type)]]
-    (is-type= (at/->GroundT tp {:class java.lang.Double} 'Double)
+    (is-type= (at/->GroundT tp :double 'Double)
               (sut/invoke-integral-math-narrow-type tp 'inc args (mapv :type args)))))
+
+(deftest numeric-recognizes-double-ground-test
+  (let [d (at/->GroundT tp :double 'Double)]
+    (testing "numeric-type? recognizes :double keyword ground"
+      (is (true? (sut/numeric-type? d))))
+    (testing "non-int-numeric-type? recognizes :double keyword ground"
+      (is (true? (sut/non-int-numeric-type? d))))
+    (testing "numeric-ground-output-type preserves :double ground"
+      (is-type= d (#'sut/numeric-ground-output-type d)))
+    (testing "inc-dec-output-type on :double returns :double"
+      (is-type= d (sut/inc-dec-output-type d)))))
 
 (def ^:private other-prov
   (prov/make-provenance :schema 'other 'other.ns nil))

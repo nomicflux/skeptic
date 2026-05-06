@@ -14,6 +14,7 @@
 (defn- numeric-ground?
   [g]
   (or (= :int g)
+      (= :double g)
       (and (map? g) (:class g)
            (let [^Class c (:class g)]
              (and (class? c)

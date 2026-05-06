@@ -110,3 +110,12 @@
         cond-type (at/->ConditionalT tp [[:integer? int-t nil] [:boolean? false-v nil]])
         result (an/apply-truthy-local cond-type true)]
     (is-type= int-t result)))
+
+(deftest partition-double-ground-test
+  (let [d (at/->GroundT tp :double 'Double)]
+    (testing ":number? matches :double ground (positive partition keeps)"
+      (is-type= d (an/partition-type-for-predicate d {:pred :number?} true)))
+    (testing ":integer? does not match :double ground (positive partition → bottom)"
+      (is (at/bottom-type? (an/partition-type-for-predicate d {:pred :integer?} true))))
+    (testing ":nil? does not match :double ground (positive partition → bottom)"
+      (is (at/bottom-type? (an/partition-type-for-predicate d {:pred :nil?} true))))))
