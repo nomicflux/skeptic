@@ -99,6 +99,7 @@
     (boolean
      (or (= ground :int)
          (= ground :double)
+         (= ground :float)
          (and klass
               (class? klass)
               (or (isa? klass Number)
@@ -130,6 +131,7 @@
       (= ground :symbol) (symbol? value)
       (= ground :bool) (boolean? value)
       (= ground :double) (double? value)
+      (= ground :float) (instance? Float value)
       (and (map? ground) (:class ground)) (instance? (:class ground) value)
       :else false)))
 
@@ -158,7 +160,7 @@
               t (:ground target-type)]
           (cond
             (= s t) true
-            (and (or (= s :int) (= s :double))
+            (and (or (= s :int) (= s :double) (= s :float))
                  (map? t)
                  (= Number (:class t)))
             true
@@ -166,7 +168,7 @@
                  (= Number (:class s))
                  (= t :int))
             false
-            (and (#{:int :str :keyword :symbol :bool :double} s)
+            (and (#{:int :str :keyword :symbol :bool :double :float} s)
                  (map? t)
                  (= Object (:class t)))
             true

@@ -41,6 +41,7 @@
       (integral-type? type) true
       (at/numeric-dyn-type? type) true
       (and (at/ground-type? type) (= :double (:ground type))) true
+      (and (at/ground-type? type) (= :float (:ground type))) true
       (and (at/ground-type? type) (numeric-ground-class type)) true
       (and (at/value-type? type) (number? (:value type))) true
       (at/refinement-type? type) (numeric-type? (:base type))
@@ -56,6 +57,9 @@
       true
 
       (and (at/ground-type? type) (= :double (:ground type)))
+      true
+
+      (and (at/ground-type? type) (= :float (:ground type)))
       true
 
       (and (at/ground-type? type) klass)
@@ -78,6 +82,9 @@
       (or (:inner type) (at/NumericDyn prov))
 
       (and (at/ground-type? type) (= :double (:ground type)))
+      type
+
+      (and (at/ground-type? type) (= :float (:ground type)))
       type
 
       (and (at/ground-type? type) (numeric-ground-class type))

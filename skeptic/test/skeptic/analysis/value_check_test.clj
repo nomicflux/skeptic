@@ -87,3 +87,30 @@
       (is (true? (avc/leaf-overlap? d obj-class))))
     (testing ":int does not overlap with :double"
       (is (false? (avc/leaf-overlap? i d))))))
+
+(deftest float-keyword-ground-test
+  (let [f (at/->GroundT tp :float 'Float)]
+    (testing "numeric-ground-type? recognizes :float keyword ground"
+      (is (true? (avc/numeric-ground-type? f))))
+    (testing "ground-accepts-value? :float accepts floats, rejects ints/strings/doubles"
+      (is (true? (avc/ground-accepts-value? f (float 1.5))))
+      (is (false? (avc/ground-accepts-value? f 1)))
+      (is (false? (avc/ground-accepts-value? f 1.5)))
+      (is (false? (avc/ground-accepts-value? f "x"))))))
+
+(deftest leaf-overlap-float-test
+  (let [f (at/->GroundT tp :float 'Float)
+        d (at/->GroundT tp :double 'Double)
+        i (at/->GroundT tp :int 'Int)
+        num-class (at/->GroundT tp {:class Number} 'Number)
+        obj-class (at/->GroundT tp {:class Object} 'Object)]
+    (testing ":float overlaps with :float"
+      (is (true? (avc/leaf-overlap? f f))))
+    (testing ":float overlaps with Number-class target"
+      (is (true? (avc/leaf-overlap? f num-class))))
+    (testing ":float overlaps with Object-class target"
+      (is (true? (avc/leaf-overlap? f obj-class))))
+    (testing ":int does not overlap with :float"
+      (is (false? (avc/leaf-overlap? i f))))
+    (testing ":double does not overlap with :float"
+      (is (false? (avc/leaf-overlap? d f))))))

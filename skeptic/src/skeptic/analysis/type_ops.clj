@@ -22,6 +22,7 @@
   (cond
     (integer? value) (at/->GroundT prov :int 'Int)
     (double? value) (at/->GroundT prov :double 'Double)
+    (float? value) (at/->GroundT prov :float 'Float)
     (number? value) (at/->GroundT prov {:class (class value)} (symbol (.getSimpleName ^Class (class value))))
     (string? value) (at/->GroundT prov :str 'Str)
     (keyword? value) (at/->GroundT prov :keyword 'Keyword)

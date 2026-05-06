@@ -131,3 +131,11 @@
             (ato/literal-ground-type tp 1))
   (is-type= (at/->GroundT tp {:class java.math.BigDecimal} 'BigDecimal)
             (ato/literal-ground-type tp 1M)))
+
+(deftest literal-ground-type-float-test
+  (is-type= (at/->GroundT tp :float 'Float)
+            (ato/literal-ground-type tp (float 1.5)))
+  (is-type= (at/->GroundT tp :double 'Double)
+            (ato/literal-ground-type tp 1.5))
+  (is-type= (at/->GroundT tp :int 'Int)
+            (ato/literal-ground-type tp 1)))

@@ -15,6 +15,7 @@
   [g]
   (or (= :int g)
       (= :double g)
+      (= :float g)
       (and (map? g) (:class g)
            (let [^Class c (:class g)]
              (and (class? c)

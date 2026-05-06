@@ -119,3 +119,12 @@
       (is (at/bottom-type? (an/partition-type-for-predicate d {:pred :integer?} true))))
     (testing ":nil? does not match :double ground (positive partition → bottom)"
       (is (at/bottom-type? (an/partition-type-for-predicate d {:pred :nil?} true))))))
+
+(deftest partition-float-ground-test
+  (let [f (at/->GroundT tp :float 'Float)]
+    (testing ":number? matches :float ground (positive partition keeps)"
+      (is-type= f (an/partition-type-for-predicate f {:pred :number?} true)))
+    (testing ":integer? does not match :float ground (positive partition → bottom)"
+      (is (at/bottom-type? (an/partition-type-for-predicate f {:pred :integer?} true))))
+    (testing ":nil? does not match :float ground (positive partition → bottom)"
+      (is (at/bottom-type? (an/partition-type-for-predicate f {:pred :nil?} true))))))

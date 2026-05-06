@@ -55,6 +55,17 @@
     (testing "inc-dec-output-type on :double returns :double"
       (is-type= d (sut/inc-dec-output-type d)))))
 
+(deftest numeric-recognizes-float-ground-test
+  (let [f (at/->GroundT tp :float 'Float)]
+    (testing "numeric-type? recognizes :float keyword ground"
+      (is (true? (sut/numeric-type? f))))
+    (testing "non-int-numeric-type? recognizes :float keyword ground"
+      (is (true? (sut/non-int-numeric-type? f))))
+    (testing "numeric-ground-output-type preserves :float ground"
+      (is-type= f (#'sut/numeric-ground-output-type f)))
+    (testing "inc-dec-output-type on :float returns :float"
+      (is-type= f (sut/inc-dec-output-type f)))))
+
 (def ^:private other-prov
   (prov/make-provenance :schema 'other 'other.ns nil))
 
