@@ -1,558 +1,217 @@
-# Annotation: AST → Typed AST
+# Annotation Pass
 
-> *Snapshot of state as of 2026-05-05.*
+Admission gave the reader declared target Types. Annotation answers the other
+side of every cast: what Types does the program body actually produce?
 
-After admission produces the declaration dict, annotation walks each
-top-level form's `tools.analyzer` AST and attaches a Type to every
-node. The walk is *first-order* — it never invents a quantified Type
-— and it is the layer in which most of Skeptic's "what does this
-expression evaluate to?" reasoning happens. This spoke covers the
-dispatcher, the seven sub-namespaces, the recursive runner pattern,
-the API boundary every external reader uses, and the `:skeptic/type`
-override hook.
+> **Snapshot:** state of Skeptic as of 2026-05-06.
 
 ## Prerequisites
 
-[Spoke 03 (Type Domain)](03-type-domain.md), [04
-(Provenance)](04-provenance.md), and [05 (Admission
-Paths)](05-admission-paths.md). Working familiarity with
-`tools.analyzer` AST `:op` keys (the spoke names them but does not
-teach analyzer mechanics; reading the analyzer's docstring once
-beforehand helps). If any of these are unfamiliar, the
-[hub README's reading paths](README.md#reading-paths) point to the
-right earlier reading.
+[Type Domain (C04)](03-type-domain.md),
+[Provenance (C05)](04-provenance.md), and
+[Admission Paths (C03)](05-admission-paths.md). A passing familiarity with
+`tools.analyzer` AST `:op` names helps, but this spoke only uses a few.
 
 ## Where this fits
 
-Sixth on the Contributor path. After this spoke, the reader can
-open any file in `skeptic.analysis.annotate.*` and orient quickly.
-The next two spokes ([07](07-closed-sum-exhaustiveness.md),
-[08](08-narrowing-and-origins.md)) cover the refinements layered
-on top of the basic annotation pass — closed-sum exhaustiveness
-and flow-sensitive narrowing both run *inside* annotation.
+Sixth on the Contributor path. This spoke closes the gap between source code and
+inferred Types. [Closed-Sum Exhaustiveness](07-closed-sum-exhaustiveness.md) and
+[Narrowing and Origins](08-narrowing-and-origins.md) then refine how branchy
+code is understood.
 
-## What annotation does
+## What Annotation Produces
 
-**This section teaches: what annotation produces, and why every
-later phase depends on the *typed* AST shape rather than on the
-raw analyzer AST.**
+The reader enters this spoke holding a declaration dictionary. Annotation walks
+an analyzer AST and returns the same program shape enriched with Types. A literal
+node gets the Type of its value. A local node gets the Type from the local
+environment. An invocation node gets an output Type computed from the function
+and argument Types.
 
-For each top-level form, the checker calls
-`clojure.tools.analyzer.jvm/analyze` to get an analyzer AST, then
-walks that AST attaching a Type to every node. The output is the
-same AST shape as the analyzer produced, with extra keys: `:type`
-on every node, `:output-type` on call-shaped nodes,
-`:expected-argtypes` and `:actual-argtypes` on call sites,
-`:origin` on local-binding nodes when the local aliases a
-recognizable observable. Other phase-specific keys may appear
-during the walk; `abr/strip-derived-types` removes the scratch
-ones at the end so the cast engine sees only canonical fields.
+The output is still an AST. That matters because later checking needs both the
+inferred Type and enough source context to report a useful finding.
 
-The `:type` key on every node is what every later phase consumes.
-The cast engine reads it for source-side Types in input casts,
-the `def-output-results` phase reads it for the body's joined
-Type in output casts, the projection layer reads it for finding
-attribution. The annotator's *job* is to put a Type on every
-node, faithfully, in one pass.
+A reader debugging annotation should therefore ask two questions for any node:
+what Type did this node receive, and what surrounding source context remained
+available? If the Type is wrong, inspect the node's annotator. If the Type is
+right but the later message is unhelpful, the problem may be projection or
+output, not annotation.
 
-A non-trivial detail: the annotator threads provenance through
-the walk via the analyzer ctx. Every constructed Type's `:prov`
-is derived from `(prov/with-ctx ctx)` — the ctx-bound
-Provenance — which the entry point seeds with
-`(prov/inferred {:name name :ns ns})` for the enclosing
-top-level form. So every inferred Type produced during annotation
-of `classify` carries `:source :inferred` and a Provenance that
-knows the form's name and namespace. This is what makes
-`[source: inferred]` findings point at the right form in the
-user's source.
-
-## The first-order invariant
-
-**This section teaches: the rule that annotation never produces
-a `ForallT`, `TypeVarT`, or `SealedDynT` — and what would break
-if it did.**
-
-The annotation pass is *first-order*. The phrase has a precise
-meaning: the annotation pass never produces a `ForallT`,
-`TypeVarT`, or `SealedDynT`. Quantified types enter Skeptic
-exclusively through admission (a declared `^{:skeptic/type T}`
-override that contains a type variable, a future Malli admission
-producing one) or through cast-time runtime traversal
-([spoke 10](10-blame-for-all-and-projection.md)).
-
-Concretely, every Type the annotator constructs is one of the
-non-quantified kinds: `GroundT`, `MaybeT`, `UnionT`,
-`IntersectionT`, `MapT`, `VectorT`, `SeqT`, `SetT`, `FunT`/
-`FnMethodT`, `ConditionalT`, `ValueT`, `RefinementT`,
-`AdapterLeafT`, `OptionalKeyT`, `VarT`, `PlaceholderT`,
-`InfCycleT`, `DynT`, `BottomT`, `NumericDynT`. The cast engine
-treats those as the analysis vocabulary; quantified Types are a
-separate channel handled by a small set of dedicated cast rules.
-
-What would break without this invariant?
-
-If the annotator could produce a `ForallT` opportunistically —
-say, when it saw a function whose body uses its argument
-generically — every later cast would have to handle "maybe-
-quantified" types pervasively. The seal/collapse machinery
-([spoke 10](10-blame-for-all-and-projection.md)) would leak
-into every call-site cast, even calls into ordinary first-order
-functions. Cast-rule design would have to track binders all the
-way through the dispatch ladder.
-
-By keeping annotation strictly first-order, Skeptic confines all
-quantified-type reasoning to one set of cast rules
-(`check-quantified-cast`, `check-abstract-cast`). The rest of the
-cast engine — 18 of its 20 dispatch clauses — operates on
-first-order Types alone. The contributor adding a new Type kind
-must decide which side of this fence it belongs on; the answer
-is almost always "first-order, produced by annotation," because
-quantified additions are the rare path.
-
-A subtle corollary: `:inferred` Provenance never appears on a
-quantified Type. The first-order invariant is enforced both by
-the choice of constructors the annotator calls and by the
-provenance discipline — `:inferred` is the analyzer's source,
-and the analyzer doesn't produce quantified Types.
-
-## The dispatch on `:op`
-
-**This section teaches: that the annotator is one big `case` on
-the analyzer's `:op` key, with each case delegating to a
-sub-namespace, and that the case list is exhaustive enough for
-any AST.**
-
-`annotate-dispatch` in `skeptic/analysis/annotate.clj` is one big
-`case` on the analyzer's `:op` key. There are **26 explicit
-cases** plus a fall-through to a generic `Dyn` annotation. The
-26 cases cover every `:op` `tools.analyzer` produces for ordinary
-Clojure code:
-
-```text
-:binding   :const         :def          :do          :fn
-:fn-method :if            :case         :instance-call
-:invoke    :keyword-invoke :let         :loop        :local
-:map       :new           :quote        :recur       :set
-:static-call :the-var     :throw        :try         :var
-:vector    :with-meta
-```
-
-Each case delegates to a sub-namespace under
-`skeptic.analysis.annotate.*`. There are seven such
-sub-namespaces:
-
-| Sub-namespace                     | Owns                                                                      |
-|-----------------------------------|---------------------------------------------------------------------------|
-| `skeptic.analysis.annotate.base`     | `:binding`, `:const`, `:local`, `:var`, `:the-var`                       |
-| `skeptic.analysis.annotate.control`  | `:do`, `:if`, `:let`, `:loop`, `:recur`                                  |
-| `skeptic.analysis.annotate.data`     | `:def`, `:map`, `:set`, `:vector`, `:new`, `:quote`, `:throw`, `:try`, `:with-meta` |
-| `skeptic.analysis.annotate.fn`       | `:fn`, `:fn-method`                                                       |
-| `skeptic.analysis.annotate.invoke`   | `:invoke`, `:keyword-invoke`                                              |
-| `skeptic.analysis.annotate.jvm`      | `:instance-call`, `:static-call`                                          |
-| `skeptic.analysis.annotate.match`    | `:case`                                                                   |
-
-Unknown `:op`s fall through to `annotate-generic`, which annotates
-with `Dyn`. So Skeptic never crashes on an unfamiliar AST node;
-it just doesn't reason about it. The fall-through exists because
-`tools.analyzer` is occasionally extended with new ops, and a
-crash there would be a brittle dependency.
-
-The dispatch is shallow on purpose: each sub-namespace owns its
-shape entirely; the dispatcher is just a switchboard. Adding a
-new `:op` (rare) means adding one case to `annotate-dispatch` and
-implementing the logic in the right sub-namespace. The
-sub-namespace boundary is also where the API boundary lives —
-`annotate.api` is the public surface; the sub-namespaces are the
-implementation, and they are the only places that may read or
-write node fields directly.
-
-*Figure: The 26 `:op` cases grouped by sub-namespace; the
-dispatcher is one node funnelling into seven owners.*
+*Figure: annotation keeps the AST shape and adds Type information.*
 
 ```mermaid
 flowchart LR
-  dispatch[annotate-dispatch — case on :op]
-  base[annotate.base<br/>:binding :const :local<br/>:var :the-var]
-  ctrl[annotate.control<br/>:do :if :let :loop :recur]
-  data[annotate.data<br/>:def :map :set :vector<br/>:new :quote :throw<br/>:try :with-meta]
-  fn[annotate.fn<br/>:fn :fn-method]
-  invoke[annotate.invoke<br/>:invoke :keyword-invoke]
-  jvm[annotate.jvm<br/>:instance-call :static-call]
-  match[annotate.match<br/>:case]
-  fall[annotate-generic — Dyn fall-through]
-  dispatch --> base
-  dispatch --> ctrl
-  dispatch --> data
-  dispatch --> fn
-  dispatch --> invoke
-  dispatch --> jvm
-  dispatch --> match
-  dispatch --> fall
+  form[Clojure form] --> analyzer[tools.analyzer AST]
+  analyzer --> walk[recursive annotation walk]
+  dict[Declaration dict] -.-> walk
+  walk --> typed[Annotated AST with inferred Types]
 ```
 
-## The annotated-node API
+## The First-Order Invariant
 
-**This section teaches: that node shape is hidden behind an API
-namespace; what the rule is for who may bypass the API; and why
-the rule exists.**
+At this point the reader may wonder whether annotation can infer every Type kind.
+It cannot, and should not. Annotation is first-order: it attaches ordinary value
+Types to expression nodes, but it does not invent quantified Types.
 
-After annotation, the AST is no longer a plain analyzer AST —
-it carries Skeptic-specific keys (`:type`, `:output-type`,
-`:expected-argtypes`, `:actual-argtypes`, `:origin`, …).
-Reading those keys directly from arbitrary code would couple
-every reader to the node shape, making the shape impossible to
-change. A new key tomorrow would mean tracking down every
-`(:type some-node)` in the codebase.
+The reason belongs to the reader's current state. Quantified Types represent
+external polymorphic contracts. They need a boundary where abstraction is
+preserved. Admission can introduce such a contract from an explicit declaration;
+the cast engine can enforce it. If annotation fabricated a quantified Type from
+an expression body, the checker would be treating inferred implementation detail
+as if it were a user-supplied polymorphic boundary.
 
-`skeptic.analysis.annotate.api` is the public surface. It
-exposes:
+So the promise is narrow and useful: annotation tells checking what the program
+appears to produce at each node. It does not create new polymorphic contracts.
 
-- **Accessors**: `node-op`, `node-form`, `node-type`,
-  `node-output-type`, `node-origin`, `call-fn-node`, `call-args`,
-  `function-methods`, `def-value-node`, `analyzed-def-entry`,
-  `node-tag`, `unwrap-with-meta`, `local-node?`, `recur-node?`,
-  `def-node?`, …
-- **Mutators**: `with-type` is the only sanctioned way to
-  attach a Type to a node from outside the `annotate.*` family.
-  `strip-derived-types` (technically in `bridge/render.clj`)
-  removes scratch keys.
+This is also why the first-order invariant is a walkthrough concept rather than
+a maintenance rule. The reader has just learned that admitted declarations can
+be polymorphic and inferred expression Types can be checked against them. The
+invariant explains which side is allowed to introduce that kind of abstraction.
 
-The rule is: **code outside the `annotate.*` family must use the
-API**. Direct `(:type node)` or `(assoc node :type T)` is
-allowed only inside the `annotate.*` files that own the node
-shape. The boundary is enforced by code review and by the
-documented purpose of the API namespace, not by language-level
-access controls.
+## Dispatch On AST Shape
 
-```clojure
-;; ✓ inside annotate.control — owner of node shape
-(-> node
-    (assoc :type joined-type)
-    (assoc :origin branch-origin))
+Annotation is organized around the AST node's `:op`. Constants, locals, vars,
+`let`, `if`, `fn`, invoke, maps, vectors, sets, and host forms each have a small
+piece of annotation logic. The reader should not memorize the list. The point is
+that an unfamiliar inferred Type can usually be traced to the annotator for that
+node shape.
 
-;; ✓ outside annotate.* — uses the API
-(let [t  (aapi/node-type node)
-      n2 (aapi/with-type node new-t)]
-  ...)
+For example, a surprising Type on a vector literal belongs near data annotation.
+A surprising Type on an invocation belongs near invoke annotation or the callee's
+admitted Type. A surprising Type inside an `if` may belong to branch-local
+environments, which is why narrowing gets its own spoke.
 
-;; ✗ outside annotate.* — reaches past the API
-(:type node)
+*Figure: one recursive runner delegates by node kind, then recurses into
+children.*
+
+```mermaid
+flowchart TD
+  node[annotate-node] --> dispatch[annotate-dispatch]
+  dispatch --> base[base literals locals vars]
+  dispatch --> control[control let if do case]
+  dispatch --> data[data maps vectors sets]
+  dispatch --> fn[fn methods]
+  dispatch --> invoke[invoke calls]
+  base --> recurse[child recursion when needed]
+  control --> recurse
+  data --> recurse
+  fn --> recurse
+  invoke --> recurse
 ```
 
-The contributor question this rule pre-empts: *"my new analysis
-needs a node field the API doesn't expose. May I just read it
-directly?"* The answer is no — extend the API. Adding a
-`node-foo-bar` accessor in `annotate.api` is a small change; it
-keeps the boundary intact, and the next contributor who needs
-`:foo-bar` finds the accessor already present rather than
-inventing their own.
+## Representative Cases
 
-The rule extends to tests: a test that reaches into `(:type
-node)` directly is exactly as fragile as production code doing
-the same. Tests in this repo go through the API or through
-`annotate.test-api` (a sibling that exposes test-only helpers
-for synthesizing nodes).
+A literal such as `"odd"` gets a string ground Type. A keyword such as `:zero`
+gets an exact value Type whose ground is Keyword. A local such as `n` gets the
+Type currently assigned to that local. A function body joins branch outputs to
+produce an output Type for the method.
 
-## Type overrides at annotation time
+For `classify`, this means the body contains two keyword-shaped alternatives and
+one string-shaped alternative. The checker will later compare the resulting
+output against the admitted `GroundT Keyword` target.
 
-**This section teaches: how `^{:skeptic/type T}` metadata reaches
-into the annotation pass and replaces the inferred Type for a
-specific expression.**
+For `double-or-zero`, the `if` node is where annotation creates the opportunity
+for narrowing. Without narrowing, `n` would remain maybe-typed inside `(* 2 n)`.
+With narrowing, the then-branch sees non-nil `n`.
 
-`^{:skeptic/type T}` metadata on an expression is the
-expression-level analogue of `.skeptic/config.edn`'s
-`:type-overrides` (which apply to whole vars). Both produce
-`:source :type-override` Provenance — see
-[spoke 04](04-provenance.md). The expression-level version hooks
-into the annotation pass.
+| Node shape | Reader expectation |
+|---|---|
+| literal | Type comes from the literal value. |
+| local | Type comes from the current local environment. |
+| `if` | Branches can receive different local environments. |
+| `fn` | Method output comes from the body Type. |
+| invoke | Output comes from the callee Type and argument Types. |
 
-The mechanism: `annotate-node` runs the dispatcher to produce
-the inferred Type, then calls `apply-type-override`.
-`apply-type-override` reads the form's metadata for
-`:skeptic/type`; if present, it evaluates the form (via `eval` in
-the form's namespace), validates that the evaluated value is in
-the Plumatic schema domain (`ab/schema-domain?`), converts it
-via `schema->type` with a fresh `:source :type-override`
-Provenance, and replaces the dispatcher-produced Type with the
-override Type via `aapi/with-type`.
+The table is intentionally small. It gives enough landmarks to follow a source
+trace without becoming a per-`:op` reference.
 
-Two non-obvious details:
+## Type Overrides During Annotation
 
-- **The override is *Plumatic-shaped*, not Malli-shaped.** Even
-  though the user might be writing Malli everywhere else,
-  `:skeptic/type` calls `schema->type`. The `schema-domain?`
-  guard rejects Malli forms with a clear error; this prevents
-  silent misuse.
-- **Bare literals can't carry metadata.** Numbers, strings,
-  keywords — the Clojure reader doesn't preserve metadata on
-  these. The user must wrap: `^{:skeptic/type s/Int} (identity 42)`.
-  The rejection is at the reader level; Skeptic doesn't see the
-  override at all on bare literals. A contributor writing
-  documentation should mention this; users who write
-  `^{:skeptic/type s/Int} 42` and wonder why nothing happens
-  have hit this case.
+Expression metadata can supply a type override. The reader should see this as a
+manual admission point inside annotation: the metadata form is converted through
+the Schema bridge, and the node's inferred Type is replaced with that admitted
+Type. The feature exists for boundary cases where source inference needs a
+precise user assertion.
 
-The override's Provenance carries `:source :type-override` rank
-0, which means subsequent merges (against any other source)
-keep the override. This is the right behaviour: the user's
-expression-level "trust me on this one" should beat any
-inference.
+The override is still checked later. It is not a magic suppression. It changes
+the Type attached to an expression, which means later casts use that Type as the
+actual value of the node.
 
-## How the worked example annotates
+## Reading An Annotated Node
 
-**This section teaches: a step-by-step trace of the worked
-example through the annotator, ending with the joined body Type
-the cast engine will consume.**
+When inspecting an annotated AST, read it in layers. First identify the node
+operation: literal, local, branch, function, invocation, or data structure. Then
+read the attached Type as the node's inferred value. Finally, keep the source
+form nearby because projection may need it to explain a finding.
 
-`classify`'s `:def` node wraps a `:fn` of one method (one
-arity, fixed). The method's `:fn-method` body is the `cond`
-expression, which the analyzer desugars into a chain of `:if`
-nodes — `cond` is a macro and the analyzer sees its expansion.
+For `classify`, the important annotated node is the function body. Its Type is
+not "the declared output." It is what the branch body actually produces. For
+`double-or-zero`, the important annotated nodes are the test and the then-branch
+invocation. The test prepares assumptions; the invocation consumes the narrowed
+local environment.
 
-Walking the chain top-down:
+## Where Annotation Hands Off
 
-1. `(zero? n)`: a `:invoke` node calling `clojure.core/zero?`.
-   The annotator produces a node with `:output-type` `GroundT
-   Bool` (from `zero?`'s native admission). This is the test of
-   an `:if`.
-2. The then-branch is `:zero` — a keyword literal. The `:const`
-   annotator produces `ValueT (GroundT :keyword 'Keyword) :zero`.
-3. The else-branch is the next `:if`: test `(even? n)`,
-   then-branch `:even` (→ `ValueT (Keyword) :even`), else-branch
-   the next `:if`.
-4. The next `:if`: test is the truthy `:else` keyword (which
-   `cond` rewrites as a true literal), then-branch `"odd"` (→
-   `GroundT :str 'Str`).
-5. The innermost `:if`'s else-branch is implicit `nil` (a `cond`
-   without a `:else` arm has nil for the residual; with `:else`
-   covering it, this branch is unreachable). The `:if`
-   annotator joins the two branches by union.
+Annotation does not decide whether the body is acceptable. It prepares enough
+information for checking to decide. That handoff is visible in the worked
+example: annotation can infer that `"odd"` is a string and that `n` is Int inside
+the then-branch; checking later decides whether those inferred Types fit the
+declared targets.
 
-Working back up, each `:if` joins its then- and else-Types via
-the union combinator (with anchor Provenance — see
-[spoke 04](04-provenance.md)). The joined Type for the cond body
-is roughly:
+This separation is useful when debugging. If the inferred Type is wrong, fix
+annotation or narrowing. If the inferred Type is right but the compatibility
+answer is wrong, move to cast dispatch.
 
-```text
-UnionT[ValueT(:zero) : GroundT Keyword,
-       ValueT(:even) : GroundT Keyword,
-       GroundT Str]
-```
+## Annotation Checkpoint
 
-That joined Type becomes the `:fn-method` node's output Type,
-which becomes the function's body output, which is what the cast
-engine will compare against the declared `GroundT Keyword`.
+At the end of annotation for the worked example, the reader should be able to
+state three facts. First, `classify` has a declared target from admission.
+Second, its body has an inferred output that includes a string branch. Third,
+`double-or-zero` has a then-branch environment where `n` can become Int. Nothing
+has been reported yet; the checker has merely prepared source-side evidence.
 
-`double-or-zero` follows the same pattern, with one important
-difference. Its body is `(if (some? n) (* 2 n) 0)`. The `:if`
-annotator does *not* just join the arms; it inspects the test
-for *narrowability*. `(some? n)` is a recognized predicate over
-the local `n`; the narrowing layer ([spoke 08](08-narrowing-and-origins.md))
-attaches assumptions to each arm's ctx so that inside the
-then-branch, the local `n`'s Type is refined from
-`MaybeT[GroundT Int]` to `GroundT Int`.
+If those three facts are clear, the transition into cast dispatch is mechanical:
+checking compares source-side evidence with declaration-side expectations.
 
-The then-arm's `(* 2 n)` then annotates as a binary `:invoke` of
-`clojure.core/*`; the call's input cast against
-`[NumericDyn NumericDyn]` passes (see
-[spoke 09](09-cast-dispatch.md)); the call's output Type is
-`NumericDyn`. The else-arm's `0` annotates as
-`ValueT (GroundT :int 'Int) 0`. The `:if` annotator joins them
-to produce a body Type that fits the declared `GroundT Int`.
-
-### In-depth: ctx-threading and the recursive runner
+### In-depth: Recursive Runner Shape
 
 ***Skip if reading the Gist path.***
 
-A contributor adding a new annotator — a new sub-namespace, a
-new branch, a new derived field — has to thread the ctx and
-recurse correctly without breaking other sub-namespaces. The
-mechanism is the recursive-runner pattern.
+The annotation pass is easiest to read as one recursive runner plus many
+non-recursive helpers. `annotate-node` installs the recursive function into the
+context, the `:op` helper annotates children by calling that function, and the
+parent helper assembles the result. This keeps recursion control in one place
+while letting each node kind focus on its own Type rule.
 
-`annotate-node` is the runner: it owns recursion and ctx
-threading. The actual code, paraphrased to highlight the
-pattern:
-
-```clojure
-(s/defn annotate-node :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [ctx (assoc ctx :recurse annotate-node)]
-    (-> (annotate-dispatch ctx node)
-        (apply-type-override ctx node)
-        abr/strip-derived-types)))
-```
-
-Three things happen in order:
-
-1. **Self-reference is installed in ctx.** Every sub-namespace
-   annotator that needs to recurse on a child (which is most of
-   them) reads `(:recurse ctx)` and calls it. This means
-   sub-namespaces never need to import each other or call
-   `annotate-node` directly — the runner threads itself through
-   the ctx so the dependencies stay flat.
-2. **Dispatcher runs.** The case on `:op` selects the right
-   sub-namespace's annotator and calls it with the enriched ctx
-   and the node.
-3. **Override hook runs.** `apply-type-override` checks for
-   `:skeptic/type` metadata and replaces the Type if present.
-4. **Derived-type strip runs.** Scratch keys are removed.
-
-A sub-namespace annotator looks like this (paraphrasing
-`annotate-if` from `annotate.control`):
+## Worked Example Here
 
 ```clojure
-(defn annotate-if [ctx node]
-  (let [recurse (:recurse ctx)
-        test'   (recurse ctx (:test node))
-        ;; — derive then-ctx and else-ctx from test' (narrowing) —
-        then'   (recurse then-ctx (:then node))
-        else'   (recurse else-ctx (:else node))]
-    (-> node
-        (assoc :test test')
-        (assoc :then then')
-        (assoc :else else')
-        (assoc :type (join-types ...)))))
+;; The body alternatives that annotation sees inside classify:
+:zero  ;; exact keyword value
+:even  ;; exact keyword value
+"odd"  ;; string
+
+;; The test that annotation prepares for narrowing:
+(some? n)
 ```
 
-The sub-namespace annotators are *non-recursive* and call back
-into the runner for child nodes. This shape is what the
-"AGENTS.md" recursive-runner rule mandates: one small function
-owns recursion, helpers do not call each other recursively, and
-recursion stays contained.
+The next two spokes explain the branch reasoning behind those comments.
 
-The pattern's payoff: a contributor can read any single
-sub-namespace annotator without worrying about the others. The
-ctx is the only shared state. The runner is the only piece that
-knows how recursion happens.
+## Source Pointers
 
-A second pattern this enables: **per-branch ctx**. The
-narrowing layer ([spoke 08](08-narrowing-and-origins.md))
-needs the then- and else-branches of an `:if` to see different
-*locals* (the narrowed local in the then-branch, the negated
-local in the else-branch). The runner pattern makes this a
-local concern: `annotate-if` builds two child ctxs, one for
-each branch, before recursing. Other sub-namespaces don't have
-to know about narrowing at all.
+- `skeptic/analysis/annotate.clj:annotate-node` - top-level annotation runner.
+- `skeptic/analysis/annotate.clj:annotate-dispatch` - dispatches by AST `:op`.
+- `skeptic/analysis/annotate.clj:annotate-form-loop` - analyzes and annotates a form.
+- `skeptic/analysis/annotate/api.clj:with-type` - attaches a Type to a node.
+- `skeptic/analysis/annotate/api.clj:node-op` - reads the node operation.
 
-### In-depth: stripping derived types and why `at/type=?` requires it
+## Glossary Terms Introduced
 
-***Skip if reading the Gist path.***
-
-A contributor noticing that `:type` carries some scratch key
-they didn't put there, or wondering why `at/type=?` sometimes
-disagrees with their mental shape comparison, needs to know
-about the strip.
-
-During annotation, the dispatcher and sub-namespace annotators
-sometimes attach scratch keys to Types — derived sub-Types,
-intermediate origin records, ConditionalT discriminator
-placeholders, intermediate joining markers — that are useful
-during the walk but should not survive into the cast engine's
-input. `abr/strip-derived-types` (in
-`skeptic/analysis/bridge/render.clj`) is the cleanup pass. It
-walks the produced Type and removes the scratch keys, leaving
-only the canonical record fields.
-
-The strip runs at the end of every `annotate-node` call (the
-last step in the runner shown above), so by the time a node's
-Type reaches any consumer outside the annotator, the scratch
-keys are gone.
-
-Why this matters: leaving scratch keys would *pollute the
-dict*, and worse, *confuse `at/type=?`*. `at/type=?` compares
-all non-`:prov` fields; a scratch key on one Type but not
-another would make two shape-equal Types compare unequal. A
-union deduplicator would then think two structurally-identical
-members were distinct and keep both, doubling the union's
-size.
-
-The contributor adding a new derived field has to either (a)
-include the field in the strip's removal list (so it doesn't
-leak), or (b) make the field part of the canonical Type shape
-and update `at/type=?` and the constructors accordingly. The
-former is for transient walking state; the latter is for
-shape changes.
-
-### In-depth: why annotation is one pass, not two
-
-***Skip if reading the Gist path.***
-
-A contributor designing a feature that "needs information
-about a sibling node" might consider a two-pass annotator: a
-first pass to gather information, a second pass to annotate.
-Skeptic's annotator is one pass. Why?
-
-One pass is sufficient because of two structural choices:
-
-- **Pre-collected accessor summaries.** Information that
-  spans multiple top-level forms — accessor summaries for
-  classifier-`defn`s, declared types from cross-namespace
-  vars — is collected by the project-state pass *before*
-  annotation runs (see
-  [spoke 01](01-pipeline-tour.md#in-depth-why-one-project-wide-dict-instead-of-per-namespace-dicts)).
-  By the time annotation begins, every cross-form fact the
-  annotator could need is already in the ctx.
-- **Post-pass enrichment for ConditionalT.** The one piece of
-  cross-form information that *is* deferred — ConditionalT
-  discriminator slots — is filled by a separate
-  enrich-conditional pass that runs over the dict, not over
-  the annotated AST (see
-  [spoke 03](03-type-domain.md#in-depth-conditionalt-and-the-discriminator-back-fill)).
-  Annotation produces the discriminator placeholders; the
-  enrich pass fills them.
-
-The result: each annotator can produce a fully-formed Type for
-its node, given the ctx it receives. No "I'll fix this later"
-markers escape annotation (after strip), no second-pass
-re-traversal is needed.
-
-A contributor adding a new feature that *seems* to need cross-
-node information should ask whether the information is really
-cross-*node* (in which case the feature belongs in the project-
-state pass or in the enrich pass) or whether it's available in
-the parent's ctx (in which case threading it down is enough).
-The two-pass-annotator solution would re-introduce the
-ordering complexity that the project-state pass was designed
-to eliminate.
-
-## Marquee functions
-
-| Function              | File                                          | Role                                                          |
-|-----------------------|-----------------------------------------------|---------------------------------------------------------------|
-| `annotate-node`       | `skeptic/analysis/annotate.clj`                | Top-level runner; threads ctx, dispatches, overrides, strips. |
-| `annotate-dispatch`   | `skeptic/analysis/annotate.clj`                | The 26-case `case` on `:op`; central diagram.                 |
-| `annotate-form-loop`  | `skeptic/analysis/annotate.clj`                | Analyzer + annotation, in one call.                           |
-| `apply-type-override` | `skeptic/analysis/annotate.clj`                | The `^{:skeptic/type T}` hook.                                |
-| `aapi/with-type`      | `skeptic/analysis/annotate/api.clj`            | Public mutator; the only sanctioned way to attach a Type.     |
-| `aapi/node-op`        | `skeptic/analysis/annotate/api.clj`            | Representative API accessor; many siblings.                   |
-| `abr/strip-derived-types` | `skeptic/analysis/bridge/render.clj`        | Scratch-key cleanup at the end of annotation.                 |
-
-## Worked example here
-
-`classify`'s body annotation produces the union of three leaf
-types shown above. The result feeds into
-[spoke 07](07-closed-sum-exhaustiveness.md) (cond exhaustiveness
-analysis) and [spoke 09](09-cast-dispatch.md) (the cast against
-`GroundT Keyword`).
-
-`double-or-zero`'s `:if` node is annotated with per-branch
-narrowing: the test `(some? n)` produces an assumption that
-refines the local `n`'s Type inside the then-branch. The
-joined body is `GroundT Int`. The full origin walk and
-narrowing rules are in [spoke 08](08-narrowing-and-origins.md).
-
-## Glossary terms introduced
-
-- Annotation pass (full)
+- Annotation pass
 - First-order invariant
-- `annotate-dispatch` (the dispatcher)
-- Sub-namespace (annotation modularization)
-- Annotated-node API
-- Recursive runner pattern
-- `apply-type-override` (the expression-level override hook)
-- Derived-type strip
+- Annotated AST
+- Type override
 
-## Where to next
+## Where To Next
 
-- **Continue (Contributor path):** [Closed-Sum Exhaustiveness (07)](07-closed-sum-exhaustiveness.md)
+- **Continue (Contributor path):** [Closed-Sum Exhaustiveness](07-closed-sum-exhaustiveness.md)
 - **Return:** [Hub](README.md)
