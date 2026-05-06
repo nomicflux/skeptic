@@ -5,6 +5,7 @@
             [skeptic.test-examples.control-flow]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
+            [skeptic.test-examples.java-callable]
             [skeptic.test-examples.malli-contracts]
             [skeptic.test-examples.nullability-xns-schema]
             [skeptic.test-examples.nullability]
@@ -24,6 +25,7 @@
    :nullability-xns-schema
    :nullability
    :fixture-flags
+   :java-callable
    :predicate-examples
    :var-narrowing])
 
@@ -49,6 +51,8 @@
                  :file (File. "test/skeptic/test_examples/nullability.clj")}
    :fixture-flags {:ns 'skeptic.test-examples.fixture-flags
                    :file (File. "test/skeptic/test_examples/fixture_flags.clj")}
+   :java-callable {:ns 'skeptic.test-examples.java-callable
+                   :file (File. "test/skeptic/test_examples/java_callable.clj")}
    :malli-contracts {:ns 'skeptic.test-examples.malli-contracts
                      :file (File. "test/skeptic/test_examples/malli_contracts.clj")}
    :predicate-examples {:ns 'skeptic.test-examples.predicate-examples

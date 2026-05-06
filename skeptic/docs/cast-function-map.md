@@ -8,6 +8,7 @@ This document is source-derived from:
 - `src/skeptic/analysis/cast/quantified.clj`
 - `src/skeptic/analysis/cast/branch.clj`
 - `src/skeptic/analysis/cast/function.clj`
+- `src/skeptic/analysis/cast/java_callable.clj`
 - `src/skeptic/analysis/cast/collection.clj`
 - `src/skeptic/analysis/cast/map.clj`
 
@@ -16,7 +17,7 @@ It describes the current rewritten subtree, not the deleted `cast.kernel` layout
 ## Governing Path
 
 The rebuilt cast subtree is organized around one public entrypoint, one private
-recursive runner, six non-recursive dispatch helper namespaces, and one result
+recursive runner, seven non-recursive dispatch helper namespaces, and one result
 projection namespace:
 
 1. `skeptic.analysis.cast/check-cast` normalizes the two semantic types, sets
@@ -33,10 +34,14 @@ projection namespace:
    types, nullable types, and transparent wrappers.
 7. `skeptic.analysis.cast.function/*` owns function-method matching and
    contravariant domain checks.
-8. `skeptic.analysis.cast.collection/*` owns vectors, seqs, cross-casts, sets,
+8. `skeptic.analysis.cast.java-callable/*` owns Clojure-fn source against a
+   Java callable-interface class target (Runnable, Callable, Comparator,
+   java.util.function.*) using a static SAM spec table for arity and return
+   type.
+9. `skeptic.analysis.cast.collection/*` owns vectors, seqs, cross-casts, sets,
    and the leaf fallback.
-9. `skeptic.analysis.cast.map/*` owns the map coverage algorithm and delegates
-   key-domain reasoning to `skeptic.analysis.map-ops`.
+10. `skeptic.analysis.cast.map/*` owns the map coverage algorithm and delegates
+    key-domain reasoning to `skeptic.analysis.map-ops`.
 
 ## Interconnection Map
 
@@ -49,6 +54,7 @@ flowchart TD
   RC --> Q["cast.quantified"]
   RC --> B["cast.branch"]
   RC --> F["cast.function"]
+  RC --> JC["cast.java-callable"]
   RC --> C["cast.collection"]
   RC --> M["cast.map"]
   COMP["cast/compatible?"] --> CC
@@ -61,6 +67,8 @@ flowchart TD
 
   F --> SUP
   F --> BR["bridge.render flip-polarity"]
+
+  JC --> SUP
 
   C --> SUP
   C --> VC["analysis.value-check"]
@@ -125,6 +133,13 @@ flowchart TD
   check-function-method -> method-children`.
   Domain requests flip polarity with `bridge.render/flip-polarity`; range
   requests preserve polarity.
+- Java-callable path:
+  `dispatch-cast -> java-callable/check-java-callable-cast`.
+  Selected when the source is a `FunT` and the target is a `GroundT` whose
+  `:class` is in the static SAM spec table. Picks a source method matching the
+  SAM's arity, runs one range child cast against the table-supplied return
+  type, and aggregates the result under `:java-callable-return`. Failure to
+  match an arity emits `:java-callable-arity` directly.
 - Collection path:
   `dispatch-cast -> collection/check-vector-cast`,
   `check-seq-cast`, `check-seq-to-vector-cast`,
@@ -168,14 +183,15 @@ dynamic type tests.
 8. conditional
 9. nullable
 10. transparent wrapper
-11. function
-12. map
-13. vector
-14. seq
-15. seq-to-vector
-16. vector-to-seq
-17. set
-18. leaf fallback
+11. Java-callable target (FunT source, Java callable-interface class GroundT target)
+12. function
+13. map
+14. vector
+15. seq
+16. seq-to-vector
+17. vector-to-seq
+18. set
+19. leaf fallback
 
 This ordering is implemented directly in `cast.clj`, so it is the subtree’s
 governing control flow rather than a secondary convention.
@@ -276,6 +292,27 @@ governing control flow rather than a secondary convention.
 - `check-function-cast`: Runs `check-function-method` for every target method
   and aggregates them under the `:function` rule.
 
+### `skeptic.analysis.cast.java-callable`
+
+- `sam-spec`: Private static table from Java callable-interface `Class` objects
+  (Runnable, Callable, Comparator, java.util.function.*) to `{:arity Int
+  :return-builder (Provenance -> SemanticType)}`. The arity is the SAM's
+  declared abstract-method arity; the return-builder produces the return type
+  the source method must satisfy (`Dyn` for void / unconstrained returns,
+  `Int` for Comparator, `Bool` for Predicate / BiPredicate).
+- `target-class`: Pulls the target `GroundT`'s `:class`.
+- `java-callable-target?`: True when the target is a class `GroundT` whose
+  class is a key in `sam-spec`. The dispatcher uses this as the gate.
+- `match-method`: Returns the first source method whose arity is accepted via
+  `support/method-accepts-arity?`.
+- `range-result`: Builds and runs the single child range request.
+- `check-java-callable-cast`: Looks up the SAM spec, finds an arity-matching
+  source method, runs the range child through the dispatcher's `child-run`,
+  and aggregates under `:java-callable-return`. When no source method matches,
+  emits `:java-callable-arity` directly. Always carries the original target
+  class `GroundT` through `cast-fail` / `aggregate-children`, so diagnostics
+  preserve the schema-named identity (Runnable, Comparator, ...).
+
 ### `skeptic.analysis.cast.collection`
 
 - `index-request`, `aligned-children`: Shared position-wise child-request
@@ -354,6 +391,7 @@ Source-derived consumer paths:
 - Quantified and abstract rules: `quantified.clj`
 - Union/intersection/conditional/nullable/wrapper rules: `branch.clj`
 - Function rules: `function.clj`
+- Java callable-interface rules: `java_callable.clj`
 - Collection and leaf rules: `collection.clj`
 - Map coverage algorithm: `map.clj`
 

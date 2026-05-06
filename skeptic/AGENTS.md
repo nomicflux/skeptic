@@ -87,6 +87,7 @@ Source namespace families:
   `cast.branch` handles union, intersection, conditional, maybe, and wrapper casts.
   `cast.collection` handles vector, seq, set, and leaf casts.
   `cast.function` handles function casts.
+  `cast.java-callable` handles a `FunT` source against a Java callable-interface class target (Runnable, Callable, Comparator, java.util.function.*).
   `cast.map` handles map-specific casting.
   `cast.quantified` handles `forall`, type-var, and sealed-dyn casts.
   `cast.result` projects cast-result diagnostics.

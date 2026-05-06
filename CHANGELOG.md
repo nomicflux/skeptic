@@ -14,6 +14,14 @@ All notable changes to this project will be documented in this file.
 - Finding output now carries source attribution so text and JSONL consumers can
   distinguish types that came from Schema, Malli, built-in/native declarations,
   type overrides, or inference.
+- Function values are now checked against Java callable-interface targets
+  (`Runnable`, `Callable`, `Comparator`, and the `java.util.function.*`
+  single-abstract-method interfaces). Previously a `:- Runnable` parameter
+  produced a confusing `(=> Any) but expected java.lang.Runnable` mismatch
+  for any Clojure fn; now skeptic checks the source fn's arity against the
+  interface's abstract-method arity and casts its declared return type to
+  `Bool` for `Predicate` / `BiPredicate`, `Int` for `Comparator`, and `Dyn`
+  for the rest.
 
 ### Changed
 

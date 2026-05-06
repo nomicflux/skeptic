@@ -3,6 +3,7 @@
             [skeptic.analysis.cast.branch :as branch]
             [skeptic.analysis.cast.collection :as coll]
             [skeptic.analysis.cast.function :as fun]
+            [skeptic.analysis.cast.java-callable :as jc]
             [skeptic.analysis.cast.map :as cmap]
             [skeptic.analysis.cast.quantified :as quant]
             [skeptic.analysis.cast.resolve :as resolve]
@@ -65,6 +66,9 @@
           (at/var-type? source-type)
           (at/var-type? target-type))
       (branch/check-wrapper-cast child-run source-type target-type opts)
+
+      (and (at/fun-type? source-type) (jc/java-callable-target? target-type))
+      (jc/check-java-callable-cast child-run source-type target-type opts)
 
       (and (at/fun-type? source-type) (at/fun-type? target-type))
       (fun/check-function-cast child-run source-type target-type opts)

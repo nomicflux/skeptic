@@ -57,14 +57,15 @@ The cast relation is order-sensitive. The rewrite must preserve this precedence:
 8. If either side is conditional, use conditional casting.
 9. If either side is nullable, use nullable casting.
 10. If either side is a transparent wrapper such as an optional map key or a var wrapper, unwrap one layer and continue.
-11. If both sides are functions, use function casting.
-12. If both sides are maps, use map casting.
-13. If both sides are vectors, use vector casting.
-14. If both sides are sequences, use sequence casting.
-15. If the source is a sequence and the target is a vector, use sequence-to-vector casting.
-16. If the source is a vector and the target is a sequence, use vector-to-sequence casting.
-17. If both sides are sets, use set casting.
-18. Otherwise use leaf casting.
+11. If the source is a function and the target is a recognized Java callable-interface class (Runnable, Callable, Comparator, java.util.function.*), use Java-callable casting.
+12. If both sides are functions, use function casting.
+13. If both sides are maps, use map casting.
+14. If both sides are vectors, use vector casting.
+15. If both sides are sequences, use sequence casting.
+16. If the source is a sequence and the target is a vector, use sequence-to-vector casting.
+17. If the source is a vector and the target is a sequence, use vector-to-sequence casting.
+18. If both sides are sets, use set casting.
+19. Otherwise use leaf casting.
 
 ### Quantified Types
 
@@ -247,6 +248,48 @@ Function casting is structural and method-based.
 - The full function cast succeeds only if every target method succeeds.
 
 In other words, the domain is contravariant and the range is covariant.
+
+### Java Callable Targets
+
+A function source against a Java callable-interface class target is checked
+using a static SAM (single-abstract-method) spec table. The table is keyed by
+`Class` object and is the only knowledge skeptic carries about these
+interfaces — there is no reflection on user code, no JVM hierarchy traversal,
+and no inference of the target's parameter types.
+
+Each table entry declares:
+
+- the SAM's abstract-method arity, as a static fact about the interface
+- the return type the source method must satisfy
+
+Behavior:
+
+- Find a source method whose arity matches the SAM arity, allowing variadic
+  source methods to satisfy the fixed SAM arity.
+- If no source method matches, fail with `:java-callable-arity`.
+- Otherwise, run a single range cast: the source method's declared return
+  type against the table-supplied return type. Aggregate that one child under
+  `:java-callable-return`.
+
+Static encoding of return types in the table:
+
+- `Dyn` for Runnable, Callable, Function, Supplier, Consumer, BiFunction,
+  BiConsumer, UnaryOperator, BinaryOperator. The user's `:- Runnable`
+  schema places no return constraint on the source fn, so any source return
+  passes via the universal `target-dynamic` rule.
+- `Bool` for Predicate and BiPredicate. A source method whose declared return
+  is anything other than `Bool` fails the range cast as `:ground-mismatch`.
+- `Int` for Comparator. Same mechanism.
+
+Domain types are not in the table. The schema-domain bridge produces no
+parameterized class form, so the user's `:- Runnable` schema carries no
+parameter-type information into the type domain. Arity is the entirety of
+the input-side check today.
+
+Diagnostics carry the original class `GroundT` as `:target-type` so the
+schema-named identity (Runnable, Comparator, ...) is preserved through
+`cast-fail` and `aggregate-children`. The rule does not synthesize a `FunT`
+stand-in.
 
 ### Maps
 
