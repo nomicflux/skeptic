@@ -37,3 +37,9 @@
 
 (defn ^{:malli/schema [:=> [:cat :int] :double]} double-input-rejects-string
   [] (takes-double "hello"))
+
+(defn ^{:malli/schema [:=> [:cat :float] :float]} takes-float
+  [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :int] :float]} float-input-rejects-string
+  [] (takes-float "hello"))

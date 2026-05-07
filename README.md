@@ -262,7 +262,7 @@ metadata:
 
 Currently parsed forms include
 `[:=> [:cat ...] out]`, primitive leaves such as `:int`, `:string`,
-`:keyword`, `:symbol`, `:boolean`, `:double`, `:nil`,
+`:keyword`, `:symbol`, `:boolean`, `:double`, `:float`, `:nil`,
 `:qualified-keyword`, `:qualified-symbol`, and `:any`, plus `:maybe`,
 `:or`, `:enum`, and bare predicate symbols that Skeptic recognizes.
 

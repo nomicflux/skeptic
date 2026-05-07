@@ -54,3 +54,6 @@
     (is (thrown-with-msg? IllegalArgumentException
                           #"Expected Malli spec value"
                           (sut/malli-spec->type tp k)))))
+
+(deftest malli-spec->type-handles-float-leaf
+  (is-type= (at/->GroundT tp :float 'Float) (sut/malli-spec->type tp :float)))

@@ -11,3 +11,8 @@
   (is (ps/single-failure?
        'skeptic.test-examples.malli-contracts/double-input-rejects-string
        '(takes-double "hello"))))
+
+(deftest malli-float-input-rejects-string
+  (is (ps/single-failure?
+       'skeptic.test-examples.malli-contracts/float-input-rejects-string
+       '(takes-float "hello"))))

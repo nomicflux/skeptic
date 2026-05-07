@@ -37,6 +37,7 @@
    :nil (fn [p] (ato/exact-value-type p nil))
    :symbol (fn [p] (at/->GroundT p :symbol 'Symbol))
    :double (fn [p] (at/->GroundT p :double 'Double))
+   :float (fn [p] (at/->GroundT p :float 'Float))
    :qualified-keyword (fn [p] (at/->GroundT p :keyword 'Keyword))
    :qualified-symbol (fn [p] (at/->GroundT p :symbol 'Symbol))})
 
