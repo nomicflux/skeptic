@@ -1,13 +1,25 @@
 (ns skeptic.schema.collect
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.canonicalize :as abc]
-            [skeptic.analysis.schema-base :as sb]
-            [skeptic.checking.form :as cf]
-            [skeptic.file :as file]
-            [skeptic.provenance :as prov]
             [skeptic.schema :as dschema]
+            [skeptic.schema.discovery :as discovery]
             [schema.core :as s]))
+
+(defn- ns-source-file
+  "Resolve the .clj source for ns-sym via classpath. Used as fallback when
+  callers (typically tests) don't supply :skeptic/source-file in opts.
+  Pipeline always supplies project-aware paths and bypasses this."
+  [ns-sym]
+  (let [path (-> (str ns-sym)
+                 (.replace \. \/)
+                 (.replace \- \_)
+                 (str ".clj"))
+        url (io/resource path)]
+    (when url
+      (try (java.io.File. (.getFile url))
+           (catch Exception _ nil)))))
 
 (defn get-fn-schemas*
   [f]
@@ -90,26 +102,6 @@
     (if (seq schemas)
       (conj (pop schemas) (schema-entry-schema (peek schemas)))
       schemas)))
-
-(defn- annotated-raw
-  [qualified-sym m v]
-  {:kind :annotated
-   :qualified-sym qualified-sym
-   :raw-schema (:schema m)
-   :ns (ns-name (:ns m))
-   :name (:name m)
-   :raw-arglists (:arglists m)
-   :var v})
-
-(defn extract-raw-declaration
-  "Returns annotated raw declaration when var has :schema metadata, nil otherwise."
-  [v]
-  (when-let [qualified-sym (sb/qualified-var-symbol v)]
-    (let [m (meta v)]
-      (when (and (not (:macro m)) (:schema m) (not (opaque? v)))
-        (cond-> (annotated-raw qualified-sym m v)
-          (ignore-body? v)
-          (assoc :skeptic/ignore-body? true))))))
 
 (defn- invalid-schema-annotation
   [ns name slot value e]
@@ -200,22 +192,6 @@
       resolve
       symbol))
 
-(defn admit-declaration-from-extract
-  "Phase 2: schema admission for explicit annotation slots only."
-  [raw]
-  (let [desc (build-annotated-schema-desc! {:schema (:raw-schema raw)
-                                            :ns (:ns raw)
-                                            :name (:name raw)
-                                            :arglists (:raw-arglists raw)})]
-    (cond-> desc
-      (:skeptic/ignore-body? raw)
-      (assoc :skeptic/ignore-body? true))))
-
-(defn var-schema-desc
-  [v]
-  (when-let [raw (extract-raw-declaration v)]
-    (admit-declaration-from-extract raw)))
-
 (defn declaration-error-result
   ([ns-sym qualified-sym v e]
    (declaration-error-result :declaration ns-sym qualified-sym v e))
@@ -234,79 +210,54 @@
           (select-keys (or (ex-data e) {})
                        [:declaration-slot :rejected-schema]))))
 
-(defn- build-var-provs!
-  [^java.util.IdentityHashMap acc]
-  (doseq [v (mapcat (comp vals ns-interns) (all-ns))
-          :let [m (meta v)
-                qsym (sb/qualified-var-symbol v)]
-          :when (and qsym (:schema m) (not (:macro m))
-                     (bound? v) (not (fn? @v)))]
-    (.put acc v (prov/make-provenance :schema
-                                      qsym
-                                      (some-> v .ns ns-name)
-                                      m)))
-  acc)
+(def ^:private admission-roles
+  "Discovery roles that produce a typed dict entry. :s/defschema and
+  :s/defprotocol have no per-Var Plumatic schema (defschema's value IS the
+  schema; defprotocol's Var carries no :schema meta). :s/defrecord-class and
+  :s/defrecord-factory match prior behavior — old build-var-provs!/
+  extract-raw-declaration both gated on (:schema m), which records and their
+  factories never carry."
+  #{:s/defn :s/def :s/defprotocol-method})
 
-(defn- reduce-ns-vars
-  [ns]
-  (reduce (fn [{:keys [entries errors] :as acc} v]
-            (if-let [raw (extract-raw-declaration v)]
-              (let [qualified-sym (:qualified-sym raw)]
-                (try
-                  {:entries (assoc entries qualified-sym (admit-declaration-from-extract raw))
-                   :errors errors}
-                  (catch Exception e
-                    {:entries entries
-                     :errors (conj errors (declaration-error-result ns qualified-sym v e))})))
-              acc))
-          {:entries {}
-           :errors []}
-          (concat (vals (ns-interns ns))
-                  (vals (ns-refers ns)))))
+(defn- admit-var
+  [ns-sym qualified-sym v]
+  (let [m (meta v)]
+    (when (and (:schema m) (not (:macro m)) (not (opaque? v)))
+      (try
+        (let [desc (build-annotated-schema-desc!
+                    {:schema (:schema m)
+                     :ns ns-sym
+                     :name (:name m)
+                     :arglists (:arglists m)})]
+          {:ok (cond-> desc (ignore-body? v) (assoc :skeptic/ignore-body? true))})
+        (catch Exception e
+          {:err (declaration-error-result ns-sym qualified-sym v e)})))))
+
+(defn- admit-declaration
+  [ns-sym {:keys [entries errors] :as acc} [qualified-sym {:keys [role declared-sym]}]]
+  (if-not (admission-roles role)
+    acc
+    (let [v (ns-resolve (the-ns ns-sym) declared-sym)]
+      (if-not (var? v)
+        acc
+        (let [{:keys [ok err]} (admit-var ns-sym qualified-sym v)]
+          (cond
+            err {:entries entries :errors (conj errors err)}
+            ok  {:entries (assoc entries qualified-sym ok) :errors errors}
+            :else acc))))))
 
 (defn ns-schema-results
-  [_opts ns]
-  (binding [ab/*var-provs* (java.util.IdentityHashMap.)]
-    (build-var-provs! ab/*var-provs*)
-    (binding [*ns* (the-ns ns)]
-      (reduce-ns-vars ns))))
+  [opts ns-sym]
+  (require ns-sym)
+  (binding [*ns* (the-ns ns-sym)]
+    (let [source-file (or (:skeptic/source-file opts) (ns-source-file ns-sym))]
+      (if-not source-file
+        {:entries {} :errors []}
+        (let [{:keys [declarations errors]} (discovery/discover ns-sym source-file)]
+          (reduce (partial admit-declaration ns-sym)
+                  {:entries {} :errors (vec errors)}
+                  declarations))))))
 
 (defn ns-schemas
   [opts ns]
   (:entries (ns-schema-results opts ns)))
-
-(defn- declared-name-sym
-  [form]
-  (when (seq? form) (second form)))
-
-(defn- resolve-in-ns
-  [ns-sym sym]
-  (binding [*ns* (the-ns ns-sym)]
-    (ns-resolve (the-ns ns-sym) sym)))
-
-(defn- extract-form-for
-  [form]
-  (when (seq? form)
-    (case (first form)
-      (s/defn schema.core/defn defn) (cf/extract-defn-annotation-form form)
-      (s/def schema.core/def def)    (cf/extract-def-annotation-form form)
-      (s/defschema schema.core/defschema defschema) (cf/extract-defschema-body-form form)
-      nil)))
-
-(defn- put-form-entry!
-  [^java.util.IdentityHashMap acc ns-sym form]
-  (when-let [extracted (extract-form-for form)]
-    (when-let [decl-sym (declared-name-sym form)]
-      (when-let [decl-var (resolve-in-ns ns-sym decl-sym)]
-        (.put acc decl-var extracted)))))
-
-(defn build-form-refs!
-  [^java.util.IdentityHashMap acc ns-sym source-file]
-  (try
-    (with-open [reader (file/pushback-reader source-file)]
-      (->> (repeatedly #(file/try-read reader))
-           (take-while some?)
-           (remove file/is-ns-block?)
-           (run! #(put-form-entry! acc ns-sym %))))
-    (catch Exception _))
-  acc)

@@ -11,13 +11,23 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.schema.collect :as collect]
+            [skeptic.schema.discovery :as discovery]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.form-refs]
             [skeptic.test-helpers :refer [is-type= T tp]]
             [skeptic.typed-decls :as td])
-  (:import [java.io File]
-           [java.util IdentityHashMap]))
+  (:import [java.io File]))
+
+(defn- form-refs-from-discovery
+  [ns-sym source-file]
+  (let [discovery-out (discovery/discover ns-sym source-file)
+        acc (java.util.IdentityHashMap.)]
+    (doseq [[_ {:keys [role form declared-sym]}] (:declarations discovery-out)
+            :when (#{:s/defn :s/def :s/defschema} role)
+            :let [v (ns-resolve (the-ns ns-sym) declared-sym)]
+            :when (var? v)]
+      (.put acc v form))
+    acc))
 
 (declare UnboundSchemaRef
          DirectRecursiveSchemaRef
@@ -189,13 +199,14 @@
 (s/defschema RecR [#{(s/recursive #'RecR)}])
 (s/defschema MyIntAlias s/Int)
 
-(defn- build-var-provs-for-test!
-  [^IdentityHashMap acc & vars]
-  (doseq [v vars
-          :let [m (meta v)
-                qsym (sb/qualified-var-symbol v)]]
-    (.put acc v (prov/make-provenance :schema qsym (some-> v .ns ns-name) m)))
-  acc)
+(defn- build-var-provs-for-test
+  [acc & vars]
+  (reduce (fn [m v]
+            (let [meta-m (meta v)
+                  qsym (sb/qualified-var-symbol v)]
+              (assoc m qsym (prov/make-provenance :schema qsym (some-> v .ns ns-name) meta-m))))
+          acc
+          vars))
 
 (deftest named-import-type-inline-named-schema-test
   (let [inline (s/named [#{s/Int}] 'Inline)
@@ -205,7 +216,7 @@
     (is (= 'Inline (:qualified-sym inner-prov)))))
 
 (deftest nested-var-ref-carries-referenced-declaration-prov-test
-  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'NestedRefA #'NestedRefB)
+  (let [var-provs (build-var-provs-for-test {} #'NestedRefA #'NestedRefB)
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'NestedRefB))
         inner-val-type (first (vals (:entries result)))
@@ -214,7 +225,7 @@
     (is (= (sb/qualified-var-symbol #'NestedRefA) (:qualified-sym inner-prov)))))
 
 (deftest recursive-var-ref-prov-down-to-inf-cycle-test
-  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'RecR)
+  (let [var-provs (build-var-provs-for-test {} #'RecR)
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'RecR))
         r-qsym (sb/qualified-var-symbol #'RecR)
@@ -229,7 +240,7 @@
     (is (= tp (prov/of result)))))
 
 (deftest var-prov-used-when-var-provs-populated-test
-  (let [var-provs (build-var-provs-for-test! (IdentityHashMap.) #'MyIntAlias)
+  (let [var-provs (build-var-provs-for-test {} #'MyIntAlias)
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'MyIntAlias))
         alias-qsym (sb/qualified-var-symbol #'MyIntAlias)]
@@ -241,18 +252,6 @@
                  (ab/schema->type tp s/Int))
         alias-qsym (sb/qualified-var-symbol #'MyIntAlias)]
     (is (not= alias-qsym (:qualified-sym (prov/of result))))))
-
-(deftest build-var-provs-excludes-non-schema-vars-test
-  (let [test-ns (create-ns 'skeptic.analysis.bridge-test.var-provs)
-        schema-var (intern test-ns 'SchemaVar {:a s/Int})
-        non-schema-var (intern test-ns 'NonSchemaVar 42)
-        acc (IdentityHashMap.)]
-    (alter-meta! schema-var assoc :schema true)
-    (#'collect/build-var-provs! acc)
-    (doseq [[v _] acc]
-      (is (:schema (meta v))))
-    (is (contains? (set (keys acc)) schema-var))
-    (is (not (contains? (set (keys acc)) non-schema-var)))))
 
 (defn- entry-val-by-key
   [map-type k]
@@ -353,7 +352,7 @@
 (deftest source-intake-convert-desc-end-to-end-test
   (let [declared-var #'skeptic.test-examples.form-refs/fn-with-map-ann
         map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
-        form-refs (doto (IdentityHashMap.) (.put declared-var '{:result skeptic.test-examples.form-refs/MapBody}))
+        form-refs (doto (java.util.IdentityHashMap.) (.put declared-var '{:result skeptic.test-examples.form-refs/MapBody}))
         desc {:schema {:result [s/Int]} :arglists nil}
         result (binding [ab/*form-refs* form-refs]
                  (td/convert-desc 'skeptic.test-examples.form-refs
@@ -368,10 +367,10 @@
 (deftest source-intake-named-conditional-reference-keeps-branch-predicate-source-test
   (let [ns-sym 'skeptic.test-examples.contracts
         source-file (File. "test/skeptic/test_examples/contracts.clj")
-        form-refs (collect/build-form-refs! (IdentityHashMap.) ns-sym source-file)
+        form-refs (form-refs-from-discovery ns-sym source-file)
         result (binding [*ns* (the-ns ns-sym)
                          ab/*form-refs* form-refs]
-                 (td/typed-ns-results {} ns-sym))
+                 (td/typed-ns-results {:skeptic/source-file source-file} ns-sym))
         fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
         input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
         pred-forms (mapv #(nth % 2) (:branches input-type))]

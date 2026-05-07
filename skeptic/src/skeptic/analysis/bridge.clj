@@ -1,6 +1,7 @@
 (ns skeptic.analysis.bridge
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.bridge.descriptors :as descriptors]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
@@ -122,6 +123,7 @@
             (when-let [v (resolve-symbol form)]
               (when (and *form-refs* (instance? clojure.lang.Var v))
                 (some-> (.get ^java.util.IdentityHashMap *form-refs* v)
+                        descriptors/raw->descriptor
                         :schema-form))))
           (source-named-prov [ctx-prov form]
             (or (var-source-prov form)
@@ -168,23 +170,26 @@
 
 (defn- descriptor-source
   [prov descriptor]
-  (cond
-    (nil? descriptor) nil
-    (and (map? descriptor) (contains? descriptor :kind))
-    (case (:kind descriptor)
-      :def (source-descriptor prov (:schema-form descriptor))
-      :defschema (source-descriptor prov (:schema-form descriptor))
-      :defn {:kind :defn
-             :output-source (source-descriptor prov (:output-form descriptor))
-             :arglists (into {}
-                             (map (fn [[k v]]
-                                    [k (assoc v
-                                              :input-sources
-                                              (mapv #(source-descriptor prov %)
-                                                    (:input-forms v)))]))
-                             (:arglists descriptor))}
-      nil)
-    :else (source-descriptor prov descriptor)))
+  (let [descriptor (or (when (seq? descriptor)
+                         (descriptors/raw->descriptor descriptor))
+                       descriptor)]
+    (cond
+      (nil? descriptor) nil
+      (and (map? descriptor) (contains? descriptor :kind))
+      (case (:kind descriptor)
+        :def (source-descriptor prov (:schema-form descriptor))
+        :defschema (source-descriptor prov (:schema-form descriptor))
+        :defn {:kind :defn
+               :output-source (source-descriptor prov (:output-form descriptor))
+               :arglists (into {}
+                               (map (fn [[k v]]
+                                      [k (assoc v
+                                                :input-sources
+                                                (mapv #(source-descriptor prov %)
+                                                      (:input-forms v)))]))
+                               (:arglists descriptor))}
+        nil)
+      :else (source-descriptor prov descriptor))))
 
 (defn- child-source
   [source i]
@@ -402,8 +407,9 @@
       (import-result (at/->InfCycleT prov var-ref) #{var-ref})
 
       (bound? schema-var)
-      (let [hit (when *var-provs*
-                  (.get ^java.util.IdentityHashMap *var-provs* schema-var))]
+      (let [qsym (sb/qualified-var-symbol schema-var)
+            hit (when (and *var-provs* qsym)
+                  (get *var-provs* qsym))]
         (run (cond-> (assoc ctx
                             :schema @schema-var
                             :prov (or hit prov)

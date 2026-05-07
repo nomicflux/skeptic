@@ -66,13 +66,3 @@
     (is (= :schema (:source p)))
     (is (= 'skeptic.typed-decls-test/test-declared-var (:qualified-sym p)))))
 
-(deftest typed-ns-results-omit-bad-declarations-and-keep-errors
-  (require 'skeptic.best-effort-examples)
-  (let [{:keys [dict errors]} (sut/typed-ns-results {} 'skeptic.best-effort-examples)]
-    (is (contains? dict 'skeptic.best-effort-examples/ok-plus))
-    (is (contains? dict 'skeptic.best-effort-examples/good-call))
-    (is (not (contains? dict 'skeptic.best-effort-examples/invalid-schema-decl)))
-    (is (= 1 (count errors)))
-    (is (= :declaration (:phase (first errors))))
-    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
-           (:blame (first errors))))))

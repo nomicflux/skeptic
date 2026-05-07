@@ -1,1 +1,2 @@
-{:output {:exclude-files [".*examples.*\\.(clj|cljs|cljc)$"]}}
+{:output {:exclude-files [".*examples.*\\.(clj|cljs|cljc)$"
+                          ".*research/.*\\.(clj|cljs|cljc)$"]}}

@@ -1,5 +1,7 @@
 (ns skeptic.checking.pipeline
-  (:require [schema.core :as s]
+  (:require [malli.core :as m]
+            [malli.instrument :as mi]
+            [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
@@ -17,7 +19,7 @@
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.provenance :as prov]
-            [skeptic.schema.collect :as collect]
+            [skeptic.schema.discovery :as discovery]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli]
             [skeptic.analysis.predicate-descriptor :as pd])
@@ -611,18 +613,85 @@
    :ignore-body #{}
    :errors []})
 
+(def ^:private form-ref-roles
+  "Roles whose source forms bridge.descriptors/raw->descriptor can normalize.
+  Other Plumatic roles (defprotocol, defrecord-class/factory) are discovered
+  for var-provs but their parent forms produce no useful form-ref descriptor."
+  #{:s/defn :s/def :s/defschema})
+
+(defn- populate-form-refs!
+  [^java.util.IdentityHashMap form-refs ns-sym discovery-out]
+  (doseq [[_qsym {:keys [role form declared-sym]}] (:declarations discovery-out)
+          :when (form-ref-roles role)
+          :let [v (ns-resolve (the-ns ns-sym) declared-sym)]
+          :when (var? v)]
+    (.put form-refs v form)))
+
+(defn- malli-projection
+  [ns-sym]
+  (try
+    (require ns-sym)
+    (mi/collect! {:ns ns-sym})
+    (get (m/function-schemas) ns-sym)
+    (catch Exception _ nil)))
+
+(defn- ns-var-provs
+  "Per-namespace pre-admission {qsym → Provenance}. Plumatic anchors :schema
+  with declared Var meta; Malli anchors :malli on registered fn-syms."
+  [ns-sym discovery-out]
+  (let [schema-provs
+        (when discovery-out
+          (into {}
+                (keep (fn [[qsym {:keys [declared-sym]}]]
+                        (when-let [v (ns-resolve (the-ns ns-sym) declared-sym)]
+                          (when (var? v)
+                            [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
+                (:declarations discovery-out)))
+        malli-provs
+        (when-let [projection (malli-projection ns-sym)]
+          (into {}
+                (map (fn [[fn-sym _entry]]
+                       (let [qsym (symbol (name ns-sym) (name fn-sym))]
+                         [qsym (prov/make-provenance :malli qsym ns-sym nil)])))
+                projection))]
+    (merge schema-provs malli-provs)))
+
 (s/defn namespace-dict :- s/Any
   [opts ns-sym :- s/Symbol source-file]
   (require ns-sym)
-  (let [form-refs (java.util.IdentityHashMap.)]
-    (when source-file
-      (collect/build-form-refs! form-refs ns-sym source-file))
+  (let [discovery-out (or (get-in opts [:skeptic/project-discovery ns-sym])
+                          (when source-file (discovery/discover ns-sym source-file)))
+        form-refs (java.util.IdentityHashMap.)
+        var-provs (or (:skeptic/var-provs opts)
+                      (merge native-fns/native-fn-provenance
+                             (ns-var-provs ns-sym discovery-out)))
+        opts' (cond-> opts source-file (assoc :skeptic/source-file source-file))]
+    (when discovery-out
+      (populate-form-refs! form-refs ns-sym discovery-out))
     (binding [*ns* (the-ns ns-sym)
-              ab/*form-refs* form-refs]
-      (let [schema-result (typed-decls/typed-ns-results opts ns-sym)
-            malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym)
+              ab/*form-refs* form-refs
+              ab/*var-provs* var-provs]
+      (let [schema-result (typed-decls/typed-ns-results opts' ns-sym)
+            malli-result (typed-decls.malli/typed-ns-malli-results opts' ns-sym)
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
         merged))))
+
+(defn- project-discovery
+  [nss-with-source-files]
+  (reduce (fn [acc [ns-sym source-file]]
+            (if-not source-file
+              acc
+              (try (assoc acc ns-sym (discovery/discover ns-sym source-file))
+                   (catch Exception _ acc))))
+          {}
+          nss-with-source-files))
+
+(defn- project-var-provs
+  [project-disc]
+  (reduce-kv (fn [acc ns-sym discovery-out]
+               (merge acc (ns-var-provs ns-sym discovery-out)))
+             native-fns/native-fn-provenance
+             project-disc))
 
 (s/defn project-state :- s/Any
   "Source-of-truth for the project pass: per-ns admission once, dicts merged
@@ -633,7 +702,12 @@
   Threaded into every per-namespace check so cross-namespace var resolution
   and conditional discriminators ride the same project pass."
   [opts nss-with-source-files]
-  (let [per-ns-admission
+  (let [project-disc (project-discovery nss-with-source-files)
+        var-provs (project-var-provs project-disc)
+        opts (assoc opts
+                    :skeptic/project-discovery project-disc
+                    :skeptic/var-provs var-provs)
+        per-ns-admission
         (reduce (fn [acc [ns-sym source-file]]
                   (try
                     (assoc acc ns-sym (namespace-dict opts ns-sym source-file))

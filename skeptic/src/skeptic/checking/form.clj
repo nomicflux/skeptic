@@ -1,4 +1,3 @@
-;; Descriptor: {:kind :def|:defschema|:defn :schema-form form | :output-form form :arglists {k {:input-forms [...] :count n}}}
 (ns skeptic.checking.form
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
@@ -129,20 +128,6 @@
   [[x y]]
   (when (and (= x ':-) (symbol? y)) y))
 
-(defn- annotation-form
-  [[x y]]
-  (when (= x ':-) y))
-
-(defn- extract-input-forms
-  [argvec]
-  (loop [items (seq argvec)
-         acc []]
-    (cond
-      (empty? items) (vec acc)
-      (= '& (first items)) (vec acc)
-      (= ':- (second items)) (recur (drop 3 items) (conj acc (nth items 2)))
-      :else (recur (next items) (conj acc nil)))))
-
 (s/defn defn-decls :- s/Any
   [form]
   (when (and (seq? form)
@@ -176,57 +161,6 @@
   [form]
   (let [[_def-sym _name & more] form]
     (annotation-symbol more)))
-
-(defn- arglist-entry
-  [argvec]
-  (let [input-forms (extract-input-forms argvec)
-        has-varargs (some #(= % '&) argvec)]
-    (if has-varargs
-      [:varargs {:input-forms input-forms :count (count input-forms)}]
-      [(count input-forms) {:input-forms input-forms}])))
-
-(s/defn extract-defn-annotation-form :- s/Any
-  [form]
-  (let [[_defn-sym _name & more] form
-        more (if (string? (first more)) (next more) more)
-        more (if (map? (first more)) (next more) more)
-        output-form (annotation-form more)
-        more (if (= ':- (first more)) (nnext more) more)
-        items (if (vector? (first more))
-                [(with-form-meta (first more)
-                   (list* (first more) (next more)))]
-                more)
-        arglists (reduce
-                   (fn [acc next-item]
-                     (let [argvec (if (seq? next-item) (first next-item) next-item)
-                           [key val] (arglist-entry argvec)]
-                       (assoc acc key val)))
-                   {}
-                   items)]
-    {:kind :defn
-     :output-form output-form
-     :arglists arglists}))
-
-(s/defn extract-def-annotation-form :- s/Any
-  [form]
-  (let [[_def-sym _name & more] form
-        schema-form (annotation-form more)]
-    {:kind :def
-     :schema-form schema-form}))
-
-(defn- schema-defschema-symbol?
-  [sym]
-  (and (symbol? sym)
-       (= "defschema" (name sym))
-       (#{"s" "schema.core"} (namespace sym))))
-
-(s/defn extract-defschema-body-form :- s/Any
-  [form]
-  (when (and (seq? form)
-             (schema-defschema-symbol? (first form)))
-    (let [body-form (nth form 2 nil)]
-      {:kind :defschema
-       :schema-form body-form})))
 
 (s/defn method-source-body :- s/Any
   [decl]

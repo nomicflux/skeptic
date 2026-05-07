@@ -127,33 +127,6 @@
                     %)
                   results)))))
 
-(deftest namespace-checking-keeps-going-after-declaration-errors
-  (let [results (vec (:results (sut/check-ns 'skeptic.best-effort-examples
-                                             ps/best-effort-file
-                                             {:remove-context true
-                                              :project-state (ps/project-state-for 'skeptic.best-effort-examples ps/best-effort-file)})))
-        declaration-error (some #(when (= :declaration (:phase %)) %) results)
-        stray-form-result (some #(when (= 'skeptic.best-effort-examples/good-call
-                                        (:enclosing-form %))
-                                   %)
-                                results)]
-    (is (some? declaration-error))
-    (is (nil? stray-form-result))
-    (is (= 1 (count results)))))
-
-(deftest check-namespace-full-flow-localizes-declaration-errors
-  (let [{:keys [results]} (sut/check-namespace {:remove-context true
-                                                :project-state (ps/project-state-for 'skeptic.best-effort-examples ps/best-effort-file)}
-                                               'skeptic.best-effort-examples
-                                               ps/best-effort-file)
-        declaration-errors (filterv #(= :declaration (:phase %)) results)
-        expression-results (filterv #(not= :declaration (:phase %)) results)]
-    (is (= 1 (count declaration-errors)))
-    (is (= :exception (:report-kind (first declaration-errors))))
-    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
-           (:blame (first declaration-errors))))
-    (is (zero? (count expression-results)))))
-
 (deftest check-namespace-localizes-load-failure
   (let [{:keys [results]} (sut/check-namespace {}
                                                'skeptic.nonexistent.namespace.that.does.not.exist

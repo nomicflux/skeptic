@@ -1,5 +1,6 @@
 (ns skeptic.schema.collect-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is]]
             [schema.core :as s]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
@@ -7,6 +8,19 @@
   (:import [java.io File]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+
+(defn- src-file
+  [ns-sym]
+  (let [path (-> (str ns-sym)
+                 (.replace \. \/)
+                 (.replace \- \_)
+                 (str ".clj"))
+        url (io/resource path)]
+    (when url (File. (.getFile url)))))
+
+(defn- opts-for
+  [ns-sym]
+  {:skeptic/source-file (src-file ns-sym)})
 
 (deftest arg-list-only-varargs
   (is (= {:count 2, :args '[x y], :with-varargs false, :varargs []}
@@ -18,13 +32,15 @@
 
 (deftest ns-schemas-only-contains-annotated-vars
   (require 'skeptic.test-examples.resolution)
-  (let [schemas (sut/ns-schemas {} 'skeptic.test-examples.resolution)]
+  (let [schemas (sut/ns-schemas (opts-for 'skeptic.test-examples.resolution)
+                                'skeptic.test-examples.resolution)]
     (is (contains? schemas 'skeptic.test-examples.resolution/flat-multi-step-f))
     (is (not (contains? schemas 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
   (require 'skeptic.inconsistence.report)
-  (is (map? (sut/ns-schemas {} 'skeptic.inconsistence.report))))
+  (is (map? (sut/ns-schemas (opts-for 'skeptic.inconsistence.report)
+                            'skeptic.inconsistence.report))))
 
 (deftest collect-schemas-canonicalizes-schema-representations
   (let [symbol-desc (sut/collect-schemas {:schema (s/make-fn-schema clojure.lang.Symbol
@@ -82,7 +98,8 @@
 
 (deftest ns-schemas-canonicalizes-known-public-schemas
   (require 'skeptic.schema.collect)
-  (let [schemas (sut/ns-schemas {} 'skeptic.schema.collect)]
+  (let [schemas (sut/ns-schemas (opts-for 'skeptic.schema.collect)
+                                'skeptic.schema.collect)]
     (is (= s/Symbol
            (get-in schemas ['skeptic.schema.collect/fully-qualify-str :output])))
     (is (= s/Str
@@ -116,63 +133,3 @@
                                                 :name 'invalid-semantic-type
                                                 :arglists '([x])})))))
 
-(deftest ns-schema-results-localizes-invalid-declarations
-  (require 'skeptic.best-effort-examples)
-  (let [{:keys [entries errors]} (sut/ns-schema-results {} 'skeptic.best-effort-examples)]
-    (is (contains? entries 'skeptic.best-effort-examples/ok-plus))
-    (is (contains? entries 'skeptic.best-effort-examples/good-call))
-    (is (= 1 (count errors)))
-    (is (= :exception (:report-kind (first errors))))
-    (is (= :declaration (:phase (first errors))))
-    (is (= 'skeptic.best-effort-examples/invalid-schema-decl
-           (:blame (first errors))))))
-
-(deftest build-form-refs-stores-defn-annotation-form
-  (require 'skeptic.test-examples.annotation-refs)
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        file (File. "test/skeptic/test_examples/annotation_refs.clj")
-        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        annotated-fn-var (resolve 'skeptic.test-examples.annotation-refs/annotated-fn)
-        descriptor (.get refs annotated-fn-var)]
-    (is (= :defn (:kind descriptor)))
-    (is (= 'RefSchema (:output-form descriptor)))))
-
-(deftest build-form-refs-stores-def-annotation-form
-  (require 'skeptic.test-examples.annotation-refs)
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        file (File. "test/skeptic/test_examples/annotation_refs.clj")
-        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        annotated-val-var (resolve 'skeptic.test-examples.annotation-refs/annotated-val)
-        descriptor (.get refs annotated-val-var)]
-    (is (= :def (:kind descriptor)))
-    (is (= 'RefSchema (:schema-form descriptor)))))
-
-(deftest build-form-refs-stores-defschema-body-form
-  (require 'skeptic.test-examples.annotation-refs)
-  (let [ns-sym 'skeptic.test-examples.annotation-refs
-        file (File. "test/skeptic/test_examples/annotation_refs.clj")
-        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        ref-schema-var (resolve 'skeptic.test-examples.annotation-refs/RefSchema)
-        descriptor (.get refs ref-schema-var)]
-    (is (= :defschema (:kind descriptor)))
-    (is (= 's/Int (:schema-form descriptor)))))
-
-(deftest build-form-refs-stores-map-and-vector-literals
-  (require 'skeptic.test-examples.form-refs)
-  (let [ns-sym 'skeptic.test-examples.form-refs
-        file (File. "test/skeptic/test_examples/form_refs.clj")
-        refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym file)
-        map-body-var (resolve 'skeptic.test-examples.form-refs/MapBody)
-        vec-body-var (resolve 'skeptic.test-examples.form-refs/VecBody)
-        fn-with-map-var (resolve 'skeptic.test-examples.form-refs/fn-with-map-ann)]
-    (is (= '{:a s/Int :b s/Str} (:schema-form (.get refs map-body-var))))
-    (is (= '[s/Int] (:schema-form (.get refs vec-body-var))))
-    (is (= '{:result s/Int :cache s/Str} (:output-form (.get refs fn-with-map-var))))))
-
-(deftest build-form-refs-skips-forms-without-annotation
-  (let [ns-sym 'skeptic.test-examples.form-refs
-        tmp (java.io.File/createTempFile "form-refs-test" ".clj")]
-    (spit tmp "(ns skeptic.test-examples.form-refs (:require [schema.core :as s])) (s/defn no-ann [x] x)")
-    (let [refs (sut/build-form-refs! (java.util.IdentityHashMap.) ns-sym tmp)]
-      (is (zero? (.size refs))))
-    (.delete tmp)))

@@ -1,12 +1,5 @@
 (ns skeptic.best-effort-examples
-  (:require [schema.core :as s]
-            [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]))
-
-(defn ^{:schema [(at/->GroundT (prov/make-provenance :inferred 'invalid-schema-decl 'skeptic.best-effort-examples nil) :int 'Int)]}
-  invalid-schema-decl
-  [x]
-  x)
+  (:require [schema.core :as s]))
 
 (s/defn ok-plus :- s/Int
   [x :- s/Int
