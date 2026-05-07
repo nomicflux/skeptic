@@ -1,60 +1,18 @@
 # Skeptic Walkthrough
 
-A self-contained tour of Skeptic's algorithm: admission, annotation, casting,
-blame, and output. The reader is assumed to know Clojure well and to have basic
-type-systems vocabulary, but not to know Skeptic's architecture.
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06. This is a point-in-time
-> walkthrough; when behavior and source disagree, the source wins.
-
-## Overview
-
-Skeptic reads Clojure namespaces, admits declared schemas into an internal Type
-domain, annotates analyzer ASTs with inferred Types, casts inferred Types against
-declared Types, projects failed casts into blame, and renders findings as text or
-JSONL.
-
-*Figure: Skeptic from source files to output.*
-
-```mermaid
-flowchart LR
-  src[Source files] --> disc[Namespace discovery]
-  disc --> adm[Declaration admission]
-  cfg[.skeptic config type-overrides] -.-> adm
-  adm --> ann[Annotation pass]
-  ann --> chk[Checking via cast]
-  chk --> blame[Blame projection]
-  blame --> out{Output}
-  out --> txt[ANSI text]
-  out --> json[Porcelain JSONL]
-```
-
-The important turn in the diagram is admission. Before admission, the project
-contains external descriptions: Plumatic Schema annotations, limited Malli
-metadata, native function descriptors, and optional config overrides. After
-admission, later phases speak one language: Skeptic Types. Annotation produces
-more Types from code. Checking compares the two.
-
-The walkthrough is hub-and-spoke rather than one long chapter. Each spoke starts
-from a reader state and moves it forward: first the whole run, then the input
-domains, then the Type language, provenance, admission, annotation, narrowing,
-casting, blame, output, and finally contributor entry points.
+This walkthrough follows one small namespace through Skeptic: declarations enter
+as Schema, become Types, attach to analyzer nodes, get checked by casts, and
+surface as text or JSONL findings. The goal is to make each handoff visible.
 
 ## The Worked Example
-
-The same small namespace is threaded through the spokes. It has one function
-that fails because the inferred return value does not fit the declared output,
-and one function that passes because branch narrowing makes a maybe-typed value
-usable.
 
 ```clojure
 (ns skeptic.walkthrough.example
   (:require [schema.core :as s]))
 
 (s/defn classify :- s/Keyword
-  "Demonstrates output-cast blame:
-   the :else branch returns a string, but :- s/Keyword expects a Keyword.
-   Skeptic reports an output mismatch on classify."
   [n :- s/Int]
   (cond
     (zero? n) :zero
@@ -62,81 +20,95 @@ usable.
     :else     "odd"))
 
 (s/defn double-or-zero :- s/Int
-  "Demonstrates flow-sensitive narrowing on a maybe-typed argument:
-   inside the (some? n) branch, n narrows from (maybe Int) to Int,
-   so (* 2 n) type-checks cleanly. The else branch returns 0, which fits.
-   Skeptic reports nothing for this definition."
   [n :- (s/maybe s/Int)]
   (if (some? n)
     (* 2 n)
     0))
 ```
 
+The two functions exercise different parts of Skeptic.
+
+`classify` has a declared output of Keyword. Its body can return `:zero`,
+`:even`, or `"odd"`. The first two values fit the declaration. The string does
+not. The walkthrough uses this function to follow a failed output boundary from
+declaration, through annotation, into a source-union cast, and out to a finding.
+
+`double-or-zero` has a maybe Int input. Its body checks `(some? n)` before using
+`n` in multiplication. The walkthrough uses this function to show how branch
+facts refine locals before call checking and why no output finding is produced.
+
+## The Run Shape
+
+```mermaid
+flowchart TD
+  source[Source file] --> discovery[Namespace discovery]
+  discovery --> admission[Admission: declarations to Types]
+  admission --> annotation[Annotation: expressions to Types]
+  annotation --> checking[Checking: actual Type against expected Type]
+  checking --> projection[Projection: failed cast evidence to report]
+  projection --> output[Output: text or JSONL]
+```
+
+Read the diagram as data movement. The declared `s/Keyword` output does not
+remain a Schema form. Admission imports it as a Type. The body of `classify`
+does not remain just source text. Annotation computes a body Type with all
+reachable alternatives. Checking compares those two Types. Projection and output
+turn the failed comparison into a report a programmer can act on.
+
 ## Reading Paths
 
-**Gist path, about 30-45 minutes.** Read [01 Pipeline Tour](01-pipeline-tour.md),
-[02 Three Domains](02-three-domains.md), the marquee sections of
-[03 Type Domain](03-type-domain.md), the marquee sections of
-[09 Cast Dispatch](09-cast-dispatch.md), and
-[11 User-Facing Surfaces](11-user-facing-surfaces.md). Skip every
-`### In-depth:` section.
+The full Contributor path is:
 
-**Contributor path, about 3-4 hours.** Read the numbered spokes in order,
-including in-depth sections. This path is for a reader who wants to make
-non-trivial changes without reconstructing the architecture from source first.
+1. [Pipeline Tour](01-pipeline-tour.md)
+2. [Three Domains](02-three-domains.md)
+3. [Type Domain](03-type-domain.md)
+4. [Provenance](04-provenance.md)
+5. [Admission Paths](05-admission-paths.md)
+6. [Annotation Pass](06-annotation-pass.md)
+7. [Closed-Sum Exhaustiveness](07-closed-sum-exhaustiveness.md)
+8. [Narrowing and Origins](08-narrowing-and-origins.md)
+9. [Cast Dispatch](09-cast-dispatch.md)
+10. [Blame For All And Projection](10-blame-for-all-and-projection.md)
+11. [User-Facing Surfaces](11-user-facing-surfaces.md)
+12. [Contributor Surfaces](12-contributor-surfaces.md)
 
-**Diagnose-finding path, about 60 minutes.** Start with a finding in hand:
-[11 User-Facing Surfaces](11-user-facing-surfaces.md) ->
-[10 Blame for All and Projection](10-blame-for-all-and-projection.md) ->
-[09 Cast Dispatch](09-cast-dispatch.md) ->
-[08 Narrowing and Origins](08-narrowing-and-origins.md), then optionally back to
-[06 Annotation Pass](06-annotation-pass.md) and
-[05 Admission Paths](05-admission-paths.md).
+For diagnosing a finding, start with the report surface, then walk backward:
+11 explains output fields, 10 explains report construction, 09 explains the cast
+rule evidence, 06 and 08 explain annotated actual Types, and 05 explains the
+declared expected Type.
 
-## Cluster Index
+For a quick conceptual pass, read 01, 02, 03, 09, and 10. That path explains the
+pipeline, the input and Type domains, the main Type shapes, the cast engine, and
+the way failed cast evidence becomes a finding.
 
-| # | File | Title | Objective |
-|---|---|---|---|
-| 01 | [01-pipeline-tour.md](01-pipeline-tour.md) | Pipeline Tour | Trace one finding through every phase. |
-| 02 | [02-three-domains.md](02-three-domains.md) | Three Domains | Separate external schema forms from internal Types. |
-| 03 | [03-type-domain.md](03-type-domain.md) | Type Domain | Recognize the Type values later phases exchange. |
-| 04 | [04-provenance.md](04-provenance.md) | Provenance | Explain how Types and findings remember origin. |
-| 05 | [05-admission-paths.md](05-admission-paths.md) | Admission Paths | Follow declarations into the namespace Type dict. |
-| 06 | [06-annotation-pass.md](06-annotation-pass.md) | Annotation Pass | See how analyzer AST nodes receive inferred Types. |
-| 07 | [07-closed-sum-exhaustiveness.md](07-closed-sum-exhaustiveness.md) | Closed-Sum Exhaustiveness | Know when a finite set of alternatives is covered. |
-| 08 | [08-narrowing-and-origins.md](08-narrowing-and-origins.md) | Narrowing and Origins | Trace a branch test into a refined local Type. |
-| 09 | [09-cast-dispatch.md](09-cast-dispatch.md) | Cast Dispatch | Predict which cast rule checks a source/target pair. |
-| 10 | [10-blame-for-all-and-projection.md](10-blame-for-all-and-projection.md) | Blame for All and Projection | Turn cast results into blame, paths, and findings. |
-| 11 | [11-user-facing-surfaces.md](11-user-facing-surfaces.md) | User-Facing Surfaces | Read text and JSONL output and choose suppression tools. |
-| 12 | [12-contributor-surfaces.md](12-contributor-surfaces.md) | Contributor Surfaces | Find the right edit point for common extensions. |
+## What Each Spoke Adds
+
+| Spoke | What it adds to the example |
+|---|---|
+| 01 | The full run from namespace selection to output. |
+| 02 | Why `s/Keyword` and `(s/maybe s/Int)` become Type values. |
+| 03 | The Type shapes carried by the two functions. |
+| 04 | The provenance attached to declared and inferred Types. |
+| 05 | How the function declarations enter the dictionary. |
+| 06 | How bodies acquire computed Types. |
+| 07 | Why the `classify` fallback branch remains reachable. |
+| 08 | Why `(some? n)` narrows `n` in `double-or-zero`. |
+| 09 | Why the `classify` source union fails against Keyword. |
+| 10 | How failed cast evidence becomes an output report. |
+| 11 | How that report is rendered as text or JSONL. |
+| 12 | Where contributors change each part of the path. |
 
 ## Glossary
 
-| Term | Gloss | Home |
-|---|---|---|
-| Admission | Boundary that converts external declarations into Skeptic Types. | [05](05-admission-paths.md) |
-| Annotation pass | Recursive analyzer-AST walk that attaches an inferred Type to nodes. | [06](06-annotation-pass.md) |
-| Assumption | Flow-sensitive fact produced from a branch test. | [08](08-narrowing-and-origins.md) |
-| Blame | Responsibility assigned when a cast fails. | [10](10-blame-for-all-and-projection.md) |
-| Cast | Directional check from source Type to target Type. | [09](09-cast-dispatch.md) |
-| Cast result | Tree returned by `check-cast`, with rule, status, children, and path data. | [09](09-cast-dispatch.md) |
-| Closed-sum exhaustiveness | Recognition that a finite Type's alternatives are all covered. | [07](07-closed-sum-exhaustiveness.md) |
-| Declaration dict | Per-namespace map from qualified symbols to admitted Types. | [05](05-admission-paths.md) |
-| Flow-sensitive narrowing | Refining a local Type under a branch assumption. | [08](08-narrowing-and-origins.md) |
-| Origin | Structured explanation of where an analyzer value came from. | [08](08-narrowing-and-origins.md) |
-| Porcelain | JSONL output mode for tools. | [11](11-user-facing-surfaces.md) |
-| Provenance | The `:prov` value on a Type, recording named source and references. | [04](04-provenance.md) |
-| Quantified type | `ForallT`, a polymorphic Type handled by the quantified cast rules. | [10](10-blame-for-all-and-projection.md) |
-| Sealed dynamic value | Protected dynamic wrapper for a value crossing a polymorphic boundary. | [10](10-blame-for-all-and-projection.md) |
-| Type domain | Skeptic's internal semantic representation of types. | [03](03-type-domain.md) |
-
-## Conventions
-
-- Source pointers use `path/file.clj:fn-name`, without line numbers.
-- In-depth sections are marked `### In-depth: <topic>` and begin with
-  `***Skip if reading the Gist path.***`.
-- Type records are named as `MaybeT`, `FunT`, `UnionT`, and so on.
-- Provenance source values are shown as keywords: `:schema`, `:malli`,
-  `:native`, `:type-override`, `:inferred`.
-- Mermaid diagrams are used when the shape matters; tables are used when the
-  reader needs comparison more than flow.
+- **Admission** - the boundary where declarations become Types.
+- **Annotation** - the pass that attaches computed Types to analyzer nodes.
+- **Assumption** - a fact produced by a branch test.
+- **Cast** - a directional check from actual Type to expected Type.
+- **Closed sum** - a Type whose alternatives can be enumerated.
+- **Finding** - a user-visible report built from failed check evidence.
+- **MalliSpec** - Malli syntax used as an admission source.
+- **Narrowing** - branch-local Type refinement.
+- **Origin** - the route that connects a branch fact to a value.
+- **Provenance** - source metadata carried by Types.
+- **Schema** - Plumatic Schema syntax used as an admission source.
+- **Type** - Skeptic's semantic model for checking.

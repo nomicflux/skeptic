@@ -1,81 +1,27 @@
 # Closed-Sum Exhaustiveness
 
-The annotation pass introduced branch outputs. This spoke answers the next
-reader question: when can Skeptic know that a branch structure has covered all
-possible alternatives?
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+Closed-sum reasoning is how Skeptic decides that a branch covers every possible
+case of a finite Type. It only applies when the Type itself provides a complete
+set of alternatives.
 
-## Prerequisites
+## The Problem It Solves
 
-[Type Domain (C04)](03-type-domain.md) for `UnionT`, `MaybeT`, `ValueT`, and
-`BottomT`; [Annotation Pass (C06)](06-annotation-pass.md) for the way branch
-nodes get inferred Types.
+Branch annotation needs to know which result expressions are reachable. Suppose
+a value can only be true or false:
 
-## Where this fits
-
-Seventh on the Contributor path. It sits between basic annotation and narrowing:
-closed-sum reasoning is about finite alternatives, and narrowing uses that
-knowledge when deciding whether a branch is possible.
-
-## What "Closed Sum" Means Here
-
-A closed sum is a Type whose alternatives can be enumerated. An exact value has
-one alternative. A boolean ground has two. A union of enumerable alternatives is
-enumerable. A maybe Type is enumerable only if its inner Type is enumerable,
-with nil added as another alternative.
-
-An open Type such as `DynT` or an ordinary Int ground is not enumerable. There
-are too many possible values, so Skeptic cannot prove coverage by listing them.
-
-This distinction answers why two branch forms that look similar in source can
-behave differently. A `case` over a finite literal union can prove its default is
-dead. A `cond` over arbitrary integer predicates cannot, even if the programmer
-believes the predicates cover the important cases.
-
-*Figure: closed alternatives are enumerable; open alternatives stop the proof.*
-
-```mermaid
-flowchart TD
-  input[Type] --> value[ValueT: one alternative]
-  input --> bool[Bool: true and false]
-  input --> union[UnionT: combine member alternatives]
-  input --> maybe[MaybeT: inner alternatives plus nil]
-  input --> open[Open Type: no finite alternative list]
+```clojure
+(case b
+  true  :yes
+  false :no)
 ```
 
-## Coverage And Exhaustion
+If `b` is boolean-shaped, the two arms cover the whole space. A default result,
+if present only as a fallback artifact, would not contribute a new reachable
+body Type.
 
-Once alternatives can be listed, coverage asks whether the tested arms cover all
-of them. A `case` over a boolean that has both `true` and `false` arms is
-exhaustive. A `case` over a string ground is not, because the possible strings
-are not finite.
-
-The reader should connect this to output Types. If the default arm is unreachable
-because all alternatives were covered, its Type should not contribute to the
-joined result. If the default is reachable, it must remain part of the result.
-
-That is why exhaustiveness is not merely an optimization. It changes the inferred
-Type that later casts see. Dropping an unreachable branch can turn a noisy union
-into a precise value; keeping a reachable default can expose a real mismatch.
-
-## Where Skeptic Uses It
-
-Skeptic uses closed-sum reasoning in branch annotation and in branch assumptions.
-For a `case`, exhaustive recognition can remove the default arm from the result.
-For narrowing, the same style of proof can show that a test is always true,
-always false, or still genuinely branchy.
-
-This is not a proof of the whole program. It is a local finite-alternative proof.
-
-The local nature matters. Skeptic can prove that `true` and `false` cover Bool
-without proving anything about the rest of the program. Conversely, it will not
-pretend that a set of numeric predicates exhausts all integers unless the Type
-being tested has a finite set of alternatives.
-
-## Worked Example Here
-
-`classify` uses predicates over an Int:
+Now compare `classify`:
 
 ```clojure
 (cond
@@ -84,77 +30,131 @@ being tested has a finite set of alternatives.
   :else     "odd")
 ```
 
-The Int domain is not a closed finite set, so the `:else` branch is reachable.
-That is exactly why `"odd"` remains part of the inferred output and can later
-fail against the declared Keyword output.
+The input `n` is Int. Integers are not a finite list of values. The explicit
+tests do not cover every integer. The fallback branch is reachable, so `"odd"`
+must remain in the body result.
 
-This is the reader-state payoff: the string branch is not a documentation
-artifact. It remains in the Type because the branch is reachable under the Type
-Skeptic has for `n`.
+## Alternatives
 
-For contrast, a boolean case can be exhaustive:
+Skeptic asks a Type for alternatives. A closed Type returns a list. An open Type
+returns no list for exhaustiveness purposes.
 
-```clojure
-(case b
-  true  :yes
-  false :no)
+```text
+exact value :a       -> [:a]
+boolean             -> [true false]
+maybe exact value   -> [value nil]
+union of closed     -> all member alternatives
+integer             -> open
+dynamic             -> open
+placeholder         -> open
 ```
 
-Here the two arms cover the finite alternatives of Bool.
+This is why maybe does not automatically mean exhaustive in every useful sense.
+`Maybe[Int]` contains nil and every integer. The nil side is finite, but the Int
+side is open.
 
-If that boolean case had a default arm returning `"unexpected"`, exhaustiveness
-would let Skeptic ignore that default for the joined output Type. The reader can
-now predict the difference between a reachable default and a syntactically
-present but unreachable one.
+## Coverage
 
-## Reader Checkpoint
+Coverage asks whether the covered alternatives account for the whole closed
+sum. For a boolean, covering true and false is enough. For a union of exact
+keywords, covering every keyword member is enough. For Int, no finite list of
+ordinary branch values covers the type.
 
-Ask two questions before applying closed-sum reasoning:
+The answer is intentionally conservative. If the Type cannot be enumerated,
+Skeptic keeps the fallback reachable.
 
-1. Can Skeptic list the alternatives of the tested Type?
-2. Do the tested arms cover those listed alternatives?
+## How This Affects `classify`
 
-If the first answer is no, there is no exhaustiveness proof. If the second answer
-is no, the default branch remains reachable. If both answers are yes, the
-uncovered branch can disappear from the joined Type.
+`classify` needs the fallback branch to remain visible:
 
-That small checklist prevents over-reading the feature. It is tempting to look at
-`classify` and say that zero, even, and odd cover the interesting integer cases.
-But Skeptic does not have a finite integer alternative list, and the source does
-not encode "odd" as a closed-sum arm. The else branch is therefore live.
+```text
+input Type:  Int
+tests:       zero?, even?
+fallback:    "odd"
+```
 
-## Effect On Later Casts
+Neither `zero?` nor `even?` partitions Int into a fully enumerated set of return
+values. The fallback is not dead. Annotation therefore includes the string branch
+in the body Type. The output check later has to compare that body Type with the
+declared Keyword output.
 
-Closed-sum reasoning changes the source Type that later reaches cast dispatch.
-If an unreachable default is removed, the cast engine never sees that default's
-Type. If a reachable default remains, the cast engine must check it like any
-other alternative. This is why exhaustiveness lives before casting in the
-walkthrough: it helps determine the source Type, not the compatibility rule.
+If closed-sum reasoning incorrectly removed the fallback, the output finding
+would disappear. Annotation would hand output checking a body Type made only of
+keyword values, and the string branch would no longer reach the cast that is
+supposed to reject it.
 
-### In-depth: Boolean Formula Coverage
+The mistake this prevents is subtle. Seeing two numeric predicates beside an
+`:else` branch can make the source look partitioned, but the Type of `n` has not
+become a closed set. There are infinitely many odd nonzero integers, and they
+all still flow to `"odd"`.
 
-***Skip if reading the Gist path.***
+## A Step-By-Step Contrast
 
-Some branch shapes are not plain value coverage. Skeptic also has a bounded
-boolean-formula helper for small collections of propositions. The reader should
-understand its role narrowly: when closed-sum membership is not enough, the
-helper can still answer whether a small proposition set covers the cases.
+For the boolean `case`, the walk is finite:
+
+```text
+start Type:     Bool
+available arms: true, false
+covered values: true, false
+remaining:      none
+fallback:       unreachable for Type computation
+```
+
+For `classify`, the walk is open:
+
+```text
+start Type:     Int
+recognized arms: zero?, even?
+covered values:  not an enumerable closed set
+remaining:       still Int-shaped values
+fallback:        reachable and contributes String
+```
+
+That second walk is why the output problem survives. The cast step later sees a
+source Type that still includes the fallback result. The keyword branches do
+their job; the string branch is the member that makes the declared Keyword
+boundary fail.
+
+## How This Differs From Narrowing
+
+Closed-sum exhaustiveness and narrowing are related, but they answer different
+questions. Exhaustiveness asks whether all alternatives have been covered.
+Narrowing asks what Type remains on a particular branch after a test.
+
+`double-or-zero` uses narrowing. `(some? n)` refines `n` inside one branch. It
+does not require proving that every possible Int has been enumerated. It only
+needs the branch fact that this value is not nil.
+
+## Boolean Formula Coverage
+
+Some branch facts combine through boolean forms. Skeptic has a bounded formula
+coverage helper for recognized propositions. It can decide coverage over a small
+finite set of boolean atoms.
+
+This still depends on a finite proposition space. It is not a way to enumerate
+all integers or all strings.
+
+## Where Exhaustiveness Hands Off
+
+Closed-sum reasoning only decides branch reachability. Once that decision has
+been made, the next phases carry the result:
+
+```text
+closed-sum reasoning: fallback remains reachable
+annotation result:    body includes "odd"
+cast dispatch:        source union must fit Keyword
+projection:           output report carries failed source-union evidence
+```
+
+The handoff matters because no later phase redoes exhaustiveness from the raw
+source. If the branch result entering checking is precise, the cast can explain
+the mismatch. If the branch result entering checking has already lost the
+fallback, the output report has nothing specific to reject.
 
 ## Source Pointers
 
-- `skeptic/analysis/sum_types.clj:sum-alternatives` - enumerates alternatives when finite.
+- `skeptic/analysis/sum_types.clj:sum-alternatives` - computes finite alternatives.
 - `skeptic/analysis/sum_types.clj:exhausted-by-types?` - checks Type coverage.
-- `skeptic/analysis/sum_types.clj:exhausted-by-values?` - checks raw value coverage.
+- `skeptic/analysis/sum_types.clj:exhausted-by-values?` - checks value coverage.
 - `skeptic/analysis/sum_types.clj:sum-type?` - recognizes closed sums.
-- `skeptic/analysis/sum_types.clj:formulas-cover?` - bounded formula coverage helper.
-
-## Glossary Terms Introduced
-
-- Closed-sum exhaustiveness
-- Bottom type
-- Coverage
-
-## Where To Next
-
-- **Continue (Contributor path):** [Narrowing and Origins](08-narrowing-and-origins.md)
-- **Return:** [Hub](README.md)
+- `skeptic/analysis/sum_types.clj:formulas-cover?` - checks bounded boolean coverage.

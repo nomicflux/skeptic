@@ -1,223 +1,151 @@
 # Narrowing And Origins
 
-The reader has seen that some branch facts are finite. Now the question becomes
-flow-sensitive: how does a test like `(some? n)` change the Type of `n` inside a
-branch?
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+Narrowing is the reason `double-or-zero` passes. The declared input allows nil,
+but the multiplication runs only after `(some? n)` has refined the branch-local
+Type of `n`.
 
-## Prerequisites
+## Start With The Local
 
-[Type Domain (C04)](03-type-domain.md), [Annotation Pass (C06)](06-annotation-pass.md),
-and [Closed-Sum Exhaustiveness (C07)](07-closed-sum-exhaustiveness.md). You should
-know that annotation walks AST nodes and that branch results can be joined.
+Admission gives the parameter `n` this Type:
 
-## Where this fits
-
-Eighth on the Contributor path. This closes the annotation-side story. The next
-spoke, [Cast Dispatch](09-cast-dispatch.md), consumes the refined Types that
-annotation produced.
-
-## The Split: Test, Assumption, Origin, Type
-
-The reader arrives with `(some? n)` in mind. Skeptic does not directly rewrite
-the local. It separates the problem into three parts:
-
-1. A test expression produces an **assumption**.
-2. A local has an **origin**, describing what value the local represents.
-3. The origin's current Type is refined under the active assumptions.
-
-*Figure: narrowing turns a branch test into refined local Types.*
-
-```mermaid
-flowchart LR
-  test[(some? n)] --> assumption[type-predicate some? on n]
-  assumption --> branch[then branch assumptions]
-  local[n origin root parameter] --> branch
-  branch --> refined[GroundT Int inside then]
+```text
+n : Maybe[Int]
 ```
 
-This split lets the checker reason about more than direct locals. A map-key
-lookup, a branch result, or an alias can carry an origin that later assumptions
-refine.
+At the top of the function body, that Type is correct. The caller may pass nil
+or an Int. Multiplication cannot safely use the maybe Type directly because nil
+is still possible.
 
-The reader should notice what is not happening: Skeptic is not globally changing
-the declared Type of `n`. It is deriving a branch-local Type. Outside the
-then-branch, the parameter is still maybe-typed.
-
-## Assumption Kinds
-
-An assumption is a compact fact about a branch. Common examples are:
-
-| Assumption | Reader meaning |
-|---|---|
-| `:type-predicate` | A predicate such as `some?`, `string?`, or `integer?` matched or did not match. |
-| `:value-equality` | A value equals or does not equal a literal. |
-| `:path-value-equality` | A projected path, such as a map key, equals a literal. |
-| `:contains-key` | A map contains a key. |
-| `:truthy-local` | A local was tested for truthiness. |
-| `:contradicted` | The active assumptions describe an impossible branch. |
-
-The table is not a new taxonomy to memorize. It answers why `(some? n)` can
-refine maybe, while `(= (:kind m) :user)` can refine a map path.
-
-Assumptions usually carry polarity. The positive branch of `(some? n)` says "n
-is some." The negative branch says "n is not some." A useful narrowing system
-needs both halves, because the else branch may be the only place where nil is
-known.
-
-## Origin Kinds
-
-An origin is where the value being refined came from. A function parameter has a
-root origin. A value produced by an `if` can have a branch origin. A map lookup
-can have a map-key origin. When an assumption names a value, origins let Skeptic
-find the Type that should be refined.
-
-This is why `double-or-zero` can refine `n`: the parameter has a stable root
-origin, and the test names that same local.
-
-Origins also explain why some apparently obvious tests do not narrow. If a value
-has been transformed in a way Skeptic cannot connect back to a stable origin, the
-test may still be true at runtime but unusable for Type refinement.
-
-## Refining By Predicate
-
-The leaf-level narrowing question is: given a Type and a predicate, what remains
-on the positive branch and what remains on the negative branch?
-
-For `MaybeT[GroundT Int]` and positive `some?`, nil is removed and the inner
-`GroundT Int` remains. For the negative branch, the nil arm remains. For a union,
-the same operation runs across members and keeps the pieces that fit.
-
-That gives narrowing a compositional shape. `MaybeT` has its own split, unions
-split member by member, and maps can refine values at paths. The result is still
-a Type, so cast dispatch does not need to know which assumption produced it.
-
-*Figure: `(some? n)` partitions maybe Int.*
-
-```mermaid
-flowchart TD
-  maybe[MaybeT GroundT Int] --> positive[positive some?: GroundT Int]
-  maybe --> negative[negative some?: nil]
-```
-
-## How The Worked Example Narrows
-
-The body of `double-or-zero` is:
+The body then tests:
 
 ```clojure
-(if (some? n)
-  (* 2 n)
-  0)
+(some? n)
 ```
 
-Before the test, `n` has admitted Type `MaybeT[GroundT Int]`. The test produces a
-positive type-predicate assumption for the then-branch. Applying that assumption
-to the root origin of `n` leaves `GroundT Int`, so the multiplication call checks
-against numeric expectations. In the else-branch, the negated assumption leaves
-nil, but the branch returns `0`, so the function output still fits `s/Int`.
+This test is the point where narrowing begins.
 
-Read the branch from left to right:
+## Test To Assumption
 
-| Step | Then branch state |
-|---|---|
-| Before test | `n` is `MaybeT[GroundT Int]`. |
-| Test recognized | Assumption says `some?` holds for root `n`. |
-| Local env refined | `n` is `GroundT Int` inside the then branch. |
-| Invocation checked | `(* 2 n)` sees numeric arguments. |
-| Branch output | Then branch returns Int. |
+Skeptic reads the test and produces an assumption. For `(some? n)`, the
+assumption says that the root local `n` satisfies the `some?` predicate on the
+positive branch.
 
-The else branch has a different local state, but it returns a literal Int. The
-function therefore has no finding even though the input declaration allowed nil.
+That assumption is not itself a new Type. It is a fact waiting to be applied to
+the Type of the value it mentions.
 
-## Why This Is Not Cast Logic
+On the negative branch, the assumption is inverted. The same test that proves
+"n is present" in the then branch proves "n is not present" in the else branch.
 
-The cast engine should not have to rediscover `(some? n)`. By the time checking
-sees the multiplication call, annotation has already produced the branch-local
-Type for `n`. This is the clean division of responsibility: narrowing refines
-the source Type; cast dispatch compares the refined source Type to the target.
+## Origins Connect Facts To Values
 
-That division gives the reader a debugging shortcut. If a nil-related finding
-appears inside a branch that obviously checked `some?`, first ask whether the
-test produced an assumption and whether the local had a usable origin. Only after
-the source Type is correctly narrowed should you inspect cast compatibility.
+The assumption has to find the value it refines. That is the job of origins. A
+parameter has a root origin. A map lookup can have a path origin. A branch result
+can remember the test that produced it.
 
-## Branches As Local Worlds
+For `double-or-zero`, the origin is simple:
 
-Each branch gets its own local environment. The then-branch of
-`double-or-zero` can know `n` is Int without changing the else-branch and without
-changing callers' understanding of the function parameter. When the branches
-rejoin, their output Types are joined into the expression Type of the `if`.
+```text
+root origin: n
+current Type: Maybe[Int]
+branch fact: some?(n)
+```
 
-This explains why narrowing is flow-sensitive rather than declaration-changing.
-The declared function still accepts nil. The body proves that the nil case does
-not reach multiplication.
+Because the origin points to `n`, Skeptic can refine the local environment for
+the then branch.
 
-## Reader Checkpoint
+## Applying The Assumption
 
-Trace `double-or-zero` without looking back:
+The predicate partition for `some?` knows how to split a maybe Type:
 
-1. Admission gives `n` the Type `MaybeT[GroundT Int]`.
-2. Annotation reaches the `if` test.
-3. The test becomes a positive assumption in the then branch.
-4. The root origin of `n` connects that assumption to the parameter Type.
-5. Narrowing refines the branch-local Type to `GroundT Int`.
-6. Cast dispatch later checks multiplication against that refined Type.
+```text
+Maybe[Int] under positive some? -> Int
+Maybe[Int] under negative some? -> nil
+```
 
-If any of those links is broken, the function can produce a false finding. The
-links are deliberately separate so a contributor can locate the break: test
-recognition, origin preservation, assumption application, or later cast.
+The then branch receives the first result. The local environment inside the then
+branch has:
 
-## Why Origins Matter More Than They First Appear
+```text
+n : Int
+```
 
-Origins are the reason narrowing can survive common Clojure shapes instead of
-only direct `(if (some? n) ...)` forms. A value can be bound, projected from a
-map, or produced by a branch and still carry enough identity for a later
-assumption to refine it. That identity is the difference between "the test was
-true" and "the test tells us something useful about this Type."
+That is the Type used when annotation reaches:
 
-That distinction is especially important in Clojure, where macros often reshape
-the source before analysis. The reader should expect narrowing to follow stable
-semantic relationships, not merely the exact surface spelling in the original
-file.
+```clojure
+(* 2 n)
+```
 
-### In-depth: Simplifying Branch Assumptions
+The multiplication sees an Int literal and an Int local, not a maybe local.
 
-***Skip if reading the Gist path.***
+## The Else Branch
 
-Macroexpanded Clojure often turns boolean expressions into nested `let` and `if`
-forms. Skeptic simplifies accumulated assumptions so a branch does not carry a
-pile of facts that says the same thing three ways. The reader-facing effect is
-that narrowing follows common Clojure shapes such as `or`, `and`, and aliases of
-test expressions.
+The else branch returns:
 
-### In-depth: Map-Key Origins
+```clojure
+0
+```
 
-***Skip if reading the Gist path.***
+The negative branch fact can refine `n` toward nil, but the branch does not use
+`n` in the return expression. The branch result is the literal `0`, which has an
+Int-shaped Type.
 
-A lookup such as `(:kind m)` can carry an origin that points back to key `:kind`
-inside map `m`. If a branch tests that lookup against a literal, Skeptic can
-refine the map's value at that path. The Type change is still local and
-flow-sensitive; it just travels through an origin richer than a bare local.
+The full function body therefore has an Int result from the then branch and an
+Int result from the else branch. The output check against declared Int succeeds.
+
+## Why This Does Not Save `classify`
+
+`classify` has tests too:
+
+```clojure
+(zero? n)
+(even? n)
+```
+
+Those tests can describe branches, but they do not remove the fallback branch.
+An odd non-zero Int still reaches `"odd"`. Since `"odd"` remains reachable,
+annotation keeps the string alternative in the body result.
+
+The difference between the examples is precise:
+
+```text
+double-or-zero:
+  test proves the value used in multiplication is non-nil
+  output remains Int
+
+classify:
+  tests do not cover all Int inputs
+  fallback string remains reachable
+```
+
+## Map Paths And Branch Origins
+
+The same assumption machinery also works beyond simple locals. If a test proves
+something about a value pulled from a map key, the origin records that path. If a
+branch result depends on a test, the origin can keep the branch relationship
+available for later refinement.
+
+That is why assumptions, origins, and Types are separate. A fact such as
+"present" is reusable, but the way it changes a Type depends on the value route
+it applies to.
+
+## Simplifying Branch Facts
+
+Branch expressions can macroexpand into nested lets and ifs. Skeptic simplifies
+the resulting assumptions so the useful branch fact reaches the local
+environment. For example, a boolean expression can produce a disjunction whose
+other parts are refuted by the current branch. Simplification carries the
+surviving fact forward.
+
+This is still local branch reasoning. It prepares facts for Type refinement; it
+does not replace the cast engine.
 
 ## Source Pointers
 
-- `skeptic/analysis/origin.clj:test->assumption` - turns test nodes into assumptions.
-- `skeptic/analysis/origin.clj:apply-assumption-to-root-type` - refines a root Type under an assumption.
-- `skeptic/analysis/narrowing.clj:partition-type-for-predicate` - predicate-based Type partition.
-- `skeptic/analysis/origin.clj:simplify-assumptions` - simplifies branch fact sets.
-- `skeptic/analysis/origin.clj:region-conjuncts` - derives then/else facts from branch shapes.
-- `skeptic/analysis/origin.clj:branch-local-envs` - produces per-branch local environments.
-
-## Glossary Terms Introduced
-
-- Flow-sensitive narrowing
-- Assumption
-- Origin
-- Type predicate
-- Map-key origin
-
-## Where To Next
-
-- **Continue (Contributor path):** [Cast Dispatch](09-cast-dispatch.md)
-- **Return:** [Hub](README.md)
+- `skeptic/analysis/origin.clj:test->assumption` - converts tests to assumptions.
+- `skeptic/analysis/origin.clj:apply-assumption-to-root-type` - applies an assumption to a Type.
+- `skeptic/analysis/narrowing.clj:partition-type-for-predicate` - partitions a Type by predicate.
+- `skeptic/analysis/origin.clj:simplify-assumptions` - simplifies branch facts.
+- `skeptic/analysis/origin.clj:region-conjuncts` - derives facts for branch regions.
+- `skeptic/analysis/origin.clj:branch-local-envs` - builds branch-local environments.

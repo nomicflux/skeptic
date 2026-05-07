@@ -1,261 +1,202 @@
 # Blame For All And Projection
 
-Cast dispatch tells the reader which rule ran. This spoke answers two follow-up
-questions: how does Skeptic handle polymorphic boundaries, and how does a failed
-cast-result tree become one user-facing finding?
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+This section follows the point where Skeptic has already admitted the declared
+schemas, annotated the function bodies, and started comparing computed Types
+against declared Types. The question now is not just whether two Types fit. The
+question is how a failed comparison becomes a finding that tells a programmer
+which boundary was broken and where to look first.
 
-## Prerequisites
+The worked example has one failing definition and one passing definition:
 
-[Type Domain (C04)](03-type-domain.md), [Provenance (C05)](04-provenance.md),
-and [Cast Dispatch (C09)](09-cast-dispatch.md). No prior knowledge of the
-polymorphic blame literature is required; the operational subset is introduced
-here.
+```clojure
+(s/defn classify :- s/Keyword
+  [n :- s/Int]
+  (cond
+    (zero? n) :zero
+    (even? n) :even
+    :else     "odd"))
 
-## Where this fits
-
-Tenth on the Contributor path and third on the Diagnose-finding path. It closes
-the cast-engine story by explaining both successful polymorphic boundaries and
-failed ordinary casts.
-
-## The Polymorphic Boundary, In Plain Terms
-
-Most casts compare concrete shapes: Int to Keyword, map to map, function to
-function. Quantified Types are different. A `ForallT` says a value must behave
-uniformly for an abstract type variable. Skeptic cannot check that by pretending
-the variable is an ordinary ground type.
-
-The quantified cast rules preserve the boundary with seals. The reader should
-hold one idea: values that cross from an abstract type variable into dynamic
-space are wrapped so later code cannot inspect or smuggle them as if the
-abstraction did not exist.
-
-This topic appears after ordinary cast dispatch for a reason. The reader first
-needs to understand source, target, children, and polarity. Quantified casts use
-the same result machinery, but they protect a different invariant: an abstract
-type variable must remain abstract even when gradual `DynT` is involved.
-
-## Sealing In Three Moves
-
-First, casting a type variable value into `DynT` creates a sealed dynamic value
-that remembers the binder. Second, casting that sealed value back to the same
-type variable discharges the seal. Third, inspecting the sealed value or letting
-it escape the binder scope is tampering.
-
-The seal is not a user-facing runtime object in this walkthrough. It is the
-conceptual marker that lets the cast engine distinguish "the value passed through
-parametrically" from "the value was inspected or leaked through dynamic code."
-
-*Figure: a sealed value can only collapse back to its own binder.*
-
-```mermaid
-sequenceDiagram
-  participant X as Type variable X
-  participant Dyn as Dyn boundary
-  participant Back as Cast back to X
-  X->>Dyn: cast X to Dyn
-  Dyn-->>Dyn: produce SealedDyn X
-  Dyn->>Back: cast SealedDyn X to X
-  Back-->>X: sealed-collapse succeeds
+(s/defn double-or-zero :- s/Int
+  [n :- (s/maybe s/Int)]
+  (if (some? n)
+    (* 2 n)
+    0))
 ```
 
-## Generalize And Instantiate
+`classify` is the reporting example. Its declaration promises callers a
+Keyword. Its body can return two keyword values and one string value. Skeptic
+has to preserve that shape long enough to say more than "Str does not fit
+Keyword." It has to say that the broken promise is the output of `classify`.
 
-Casting into a `forall` generalizes: Skeptic checks the body under a fresh
-abstract binder. Casting out of a `forall` instantiates: Skeptic substitutes a
-dynamic representative and continues. These are the only polymorphic moves the
-walkthrough needs. Everything else is ordinary recursive casting under the
-boundary those moves create.
+`double-or-zero` is the contrast. Its argument may be nil, but the branch test
+separates the non-nil case before multiplication. The then branch returns an
+Int-shaped result, the else branch returns `0`, and the declared output is Int.
+There is no failed boundary to project into a finding.
 
-Generalize is used when the context expects a polymorphic value. Instantiate is
-used when a polymorphic source is used at a particular boundary. In both cases,
-Skeptic avoids choosing a concrete ground type for the abstract variable.
+## The Output Boundary
 
-## Mini-Example
+For a declared function, Skeptic checks the body against the declaration after
+annotation has finished. The declaration has already been admitted into the Type
+domain. For `classify`, the admitted output Type is the Keyword Type produced
+from `:- s/Keyword`.
+
+The body Type comes from annotation. The `cond` body has several possible return
+values, so the relevant body Type is a union-like result: one alternative for
+`:zero`, one for `:even`, and one for `"odd"`. The first two alternatives fit
+Keyword because exact keyword values inhabit Keyword. The string alternative
+does not.
+
+That is why this is an output problem instead of a generic mismatch. The value
+shape that fails is not being passed into `classify`; it is one possible value
+computed by `classify` and allowed to leave through the function's declared
+return boundary.
+
+Skeptic's production path reflects that distinction. The output-checking step
+selects the declared method by arity, takes that method's declared output as the
+expected Type, takes the annotated method body's output as the actual Type, and
+runs an output cast report. The report is classified as output because this path
+is checking a definition's result against its own declaration.
+
+## The Cast Evidence
+
+The cast still matters. The output-report path does not merely notice that the
+function has a return annotation. It asks whether the actual body Type can be
+used where the declared output Type is promised.
+
+For `classify`, the source side of the cast is the body result. The target side
+is the declared Keyword result. Because the source is a union-like Type, cast
+checking compares each source alternative with the same target:
 
 ```text
-Source value: id as Dyn
-Target type: forall X. X -> X
-
-1. Generalize into forall X.
-2. Apply the polymorphic value at Int.
-3. Cast argument 42 from Int into X, then into Dyn: create SealedDyn(X).
-4. The body returns the sealed value unchanged.
-5. Cast SealedDyn(X) back to X: sealed-collapse.
-6. Leave the binder scope with no escaped seal.
+:zero  -> Keyword   passes
+:even  -> Keyword   passes
+"odd"  -> Keyword   fails
 ```
 
-If the body inspected the sealed value with a predicate, the cast result would
-record an inspection tamper. If the body returned the seal through a dynamic
-result beyond the binder scope, the cast result would record an escape tamper.
+The successful alternatives explain why the whole body is not simply wrong. They
+also explain why they are not the reported problem. A report that led the reader
+to `:zero` or `:even` would point at correct branches. The useful evidence is
+that the set of possible outputs contains at least one member that cannot cross
+the declared output boundary.
 
-That is enough BfA machinery for the rest of Skeptic. The walkthrough does not
-need formal reduction rules; it needs the reader to recognize why quantified
-casts sit above ordinary structural rules in dispatch and why sealed values have
-special failure modes.
+Current reporting keeps that source-union failure as the diagnostic evidence for
+the output report. The failed branch is the evidence; the output report is the
+boundary. Together they say that the declared return Type does not accept every
+possible result of the body.
 
-## Why The Worked Example Does Not Use Seals
+## From Evidence To Finding
 
-`classify` and `double-or-zero` are intentionally first-order. They carry the
-main pipeline without forcing polymorphism into every spoke. Quantified casts are
-introduced here as a local mini-example because the reader now knows enough cast
-machinery to understand why seals exist.
+The output cast returns two pieces the report needs to keep distinct. The root
+summary describes the boundary check as a whole: actual body result on one side,
+declared Keyword result on the other. The diagnostics describe why that boundary
+check failed.
 
-This is a general walkthrough pattern: use the threaded example when it naturally
-answers the reader's current question, and use a local mini-example when the
-threaded example would distort the topic.
+For `classify`, the diagnostic evidence is the source-union result. That matters
+because the body did not compute one fixed value. It computed a set of possible
+results, and the declared output Type must accept all of them. When one member
+of the source union fails, the report must still talk about the declared output
+boundary, not only about an isolated string literal.
 
-### In-depth: Seal Balance
+The output-report wrapper then adds the fact that this comparison came from a
+definition result. It stores the report as an output report, keeps the method
+body as the expression under inspection, and carries the cast summary and
+diagnostics forward. When the output summary is built, it uses the declared
+return Type from the root summary as the expectation and the failed diagnostic
+as the reason that expectation was not met.
 
-***Skip if reading the Gist path.***
-
-Skeptic can check whether a binder scope exits cleanly by counting seals and
-matching collapses in the result tree for that binder. A positive balance means
-something sealed remained outside the scope that created it, which is reported as
-tampering rather than as an ordinary leaf mismatch.
-
-## From Cast Result To Finding
-
-The second half of the spoke returns to the worked example. `classify` does not
-exercise quantified casts; it exercises projection from a failed ordinary cast.
-
-A cast result is a tree. Projection walks that tree, collects failed leaves, keeps
-their paths, and chooses the primary diagnostic. That primary diagnostic becomes
-the headline of the finding, while the full set of leaves can still contribute
-details.
-
-Projection is where the reader's mental model turns from checker internals back
-to user action. A cast tree may be precise but unreadable. A finding should say
-where the user can look and which expectation was violated.
-
-*Figure: failed cast tree projected to one visible finding.*
-
-```mermaid
-flowchart TD
-  root[source union cast fails] --> kw1[:zero branch passes]
-  root --> kw2[:even branch passes]
-  root --> str[string branch fails]
-  str --> leaf[leaf diagnostic]
-  leaf --> finding[finding: return value mismatch]
-```
-
-## Path Rendering
-
-Paths are structural. A function return has a return-value path. A function input
-has an argument path. A map value can add a field path. A vector can add an index
-path. Projection filters internal bookkeeping segments and renders the path the
-reader can act on.
-
-For `classify`, the useful path is the return value. That answers the reader's
-question "where did the wrong shape appear?" without exposing every internal
-branch in the union check.
-
-| Cast path segment | User-facing idea |
-|---|---|
-| function range | return value |
-| function domain | argument |
-| map key/value | field or key path |
-| vector item | index |
-| union branch | usually internal unless needed for detail |
-
-The output path is therefore not just decoration. It is the bridge from a nested
-cast result to a concrete edit location.
-
-## How The Worked Example Projects
-
-The failed child is the string alternative in `classify`. The expected side is
-the declared Keyword output. The actual side is the inferred string output. The
-finding can therefore say, in user terms, that `classify` has an inferred return
-branch that does not fit the declared return type.
-
-`double-or-zero` has no corresponding projection because its casts succeed after
-narrowing.
-
-If a reader is diagnosing this finding backward, the route is now clear:
-rendered output -> visible return path -> projected failed leaf -> source-union
-cast -> annotated body alternatives -> admitted `s/Keyword` output.
-
-## Diagnosing Backward From Output
-
-Suppose the terminal says the return value of `classify` does not fit the
-declared output. Start with the visible path. "Return value" tells you the
-failing child was in a function range position. The actual/expected display tells
-you the leaf mismatch was string versus Keyword. The rule tells you whether the
-failure was a direct leaf or inside a parent such as source union.
-
-Only after those facts are clear should you go backward to annotation and
-admission. Annotation explains why the actual side included a string. Admission
-explains why the target side was Keyword. Projection is the hinge between the two
-directions: it preserves enough cast detail to let the reader walk backward
-without dumping the entire tree into the first message.
-
-## Blame Is Not Just A Side Label
-
-Blame side is tied to polarity and structural position. In the worked example,
-the return value came from the term being checked, so the term side is the useful
-responsibility. In a function input mismatch, polarity can flip and the caller's
-context can be responsible. That is why the cast result carries polarity before
-projection turns it into a report.
-
-## Projection Checkpoint
-
-A reader who reaches this point should be able to separate three layers:
-
-1. **Compatibility:** the cast rule decided whether source fits target.
-2. **Responsibility:** polarity and structural position determined blame side.
-3. **Presentation:** projection chose visible path and message.
-
-Those layers often change independently. A compatibility bug belongs in cast
-rules. A responsibility bug belongs in polarity or blame-side mapping. A message
-bug belongs in projection or output.
-
-For the worked example, compatibility fails on string versus Keyword,
-responsibility lands on the returned term, and presentation points at the return
-value.
-
-### In-depth: Actionable Output Leaves
-
-***Skip if reading the Gist path.***
-
-When several failed leaves are available, the best headline is usually the leaf
-with a visible path and concrete expected/actual Types. Purely dynamic leaves can
-be true but not helpful. Projection therefore prefers diagnostics that tell the
-reader where to edit.
-
-## Worked Example Here
+That is the concrete movement from algorithm to finding:
 
 ```text
-classify:
-  root check: inferred output -> declared output
-  failing leaf: string branch -> Keyword expectation
-  visible path: return value
-  emitted result: one finding
-
-double-or-zero:
-  narrowed branch checks successfully
-  emitted result: no finding
+declared output Type
+  compared with annotated body Type
+  producing source-union failure evidence
+  wrapped as an output report for the method body
+  summarized against the declared return Type
 ```
+
+## Output Reports And Visible Paths
+
+Skeptic can render visible structural paths such as map fields, vector indexes,
+function arguments, and function ranges. Those paths matter when the failed
+diagnostic carries the corresponding path segments.
+
+For `classify`, output-ness comes from the check that produced the report. The
+comparison is the definition's annotated result against its admitted declared
+result, and the resulting map is stored as `:report-kind :output`. The diagnostic
+evidence is the failed source-union comparison described above.
+
+Visible paths are added when the failed diagnostic has structural path segments.
+A map-field failure can render a field path. A vector failure can render an
+index. A function-input failure can render an argument position. In the
+`classify` case, the output boundary and the failed source-union evidence are
+the facts that carry the report.
+
+## Why Argument Failures Point Elsewhere
+
+The same actual and expected Type shapes would mean something different at a
+call site. If a caller supplied `"odd"` to a parameter declared as Int, the
+broken boundary would be the function input. The report should lead the reader
+to the supplied argument or the value flowing into that call, not to the callee's
+return body.
+
+Skeptic handles that through a separate input-report path. For a call, the
+checker matches expected argument Types against actual argument Types. Each
+failed argument comparison becomes an input error group. The final input report
+keeps the call expression as the reported expression and the supplied argument
+as the focus.
+
+That is why blame is more than a nicer error label. It preserves which side of
+the program boundary produced the bad flow:
+
+| Boundary being checked | Actual value comes from | Report should lead to |
+|---|---|---|
+| `classify` output | the function body | the definition's return behavior |
+| a call argument | the caller's expression | the supplied argument or its source |
+
+The Type mismatch can look similar in both cases. The responsible boundary is
+different.
+
+## Why `double-or-zero` Has Nothing To Project
+
+`double-or-zero` starts from a maybe-typed argument, so it would be easy to
+expect a nullable problem. The branch test is what prevents one. In the then
+branch, `(some? n)` lets annotation treat `n` as non-nil before `(* 2 n)` is
+checked. In the else branch, the literal `0` already satisfies the declared
+return Type.
+
+The important consequence is that the output comparison succeeds. The annotated
+body result fits the declared Int result, so the output-report path has no
+failed cast evidence to summarize. There is no diagnostic leaf, no primary
+finding, and no user-facing projection step.
+
+Projection is therefore not a reporting pass over every expression Skeptic sees.
+It only becomes visible after a boundary check fails.
+
+## What Polymorphic Boundaries Add
+
+The title of this spoke includes Blame For All because Skeptic also has to deal
+with quantified boundaries. Those boundaries introduce a harder version of the
+same reader question. With `classify`, the promise is concrete: this function
+returns Keyword. With a quantified value, the promise is universal: this value
+must behave correctly no matter which type is chosen for the abstract variable.
+
+Skeptic protects that promise by sealing values that cross through abstract
+boundaries and later checking whether the seal is used consistently. A normal
+return mismatch asks, "Which declared output did this value fail to satisfy?" A
+polymorphic-boundary failure asks, "Which universal promise allowed this value
+to cross, and where did a later use show that the promise was unsafe?"
+
+The reporting shape is the same: preserve the boundary that created the
+obligation, the value shape that violated it, and the side of the program to
+inspect first.
 
 ## Source Pointers
 
-- `skeptic/analysis/cast/quantified.clj:check-quantified-cast` - generalize and instantiate.
-- `skeptic/analysis/cast/quantified.clj:check-abstract-cast` - type-variable and sealed-value casts.
-- `skeptic/analysis/cast/support.clj:exit-nu-scope` - binder-scope exit check.
-- `skeptic/analysis/cast/result.clj:leaf-diagnostics` - cast tree to failed leaves.
-- `skeptic/inconsistence/report.clj:cast-report` - packages a cast failure as a report.
-- `skeptic/inconsistence/path.clj:render-visible-path` - renders structural paths.
-
-## Glossary Terms Introduced
-
-- Blame
-- Blame projection
-- Quantified type
-- Sealed dynamic value
-- Tampering
-- Finding
-
-## Where To Next
-
-- **Continue (Contributor path):** [User-Facing Surfaces](11-user-facing-surfaces.md)
-- **Return:** [Hub](README.md)
+- `skeptic/checking/pipeline.clj:def-output-results` - builds output reports by comparing declared output Types with annotated method output Types.
+- `skeptic/inconsistence/report.clj:output-cast-report` - runs the output cast and packages the cast metadata.
+- `skeptic/analysis/cast/branch.clj:check-union-cast` - checks each source-union member against the declared target.
+- `skeptic/analysis/cast/result.clj:leaf-diagnostics` - projects failed cast evidence into report diagnostics.
+- `skeptic/inconsistence/report.clj:report-summary` - chooses the user-facing summary fields for output and input reports.
+- `skeptic/inconsistence/path.clj:render-visible-path` - renders visible structural paths when diagnostics carry them.

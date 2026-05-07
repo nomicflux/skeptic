@@ -1,232 +1,135 @@
 # Type Domain
 
-The reader now knows that later phases use Skeptic Types. This spoke gives the
-mental inventory needed to recognize those values when casts and annotations
-start passing them around.
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+A Type is the value Skeptic checks. It is a Clojure value with a record shape,
+provenance, and fields that downstream code can inspect. This spoke walks the
+Type shapes that appear in the worked example first, then places them in the
+larger Type family.
 
-## Prerequisites
+## The Smallest Useful Type Walk
 
-[Pipeline Tour (C01)](01-pipeline-tour.md) and
-[Three Domains (C02)](02-three-domains.md). Comfort with Clojure records helps,
-because each Type kind is represented as a record-like value with `:prov` plus
-kind-specific fields.
+Start with the output declaration in `classify`:
 
-## Where this fits
-
-Third on the Contributor path. After this spoke, [Provenance](04-provenance.md)
-can explain where Type values came from, and [Cast Dispatch](09-cast-dispatch.md)
-can explain how source and target Types choose a rule.
-
-## What A Type Is
-
-A Skeptic Type is a semantic value, not the original source form. The source form
-`s/Int` admits to a ground Type. `(s/maybe s/Int)` admits to a maybe Type whose
-inner member is the Int ground Type. A function declaration admits to a function
-Type with one or more method Types.
-
-That shift matters because annotation also produces Types. Once both the
-declared expectation and the inferred program behavior are in the same domain,
-the cast engine can compare them without knowing which syntax created them.
-
-Every Type also carries provenance, covered in the next spoke. For now, read
-`:prov` as "where this Type came from" and the other fields as "what shape this
-Type describes." Separating those two ideas lets Skeptic compare Type meaning
-while still reporting useful origins.
-
-## The Type Families
-
-*Figure: Type record families at a glance.*
-
-```mermaid
-flowchart TD
-  type[Skeptic Type]
-  type --> leaves[Leaves]
-  type --> structure[Structural]
-  type --> function[Functions]
-  type --> branch[Branching]
-  type --> refs[References]
-  type --> poly[Polymorphic]
-  leaves --> DynT
-  leaves --> BottomT
-  leaves --> GroundT
-  leaves --> ValueT
-  leaves --> NumericDynT
-  structure --> MapT
-  structure --> VectorT
-  structure --> SeqT
-  structure --> SetT
-  function --> FnMethodT
-  function --> FunT
-  branch --> MaybeT
-  branch --> UnionT
-  branch --> IntersectionT
-  branch --> ConditionalT
-  refs --> VarT
-  refs --> PlaceholderT
-  refs --> InfCycleT
-  poly --> TypeVarT
-  poly --> ForallT
-  poly --> SealedDynT
+```clojure
+:- s/Keyword
 ```
 
-The most common leaves are `GroundT` for named categories such as Int, Str, and
-Keyword; `ValueT` for exact values such as `:zero`; `DynT` for unknown gradual
-values; and `BottomT` for impossible values.
+Admission converts it into a ground Type. The ground is Keyword. The provenance
+is schema provenance for `classify`. When checking later asks what output
+`classify` promised, this is the expected Type.
 
-The common structural Types are maps, vectors, sequences, and sets. The common
-branching Types are `MaybeT`, `UnionT`, `IntersectionT`, and `ConditionalT`.
-Function Types are split into `FunT` and `FnMethodT` because Clojure functions
-can have multiple arities.
+Now look at the body:
 
-| Family | Kinds to recognize first | Reader question answered |
+```clojure
+(cond
+  (zero? n) :zero
+  (even? n) :even
+  :else     "odd")
+```
+
+Annotation assigns exact value Types to `:zero` and `:even`. Each exact keyword
+value still has an inner Keyword shape. The string literal receives a String
+shape. The body joins those alternatives into one result Type. The joined result
+preserves the fact that two alternatives are acceptable and one is not.
+
+That is the key service the Type domain provides: it carries enough structure
+for checking to recurse into the body result instead of reducing the body to an
+opaque "mixed" label.
+
+## The Maybe Type In `double-or-zero`
+
+`double-or-zero` starts with:
+
+```clojure
+[n :- (s/maybe s/Int)]
+```
+
+Admission creates a maybe Type whose inner Type is Int. That shape is not just a
+display convention. Narrowing recognizes maybe Types and knows how to split them
+when a predicate proves the value is present.
+
+Inside the positive branch of `(some? n)`, the maybe Type gives up the nil case
+and leaves the inner Int. That Int Type is what the multiplication sees.
+
+## Function Types And Method Selection
+
+A function Type is a `FunT` containing method Types. A method has inputs and an
+output. `classify` has one method:
+
+```text
+inputs:  [Int]
+output:  Keyword
+```
+
+When checking the function body, Skeptic selects the declared method whose arity
+matches the analyzed method. The selected method's output becomes the expected
+Type for the body. That is how the `s/Keyword` declaration reaches the output
+check.
+
+This same structure supports multi-arity functions. The method selection step is
+what keeps a two-argument body from being checked against a one-argument method.
+
+## Families Of Types
+
+| Family | Kinds | Role in checking |
 |---|---|---|
-| Leaves | `GroundT`, `ValueT`, `DynT`, `BottomT`, `NumericDynT` | What kind of value is this? |
-| Structural | `MapT`, `VectorT`, `SeqT`, `SetT` | Where inside a collection did the mismatch occur? |
-| Functions | `FunT`, `FnMethodT` | Which arity and return path is being checked? |
-| Branching | `MaybeT`, `UnionT`, `IntersectionT`, `ConditionalT` | Which alternatives are possible? |
-| References | `VarT`, `PlaceholderT`, `InfCycleT` | Is this Type standing in for a named or recursive declaration? |
-| Polymorphic | `TypeVarT`, `ForallT`, `SealedDynT` | Is abstraction being preserved across a cast boundary? |
+| Leaves | `DynT`, `BottomT`, `GroundT`, `NumericDynT`, `ValueT` | Values with no structural children or exact values. |
+| Wrappers | `RefinementT`, `AdapterLeafT`, `OptionalKeyT`, `VarT` | A semantic shape wrapped around another Type. |
+| Collections | `MapT`, `VectorT`, `SetT`, `SeqT` | Structural values whose members can be checked recursively. |
+| Functions | `FnMethodT`, `FunT` | Callable boundaries with inputs and outputs. |
+| Branching | `MaybeT`, `UnionT`, `IntersectionT`, `ConditionalT` | Alternative or branch-sensitive shapes. |
+| References | `PlaceholderT`, `InfCycleT` | Recursive or unresolved references. |
+| Quantified | `TypeVarT`, `ForallT`, `SealedDynT` | Abstract boundaries and sealed dynamic values. |
 
-This table is not exhaustive documentation. It gives the reader a way to sort an
-unfamiliar Type before opening the source.
+The families are not a taxonomy for its own sake. They decide which cast branch
+runs, which narrowing operation is legal, and which renderer path can display
+the value.
 
-## The Eight You Will See Most
+## Composite Types Preserve Their Children
 
-`GroundT` represents a named ground such as Int, Str, Keyword, Bool, or a class.
-It is what `s/Int` and `s/Keyword` become in the worked example.
+A composite Type owns its children. A union keeps its members. A map keeps key
+and value Types. A vector keeps item Types and tail shape. A function keeps
+methods.
 
-`ValueT` represents one exact value. The keyword branches in `classify` infer as
-exact values before later joins generalize them enough for checking.
+For `classify`, this is why the output check can say:
 
-`MaybeT` represents nil-or-T. `double-or-zero` starts with `MaybeT[GroundT Int]`
-and narrowing removes nil on the then-branch.
-
-`UnionT` represents alternatives. The body of `classify` is naturally discussed
-as a union of possible branch outputs.
-
-`MapT`, `VectorT`, `SeqT`, and `SetT` carry element or entry Types. They matter
-when a cast failure has a path such as a field, index, or element.
-
-`FunT` contains `FnMethodT` values. A method carries input Types and output Type;
-function casts compare methods by arity.
-
-`ConditionalT` is a Type whose branches depend on a discriminator. It connects
-annotation-side branch reasoning to cast-side checking.
-
-`ForallT` and `SealedDynT` are named here so the reader recognizes them later.
-Their operational meaning belongs to
-[Blame for All and Projection](10-blame-for-all-and-projection.md).
-
-Two more Types are worth keeping in the background. `PlaceholderT` and
-`InfCycleT` show up when admitted declarations point through names or recursive
-shapes. The cast dispatcher has special handling for those because expanding a
-recursive schema naively would loop. The Gist path can ignore them; a contributor
-debugging a recursive declaration cannot.
-
-## Reading A Type In A Cast
-
-When a cast failure says actual is `GroundT Str` and expected is
-`GroundT Keyword`, the reader can act immediately: the program produced a string
-where a keyword was required. When the failure says actual is a `UnionT`, read it
-as "any member may appear at runtime." When it says expected is a `FunT`, read it
-as "the context wants a callable value with matching method shape."
-
-This is the main payoff of the spoke. The cast engine has many rules, but the
-first diagnosis step is usually just identifying the Type family on each side.
-
-## Small Reading Exercises
-
-Use these as quick checks before moving into provenance.
-
-| You see | First reading |
-|---|---|
-| `MaybeT[GroundT Int]` | The value may be nil or an Int. |
-| `UnionT[ValueT :zero, GroundT Str]` | Runtime may produce either alternative; a source-union cast must check both. |
-| `FunT` with one method | A callable value with one arity shape. |
-| `MapT` with a key path in a finding | The failure is inside a map structure, not at the root alone. |
-| `ForallT` | Ordinary leaf comparison is not enough; quantified cast rules apply. |
-
-These readings are intentionally informal. The goal is to orient quickly, then
-open the source only when the Type family tells you which subsystem matters.
-
-## What Type Domain Does Not Mean
-
-The Type domain is not a new surface syntax for users to write everywhere. Users
-mostly write Schema, limited Malli metadata, or overrides. The Type domain is the
-checker language that makes those declarations comparable to inferred program
-behavior. That distinction keeps the walkthrough from treating internal records
-as if they were the user API.
-
-It also keeps examples honest. The walkthrough may write
-`MaybeT[GroundT Int]` to help the reader see structure, but a real user usually
-writes `(s/maybe s/Int)`. Admission connects those two levels; the Type domain is
-the level at which algorithms run.
-
-## Composite Types Carry Structure
-
-When a Type contains other Types, the outer value answers a different question
-from its members. A `UnionT` says "one of these alternatives"; a `MapT` says
-"this map shape"; a `FunT` says "this callable shape." The members still matter,
-but the container has its own identity.
-
-*Figure: `MaybeT[GroundT Int]` as a container with one inner Type.*
-
-```mermaid
-flowchart TD
-  maybe[MaybeT] --> int[GroundT Int]
-  maybe --> nil[nil arm is implicit]
+```text
+body result has members:
+  exact value :zero
+  exact value :even
+  string
 ```
 
-That distinction prepares the reader for provenance. If a composite Type is
-built during inference, the composite's origin can differ from the origins of
-the pieces it contains.
+The cast does not have to rediscover those alternatives from source text. They
+are already in the Type.
 
-The same distinction prepares the reader for paths. A mismatch inside a map entry
-or function return is a failure inside a composite Type. The cast result carries
-the child path so the user does not have to infer the location from a large Type
-display.
+## Semantic Equality
 
-### In-depth: Equality And Normalization
+Types carry provenance, so ordinary Clojure equality is stricter than semantic
+shape equality. Two Int Types can have different provenance and still represent
+the same semantic shape for checking.
 
-***Skip if reading the Gist path.***
+Skeptic uses semantic Type equality when it needs to compare shapes. That affects
+union deduplication, exhaustiveness checks, and tests that compare expected and
+actual Types. Provenance remains available for reporting, but it does not make
+two otherwise identical Type shapes incompatible.
 
-Two Types can be semantically equal even if their provenance differs. Use the
-shape-aware equality function when asking whether two Types mean the same thing,
-and normalize before operations that depend on canonical shape. The cast entry
-point normalizes source and target before dispatch so individual rules can work
-with a stable representation.
+## Normalization
 
-## Worked Example Here
+Normalization prepares Types for later work. It collapses redundant unions,
+handles nil-bearing shapes, and gives dispatch a cleaner source and target. The
+cast entry point normalizes before choosing a rule, so rule implementations can
+focus on their own structural case.
 
-`classify` contributes `GroundT Keyword` for the declared output and a branchy
-body whose alternatives include exact keywords and a string. `double-or-zero`
-contributes `MaybeT[GroundT Int]`, which is the shape the narrowing spoke will
-refine under `(some? n)`.
+In the worked example, the branch result is normalized into a usable set of
+alternatives. The later source-union cast depends on that normalized shape.
 
 ## Source Pointers
 
-- `skeptic/analysis/types.clj:MaybeTRec` - maybe Type record.
-- `skeptic/analysis/types.clj:type=?` - semantic Type equality.
-- `skeptic/analysis/types.clj:dedup-types` - deduplicates Type alternatives.
-- `skeptic/analysis/type_ops.clj:normalize` - canonicalizes Type-like values.
-- `skeptic/analysis/types.clj:select-method` - picks a function method by arity.
-- `skeptic/analysis/types.clj:semantic-type-value?` - recognizes semantic Types.
-
-## Glossary Terms Introduced
-
-- Type domain
-- Ground type
-- Value type
-- Maybe type
-- Union type
-- Conditional type
-- Quantified type
-- Sealed dynamic value
-
-## Where To Next
-
-- **Continue (Contributor path):** [Provenance](04-provenance.md)
-- **Continue (Gist path):** [Cast Dispatch](09-cast-dispatch.md)
-- **Return:** [Hub](README.md)
+- `skeptic/analysis/types.clj:->MaybeT` - constructs a maybe Type.
+- `skeptic/analysis/types.clj:type=?` - compares semantic Type shape.
+- `skeptic/analysis/types.clj:dedup-types` - removes semantically duplicate Types.
+- `skeptic/analysis/type_ops.clj:normalize` - canonicalizes Type shapes.
+- `skeptic/analysis/types.clj:select-method` - chooses a function method by arity.
+- `skeptic/analysis/types.clj:semantic-type-value?` - recognizes Type values.

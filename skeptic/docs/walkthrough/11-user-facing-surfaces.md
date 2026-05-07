@@ -1,185 +1,135 @@
 # User-Facing Surfaces
 
-The reader now knows how a finding is produced. This spoke answers the practical
-question: what does the user see, and how should they interpret or suppress it?
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+Output is the last step in the run. It receives report data that has already
+been built by checking and projection. The printers decide how that report data
+is shown; they do not run another analysis pass.
 
-## Prerequisites
+## The Report Arriving From `classify`
 
-[Blame for All and Projection (C10)](10-blame-for-all-and-projection.md). For the
-Diagnose-finding path, this spoke can also be read first: use it to identify the
-pieces of a finding, then walk backward to projection and cast dispatch.
-
-## Where this fits
-
-Eleventh on the Contributor path and first on the Diagnose-finding path. The
-next and final spoke, [Contributor Surfaces](12-contributor-surfaces.md), turns
-the model into edit entry points.
-
-## Two Output Modes
-
-Skeptic has two output surfaces. The default is human-readable text. Porcelain
-mode emits newline-delimited JSON records for tools. The same findings feed both
-printers; only the representation changes.
-
-This means output mode should not change whether a mismatch exists. It changes
-how the same report is packaged. If text and JSONL appear to disagree, compare
-their fields before debugging admission or cast logic.
-
-*Figure: one report stream, two printers.*
-
-```mermaid
-flowchart LR
-  reports[Report summaries] --> select[printer selection]
-  select --> text[human text]
-  select --> json[porcelain JSONL]
-```
-
-## Text Output: Anatomy Of A Finding
-
-A text finding is optimized for a person reading a terminal. It gives the
-namespace and location, the expression or declaration involved, the rendered
-actual and expected Types, and one or more message lines. A schematic finding for
-the worked example has this shape:
+The `classify` output failure reaches output with these facts already assembled:
 
 ```text
-skeptic.walkthrough.example
-  classify
-
-return value:
-  actual:   Str
-  expected: Keyword
-
-Skeptic inferred a string branch for classify, but the declared return type
-expects Keyword.
+report kind:    output
+expression:     the method body
+expected Type:  declared Keyword output
+actual Type:    annotated body result
+diagnostics:    source-union failure evidence
+source:         declaration/inference provenance carried through the report
 ```
 
-The exact wording depends on the renderer and options. The reader should learn
-which parts matter: location, path, actual Type, expected Type, and message.
+A printer can render those fields in different formats, but the meaning stays
+the same. Text output is a human view of this report. JSONL output is a tool view
+of this report.
 
-The path is the quickest way to choose a next spoke. A return-value path sends
-the reader to cast projection and function output checking. An argument path
-sends the reader to function-domain casts and caller blame. A field or index path
-sends the reader to structural collection casts.
+## Text Output
 
-## Porcelain JSONL
+The text printer turns the report into ordered fields. Location, expression,
+blame information, rule text, expected Type, actual Type, and error messages are
+arranged into a terminal-oriented block.
 
-Porcelain mode is for programs. Each line is one JSON object. The important
-record kinds are:
+For `classify`, the output text should lead a developer back to the declared
+return boundary and the body result that violates it. The important movement is:
 
-| Kind | Role |
-|---|---|
-| `finding` | One mismatch or reportable inconsistency. |
-| `exception` | A localized exception report. |
-| `ns-discovery-warning` | Namespace discovery warning. |
-| `namespace-error-summary` | Per-namespace counts. |
-| `run-summary` | Final run totals. |
-
-A schematic `finding` record for `classify` looks like this:
-
-```json
-{"kind":"finding","ns":"skeptic.walkthrough.example","rule":"source-union","blame_side":"term","actual_type_str":"Str","expected_type_str":"Keyword","messages":["return value does not match declared output"]}
+```text
+output report -> declared Keyword expectation -> body result evidence -> string branch
 ```
 
-JSONL is not prettier than text; it is more stable for downstream tools.
+The text printer preserves the facts that make the finding actionable: what
+boundary was checked, what expected Type came from that boundary, what actual
+Type failed, and which expression is under inspection.
 
-Porcelain records also make it possible to summarize a run without parsing human
-phrasing. The final `run-summary` record tells a tool whether the run was clean,
-how many namespaces were checked, and how many findings or exceptions were seen.
+## Error Strings And Summaries
 
-## How Types Are Rendered
+Reports can carry several error strings. For a structural mismatch, each
+diagnostic can contribute a detail line. Report rendering can also choose a
+headline Type display from the root cast result or from a selected diagnostic.
 
-The checker carries semantic Types, but output must show something readable.
-Rendering can display compact declared forms when a named declaration is
-available, or a fuller structural form when the user asks for more explanation.
-That is why the same underlying Type may appear as a familiar schema-shaped
-string in one context and as a structural Type in another.
+In the `classify` output case, the declared return Type remains the expected
+Type of the user-facing summary. The diagnostic evidence explains why the body
+does not satisfy that declared Type.
 
-The important diagnostic habit is to treat rendering as a view. If the compact
-view is too lossy for the question in front of you, switch to the fuller
-explanation mode rather than assuming the checker has lost the underlying Type
-structure.
+## JSONL Output
 
-## Suppression Mechanisms
+Porcelain output writes newline-delimited JSON. A finding record gives tools a
+stable set of fields: namespace, report kind, location, source expression,
+blame data, rule, expected Type data, actual Type data, and error strings.
 
-Suppression is a user-facing boundary, so it belongs here rather than in earlier
-algorithm spokes.
+The run also emits summary records. The final run summary gives the total
+finding count, exception count, namespace count, and namespace count with
+findings. That closing record is what lets a consuming tool know it has seen the
+whole run.
 
-`:skeptic/ignore-body` skips body checking for a function while preserving its
-declared type for callers. Use it when a body is intentionally outside Skeptic's
-current analysis, but callers should still see the contract.
+## Type Rendering
 
-`:skeptic/opaque` treats a function as opaque to callers. Use it when the
-function should behave like a boundary rather than a checked implementation.
+Both output modes render Types through the bridge renderer. Text output needs a
+readable string. JSONL output needs tagged data that another program can inspect.
 
-`^{:skeptic/type T}` pins an expression to a supplied Schema-domain type that is
-admitted into the Type domain. Use it when the expression's local inference needs
-an explicit user assertion.
+The renderer can fold known declaration names when that is clearer, or show
+structural detail when full explanation is requested. The Type being rendered is
+still the semantic Type from earlier phases. Rendering is a boundary from Type
+data to display data.
 
-These mechanisms answer different reader needs. `ignore-body` keeps the public
-contract but stops checking the implementation. `opaque` hides details from
-callers. A metadata type override changes one expression's inferred Type. They
-are not interchangeable.
+## Suppressing Checks
 
-## Configuration
+Skeptic has three user-facing suppression or override mechanisms, each at a
+different boundary.
 
-`.skeptic/config.edn` can exclude files and provide type overrides. Exclusion is
-for run selection. Type overrides replace or supplement declarations when the
-project needs Skeptic to know a type that source annotations do not provide.
+` :skeptic/ignore-body` skips body checks for a declared function. The function
+still has a declared Type for callers. This is a statement about checking the
+definition body.
 
-Config belongs at the edge of the run. It should not be used to paper over a
-misunderstood cast; read the finding first, then choose the smallest surface that
-matches the reason you want Skeptic to stop reporting it.
+`:skeptic/opaque` makes callers see the function through broad dynamic
+input/output. This changes what callers can learn from the function boundary.
 
-## Choosing The Right Surface
+`^{:skeptic/type T}` changes the Type of one expression. Annotation imports the
+metadata Type and uses it at that expression site. This is an expression-level
+override, not a namespace dictionary entry.
 
-Use text output when a human is going to fix the code immediately. It is ordered
-for reading, and it spends space on message text. Use porcelain when another
-program needs to count findings, group them by namespace, or attach them to a
-review tool. Use fuller Type explanations when compact rendering hides the
-distinction you are debugging.
+## Reading Output Backward
 
-The suppression mechanisms should come last in that decision. A finding is
-evidence that source, admission, annotation, and cast reached a specific
-conclusion. Suppress only after you can name which part of that conclusion is
-intentionally outside Skeptic's current model.
+A useful way to read a finding is backward:
 
-## Worked Example Output Reading
+```text
+report kind
+  -> expected Type
+  -> actual Type
+  -> diagnostic evidence
+  -> source expression
+  -> admitted declaration or annotation path
+```
 
-For `classify`, the important fields are the path, actual Type, expected Type,
-and rule. The namespace and form tell you where to look. The path tells you it is
-about the return value. The actual/expected pair tells you the body produced a
-string where Keyword was declared. The rule tells you which cast path created the
-finding. Those four facts are enough to choose the Diagnose-finding path in the
-hub.
+For `classify`, that gives:
 
-If a report is clean, that is also information. `double-or-zero` is absent from
-the output because every relevant cast succeeded after annotation and narrowing.
-No output is not a skipped explanation; it is the observable result of the
-pipeline accepting the definition.
+```text
+output report
+  -> declared Keyword output
+  -> body result containing string
+  -> source-union failure evidence
+  -> cond body
+  -> s/defn declaration and branch annotation
+```
 
-## Worked Example Here
+The same route is available in JSONL mode. Instead of following a terminal
+block, a tool follows record fields: report kind, expected Type data, actual
+Type data, error strings, and source expression data. The shape is different,
+but the debugging path is the same.
 
-`classify` appears as one finding in both surfaces. `double-or-zero` appears only
-by absence: the clean function does not produce a finding.
+For an input report, the route starts differently. The report kind points to a
+call argument, not to a definition output. The expected Type comes from the
+callee, and the actual Type comes from the supplied expression.
+
+That difference changes where a developer looks first. The `classify` output
+report sends the search into the function body and its declared return Type. An
+input report sends the search to the call site: which expression supplied the
+argument, what Type annotation gave to that expression, and which callee
+boundary expected something else.
 
 ## Source Pointers
 
-- `skeptic/output.clj:printer` - selects text or porcelain printer.
-- `skeptic/output/text.clj:report-fields` - builds text report fields.
-- `skeptic/output/porcelain.clj:printer` - porcelain printer lifecycle map.
+- `skeptic/output.clj:printer` - chooses the output printer.
+- `skeptic/output/text.clj:report-fields` - builds ordered text fields.
+- `skeptic/output/porcelain.clj:printer` - emits porcelain lifecycle records.
 - `skeptic/analysis/bridge/render.clj:render-type` - renders Types as text.
 - `skeptic/analysis/bridge/render.clj:type->json-data` - renders Types as JSON data.
-
-## Glossary Terms Introduced
-
-- Porcelain
-- Finding
-- Suppression
-- Type override
-
-## Where To Next
-
-- **Continue (Contributor path):** [Contributor Surfaces](12-contributor-surfaces.md)
-- **Return:** [Hub](README.md)

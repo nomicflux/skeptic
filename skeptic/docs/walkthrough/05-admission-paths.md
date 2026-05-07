@@ -1,203 +1,163 @@
 # Admission Paths
 
-The reader now has the internal Type vocabulary and provenance vocabulary.
-Admission answers the next question: how do declarations in a project become the
-Type expectations that later phases check against?
+> *Snapshot of state as of 2026-05-06.*
 
-> **Snapshot:** state of Skeptic as of 2026-05-06.
+Admission is the boundary where user-facing declarations become Skeptic Types.
+It answers the question "what did this namespace declare?" before annotation
+answers "what do the expressions compute?"
 
-## Prerequisites
+## The Shape Produced By Admission
 
-[Three Domains (C02)](02-three-domains.md),
-[Type Domain (C04)](03-type-domain.md), and
-[Provenance (C05)](04-provenance.md). You should know that external declaration
-forms flow one way into Skeptic Types and that each Type carries provenance.
+For each namespace, admission produces a dictionary keyed by qualified symbol.
+The values are Types.
 
-## Where this fits
+For the worked example, the useful entries are:
 
-Fifth on the Contributor path. This spoke produces the declaration-side story.
-[Annotation Pass](06-annotation-pass.md) then produces the inferred-side story
-from source code.
+```text
+skeptic.walkthrough.example/classify
+  inputs:  Int
+  output:  Keyword
 
-## What Admission Is
-
-Admission is a boundary pass. It collects the declarations Skeptic knows how to
-read, converts each declaration into the Type domain, attaches provenance, and
-returns the per-namespace declaration dictionary used by annotation and checking.
-
-For the reader, the key state change is this: before admission, `classify` has
-source syntax `:- s/Keyword`; after admission, Skeptic has a qualified function
-symbol associated with a function Type whose output is Keyword.
-
-That state is deliberately early in the pipeline. Later annotation can ask "what
-Type did the user declare for this var?" without rereading source metadata.
-Later checking can ask "what target should the inferred body cast against?"
-without knowing which external language supplied the target.
-
-## The Four Sources
-
-*Figure: four declaration sources fan into one Type dictionary.*
-
-```mermaid
-flowchart LR
-  schema[Plumatic Schema] --> dict[Declaration dict]
-  malli[Malli metadata] --> dict
-  native[Native descriptors] --> dict
-  override[Type overrides] --> dict
-  dict --> annotate[Annotation]
-  dict --> checking[Checking]
+skeptic.walkthrough.example/double-or-zero
+  inputs:  Maybe[Int]
+  output:  Int
 ```
 
-**Plumatic Schema** is the main path. `s/defn`, map schemas, maybe schemas, and
-function schemas are collected from code and converted through the Schema bridge.
-This is how both functions in the worked example enter Skeptic.
+That dictionary is the contract later phases consume. Checking does not return
+to the `s/defn` form to ask what output `classify` declared. It asks the
+dictionary for the admitted function Type and selects the method matching the
+body arity.
 
-For `s/defn`, the admission result preserves method shape: inputs and output.
-The next time the reader sees a function cast, the target method came from this
-earlier work.
+## Plumatic Schema Admission
 
-**Malli metadata** is a smaller path. It lets Malli function declarations enter
-the same Type dictionary. Once admitted, the later phases do not need a separate
-Malli branch.
+The Schema collector reads declarations such as `s/defn`, extracts input and
+output schemas, and records descriptor data. The Type conversion step imports
+those schemas.
 
-This is the pattern for adding future declaration languages as well. The
-language-specific work belongs at the boundary; the middle of Skeptic should see
-ordinary Types.
+For `classify`, the declaration contributes:
 
-**Native descriptors** describe functions Skeptic already knows about, such as
-selected `clojure.core` functions. They give calls a declared target even when
-the project did not write a Schema annotation for that function.
+```text
+input schema:  s/Int
+output schema: s/Keyword
+```
 
-This is why `double-or-zero` can check a call to `*`. The project did not declare
-`clojure.core/*`, but Skeptic has native knowledge for common functions. The
-call can therefore be checked as an invocation with expected argument and output
-Types.
+The bridge imports `s/Int` as an Int Type and `s/Keyword` as a Keyword Type.
+Those become one function method. The method is attached to the qualified symbol
+for `classify`.
 
-**Type overrides** are explicit replacements from configuration or metadata.
-They are useful when a library declaration is missing or when a local expression
-needs a stronger type for checking.
+For `double-or-zero`, the input schema is:
 
-Because overrides are explicit user input, their provenance outranks ordinary
-Schema and inferred values. If an override is wrong, Skeptic will faithfully
-check against the wrong expectation; that is a user-controlled boundary.
+```text
+(s/maybe s/Int)
+```
 
-## How The Worked Example Admits
+The bridge imports this as a maybe Type containing Int. That shape is already
+ready for narrowing later. Annotation receives the maybe Type directly instead
+of reopening the surface `s/maybe` form.
 
-For `classify`, admission sees the declared input `s/Int` and output
-`s/Keyword`. The result is a function Type with one method: Int input and Keyword
-output, carrying Schema provenance.
+## MalliSpec Admission
 
-For `double-or-zero`, admission sees the declared input `(s/maybe s/Int)` and
-output `s/Int`. The result is a function Type whose method input is
-`MaybeT[GroundT Int]` and whose output is `GroundT Int`.
-
-The reader should pause here because the next spoke depends on this exact state:
-annotation will infer what the bodies produce, but the expected shapes already
-exist.
-
-| Definition | Admitted input | Admitted output | Why it matters later |
-|---|---|---|---|
-| `classify` | `GroundT Int` | `GroundT Keyword` | Output cast has a concrete target. |
-| `double-or-zero` | `MaybeT[GroundT Int]` | `GroundT Int` | Narrowing must remove nil before multiplication. |
-
-This table is the reader's handoff into annotation. The body may infer many
-intermediate Types, but these declarations are the expectations they will meet.
-
-## Merging Sources
-
-When the same qualified symbol has more than one possible declaration source,
-Skeptic chooses by provenance rank. The practical rule is that explicit user
-knowledge beats inferred fallback knowledge. That keeps a declared return type
-available as the target of the output cast, even if the body later infers a
-different shape.
-
-This is not a separate conceptual language. It is still the same Type domain
-after the merge.
-
-### In-depth: Canonicalize, Localize, Render
-
-***Skip if reading the Gist path.***
-
-The Schema bridge has three reader-visible moves. First, canonicalization puts
-equivalent schema shapes into a regular form. Then localization resolves values
-and references in the context of the namespace being admitted. Later, rendering
-can turn a Type back into a readable form for messages.
-
-Those moves live at the boundary. Their purpose is to keep the middle of the
-checker from having to remember every surface syntax that could have created a
-Type.
-
-Rendering appears to run "backwards," but it is not analysis. It is a display
-service. The checker still reasons over Types; rendering only gives humans and
-tools a readable representation of those Types.
-
-## Admission Questions To Ask While Debugging
-
-If a declaration seems absent, ask whether its namespace was discovered and
-whether the collector for that declaration source saw it. If the declaration is
-present but too vague, ask whether the bridge converted the external form into a
-precise enough Type. If two sources disagree, ask which provenance rank should
-win.
-
-Those questions matter because downstream phases usually cannot recover
-precision that admission never supplied. Annotation can infer body behavior, but
-it cannot guess a missing declared target for a library function. Cast dispatch
-can compare source and target, but it cannot decide that a target should have
-been different. Admission is where the expectation enters the checker.
-
-## Why Native Knowledge Belongs Here
-
-Native function descriptors may feel different from user declarations because
-they are built into Skeptic, but they serve the same reader need: provide a target
-Type for code that calls known functions. In `double-or-zero`, the multiplication
-call only becomes meaningful to the checker because the callee has a known
-function shape. The caller's argument Types can then be cast against that shape.
-
-## What Admission Does Not Decide
-
-Admission does not decide whether `classify` is correct. It does not inspect the
-body branch returning `"odd"`. It only records the declared expectation. That is
-why a bad declaration and a bad implementation are distinguishable: admission
-can be perfectly correct while checking later reports that the implementation
-does not satisfy the admitted contract.
-
-This distinction matters for fixes. If the declaration is wrong, change the
-declaration or override. If the body is wrong, change the implementation. If the
-admitted Type does not match the declaration, inspect the bridge. Those are three
-different reader states, and admission is where they separate.
-
-## Worked Example Here
+MalliSpec follows the same destination: a Type dictionary entry. A form like:
 
 ```clojure
-;; classify: declaration-side expectation
-[n :- s/Int]        ;; input Type: GroundT Int
-:- s/Keyword        ;; output Type: GroundT Keyword
-
-;; double-or-zero: declaration-side expectation
-[n :- (s/maybe s/Int)] ;; input Type: MaybeT[GroundT Int]
-:- s/Int               ;; output Type: GroundT Int
+[:=> [:cat :int] :string]
 ```
 
-These are the target Types. The next spoke explains where the source Types come
-from.
+is admitted as a function Type. `:cat` supplies the input list, and the final
+entry supplies the output. Leaf Malli shapes such as `:int`, `:string`,
+`:keyword`, and `:boolean` admit to ground Types.
+
+After this import, the cast engine sees a function Type. Ordinary function casts
+then use the same rules regardless of whether the method came from MalliSpec or
+Schema.
+
+## Native Declarations
+
+Native declarations provide expected Types for functions the project did not
+declare. Arithmetic, predicates, collection helpers, and common core functions
+can be checked because Skeptic has native Type data for them.
+
+`double-or-zero` depends on this. The expression `(* 2 n)` is checked as a call.
+The expected argument Types come from the native declaration for multiplication.
+The actual argument Types come from annotation: literal `2` and narrowed `n`.
+
+## Type Overrides
+
+Overrides are explicit replacements for a symbol's Type. They can be supplied by
+configuration or metadata. They enter with override provenance, so they outrank
+ordinary Schema declarations in source ranking.
+
+Use an override to describe a boundary Skeptic cannot otherwise know. An
+override should still be a real contract. If an override widens everything to a
+dynamic Type, later phases lose the ability to report useful mismatches.
+
+## Merging The Sources
+
+The dictionary is assembled from the available sources. When more than one
+source has a Type for the same symbol, source rank decides which one wins.
+
+This merge happens before checking. A call site does not choose between Schema,
+Malli, native, and override data. By the time annotation and checking ask for a
+var Type, the merged dictionary has one answer.
+
+## Admission And The Worked Example Finding
+
+The later `classify` finding depends on admission in two places:
+
+```text
+1. the admitted output Type gives the output check its expected Type
+2. schema provenance marks that expected Type as a declared boundary
+```
+
+The string branch does not fail during admission. Admission has not analyzed the
+body. It only records the promise. The failure appears later when annotation's
+body result is compared with this admitted promise.
+
+## Following The Dictionary Entry Into Checking
+
+The admitted `classify` entry is reused in two different ways. When another
+expression calls `classify`, the function Type supplies expected argument Types
+and an expected call output. When the checker visits the `classify` definition
+itself, the same function Type supplies the expected output for the method body.
+
+The self-checking route is the one that matters for the walkthrough finding:
+
+```text
+dictionary lookup for classify
+  -> select the one-argument method
+  -> read method output Keyword
+  -> compare annotated body output with Keyword
+```
+
+That route explains why the declaration's output slot is load-bearing. If the
+admission step produced a broad dynamic output instead of Keyword, the later
+body comparison would have no precise declared boundary to enforce. If the
+admission step stored the raw Schema descriptor instead of a Type, the cast
+engine would not have the semantic shape it needs for source-target comparison.
+
+For `double-or-zero`, the dictionary entry affects both local annotation and
+output checking. The method input Type initializes the parameter `n` as
+Maybe[Int]. The method output Type supplies Int as the result boundary. The
+function passes only because both sides of that entry are consumed later: the
+input side feeds narrowing, and the output side validates the joined branch
+result.
+
+## Canonicalizing Boundary Inputs
+
+The Schema bridge normalizes boundary forms before import. Maybe, either, map,
+function, and named forms are made regular enough for the bridge to convert
+consistently. Recursive references are kept as references instead of being
+expanded forever.
+
+That input cleanup belongs at the boundary. Once a Type is admitted, the rest of
+the pipeline should work with Type values rather than recurring over raw Schema
+syntax.
 
 ## Source Pointers
 
-- `skeptic/checking/pipeline.clj:namespace-dict` - admission dispatcher for a namespace.
-- `skeptic/analysis/bridge.clj:schema->type` - Schema admission entry point.
-- `skeptic/analysis/malli_spec/bridge.clj:malli-spec->type` - MalliSpec admission entry point.
-- `skeptic/typed_decls.clj:merge-type-dicts` - combines admitted declaration sources.
-- `skeptic/analysis/bridge/canonicalize.clj:canonicalize-schema` - normalizes Schema inputs.
-- `skeptic/analysis/bridge/render.clj:render-type-form*` - renders Types for human surfaces.
-
-## Glossary Terms Introduced
-
-- Admission
-- Declaration dict
-- Native descriptor
-- Type override
-
-## Where To Next
-
-- **Continue (Contributor path):** [Annotation Pass](06-annotation-pass.md)
-- **Return:** [Hub](README.md)
+- `skeptic/checking/pipeline.clj:namespace-dict` - builds the admitted namespace dictionary.
+- `skeptic/analysis/bridge.clj:schema->type` - imports Schema into Type.
+- `skeptic/analysis/malli_spec/bridge.clj:malli-spec->type` - imports MalliSpec into Type.
+- `skeptic/typed_decls.clj:merge-type-dicts` - merges admitted source dictionaries.
+- `skeptic/analysis/bridge/canonicalize.clj:canonicalize-schema` - regularizes Schema inputs.
+- `skeptic/analysis/bridge/render.clj:render-type-form*` - renders Type forms for display.
