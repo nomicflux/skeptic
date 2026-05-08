@@ -158,6 +158,7 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
     - `[:and X Y …]` → `ato/intersection-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side `sb/both?` behavior at `src/skeptic/analysis/bridge.clj:623-624`).
     - `[:tuple X Y …]` → `at/->VectorT prov [Tx Ty …] nil` directly. The cast engine treats `tail=nil` `VectorT` as closed/exact-arity via `prefix-tail-cast-fails-arity?` at `src/skeptic/analysis/cast/collection.clj:24-26`, and Plumatic vector schemas already import to the same shape via `prefix-tail-import-type` at `src/skeptic/analysis/bridge.clj:644-645`, so a separate tuple type variant is not required. `[:tuple]` (zero-element) collapses in `m/form` to the bare keyword `:tuple` and falls through to `Dyn`.
+    - `[:map [:k T] [:k {:optional true} T] …]` → `at/->MapT` directly. Required entries use `ato/exact-value-type prov k` for the key; optional entries wrap that in `at/->OptionalKeyT`. The cast engine consumes both kinds via `amo/map-entry-descriptor` at `src/skeptic/analysis/map_ops.clj:85-110`, and Plumatic plain-map schemas already import to the same shape via `map-import-type` at `src/skeptic/analysis/bridge.clj:393-409`, so no separate map type variant is required. The optional map-level properties index (e.g. `[:map {:closed true} ...]`) is parsed and dropped — Skeptic's `MapT` is closed-by-default (open-ness is encoded by adding a `domain-entry`, e.g. `Keyword → T`), matching Plumatic's representation. Honoring Malli's open-by-default semantics is deferred. `[:map]` (zero-element) collapses in `m/form` to the bare keyword `:map` and falls through to `Dyn`.
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves resolve through a registry of supported keywords:
       - `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:symbol → Symbol`, `:boolean → Bool`, `:double → Double`, `:float → Float`, `:nil → ValueT(Dyn, nil)`, `:qualified-keyword → Keyword`, `:qualified-symbol → Symbol`, `:any → Dyn`.
@@ -174,7 +175,8 @@ Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = T
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:tuple` / `:enum`. `[:map ...]`, refs, `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:tuple` / `:map` / `:enum`. Refs, `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
+- Honoring Malli's open-by-default `:map` semantics. `:closed true` is currently a no-op: every admitted `:map` is closed-by-default, matching Plumatic and `MapT`'s native representation.
 - Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
 - Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).

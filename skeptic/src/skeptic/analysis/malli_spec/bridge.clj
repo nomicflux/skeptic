@@ -82,6 +82,25 @@
   [form]
   (and (vector? form) (= :tuple (first form))))
 
+(defn- map-shape?
+  [form]
+  (and (vector? form) (= :map (first form))))
+
+(defn- map-entries-after-props
+  [form]
+  (let [tail (rest form)]
+    (if (map? (first tail)) (rest tail) tail)))
+
+(defn- map-entry->kv
+  [run prov entry]
+  (let [[k a b] entry
+        [props value-form] (if (map? a) [a b] [nil a])
+        key-value-type (ato/exact-value-type prov k)
+        key-type (if (and (map? props) (true? (:optional props)))
+                   (at/->OptionalKeyT prov key-value-type)
+                   key-value-type)]
+    [key-type (run prov value-form)]))
+
 (defn- enum-values
   [form]
   (if (map? (second form))
@@ -106,6 +125,7 @@
     (or-shape? form) (ato/union-type prov (mapv #(form->type prov %) (rest form)))
     (and-shape? form) (ato/intersection-type prov (mapv #(form->type prov %) (rest form)))
     (tuple-shape? form) (at/->VectorT prov (mapv #(form->type prov %) (rest form)) nil)
+    (map-shape? form) (at/->MapT prov (into {} (map #(map-entry->kv form->type prov %)) (map-entries-after-props form)))
     (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
     :else (malli-leaf->type prov form)))
 

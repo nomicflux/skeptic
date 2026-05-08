@@ -30,6 +30,21 @@
 (defn ^{:malli/schema [:=> [:cat :int :string] [:tuple :int :string]]} tuple-output-bad-arity
   [x y] [x y :extra])
 
+(defn ^{:malli/schema [:=> [:cat :int :string] [:map [:x :int] [:y :string]]]} map-output-success
+  [x y] {:x x :y y})
+
+(defn ^{:malli/schema [:=> [:cat :int :string] [:map [:x :int] [:y :string]]]} map-output-bad-value
+  [x _y] {:x x :y :not-a-string})
+
+(defn ^{:malli/schema [:=> [:cat :int] [:map [:x :int] [:y :string]]]} map-output-missing-key
+  [x] {:x x})
+
+(defn ^{:malli/schema [:=> [:cat :int] [:map [:x :int] [:y {:optional true} :string]]]} map-output-optional-key-omitted
+  [x] {:x x})
+
+(defn ^{:malli/schema [:=> [:cat :int :string] [:map [:x :int] [:y {:optional true} :string]]]} map-output-optional-key-present
+  [x y] {:x x :y y})
+
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-success
   [x] (or x "fallback"))
 

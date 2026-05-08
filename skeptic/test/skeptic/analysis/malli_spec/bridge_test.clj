@@ -35,7 +35,6 @@
             (sut/malli-spec->type tp [:=> [:cat :any] :any])))
 
 (deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes
-  (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:map [:x :int]]))
   (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:vector :int]))
   (is-type= (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int)))
 
