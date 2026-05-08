@@ -78,6 +78,10 @@
   [form]
   (and (vector? form) (= :enum (first form))))
 
+(defn- eq-shape?
+  [form]
+  (and (vector? form) (= 2 (count form)) (= := (first form))))
+
 (defn- tuple-shape?
   [form]
   (and (vector? form) (= :tuple (first form))))
@@ -100,6 +104,22 @@
                    (at/->OptionalKeyT prov key-value-type)
                    key-value-type)]
     [key-type (run prov value-form)]))
+
+(defn- multi-shape?
+  [form]
+  (and (vector? form) (= :multi (first form))))
+
+(def ^:private multi-default-tag :malli.core/default)
+
+(defn- multi-branch-descriptor
+  [dispatch tag]
+  (when (and (keyword? dispatch) (not= multi-default-tag tag))
+    {:path [dispatch] :values [tag]}))
+
+(defn- multi-branch->triple
+  [run prov dispatch entry]
+  (let [[tag schema] entry]
+    [tag (run prov schema) (multi-branch-descriptor dispatch tag)]))
 
 (defn- enum-values
   [form]
@@ -126,7 +146,11 @@
     (and-shape? form) (ato/intersection-type prov (mapv #(form->type prov %) (rest form)))
     (tuple-shape? form) (at/->VectorT prov (mapv #(form->type prov %) (rest form)) nil)
     (map-shape? form) (at/->MapT prov (into {} (map #(map-entry->kv form->type prov %)) (map-entries-after-props form)))
+    (multi-shape? form) (let [dispatch (get-in form [1 :dispatch])
+                              entries (drop 2 form)]
+                          (at/->ConditionalT prov (mapv #(multi-branch->triple form->type prov dispatch %) entries)))
     (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
+    (eq-shape? form) (ato/exact-value-type prov (second form))
     :else (malli-leaf->type prov form)))
 
 (s/defn malli-spec->type :- ats/SemanticType

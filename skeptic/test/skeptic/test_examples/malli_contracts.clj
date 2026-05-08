@@ -45,6 +45,34 @@
 (defn ^{:malli/schema [:=> [:cat :int :string] [:map [:x :int] [:y {:optional true} :string]]]} map-output-optional-key-present
   [x y] {:x x :y y})
 
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:multi {:dispatch :tag}
+                        [:a [:map [:tag [:= :a]] [:value :int]]]
+                        [:b [:map [:tag [:= :b]] [:value :string]]]]]}
+  multi-output-success-a
+  [x] {:tag :a :value x})
+
+(defn ^{:malli/schema [:=> [:cat :string]
+                       [:multi {:dispatch :tag}
+                        [:a [:map [:tag [:= :a]] [:value :int]]]
+                        [:b [:map [:tag [:= :b]] [:value :string]]]]]}
+  multi-output-success-b
+  [s] {:tag :b :value s})
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:multi {:dispatch :tag}
+                        [:a [:map [:tag [:= :a]] [:value :int]]]
+                        [:b [:map [:tag [:= :b]] [:value :string]]]]]}
+  multi-output-bad-value
+  [_x] {:tag :a :value :not-an-int})
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:multi {:dispatch :tag}
+                        [:a [:map [:tag [:= :a]] [:value :int]]]
+                        [:malli.core/default [:map [:value :keyword]]]]]}
+  multi-output-default-branch
+  [_x] {:value :anything})
+
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-success
   [x] (or x "fallback"))
 

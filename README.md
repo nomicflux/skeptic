@@ -292,8 +292,12 @@ Currently parsed forms include
 `[:=> [:cat ...] out]`, primitive leaves such as `:int`, `:string`,
 `:keyword`, `:symbol`, `:boolean`, `:double`, `:float`, `:nil`,
 `:qualified-keyword`, `:qualified-symbol`, and `:any`, plus `:maybe`,
-`:or`, `:and`, `:tuple`, `:enum`, and bare predicate symbols that Skeptic
-recognizes.
+`:or`, `:and`, `:tuple`, `:map` (with required keys, `{:optional true}`
+keys, and nested values; `:closed` is currently ignored — Skeptic
+represents `:map` as closed-by-default), `:multi` with `{:dispatch :kw}`
+tagged-dispatch (later branches are correctly narrowed by negation of
+earlier tags; fn-dispatch is admitted but each arm stands alone),
+`:=`, `:enum`, and bare predicate symbols that Skeptic recognizes.
 
 Broader Malli forms are still experimental. Unsupported forms are admitted when
 Malli accepts them; their Skeptic type is currently dynamic.
