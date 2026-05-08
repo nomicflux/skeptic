@@ -148,52 +148,114 @@
   (or (var-source-prov v)
       (inline-named-source-prov ctx-prov form)))
 
-(defn- form-children
-  [run prov ctx form]
-  (cond
-    (map? form)    nil
-    (vector? form) (mapv #(run prov ctx %) form)
-    (set? form)    (mapv #(run prov ctx %) (vec form))
-    (seq? form)    (mapv #(run prov ctx %) (rest form))
-    :else          []))
-
-(defn- form-map-entries
-  [run prov ctx form]
-  (when (map? form)
-    (into {}
-          (map (fn [[k v]]
-                 [k {:key (run prov ctx k) :val (run prov ctx v)}]))
-          form)))
-
-(defn- form-conditional-branches
-  [run prov ctx form ref-form]
-  (let [source (cond
-                 (and (seq? form) (>= (count (rest form)) 2)) form
-                 (and (seq? ref-form) (>= (count (rest ref-form)) 2)) ref-form
-                 :else nil)]
-    (when source
-      (mapv (fn [[pred branch]]
-              {:pred-form pred
-               :schema-source (run prov ctx branch)})
-            (partition 2 (rest source))))))
-
-(defn- run-source
+(defn- form-spec
   [prov ctx form]
   (let [v        (resolve-form-var form)
         qsym     (when (instance? clojure.lang.Var v) (sb/qualified-var-symbol v))
         active?  (and qsym (contains? (:active-refs ctx) qsym))
         ref-form (when (and v (not active?)) (lookup-form-ref v))
         sub-ctx  (cond-> ctx
-                   qsym (update :active-refs conj qsym))]
+                   qsym (update :active-refs conj qsym))
+        child-forms (cond
+                      (map? form)    nil
+                      (vector? form) (vec form)
+                      (set? form)    (vec form)
+                      (seq? form)    (vec (rest form))
+                      :else          nil)
+        map-entries-forms (when (map? form) (vec form))
+        conditional-source (cond
+                             (and (seq? form) (>= (count (rest form)) 2)) form
+                             (and (seq? ref-form) (>= (count (rest ref-form)) 2)) ref-form
+                             :else nil)
+        conditional-pairs (when conditional-source
+                            (vec (partition 2 (rest conditional-source))))]
+    {:form              form
+     :named-prov        (named-prov prov v form)
+     :is-map?           (map? form)
+     :child-forms       child-forms
+     :map-entries-forms map-entries-forms
+     :conditional-pairs conditional-pairs
+     :sub-ctx           sub-ctx}))
+
+(defn- assemble-descriptor
+  [{:keys [form named-prov is-map? child-forms map-entries-forms conditional-pairs]}
+   resolved-by-slot]
+  (let [children (cond
+                   is-map?             nil
+                   (some? child-forms) (mapv (fn [i] (get resolved-by-slot [:child i]))
+                                             (range (count child-forms)))
+                   :else               [])
+        map-entries (when is-map?
+                      (into {}
+                            (map (fn [[k _]]
+                                   [k {:key (get resolved-by-slot [:map-entry k :key])
+                                       :val (get resolved-by-slot [:map-entry k :val])}]))
+                            map-entries-forms))
+        conditional-branches (when conditional-pairs
+                               (mapv (fn [i [pred _branch]]
+                                       {:pred-form pred
+                                        :schema-source (get resolved-by-slot [:cond-branch i])})
+                                     (range)
+                                     conditional-pairs))]
     {:form                 form
-     :named-prov           (named-prov prov v form)
-     :children             (form-children run-source prov sub-ctx form)
-     :map-entries          (form-map-entries run-source prov sub-ctx form)
-     :conditional-branches (form-conditional-branches run-source prov sub-ctx form ref-form)}))
+     :named-prov           named-prov
+     :children             children
+     :map-entries          map-entries
+     :conditional-branches conditional-branches}))
+
+(defn- spec-child-requests
+  [{:keys [child-forms map-entries-forms conditional-pairs]} start-id]
+  (let [children-rs (when child-forms
+                      (map-indexed (fn [i c] {:slot [:child i] :form c}) child-forms))
+        map-rs      (when map-entries-forms
+                      (mapcat (fn [[k v]]
+                                [{:slot [:map-entry k :key] :form k}
+                                 {:slot [:map-entry k :val] :form v}])
+                              map-entries-forms))
+        cond-rs     (when conditional-pairs
+                      (map-indexed (fn [i [_pred branch]]
+                                     {:slot [:cond-branch i] :form branch})
+                                   conditional-pairs))]
+    (mapv (fn [r i] (assoc r :id i))
+          (concat children-rs map-rs cond-rs)
+          (iterate inc start-id))))
 
 (defn- source-descriptor
   [prov form]
-  (run-source prov {:active-refs #{}} form))
+  (loop [stack   [{:op :descend :form form :ctx {:active-refs #{}} :id 0}]
+         next-id 1
+         results {}]
+    (if (empty? stack)
+      (get results 0)
+      (let [{:keys [op] :as item} (peek stack)
+            stack' (pop stack)]
+        (case op
+          :descend
+          (let [{:keys [form ctx id]} item
+                spec (form-spec prov ctx form)
+                requests (spec-child-requests spec next-id)]
+            (if (empty? requests)
+              (recur stack'
+                     next-id
+                     (assoc results id (assemble-descriptor spec {})))
+              (let [sub-ctx (:sub-ctx spec)
+                    descend-items (mapv (fn [{:keys [id form]}]
+                                          {:op :descend :form form :ctx sub-ctx :id id})
+                                        requests)
+                    assemble-item {:op :assemble :id id :spec spec :requests requests}]
+                (recur (-> stack' (conj assemble-item) (into descend-items))
+                       (+ next-id (count requests))
+                       results))))
+
+          :assemble
+          (let [{:keys [id spec requests]} item
+                resolved (reduce (fn [m {:keys [slot id]}]
+                                   (assoc m slot (get results id)))
+                                 {}
+                                 requests)]
+            (recur stack'
+                   next-id
+                   (assoc results id (assemble-descriptor spec resolved)))))))))
 
 (defn- descriptor-source
   [prov descriptor]

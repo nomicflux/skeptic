@@ -409,6 +409,36 @@
     (is (some? descriptor))
     (is (= form-a (:form descriptor)))))
 
+(deftest source-descriptor-deeply-nested-maybe-stack-safe-test
+  (let [n 5000
+        form (reduce (fn [s _] (list 's/maybe s)) 's/Int (range n))
+        descriptor (#'ab/source-descriptor tp form)]
+    (is (some? descriptor))
+    (is (= n (loop [d descriptor depth 0]
+               (if-let [child (first (:children d))]
+                 (recur child (inc depth))
+                 depth))))))
+
+(deftest source-descriptor-deeply-nested-vector-stack-safe-test
+  (let [n 5000
+        form (reduce (fn [v _] [v]) 's/Int (range n))
+        descriptor (#'ab/source-descriptor tp form)]
+    (is (some? descriptor))
+    (is (= n (loop [d descriptor depth 0]
+               (if-let [child (first (:children d))]
+                 (recur child (inc depth))
+                 depth))))))
+
+(deftest source-descriptor-deeply-nested-map-stack-safe-test
+  (let [n 5000
+        form (reduce (fn [m _] {:k m}) 's/Int (range n))
+        descriptor (#'ab/source-descriptor tp form)]
+    (is (some? descriptor))
+    (is (= n (loop [d descriptor depth 0]
+               (if-let [child (get-in d [:map-entries :k :val])]
+                 (recur child (inc depth))
+                 depth))))))
+
 (deftest source-intake-named-conditional-reference-keeps-branch-predicate-source-test
   (let [ns-sym 'skeptic.test-examples.contracts
         source-file (File. "test/skeptic/test_examples/contracts.clj")
