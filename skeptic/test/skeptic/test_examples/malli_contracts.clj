@@ -101,3 +101,31 @@
 
 (defn ^{:malli/schema [:=> [:cat :int] :float]} float-input-rejects-string
   [] (takes-float "hello"))
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:schema {:registry {::int :int}} [:ref ::int]]]}
+  ref-int-output-success
+  [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:schema {:registry {::int :int}} [:ref ::int]]]}
+  ref-int-output-bad-value
+  [_x] :not-an-int)
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:schema {:registry {::point [:map [:x :int] [:y :int]]}}
+                        [:ref ::point]]]}
+  ref-map-output-success
+  [x] {:x x :y x})
+
+(defn ^{:malli/schema [:=> [:cat :int]
+                       [:schema {:registry {::point [:map [:x :int] [:y :int]]}}
+                        [:ref ::point]]]}
+  ref-map-output-missing-key
+  [x] {:x x})
+
+(defn ^{:malli/schema [:=> [:cat]
+                       [:schema {:registry {::ints [:maybe [:tuple :int [:ref ::ints]]]}}
+                        [:ref ::ints]]]}
+  recursive-ref-output-nil
+  [] nil)

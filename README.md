@@ -297,7 +297,11 @@ keys, and nested values; `:closed` is currently ignored — Skeptic
 represents `:map` as closed-by-default), `:multi` with `{:dispatch :kw}`
 tagged-dispatch (later branches are correctly narrowed by negation of
 earlier tags; fn-dispatch is admitted but each arm stands alone),
-`:=`, `:enum`, and bare predicate symbols that Skeptic recognizes.
+`:=`, `:enum`, `:schema` (with optional `{:registry {...}}` properties
+carrying a local registry), `:ref` (resolved through the active
+registry, with cycle detection: a recursive position emits an
+`InfCycleT` rather than diverging), and bare predicate symbols that
+Skeptic recognizes.
 
 Broader Malli forms are still experimental. Unsupported forms are admitted when
 Malli accepts them; their Skeptic type is currently dynamic.

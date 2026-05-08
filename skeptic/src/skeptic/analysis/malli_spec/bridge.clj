@@ -28,6 +28,15 @@
     (catch IllegalArgumentException _e
       false)))
 
+(defn- import-result
+  ([type] (import-result type #{}))
+  ([type closed-refs]
+   {:type type :closed-refs closed-refs}))
+
+(defn- merge-closed-refs
+  [results]
+  (into #{} (mapcat :closed-refs) results))
+
 (def ^:private leaf-builders
   {:int (fn [p] (at/->GroundT p :int 'Int))
    :string (fn [p] (at/->GroundT p :str 'Str))
@@ -90,24 +99,36 @@
   [form]
   (and (vector? form) (= :map (first form))))
 
+(defn- multi-shape?
+  [form]
+  (and (vector? form) (= :multi (first form))))
+
+(defn- schema-shape?
+  [form]
+  (and (vector? form) (= :schema (first form))))
+
+(defn- ref-shape?
+  [form]
+  (and (vector? form) (= :ref (first form))))
+
 (defn- map-entries-after-props
   [form]
   (let [tail (rest form)]
     (if (map? (first tail)) (rest tail) tail)))
 
 (defn- map-entry->kv
-  [run prov entry]
-  (let [[k a b] entry
+  [run ctx entry]
+  (let [prov (:prov ctx)
+        [k a b] entry
         [props value-form] (if (map? a) [a b] [nil a])
         key-value-type (ato/exact-value-type prov k)
         key-type (if (and (map? props) (true? (:optional props)))
                    (at/->OptionalKeyT prov key-value-type)
-                   key-value-type)]
-    [key-type (run prov value-form)]))
-
-(defn- multi-shape?
-  [form]
-  (and (vector? form) (= :multi (first form))))
+                   key-value-type)
+        value-result (run ctx value-form)]
+    {:key key-type
+     :type (:type value-result)
+     :closed-refs (:closed-refs value-result)}))
 
 (def ^:private multi-default-tag :malli.core/default)
 
@@ -117,9 +138,11 @@
     {:path [dispatch] :values [tag]}))
 
 (defn- multi-branch->triple
-  [run prov dispatch entry]
-  (let [[tag schema] entry]
-    [tag (run prov schema) (multi-branch-descriptor dispatch tag)]))
+  [run ctx dispatch entry]
+  (let [[tag schema] entry
+        r (run ctx schema)]
+    {:triple [tag (:type r) (multi-branch-descriptor dispatch tag)]
+     :closed-refs (:closed-refs r)}))
 
 (defn- enum-values
   [form]
@@ -127,34 +150,118 @@
     (drop 2 form)
     (rest form)))
 
+(defn- schema-props
+  [form]
+  (when (map? (second form)) (second form)))
+
+(defn- schema-body
+  [form]
+  (if (map? (second form)) (nth form 2) (second form)))
+
+(defn- merge-local-registry
+  [ctx props]
+  (if-let [local (:registry props)]
+    (update ctx :registry merge local)
+    ctx))
+
+(declare form->type)
+
+(defn- resolve-ref
+  [ctx ref-name]
+  (let [prov (:prov ctx)
+        active (or (:active-refs ctx) #{})
+        registry (or (:registry ctx) {})]
+    (cond
+      (contains? active ref-name)
+      (import-result (at/->InfCycleT prov ref-name) #{ref-name})
+
+      (contains? registry ref-name)
+      (let [target (get registry ref-name)
+            ctx' (update ctx :active-refs (fnil conj #{}) ref-name)
+            r (form->type ctx' target)]
+        (import-result (:type r) (conj (:closed-refs r) ref-name)))
+
+      :else
+      (import-result (at/->PlaceholderT prov ref-name)))))
+
+(defn- function-result
+  [ctx form]
+  (let [prov (:prov ctx)
+        inputs (rest (second form))
+        output (nth form 2)
+        names (mapv #(symbol (str "arg" %)) (range (count inputs)))
+        input-results (mapv #(form->type ctx %) inputs)
+        output-result (form->type ctx output)]
+    (import-result
+     (at/->FunT prov
+                [(at/->FnMethodT prov
+                                 (mapv :type input-results)
+                                 (:type output-result)
+                                 (count inputs)
+                                 false
+                                 names)])
+     (merge-closed-refs (conj input-results output-result)))))
+
 (defn- form->type
-  [prov form]
-  (cond
-    (function-shape? form)
-    (let [inputs (rest (second form))
-          output (nth form 2)
-          names (mapv #(symbol (str "arg" %)) (range (count inputs)))]
-      (at/->FunT prov
-                 [(at/->FnMethodT prov
-                                  (mapv #(form->type prov %) inputs)
-                                  (form->type prov output)
-                                  (count inputs)
-                                  false
-                                  names)]))
-    (maybe-shape? form) (at/->MaybeT prov (form->type prov (second form)))
-    (or-shape? form) (ato/union-type prov (mapv #(form->type prov %) (rest form)))
-    (and-shape? form) (ato/intersection-type prov (mapv #(form->type prov %) (rest form)))
-    (tuple-shape? form) (at/->VectorT prov (mapv #(form->type prov %) (rest form)) nil)
-    (map-shape? form) (at/->MapT prov (into {} (map #(map-entry->kv form->type prov %)) (map-entries-after-props form)))
-    (multi-shape? form) (let [dispatch (get-in form [1 :dispatch])
-                              entries (drop 2 form)]
-                          (at/->ConditionalT prov (mapv #(multi-branch->triple form->type prov dispatch %) entries)))
-    (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
-    (eq-shape? form) (ato/exact-value-type prov (second form))
-    :else (malli-leaf->type prov form)))
+  [ctx form]
+  (let [prov (:prov ctx)]
+    (cond
+      (function-shape? form)
+      (function-result ctx form)
+
+      (maybe-shape? form)
+      (let [r (form->type ctx (second form))]
+        (import-result (at/->MaybeT prov (:type r)) (:closed-refs r)))
+
+      (or-shape? form)
+      (let [rs (mapv #(form->type ctx %) (rest form))]
+        (import-result (ato/union-type prov (mapv :type rs))
+                       (merge-closed-refs rs)))
+
+      (and-shape? form)
+      (let [rs (mapv #(form->type ctx %) (rest form))]
+        (import-result (ato/intersection-type prov (mapv :type rs))
+                       (merge-closed-refs rs)))
+
+      (tuple-shape? form)
+      (let [rs (mapv #(form->type ctx %) (rest form))]
+        (import-result (at/->VectorT prov (mapv :type rs) nil)
+                       (merge-closed-refs rs)))
+
+      (map-shape? form)
+      (let [entry-results (mapv #(map-entry->kv form->type ctx %)
+                                (map-entries-after-props form))]
+        (import-result
+         (at/->MapT prov (into {} (map (fn [e] [(:key e) (:type e)])) entry-results))
+         (merge-closed-refs entry-results)))
+
+      (multi-shape? form)
+      (let [dispatch (get-in form [1 :dispatch])
+            entries (drop 2 form)
+            triples (mapv #(multi-branch->triple form->type ctx dispatch %) entries)]
+        (import-result (at/->ConditionalT prov (mapv :triple triples))
+                       (merge-closed-refs triples)))
+
+      (enum-shape? form)
+      (import-result (ato/union-type prov (mapv #(ato/exact-value-type prov %)
+                                                (enum-values form))))
+
+      (eq-shape? form)
+      (import-result (ato/exact-value-type prov (second form)))
+
+      (schema-shape? form)
+      (form->type (merge-local-registry ctx (schema-props form))
+                  (schema-body form))
+
+      (ref-shape? form)
+      (resolve-ref ctx (second form))
+
+      :else
+      (import-result (malli-leaf->type prov form)))))
 
 (s/defn malli-spec->type :- ats/SemanticType
   "Convert a Malli spec to a semantic type."
   [prov  :- provs/Provenance
    value :- s/Any]
-  (form->type prov (admit-malli-spec value)))
+  (:type (form->type {:prov prov :registry {} :active-refs #{}}
+                     (admit-malli-spec value))))
