@@ -21,6 +21,15 @@
 (defn ^{:malli/schema [:=> [:cat :int] [:and :int :int]]} and-output-bad
   [_x] :not-an-int)
 
+(defn ^{:malli/schema [:=> [:cat :int :string] [:tuple :int :string]]} tuple-output-success
+  [x y] [x y])
+
+(defn ^{:malli/schema [:=> [:cat :int :string] [:tuple :int :string]]} tuple-output-bad-element
+  [x _y] [x :not-a-string])
+
+(defn ^{:malli/schema [:=> [:cat :int :string] [:tuple :int :string]]} tuple-output-bad-arity
+  [x y] [x y :extra])
+
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-success
   [x] (or x "fallback"))
 

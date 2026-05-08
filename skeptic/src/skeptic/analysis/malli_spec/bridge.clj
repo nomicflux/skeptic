@@ -78,6 +78,10 @@
   [form]
   (and (vector? form) (= :enum (first form))))
 
+(defn- tuple-shape?
+  [form]
+  (and (vector? form) (= :tuple (first form))))
+
 (defn- enum-values
   [form]
   (if (map? (second form))
@@ -101,6 +105,7 @@
     (maybe-shape? form) (at/->MaybeT prov (form->type prov (second form)))
     (or-shape? form) (ato/union-type prov (mapv #(form->type prov %) (rest form)))
     (and-shape? form) (ato/intersection-type prov (mapv #(form->type prov %) (rest form)))
+    (tuple-shape? form) (at/->VectorT prov (mapv #(form->type prov %) (rest form)) nil)
     (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
     :else (malli-leaf->type prov form)))
 

@@ -157,6 +157,7 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:maybe X]` → `MaybeT` over the converted inner.
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
     - `[:and X Y …]` → `ato/intersection-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side `sb/both?` behavior at `src/skeptic/analysis/bridge.clj:623-624`).
+    - `[:tuple X Y …]` → `at/->VectorT prov [Tx Ty …] nil` directly. The cast engine treats `tail=nil` `VectorT` as closed/exact-arity via `prefix-tail-cast-fails-arity?` at `src/skeptic/analysis/cast/collection.clj:24-26`, and Plumatic vector schemas already import to the same shape via `prefix-tail-import-type` at `src/skeptic/analysis/bridge.clj:644-645`, so a separate tuple type variant is not required. `[:tuple]` (zero-element) collapses in `m/form` to the bare keyword `:tuple` and falls through to `Dyn`.
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves resolve through a registry of supported keywords:
       - `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:symbol → Symbol`, `:boolean → Bool`, `:double → Double`, `:float → Float`, `:nil → ValueT(Dyn, nil)`, `:qualified-keyword → Keyword`, `:qualified-symbol → Symbol`, `:any → Dyn`.
@@ -173,7 +174,7 @@ Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = T
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:tuple` / `:enum`. `[:map ...]`, refs, `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
 - Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
 - Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
