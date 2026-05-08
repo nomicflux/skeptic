@@ -94,79 +94,106 @@
     :else
     one))
 
+(defn- resolve-form-var
+  [form]
+  (when (symbol? form)
+    (try (resolve form) (catch Exception _ nil))))
+
+(defn- lookup-form-ref
+  [v]
+  (when (and *form-refs* (instance? clojure.lang.Var v))
+    (some-> (.get ^java.util.IdentityHashMap *form-refs* v)
+            descriptors/raw->descriptor
+            :schema-form)))
+
+(defn- inline-named-name
+  [form]
+  (when (and (seq? form) (>= (count form) 3))
+    (let [head (first form)]
+      (when (or (= head 's/named) (= head 'schema.core/named))
+        (let [name-form (nth form 2)]
+          (cond
+            (and (seq? name-form) (= 'quote (first name-form))) (second name-form)
+            (symbol? name-form) name-form))))))
+
+(defn- inline-named-source-prov
+  [ctx-prov form]
+  (when-let [name-sym (inline-named-name form)]
+    (when (symbol? name-sym)
+      (prov/make-provenance :schema
+                            name-sym
+                            (:declared-in ctx-prov)
+                            (:var-meta ctx-prov)))))
+
+(defn- var-source-prov
+  [v]
+  (when (instance? clojure.lang.Var v)
+    (let [m (meta v)
+          qsym (sb/qualified-var-symbol v)]
+      (when (and qsym
+                 (not= 'schema.core (some-> v .ns ns-name))
+                 (not (:macro m))
+                 (bound? v))
+        (let [val @v]
+          (when (and (not (fn? val))
+                     (not (sb/schema-literal? val))
+                     (schema-domain? val))
+            (prov/make-provenance :schema
+                                  qsym
+                                  (some-> v .ns ns-name)
+                                  m)))))))
+
+(defn- named-prov
+  [ctx-prov v form]
+  (or (var-source-prov v)
+      (inline-named-source-prov ctx-prov form)))
+
+(defn- form-children
+  [run prov ctx form]
+  (cond
+    (map? form)    nil
+    (vector? form) (mapv #(run prov ctx %) form)
+    (set? form)    (mapv #(run prov ctx %) (vec form))
+    (seq? form)    (mapv #(run prov ctx %) (rest form))
+    :else          []))
+
+(defn- form-map-entries
+  [run prov ctx form]
+  (when (map? form)
+    (into {}
+          (map (fn [[k v]]
+                 [k {:key (run prov ctx k) :val (run prov ctx v)}]))
+          form)))
+
+(defn- form-conditional-branches
+  [run prov ctx form ref-form]
+  (let [source (cond
+                 (and (seq? form) (>= (count (rest form)) 2)) form
+                 (and (seq? ref-form) (>= (count (rest ref-form)) 2)) ref-form
+                 :else nil)]
+    (when source
+      (mapv (fn [[pred branch]]
+              {:pred-form pred
+               :schema-source (run prov ctx branch)})
+            (partition 2 (rest source))))))
+
+(defn- run-source
+  [prov ctx form]
+  (let [v        (resolve-form-var form)
+        qsym     (when (instance? clojure.lang.Var v) (sb/qualified-var-symbol v))
+        active?  (and qsym (contains? (:active-refs ctx) qsym))
+        ref-form (when (and v (not active?)) (lookup-form-ref v))
+        sub-ctx  (cond-> ctx
+                   qsym (update :active-refs conj qsym))]
+    {:form                 form
+     :named-prov           (named-prov prov v form)
+     :children             (form-children run-source prov sub-ctx form)
+     :map-entries          (form-map-entries run-source prov sub-ctx form)
+     :conditional-branches (form-conditional-branches run-source prov sub-ctx form ref-form)}))
+
 (defn- source-descriptor
   [prov form]
-  (letfn [(build [form]
-            (let [children (cond
-                             (map? form) nil
-                             (vector? form) (mapv build form)
-                             (set? form) (mapv build (vec form))
-                             (seq? form) (mapv build (rest form))
-                             :else [])
-                  referenced-schema-form (referenced-schema-form form)
-                  map-entries (when (map? form)
-                                (into {}
-                                      (map (fn [[k v]]
-                                             [k {:key (build k) :val (build v)}]))
-                                      form))]
-              {:form form
-               :named-prov (source-named-prov prov form)
-               :children children
-               :map-entries map-entries
-               :conditional-branches (or (conditional-branch-sources form)
-                                         (some-> referenced-schema-form
-                                                 conditional-branch-sources))}))
-          (resolve-symbol [form]
-            (when (symbol? form)
-              (try (resolve form) (catch Exception _ nil))))
-          (referenced-schema-form [form]
-            (when-let [v (resolve-symbol form)]
-              (when (and *form-refs* (instance? clojure.lang.Var v))
-                (some-> (.get ^java.util.IdentityHashMap *form-refs* v)
-                        descriptors/raw->descriptor
-                        :schema-form))))
-          (source-named-prov [ctx-prov form]
-            (or (var-source-prov form)
-                (inline-named-source-prov ctx-prov form)))
-          (var-source-prov [form]
-            (when-let [v (resolve-symbol form)]
-              (when (instance? clojure.lang.Var v)
-                (let [m (meta v)
-                      qsym (sb/qualified-var-symbol v)]
-                  (when (and qsym
-                             (not= 'schema.core (some-> v .ns ns-name))
-                             (not (:macro m))
-                             (bound? v))
-                    (let [val @v]
-                      (when (and (not (fn? val))
-                                 (not (sb/schema-literal? val))
-                                 (schema-domain? val))
-                        (prov/make-provenance :schema
-                                              qsym
-                                              (some-> v .ns ns-name)
-                                              m))))))))
-          (inline-named-source-prov [ctx-prov form]
-            (when-let [name-sym (inline-named-name form)]
-              (when (symbol? name-sym)
-                (prov/make-provenance :schema
-                                      name-sym
-                                      (:declared-in ctx-prov)
-                                      (:var-meta ctx-prov)))))
-          (inline-named-name [form]
-            (when (and (seq? form) (>= (count form) 3))
-              (let [head (first form)]
-                (when (or (= head 's/named) (= head 'schema.core/named))
-                  (let [name-form (nth form 2)]
-                    (cond
-                      (and (seq? name-form) (= 'quote (first name-form))) (second name-form)
-                      (symbol? name-form) name-form))))))
-          (conditional-branch-sources [form]
-            (when (seq? form)
-              (mapv (fn [[pred branch]]
-                      {:pred-form pred
-                       :schema-source (build branch)})
-                    (partition 2 (rest form)))))]
-    (build form)))
+  (run-source prov {:active-refs #{}} form))
 
 (defn- descriptor-source
   [prov descriptor]

@@ -381,6 +381,34 @@
     (is (= :schema (prov/source (prov/of val-type))))
     (is (= map-body-qsym (:qualified-sym (prov/of val-type))))))
 
+(deftest source-descriptor-cycle-via-cond-pre-vector-terminates-test
+  (let [form '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/BoundSchemaRef])
+        form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
+        descriptor (binding [ab/*form-refs* form-refs]
+                     (#'ab/source-descriptor tp form))]
+    (is (some? descriptor))
+    (is (= form (:form descriptor)))))
+
+(deftest source-descriptor-cycle-via-conditional-self-terminates-test
+  (let [form '(schema.core/conditional clojure.core/even? skeptic.analysis.bridge-test/BoundSchemaRef
+                                       clojure.core/odd? skeptic.analysis.bridge-test/BoundSchemaRef)
+        form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
+        descriptor (binding [ab/*form-refs* form-refs]
+                     (#'ab/source-descriptor tp form))]
+    (is (some? descriptor))
+    (is (= form (:form descriptor)))))
+
+(deftest source-descriptor-cycle-via-mutual-vars-terminates-test
+  (let [form-a '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/AliasedSchema])
+        form-b '(schema.core/cond-pre schema.core/Str [skeptic.analysis.bridge-test/BoundSchemaRef])
+        form-refs (doto (java.util.IdentityHashMap.)
+                    (.put #'BoundSchemaRef form-a)
+                    (.put #'AliasedSchema form-b))
+        descriptor (binding [ab/*form-refs* form-refs]
+                     (#'ab/source-descriptor tp form-a))]
+    (is (some? descriptor))
+    (is (= form-a (:form descriptor)))))
+
 (deftest source-intake-named-conditional-reference-keeps-branch-predicate-source-test
   (let [ns-sym 'skeptic.test-examples.contracts
         source-file (File. "test/skeptic/test_examples/contracts.clj")
