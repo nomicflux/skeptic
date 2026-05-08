@@ -4,6 +4,13 @@ Scope: the external shape of [Malli](https://github.com/metosin/malli) that Skep
 
 Sourced from the official Malli README and `docs/function-schemas.md` at `github.com/metosin/malli`, pinned to release **0.20.1**.
 
+The entire Malli intake described below — `m/=>`, `mx/defn`, `:malli/schema`
+Var-meta, and `malli.core/function-schemas` registry projection — can be
+disabled wholesale with the `--malli-disable` CLI flag. When set, no Malli
+declaration contributes to the merged dict, no `:malli` provenance is
+constructed, and no finding will report `[source: malli]`. See the README's
+"Disabling an intake stream" section.
+
 ## Schema syntaxes
 
 Malli exposes three parallel surface syntaxes. Skeptic admits values from all of them through `malli.core/schema` (which canonicalizes via `m/form`).

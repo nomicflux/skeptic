@@ -72,14 +72,16 @@
 
 (defn typed-ns-results
   [opts ns]
-  (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)
-        result (convert-descs ns entries)
-        result (update result :errors into errors)
-        overrides (or (:skeptic/type-overrides opts) {})]
-    (reduce (fn [acc [sym v]]
-              (-> acc
-                  (assoc-in [:dict sym] v)
-                  (assoc-in [:provenance sym]
-                            (prov/make-provenance :type-override sym nil nil))))
-            result
-            overrides)))
+  (if (:plumatic-disable opts)
+    (empty-result)
+    (let [{:keys [entries errors]} (collect/ns-schema-results opts ns)
+          result (convert-descs ns entries)
+          result (update result :errors into errors)
+          overrides (or (:skeptic/type-overrides opts) {})]
+      (reduce (fn [acc [sym v]]
+                (-> acc
+                    (assoc-in [:dict sym] v)
+                    (assoc-in [:provenance sym]
+                              (prov/make-provenance :type-override sym nil nil))))
+              result
+              overrides))))

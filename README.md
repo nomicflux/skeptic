@@ -82,10 +82,38 @@ Options:
   output instead of compact declared names.
 - `-p`, `--porcelain`: emit machine-readable JSONL (one JSON object per line)
   instead of the default human-readable output. See [Output](#output) below.
+- `--plumatic-disable`: skip Plumatic Schema intake entirely. No `s/defn` /
+  `s/def` / `s/defschema` declarations are admitted, no `:skeptic/type-overrides`
+  are applied, and no finding will report `[source: schema]` /
+  `"source": "type-override"`. See [Disabling an intake stream](#disabling-an-intake-stream).
+- `--malli-disable`: skip Malli intake entirely. No `m/=>`, `mx/defn`, or
+  `:malli/schema` Var-meta declarations are admitted, and no finding will report
+  `[source: malli]`. See [Disabling an intake stream](#disabling-an-intake-stream).
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
   stdout, so lein/JVM messages stay on stdout. Works with text and `-p` JSONL
   output.
+
+### Disabling an intake stream
+
+Skeptic admits typed declarations from two independent stream sources —
+Plumatic Schema (`s/defn` / `s/def` / `s/defschema`) and Malli (`m/=>`,
+`mx/defn`, `:malli/schema` Var-meta) — plus Skeptic's built-in native-fn
+registry. `--plumatic-disable` and `--malli-disable` switch off either stream
+wholesale.
+
+When a stream is disabled:
+
+- No declarations from that stream contribute to the merged type dict.
+- No findings carry that stream's `source:` attribution.
+- The other stream is unaffected; native-fn checks still run.
+- A Var declared in **both** streams (i.e. `s/defn` + `m/=>` on the same
+  symbol) is still admitted via the surviving stream.
+- `--plumatic-disable` also disables `:skeptic/type-overrides` from
+  `.skeptic/config.edn`, since overrides are a Plumatic-domain construct.
+
+Both flags can be combined; the result is a run that checks only against
+Skeptic's built-in native-fn declarations.
 
 ## Output
 

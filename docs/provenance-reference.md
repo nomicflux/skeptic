@@ -52,6 +52,10 @@ high-to-low priority (lower number = higher priority):
   `skeptic.schema.collect/ns-schema-results`
   (`skeptic/src/skeptic/schema/collect.clj:223-239`). Each var with
   `:schema` metadata yields one entry keyed on its qualified-sym.
+  Skipped wholesale when `:plumatic-disable` is set in opts:
+  `typed-ns-results` early-returns an empty result, and
+  `pipeline/ns-var-provs` skips its `:schema` branch — so the dict and
+  provs maps cannot disagree about whether the stream contributed anything.
 
 - **`:malli`** — `skeptic/src/skeptic/typed_decls/malli.clj:13-17`
   ```clojure
@@ -60,6 +64,8 @@ high-to-low priority (lower number = higher priority):
   Gathered from vars carrying `:malli/schema` metadata by
   `skeptic.malli-spec.collect/ns-malli-spec-results`
   (`skeptic/src/skeptic/malli_spec/collect.clj:18-36`).
+  Skipped wholesale when `:malli-disable` is set: `typed-ns-malli-results`
+  early-returns empty, and `pipeline/ns-var-provs` skips its `:malli` branch.
 
 - **`:type-override`** — three admit sites, all share shape
   `(prov/make-provenance :type-override sym nil nil)`:
@@ -68,6 +74,11 @@ high-to-low priority (lower number = higher priority):
   - `skeptic/src/skeptic/config.clj:42`
   - `skeptic/src/skeptic/analysis/annotate.clj:77` — applied during flow
     analysis when an annotation-layer override is present.
+
+  Skipped wholesale when `:plumatic-disable` is set: overrides are a
+  Plumatic-domain construct, so `typed-ns-results` (which applies them) and
+  `pipeline/project-var-provs` (which seeds the override-prov map) both
+  short-circuit, leaving no `:type-override` admissions.
 
 - **`:native`** — `skeptic/src/skeptic/analysis/native_fns.clj:14`
   ```clojure

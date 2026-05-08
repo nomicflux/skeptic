@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `--plumatic-disable` and `--malli-disable` CLI flags to switch off either
+  intake stream entirely. A disabled stream contributes no entries to the
+  merged type dict, no provenance, and no findings whose source matches the
+  disabled stream's tag (`schema` for `--plumatic-disable`, `malli` for
+  `--malli-disable`). `--plumatic-disable` additionally suppresses
+  `:skeptic/type-overrides` since overrides are a Plumatic-domain construct.
+  A Var declared via both streams is still admitted via the enabled one;
+  combining both flags leaves only Skeptic's built-in native-fn declarations.
 - Basic, experimental Malli declaration support for `:malli/schema` var
   metadata. Skeptic now converts simple `[:=> [:cat ...] out]` function
   schemas, primitive leaves, `:maybe`, `:or`, `:enum`, and recognized

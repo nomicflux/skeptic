@@ -53,7 +53,11 @@ parse the machine-readable stream.
 
 `report_kind` is `"input"` (argument/call site) or `"output"` (return value).
 `location.source` identifies where the reported type came from: `"schema"`,
-`"malli"`, `"native"`, `"type-override"`, or `"inferred"`.
+`"malli"`, `"native"`, `"type-override"`, or `"inferred"`. `--plumatic-disable`
+removes every line whose `source` would be `"schema"` (and removes
+`"type-override"`, since overrides are Plumatic-domain); `--malli-disable`
+removes every line whose `source` would be `"malli"`. The stream shape, exit
+codes, and per-kind layouts are otherwise unchanged.
 `actual_type` and `expected_type` are structured, tagged representations of
 Skeptic's type system — see [Structured type tags](#structured-type-tags)
 below. The `*_str` fields mirror the same type as a human-readable string;

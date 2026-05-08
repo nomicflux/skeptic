@@ -20,6 +20,8 @@
     :update-fn (fnil conj [])]
    [nil  "--explain-full" "Show fully expanded structural forms in type-mismatch output (disable name-folding)"]
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
+   [nil  "--plumatic-disable" "Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema declarations and :skeptic/type-overrides)"]
+   [nil  "--malli-disable" "Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
    ["-o" "--output OUTPUT_FILE" "Write skeptic output to this file instead of stdout"]
@@ -38,6 +40,8 @@ Options:
                             (repeatable; -n a -n b or -n a,b)
       --explain-full        Show fully expanded structural forms in type-mismatch output (disable name-folding)
   -p, --porcelain           Emit machine-readable JSONL (one JSON object per line)
+      --plumatic-disable    Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema and :skeptic/type-overrides)
+      --malli-disable       Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)
       --debug               Emit raw internal state for cross-environment diffing
       --profile             Profile the run (CPU, memory, wall-clock time)
   -o, --output FILE         Write skeptic output to this file instead of stdout

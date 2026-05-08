@@ -629,10 +629,12 @@
 (defn- ns-var-provs
   "Per-namespace pre-admission {qsym → Provenance}. Plumatic anchors :schema
   with declared Var meta; Malli anchors :malli on every Var the Malli admission
-  collector would admit (registry ∪ :malli/schema Var-meta walk)."
-  [ns-sym discovery-out]
+  collector would admit (registry ∪ :malli/schema Var-meta walk).
+  Each branch is gated by the corresponding intake-disable opt so the provs
+  map cannot announce a stream that produced no admission."
+  [opts ns-sym discovery-out]
   (let [schema-provs
-        (when discovery-out
+        (when (and (not (:plumatic-disable opts)) discovery-out)
           (into {}
                 (keep (fn [[qsym {:keys [declared-sym]}]]
                         (when-let [v (ns-resolve (the-ns ns-sym) declared-sym)]
@@ -640,12 +642,13 @@
                             [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
                 (:declarations discovery-out)))
         malli-provs
-        (try
-          (into {}
-                (map (fn [qsym]
-                       [qsym (prov/make-provenance :malli qsym ns-sym nil)]))
-                (malli-collect/malli-admitted-qsyms ns-sym))
-          (catch Exception _ {}))]
+        (when-not (:malli-disable opts)
+          (try
+            (into {}
+                  (map (fn [qsym]
+                         [qsym (prov/make-provenance :malli qsym ns-sym nil)]))
+                  (malli-collect/malli-admitted-qsyms ns-sym))
+            (catch Exception _ {})))]
     (merge schema-provs malli-provs)))
 
 (s/defn namespace-dict :- s/Any
@@ -682,12 +685,14 @@
 (defn project-var-provs
   [opts project-disc]
   (let [type-override-provs
-        (into {}
-              (map (fn [[sym _]]
-                     [sym (prov/make-provenance :type-override sym nil nil)]))
-              (or (:skeptic/type-overrides opts) {}))]
+        (if (:plumatic-disable opts)
+          {}
+          (into {}
+                (map (fn [[sym _]]
+                       [sym (prov/make-provenance :type-override sym nil nil)]))
+                (or (:skeptic/type-overrides opts) {})))]
     (reduce-kv (fn [acc ns-sym discovery-out]
-                 (merge acc (ns-var-provs ns-sym discovery-out)))
+                 (merge acc (ns-var-provs opts ns-sym discovery-out)))
                (merge native-fns/native-fn-provenance type-override-provs)
                project-disc)))
 

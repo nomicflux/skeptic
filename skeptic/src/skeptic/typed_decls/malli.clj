@@ -50,8 +50,10 @@
 
 (defn typed-ns-malli-results
   [opts ns]
-  (let [{:keys [entries errors]} (mcollect/ns-malli-spec-results opts ns)]
-    (reduce (fn [acc [qualified-sym desc]]
-              (merge-two acc (safe-convert ns qualified-sym desc)))
-            (-> (empty-result) (update :errors into errors))
-            entries)))
+  (if (:malli-disable opts)
+    (empty-result)
+    (let [{:keys [entries errors]} (mcollect/ns-malli-spec-results opts ns)]
+      (reduce (fn [acc [qualified-sym desc]]
+                (merge-two acc (safe-convert ns qualified-sym desc)))
+              (-> (empty-result) (update :errors into errors))
+              entries))))
