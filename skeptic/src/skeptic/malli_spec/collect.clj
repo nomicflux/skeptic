@@ -65,3 +65,18 @@
 (defn ns-malli-specs
   [opts ns]
   (:entries (ns-malli-spec-results opts ns)))
+
+(defn malli-admitted-qsyms
+  "Qsym set the Malli admission collector would admit for ns-sym, without
+  converting schema bodies. Union of registry-registered Vars (m/=>, mx/defn)
+  and :malli/schema Var-meta-only Vars. Used by pipeline var-provs population
+  so it cannot disagree with what ns-malli-spec-results admits."
+  [ns-sym]
+  (require ns-sym)
+  (let [registered (registry-entries ns-sym)
+        registered-syms (into #{} (map first) registered)
+        meta-only (var-meta-entries ns-sym registered-syms)]
+    (into #{}
+          (map (fn [[fn-sym _ _]]
+                 (symbol (name ns-sym) (name fn-sym))))
+          (concat registered meta-only))))

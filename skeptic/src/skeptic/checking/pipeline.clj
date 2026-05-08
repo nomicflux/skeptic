@@ -1,7 +1,5 @@
 (ns skeptic.checking.pipeline
-  (:require [malli.core :as m]
-            [malli.instrument :as mi]
-            [schema.core :as s]
+  (:require [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
@@ -18,6 +16,7 @@
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
+            [skeptic.malli-spec.collect :as malli-collect]
             [skeptic.provenance :as prov]
             [skeptic.schema.discovery :as discovery]
             [skeptic.typed-decls :as typed-decls]
@@ -627,17 +626,10 @@
           :when (var? v)]
     (.put form-refs v form)))
 
-(defn- malli-projection
-  [ns-sym]
-  (try
-    (require ns-sym)
-    (mi/collect! {:ns ns-sym})
-    (get (m/function-schemas) ns-sym)
-    (catch Exception _ nil)))
-
 (defn- ns-var-provs
   "Per-namespace pre-admission {qsym → Provenance}. Plumatic anchors :schema
-  with declared Var meta; Malli anchors :malli on registered fn-syms."
+  with declared Var meta; Malli anchors :malli on every Var the Malli admission
+  collector would admit (registry ∪ :malli/schema Var-meta walk)."
   [ns-sym discovery-out]
   (let [schema-provs
         (when discovery-out
@@ -648,23 +640,24 @@
                             [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
                 (:declarations discovery-out)))
         malli-provs
-        (when-let [projection (malli-projection ns-sym)]
+        (try
           (into {}
-                (map (fn [[fn-sym _entry]]
-                       (let [qsym (symbol (name ns-sym) (name fn-sym))]
-                         [qsym (prov/make-provenance :malli qsym ns-sym nil)])))
-                projection))]
+                (map (fn [qsym]
+                       [qsym (prov/make-provenance :malli qsym ns-sym nil)]))
+                (malli-collect/malli-admitted-qsyms ns-sym))
+          (catch Exception _ {}))]
     (merge schema-provs malli-provs)))
 
 (s/defn namespace-dict :- s/Any
   [opts ns-sym :- s/Symbol source-file]
   (require ns-sym)
+  (when-not (contains? opts :skeptic/var-provs)
+    (throw (ex-info "namespace-dict requires :skeptic/var-provs in opts (intake invariant)"
+                    {:ns ns-sym})))
   (let [discovery-out (or (get-in opts [:skeptic/project-discovery ns-sym])
                           (when source-file (discovery/discover ns-sym source-file)))
         form-refs (java.util.IdentityHashMap.)
-        var-provs (or (:skeptic/var-provs opts)
-                      (merge native-fns/native-fn-provenance
-                             (ns-var-provs ns-sym discovery-out)))
+        var-provs (:skeptic/var-provs opts)
         opts' (cond-> opts source-file (assoc :skeptic/source-file source-file))]
     (when discovery-out
       (populate-form-refs! form-refs ns-sym discovery-out))
@@ -676,7 +669,7 @@
             merged (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])]
         merged))))
 
-(defn- project-discovery
+(defn project-discovery
   [nss-with-source-files]
   (reduce (fn [acc [ns-sym source-file]]
             (if-not source-file
@@ -686,12 +679,17 @@
           {}
           nss-with-source-files))
 
-(defn- project-var-provs
-  [project-disc]
-  (reduce-kv (fn [acc ns-sym discovery-out]
-               (merge acc (ns-var-provs ns-sym discovery-out)))
-             native-fns/native-fn-provenance
-             project-disc))
+(defn project-var-provs
+  [opts project-disc]
+  (let [type-override-provs
+        (into {}
+              (map (fn [[sym _]]
+                     [sym (prov/make-provenance :type-override sym nil nil)]))
+              (or (:skeptic/type-overrides opts) {}))]
+    (reduce-kv (fn [acc ns-sym discovery-out]
+                 (merge acc (ns-var-provs ns-sym discovery-out)))
+               (merge native-fns/native-fn-provenance type-override-provs)
+               project-disc)))
 
 (s/defn project-state :- s/Any
   "Source-of-truth for the project pass: per-ns admission once, dicts merged
@@ -703,7 +701,7 @@
   and conditional discriminators ride the same project pass."
   [opts nss-with-source-files]
   (let [project-disc (project-discovery nss-with-source-files)
-        var-provs (project-var-provs project-disc)
+        var-provs (project-var-provs opts project-disc)
         opts (assoc opts
                     :skeptic/project-discovery project-disc
                     :skeptic/var-provs var-provs)
@@ -740,25 +738,20 @@
      :per-ns per-ns}))
 
 (defn- prepare-namespace
-  [opts ns-sym source-file]
+  [opts ns-sym _source-file]
   (let [{:keys [project-state]} opts
         per-ns-entry (get-in project-state [:per-ns ns-sym])]
+    (when-not (and project-state per-ns-entry)
+      (throw (ex-info "prepare-namespace requires project-state with per-ns entry (intake invariant)"
+                      {:ns ns-sym :have-project-state? (some? project-state)})))
     (binding [*ns* (the-ns ns-sym)]
-      (if (and project-state per-ns-entry)
-        (let [{:keys [dict accessor-summaries]} project-state
-              {:keys [ignore-body errors provenance]} per-ns-entry]
-          {:dict dict
-           :ignore-body ignore-body
-           :accessor-summaries accessor-summaries
-           :errors errors
-           :provenance provenance})
-        (let [{:keys [dict ignore-body errors provenance]} (namespace-dict opts ns-sym source-file)
-              dict (enrich-conditional-descriptors dict {})]
-          {:dict dict
-           :ignore-body ignore-body
-           :accessor-summaries {}
-           :errors errors
-           :provenance provenance})))))
+      (let [{:keys [dict accessor-summaries]} project-state
+            {:keys [ignore-body errors provenance]} per-ns-entry]
+        {:dict dict
+         :ignore-body ignore-body
+         :accessor-summaries accessor-summaries
+         :errors errors
+         :provenance provenance}))))
 
 (s/defn check-s-expr :- s/Any
   [s-expr {:keys [ns source-file check-def] :as opts}]

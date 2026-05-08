@@ -1,5 +1,5 @@
 (ns skeptic.analysis.bridge-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.algebra :as aba]
@@ -17,6 +17,23 @@
             [skeptic.test-helpers :refer [is-type= T tp]]
             [skeptic.typed-decls :as td])
   (:import [java.io File]))
+
+(defn- ns-var-provs
+  [ns-sym]
+  (require ns-sym)
+  (into {}
+        (keep (fn [[_ v]]
+                (when (and (var? v) (bound? v))
+                  (let [qsym (sb/qualified-var-symbol v)]
+                    [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
+        (ns-interns ns-sym)))
+
+(use-fixtures :each
+  (fn [test-fn]
+    (binding [ab/*var-provs* (merge (ns-var-provs 'skeptic.analysis.bridge-test)
+                                    (ns-var-provs 'skeptic.test-examples.form-refs)
+                                    (ns-var-provs 'skeptic.analysis.origin.schema))]
+      (test-fn))))
 
 (defn- form-refs-from-discovery
   [ns-sym source-file]
@@ -77,7 +94,7 @@
 (deftest raw-schema-var-normalization-test
   (is (= s/Int
          (abc/canonicalize-schema #'BoundSchemaRef)))
-  (is (= "Int"
+  (is (= "skeptic.analysis.bridge-test/BoundSchemaRef"
          (abr/render-type (ab/schema->type tp #'BoundSchemaRef))))
   (is (= (sb/placeholder-schema 'skeptic.analysis.bridge-test/UnboundSchemaRef)
          (abc/canonicalize-schema #'UnboundSchemaRef)))

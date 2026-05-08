@@ -334,7 +334,10 @@
                              (throw (ex-info "boom during realization" {})))
                            [::explode])
                       (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
-      (let [{:keys [results]} (checking/check-namespace {:remove-context true}
+      (let [proj-state (checking/project-state {:remove-context true}
+                                                [['skeptic.check-project-best-effort-examples source-file]])
+            {:keys [results]} (checking/check-namespace {:remove-context true
+                                                          :project-state proj-state}
                                                         'skeptic.check-project-best-effort-examples
                                                         source-file)
             exception-result (some #(when (= :expression (:phase %)) %) results)

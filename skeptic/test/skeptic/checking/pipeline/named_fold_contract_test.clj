@@ -6,7 +6,8 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as pipeline]
             [skeptic.test-examples.named-fold-contract-probe]
-            [skeptic.test-helpers :refer [some!]])
+            [skeptic.test-helpers :refer [some!]]
+            [skeptic.test-support.project-state :as test-state])
   (:import [java.io File]))
 
 (def fixture-file (File. "test/skeptic/test_examples/named_fold_contract_probe.clj"))
@@ -27,7 +28,7 @@
 (defn- analysis-env
   []
   (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (pipeline/namespace-dict {} fixture-ns fixture-file)
+        {:keys [dict]} (test-state/admit-ns fixture-ns fixture-file)
         analyzed (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)]
     (assoc analyzed :dict dict)))
 

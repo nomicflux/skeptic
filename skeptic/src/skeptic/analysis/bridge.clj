@@ -410,12 +410,17 @@
       (let [qsym (sb/qualified-var-symbol schema-var)
             hit (when (and *var-provs* qsym)
                   (get *var-provs* qsym))]
-        (run (cond-> (assoc ctx
-                            :schema @schema-var
-                            :prov (or hit prov)
-                            :active-refs (conj active-refs var-ref)
-                            :owner-ref var-ref)
-               hit (assoc :name-claimed? false))))
+        (when-not hit
+          (throw (ex-info "var-import-type: no Provenance for referenced Var (intake invariant violated)"
+                          {:qsym qsym
+                           :referenced-from (some-> prov :declared-in)
+                           :var-provs-bound? (some? *var-provs*)})))
+        (run (assoc ctx
+                    :schema @schema-var
+                    :prov hit
+                    :active-refs (conj active-refs var-ref)
+                    :owner-ref var-ref
+                    :name-claimed? false)))
 
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))

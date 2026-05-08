@@ -8,7 +8,8 @@
             [skeptic.source :as source]
             [skeptic.test-examples.catalog :as catalog]
             [skeptic.test-examples.contracts :as contracts]
-            [skeptic.test-helpers :refer [is-type= T tp]])
+            [skeptic.test-helpers :refer [is-type= T tp]]
+            [skeptic.test-support.project-state :as test-state])
   (:import [java.io File]))
 
 (defn set-cache-value
@@ -201,7 +202,7 @@
           fixture-file (fixture-file-for-ns fixture-ns)
           accessor-summaries (:accessor-summaries (checking/project-state
                                                    {} [[fixture-ns fixture-file]]))
-          {dict :dict} (checking/namespace-dict {} fixture-ns fixture-file)
+          {dict :dict} (test-state/admit-ns fixture-ns fixture-file)
           dict (#'checking/enrich-conditional-descriptors dict accessor-summaries)
           form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})

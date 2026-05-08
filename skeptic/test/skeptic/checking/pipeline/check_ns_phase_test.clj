@@ -6,7 +6,8 @@
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.source :as source]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.test-support.project-state :as test-state]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
 
@@ -175,7 +176,7 @@
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
                                               (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
-      (let [{:keys [dict ignore-body]} (sut/namespace-dict {} 'skeptic.test-examples.basics file)
+      (let [{:keys [dict ignore-body]} (test-state/admit-ns 'skeptic.test-examples.basics file)
             form-results (sut/check-ns-form dict
                                             ignore-body
                                             'skeptic.test-examples.basics
