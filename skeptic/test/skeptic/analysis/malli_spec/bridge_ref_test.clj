@@ -16,7 +16,8 @@
 (deftest ref-resolves-inside-nested-shape
   (is (= (at/->MapT
           tp
-          {(ato/exact-value-type tp :y) (at/->GroundT tp :int 'Int)})
+          {(ato/exact-value-type tp :y) (at/->GroundT tp :int 'Int)
+           (at/->GroundT tp :keyword 'Keyword) (at/Dyn tp)})
          (sut/malli-spec->type
           tp
           [:schema {:registry {::x :int}}

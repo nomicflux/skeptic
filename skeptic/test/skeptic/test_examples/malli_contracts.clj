@@ -129,3 +129,73 @@
                         [:ref ::ints]]]}
   recursive-ref-output-nil
   [] nil)
+
+(defn ^{:malli/schema [:function
+                       [:=> [:cat :int] :int]
+                       [:=> [:cat :int :int] :int]]}
+  multi-arity-fn
+  ([x] x)
+  ([x y] (+ x y)))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} multi-arity-success
+  [] (multi-arity-fn 1 2))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} multi-arity-bad-arg
+  [] (multi-arity-fn "hello"))
+
+(defn ^{:malli/schema [:=> [:cat [:vector :int]] :int]} vector-input
+  [xs] (count xs))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} vector-input-success
+  [] (vector-input [1 2 3]))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} vector-input-bad-element
+  [] (vector-input ["a" "b"]))
+
+(defn ^{:malli/schema [:=> [:cat] [:vector :int]]} vector-output-success
+  [] [1 2 3])
+
+(defn ^{:malli/schema [:=> [:cat] [:vector :int]]} vector-output-bad-element
+  [] [1 :not-an-int])
+
+(defn ^{:malli/schema [:=> [:cat [:set :int]] :int]} set-input
+  [xs] (count xs))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} set-input-success
+  [] (set-input #{1 2 3}))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} set-input-bad-element
+  [] (set-input #{:not-an-int}))
+
+(defn ^{:malli/schema [:=> [:cat] [:set :int]]} set-output-success
+  [] #{1 2 3})
+
+(defn ^{:malli/schema [:=> [:cat] [:set :int]]} set-output-bad-element
+  [] #{:not-an-int})
+
+(defn ^{:malli/schema [:=> [:cat [:sequential :int]] :int]} seq-input
+  [xs] (count xs))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} seq-input-success
+  [] (seq-input [1 2 3]))
+
+(defn ^{:malli/schema [:=> [:cat] :int]} seq-input-bad-element
+  [] (seq-input ["a" "b"]))
+
+(defn ^{:malli/schema [:=> [:cat] [:sequential :int]]} seq-output-success
+  [] [1 2 3])
+
+(defn ^{:malli/schema [:=> [:cat] [:sequential :int]]} seq-output-bad-element
+  [] [:not-an-int])
+
+(defn ^{:malli/schema [:=> [:cat] [:map {:closed true} [:x :int]]]} closed-map-output-success
+  [] {:x 1})
+
+(defn ^{:malli/schema [:=> [:cat] [:map {:closed true} [:x :int]]]} closed-map-extra-key-fails
+  [] {:x 1 :extra "x"})
+
+(defn ^{:malli/schema [:=> [:cat] [:map [:x :int]]]} open-map-extra-key-allowed
+  [] {:x 1 :extra "x"})
+
+(defn ^{:malli/schema [:=> [:cat] [:map [:x :int]]]} open-map-required-key-missing
+  [] {})

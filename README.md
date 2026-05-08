@@ -278,8 +278,9 @@ After this, call sites of `infof` are checked as returning `nil`.
 
 ## Experimental Malli support
 
-Skeptic can read simple Malli function declarations from `:malli/schema` var
-metadata:
+Skeptic reads Malli function declarations from `:malli/schema` Var metadata
+and from the compile-time `(malli.core/function-schemas)` registry (which
+captures `m/=>` and `malli.experimental/defn` declarations):
 
 ```clojure
 (defn takes-int
@@ -288,23 +289,28 @@ metadata:
   (str x))
 ```
 
-Currently parsed forms include
-`[:=> [:cat ...] out]`, primitive leaves such as `:int`, `:string`,
-`:keyword`, `:symbol`, `:boolean`, `:double`, `:float`, `:nil`,
-`:qualified-keyword`, `:qualified-symbol`, and `:any`, plus `:maybe`,
-`:or`, `:and`, `:tuple`, `:map` (with required keys, `{:optional true}`
-keys, and nested values; `:closed` is currently ignored — Skeptic
-represents `:map` as closed-by-default), `:multi` with `{:dispatch :kw}`
-tagged-dispatch (later branches are correctly narrowed by negation of
-earlier tags; fn-dispatch is admitted but each arm stands alone),
-`:=`, `:enum`, `:schema` (with optional `{:registry {...}}` properties
-carrying a local registry), `:ref` (resolved through the active
-registry, with cycle detection: a recursive position emits an
+Currently parsed forms include single-arity `[:=> [:cat ...] out]` and
+multi-arity `[:function [:=> ...] [:=> ...]]`; primitive leaves such as
+`:int`, `:string`, `:keyword`, `:symbol`, `:boolean`, `:double`, `:float`,
+`:nil`, `:qualified-keyword`, `:qualified-symbol`, and `:any`; plus
+`:maybe`, `:or`, `:and`, `:tuple`, `:vector`, `:set`, `:sequential` (with
+optional `:min`/`:max` properties parsed and dropped — Skeptic does not
+constrain container length), `:map` (with required keys,
+`{:optional true}` keys, and nested values; `:closed true` is honored,
+and the default is open — extra keyword keys are admitted with `Any`
+values, mirroring Malli's open-by-default semantics), `:multi` with
+`{:dispatch :kw}` tagged-dispatch (later branches are correctly narrowed
+by negation of earlier tags; fn-dispatch is admitted but each arm stands
+alone), `:=`, `:enum`, `:schema` (with optional `{:registry {...}}`
+properties carrying a local registry), `:ref` (resolved through the
+active registry, with cycle detection: a recursive position emits an
 `InfCycleT` rather than diverging), and bare predicate symbols that
 Skeptic recognizes.
 
-Broader Malli forms are still experimental. Unsupported forms are admitted when
-Malli accepts them; their Skeptic type is currently dynamic.
+Broader Malli forms are still experimental. Sequence/regex combinators
+outside the `:=>` head (e.g. `:cat` outside the function head, `:alt`,
+`:*`, `:+`, `:?`, `:repeat`, `:re`, `:fn`) are admitted when Malli
+accepts them; their Skeptic type is currently dynamic.
 
 ## Suppressing checks
 

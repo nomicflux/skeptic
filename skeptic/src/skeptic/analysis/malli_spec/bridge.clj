@@ -63,13 +63,47 @@
       :else (at/Dyn prov))))
 
 (defn- function-shape?
-  "Check if canonical form is [:=> [:cat & inputs] output]."
+  "Check if canonical form is [:=> CAT output] where CAT is either
+  [:cat & inputs] or the bare keyword :cat (m/form's canonical form
+  for an empty input list, since [:cat] collapses to :cat)."
   [form]
   (and (vector? form)
        (= 3 (count form))
        (= :=> (first form))
-       (vector? (second form))
-       (= :cat (first (second form)))))
+       (let [inputs-form (second form)]
+         (or (= :cat inputs-form)
+             (and (vector? inputs-form)
+                  (= :cat (first inputs-form)))))))
+
+(defn- function-arm-inputs
+  "Extract input forms from a [:=> ...] arm, handling both [:cat & inputs] and bare :cat."
+  [form]
+  (let [inputs-form (second form)]
+    (if (= :cat inputs-form) [] (rest inputs-form))))
+
+(defn- function-multi-arms
+  "Return the :=> arms of a [:function ...] form, or nil if not a :function form."
+  [form]
+  (when (and (vector? form) (= :function (first form)))
+    (let [arms (if (map? (second form)) (drop 2 form) (rest form))]
+      (when (and (seq arms) (every? function-shape? arms))
+        (vec arms)))))
+
+(defn- function-multi-shape?
+  [form]
+  (some? (function-multi-arms form)))
+
+(defn- coll-shape?
+  [tag form]
+  (and (vector? form) (= tag (first form))))
+
+(defn- vector-shape? [form] (coll-shape? :vector form))
+(defn- set-shape? [form] (coll-shape? :set form))
+(defn- sequential-shape? [form] (coll-shape? :sequential form))
+
+(defn- coll-child-form
+  [form]
+  (if (map? (second form)) (nth form 2) (second form)))
 
 (defn- maybe-shape?
   [form]
@@ -115,6 +149,10 @@
   [form]
   (let [tail (rest form)]
     (if (map? (first tail)) (rest tail) tail)))
+
+(defn- map-props
+  [form]
+  (when (map? (second form)) (second form)))
 
 (defn- map-entry->kv
   [run ctx entry]
@@ -184,30 +222,57 @@
       :else
       (import-result (at/->PlaceholderT prov ref-name)))))
 
-(defn- function-result
+(defn- function-arm->method
   [ctx form]
   (let [prov (:prov ctx)
-        inputs (rest (second form))
+        inputs (function-arm-inputs form)
         output (nth form 2)
         names (mapv #(symbol (str "arg" %)) (range (count inputs)))
         input-results (mapv #(form->type ctx %) inputs)
         output-result (form->type ctx output)]
-    (import-result
-     (at/->FunT prov
-                [(at/->FnMethodT prov
-                                 (mapv :type input-results)
-                                 (:type output-result)
-                                 (count inputs)
-                                 false
-                                 names)])
-     (merge-closed-refs (conj input-results output-result)))))
+    {:method (at/->FnMethodT prov
+                             (mapv :type input-results)
+                             (:type output-result)
+                             (count inputs)
+                             false
+                             names)
+     :closed-refs (merge-closed-refs (conj input-results output-result))}))
+
+(defn- function-result
+  [ctx form]
+  (let [prov (:prov ctx)
+        arm (function-arm->method ctx form)]
+    (import-result (at/->FunT prov [(:method arm)])
+                   (:closed-refs arm))))
+
+(defn- function-multi-result
+  [ctx form]
+  (let [prov (:prov ctx)
+        arm-results (mapv #(function-arm->method ctx %) (function-multi-arms form))]
+    (import-result (at/->FunT prov (mapv :method arm-results))
+                   (merge-closed-refs arm-results))))
 
 (defn- form->type
   [ctx form]
   (let [prov (:prov ctx)]
     (cond
+      (function-multi-shape? form)
+      (function-multi-result ctx form)
+
       (function-shape? form)
       (function-result ctx form)
+
+      (vector-shape? form)
+      (let [r (form->type ctx (coll-child-form form))]
+        (import-result (at/->VectorT prov [] (:type r)) (:closed-refs r)))
+
+      (set-shape? form)
+      (let [r (form->type ctx (coll-child-form form))]
+        (import-result (at/->SetT prov #{(:type r)} true) (:closed-refs r)))
+
+      (sequential-shape? form)
+      (let [r (form->type ctx (coll-child-form form))]
+        (import-result (at/->SeqT prov [] (:type r)) (:closed-refs r)))
 
       (maybe-shape? form)
       (let [r (form->type ctx (second form))]
@@ -230,10 +295,16 @@
 
       (map-shape? form)
       (let [entry-results (mapv #(map-entry->kv form->type ctx %)
-                                (map-entries-after-props form))]
-        (import-result
-         (at/->MapT prov (into {} (map (fn [e] [(:key e) (:type e)])) entry-results))
-         (merge-closed-refs entry-results)))
+                                (map-entries-after-props form))
+            explicit-entries (into {} (map (fn [e] [(:key e) (:type e)])) entry-results)
+            closed? (true? (:closed (map-props form)))
+            entries (if closed?
+                      explicit-entries
+                      (assoc explicit-entries
+                             (at/->GroundT prov :keyword 'Keyword)
+                             (at/Dyn prov)))]
+        (import-result (at/->MapT prov entries)
+                       (merge-closed-refs entry-results)))
 
       (multi-shape? form)
       (let [dispatch (get-in form [1 :dispatch])

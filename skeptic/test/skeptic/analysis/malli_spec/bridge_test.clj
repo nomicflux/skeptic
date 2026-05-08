@@ -34,8 +34,8 @@
                                            '[arg0])])
             (sut/malli-spec->type tp [:=> [:cat :any] :any])))
 
-(deftest malli-spec->type-falls-back-to-dyn-for-non-=>-shapes
-  (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:vector :int]))
+(deftest malli-spec->type-falls-back-to-dyn-for-unsupported-shapes
+  (is-type= (at/Dyn tp) (sut/malli-spec->type tp [:re #"x"]))
   (is-type= (at/->GroundT tp :int 'Int) (sut/malli-spec->type tp :int)))
 
 (deftest malli-spec->type-handles-extended-primitive-leaves
