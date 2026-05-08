@@ -15,6 +15,12 @@
 (defn ^{:malli/schema [:=> [:cat :int] [:or :int :string]]} or-output-bad
   [_x] :not-a-string-or-int)
 
+(defn ^{:malli/schema [:=> [:cat :int] [:and :int :int]]} and-output-success
+  [x] x)
+
+(defn ^{:malli/schema [:=> [:cat :int] [:and :int :int]]} and-output-bad
+  [_x] :not-an-int)
+
 (defn ^{:malli/schema [:=> [:cat [:maybe :int]] [:or :int :string]]} combined-success
   [x] (or x "fallback"))
 

@@ -70,6 +70,10 @@
   [form]
   (and (vector? form) (= :or (first form))))
 
+(defn- and-shape?
+  [form]
+  (and (vector? form) (= :and (first form))))
+
 (defn- enum-shape?
   [form]
   (and (vector? form) (= :enum (first form))))
@@ -96,6 +100,7 @@
                                   names)]))
     (maybe-shape? form) (at/->MaybeT prov (form->type prov (second form)))
     (or-shape? form) (ato/union-type prov (mapv #(form->type prov %) (rest form)))
+    (and-shape? form) (ato/intersection-type prov (mapv #(form->type prov %) (rest form)))
     (enum-shape? form) (ato/union-type prov (mapv #(ato/exact-value-type prov %) (enum-values form)))
     :else (malli-leaf->type prov form)))
 

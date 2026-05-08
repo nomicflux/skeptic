@@ -50,3 +50,16 @@
                                                  false
                                                  '[arg0 arg1])])]
     (is (= expected result))))
+
+(deftest converter-round-trip-and-mixed
+  (let [schema [:=> [:cat [:and :int :int] [:or :int :string]] [:and [:maybe :int] :string]]
+        result (sut/malli-spec->type tp schema)
+        expected (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :int 'Int)
+                                                    (ato/union-type tp [(at/->GroundT tp :int 'Int)
+                                                                        (at/->GroundT tp :str 'Str)])]
+                                                 (ato/intersection-type tp [(at/->MaybeT tp (at/->GroundT tp :int 'Int))
+                                                                            (at/->GroundT tp :str 'Str)])
+                                                 2
+                                                 false
+                                                 '[arg0 arg1])])]
+    (is (= expected result))))

@@ -156,6 +156,7 @@ Current boundary (pinned to Malli 0.20.1):
     - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
     - `[:maybe X]` → `MaybeT` over the converted inner.
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
+    - `[:and X Y …]` → `ato/intersection-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side `sb/both?` behavior at `src/skeptic/analysis/bridge.clj:623-624`).
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
     - Leaves resolve through a registry of supported keywords:
       - `:int → Int`, `:string → Str`, `:keyword → Keyword`, `:symbol → Symbol`, `:boolean → Bool`, `:double → Double`, `:float → Float`, `:nil → ValueT(Dyn, nil)`, `:qualified-keyword → Keyword`, `:qualified-symbol → Symbol`, `:any → Dyn`.
@@ -172,7 +173,7 @@ Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = T
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, `:and`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
+- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:enum`. `[:map ...]`, refs, `:tuple`, `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
 - Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
 - Multi-arity under `:function`. No per-method shapes yet.
 - Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
