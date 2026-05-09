@@ -10,11 +10,14 @@
 (defn- discover-project-files
   [root paths]
   (reduce (fn [{:keys [files failures]} path]
-            (let [{new-files :files
-                   new-failures :failures}
-                  (file/discover-clojure-files (file/relative-path (io/file root) path))]
-              {:files (into files new-files)
-               :failures (into failures new-failures)}))
+            (let [resolved (file/relative-path (io/file root) path)]
+              (if-not (.exists (io/file resolved))
+                {:files files :failures failures}
+                (let [{new-files :files
+                       new-failures :failures}
+                      (file/discover-clojure-files resolved)]
+                  {:files (into files new-files)
+                   :failures (into failures new-failures)}))))
           {:files []
            :failures []}
           paths))
@@ -64,12 +67,16 @@
                                                        failures)
         _ (when (seq blocking-failures)
             (doseq [failure blocking-failures]
-              (println "Couldn't get namespaces:"
-                       (format "%s (%s)"
+              (println "Skeptic could not read source path:"
+                       (format "%s -- %s"
                                (:path failure)
                                (or (some-> ^Exception (:exception failure) .getMessage)
                                    (str (:exception failure))))))
-            (throw (ex-info "Couldn't get namespaces"
+            (println "Skeptic checks paths from your project's :source-paths"
+                     "and :test-paths (or --paths on the deps.edn entrypoint).")
+            (println "If a path above does not exist, declare the right paths"
+                     "in project.clj / deps.edn or pass --paths explicitly.")
+            (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
         nss (cond-> discovered-nss
               (seq requested-namespaces)

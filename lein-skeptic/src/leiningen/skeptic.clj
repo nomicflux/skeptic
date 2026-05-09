@@ -7,7 +7,8 @@
             [skeptic.core]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
-                                     ['org.clojars.nomicflux/skeptic "0.8.2-SNAPSHOT"]]})
+                                     ['org.clojars.nomicflux/skeptic "0.8.2-SNAPSHOT"]]
+                      :managed-dependencies [['prismatic/schema "1.4.1"]]})
 
 (defn ^{:doc "Run skeptic on this project's source- and test-paths.
 
