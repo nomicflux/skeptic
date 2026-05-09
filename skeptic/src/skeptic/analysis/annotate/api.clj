@@ -31,6 +31,12 @@
 (s/defn node-origin :- (s/maybe aos/Origin) [node :- aas/AnnotatedNode] (:origin node))
 (s/defn node-var :- s/Any [node :- aas/AnnotatedNode] (:var node))
 (s/defn node-name :- s/Any [node :- aas/AnnotatedNode] (:name node))
+(s/defn node-info-name :- s/Any
+  "cljs `:var` op nodes carry the fully-qualified call symbol at `:info :name`
+  (e.g. `'cljs.core/apply`). JVM `:var` op nodes carry the resolved Var at
+  `:var` instead. Returns nil for JVM nodes."
+  [node :- aas/AnnotatedNode]
+  (get-in node [:info :name]))
 (s/defn node-class :- s/Any [node :- aas/AnnotatedNode] (:class node))
 (s/defn node-method :- s/Any [node :- aas/AnnotatedNode] (:method node))
 (s/defn node-value :- s/Any [node :- aas/AnnotatedNode] (:val node))

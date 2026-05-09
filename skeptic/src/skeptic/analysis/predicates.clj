@@ -38,21 +38,32 @@
   [sym]
   (some? (resolve-predicate-symbol sym)))
 
-(defn- native-prov [sym]
-  (prov/make-provenance :native sym nil nil))
+(defn- native-prov
+  ([sym] (native-prov sym :clj))
+  ([sym lang] (prov/make-provenance :native sym nil nil [] lang)))
 
 (s/defn predicate-fn-type :- ats/SemanticType
-  [qualified-sym :- s/Symbol]
-  (let [p (native-prov qualified-sym)
-        bool-t (at/->GroundT p :bool 'Bool)
-        method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
-    (at/->FunT p [method])))
+  ([qualified-sym :- s/Symbol]
+   (predicate-fn-type qualified-sym :clj))
+  ([qualified-sym :- s/Symbol
+    lang          :- provs/Lang]
+   (let [p (native-prov qualified-sym lang)
+         bool-t (at/->GroundT p :bool 'Bool)
+         method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
+     (at/->FunT p [method]))))
 
 (s/defn witness-type :- ats/SemanticType
   [qualified-sym :- s/Symbol
    prov          :- provs/Provenance]
   ((get witness-builders qualified-sym) prov))
 
+(def cljs-predicate-symbols
+  (into #{} (map (fn [q] (symbol "cljs.core" (name q)))) predicate-symbols))
+
 (defn predicate-fn-entries
   []
-  (map (juxt identity predicate-fn-type) predicate-symbols))
+  (map (juxt identity #(predicate-fn-type % :clj)) predicate-symbols))
+
+(defn cljs-predicate-fn-entries
+  []
+  (map (juxt identity #(predicate-fn-type % :cljs)) cljs-predicate-symbols))

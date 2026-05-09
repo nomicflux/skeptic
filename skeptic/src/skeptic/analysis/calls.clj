@@ -61,7 +61,8 @@
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
-                            (var->sym (aapi/node-var node))])]
+                            (var->sym (aapi/node-var node))
+                            (aapi/node-info-name node)])]
     (some dict candidates)))
 
 (s/defn lookup-summary :- s/Any
@@ -71,7 +72,8 @@
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
-                            (var->sym (aapi/node-var node))])]
+                            (var->sym (aapi/node-var node))
+                            (aapi/node-info-name node)])]
     (some accessor-summaries candidates)))
 
 (s/defn fun-type->call-opts :- s/Any

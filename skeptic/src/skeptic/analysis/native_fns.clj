@@ -12,8 +12,8 @@
   (:import [clojure.lang Numbers]))
 
 (defn- native-prov
-  [sym]
-  (prov/make-provenance :native sym nil nil))
+  ([sym] (native-prov sym :clj))
+  ([sym lang] (prov/make-provenance :native sym nil nil [] lang)))
 
 (defn- numbers-prov
   [method]
@@ -47,8 +47,8 @@
         :else nil))))
 
 (defn- plus-star-type-for
-  [sym]
-  (let [p (native-prov sym)
+  [sym lang]
+  (let [p (native-prov sym lang)
         n (at/NumericDyn p)
         zero (at/->FnMethodT p [] n 0 false [])
         unary (at/->FnMethodT p [n] n 1 false '[n])
@@ -57,15 +57,15 @@
     (at/->FunT p [zero unary binary variadic])))
 
 (defn- inc-type-for
-  [sym]
-  (let [p (native-prov sym)
+  [sym lang]
+  (let [p (native-prov sym lang)
         n (at/NumericDyn p)
         unary (at/->FnMethodT p [n] n 1 false '[n])]
     (at/->FunT p [unary])))
 
 (defn- str-type-for
-  [sym]
-  (let [p (native-prov sym)
+  [sym lang]
+  (let [p (native-prov sym lang)
         str-t (at/->GroundT p :str 'Str)
         str-arg (at/Dyn p)
         zero (at/->FnMethodT p [] str-t 0 false [])
@@ -74,8 +74,8 @@
     (at/->FunT p [zero unary variadic])))
 
 (defn- format-type-for
-  [sym]
-  (let [p (native-prov sym)
+  [sym lang]
+  (let [p (native-prov sym lang)
         str-t (at/->GroundT p :str 'Str)
         str-arg (at/Dyn p)
         unary (at/->FnMethodT p [str-t] str-t 1 false '[fmt])
@@ -83,22 +83,42 @@
     (at/->FunT p [unary variadic])))
 
 (defn- int-pred-type-for
-  [sym]
-  (let [p (native-prov sym)
+  [sym lang]
+  (let [p (native-prov sym lang)
         int-t (at/->GroundT p :int 'Int)
         bool-t (at/->GroundT p :bool 'Bool)
         method (at/->FnMethodT p [int-t] bool-t 1 false '[n])]
     (at/->FunT p [method])))
 
+(def ^:private clj-fn-dict
+  {'clojure.core/+      (plus-star-type-for 'clojure.core/+ :clj)
+   'clojure.core/*      (plus-star-type-for 'clojure.core/* :clj)
+   'clojure.core/inc    (inc-type-for 'clojure.core/inc :clj)
+   'clojure.core/str    (str-type-for 'clojure.core/str :clj)
+   'clojure.core/format (format-type-for 'clojure.core/format :clj)
+   'clojure.core/even?  (int-pred-type-for 'clojure.core/even? :clj)
+   'clojure.core/odd?   (int-pred-type-for 'clojure.core/odd? :clj)})
+
+(def ^:private cljs-fn-dict
+  "cljs.core registry: fns shared with clojure.core that survive cljs's
+  inliner and reach the `:invoke` path (`(apply + ...)`, `(map inc ...)`,
+  `(filter string? ...)`, etc.). cljs.core has no `format` (lives in
+  goog.string), so it's omitted."
+  {'cljs.core/+     (plus-star-type-for 'cljs.core/+ :cljs)
+   'cljs.core/*     (plus-star-type-for 'cljs.core/* :cljs)
+   'cljs.core/inc   (inc-type-for 'cljs.core/inc :cljs)
+   'cljs.core/str   (str-type-for 'cljs.core/str :cljs)
+   'cljs.core/even? (int-pred-type-for 'cljs.core/even? :cljs)
+   'cljs.core/odd?  (int-pred-type-for 'cljs.core/odd? :cljs)})
+
 (def native-fn-dict
-  (into {'clojure.core/+ (plus-star-type-for 'clojure.core/+)
-         'clojure.core/* (plus-star-type-for 'clojure.core/*)
-         'clojure.core/inc (inc-type-for 'clojure.core/inc)
-         'clojure.core/str (str-type-for 'clojure.core/str)
-         'clojure.core/format (format-type-for 'clojure.core/format)
-         'clojure.core/even? (int-pred-type-for 'clojure.core/even?)
-         'clojure.core/odd? (int-pred-type-for 'clojure.core/odd?)}
-        (predicates/predicate-fn-entries)))
+  (-> {}
+      (into clj-fn-dict)
+      (into cljs-fn-dict)
+      (into (predicates/predicate-fn-entries))
+      (into (predicates/cljs-predicate-fn-entries))))
 
 (def native-fn-provenance
-  (into {} (map (fn [sym] [sym (native-prov sym)])) (keys native-fn-dict)))
+  (into {}
+        (map (fn [[sym t]] [sym (prov/of t)]))
+        native-fn-dict))
