@@ -8,6 +8,7 @@
             [skeptic.analysis.annotate.data :as data]
             [skeptic.analysis.annotate.fn :as fn-annotate]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.cljs :as cljs]
             [skeptic.analysis.annotate.invoke :as invoke]
             [skeptic.analysis.annotate.jvm :as jvm]
             [skeptic.analysis.annotate.match :as match]
@@ -32,8 +33,12 @@
     :fn-method (fn-annotate/annotate-fn-method ctx node)
     :if (control/annotate-if ctx node)
     :case (match/annotate-case ctx node)
+    :host-call (cljs/annotate-host-call ctx node)
+    :host-field (cljs/annotate-host-field ctx node)
     :instance-call (jvm/annotate-instance-call ctx node)
     :invoke (invoke/annotate-invoke ctx node)
+    :js (cljs/annotate-js ctx node)
+    :js-var (cljs/annotate-js-var ctx node)
     :keyword-invoke (invoke/annotate-keyword-invoke ctx node)
     :let (control/annotate-let ctx node)
     :loop (control/annotate-loop ctx node)

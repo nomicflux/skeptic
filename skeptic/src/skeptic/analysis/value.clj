@@ -8,6 +8,8 @@
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]))
 
+(declare cljs-tag->type)
+
 (s/defn class->type :- ats/SemanticType
   [prov :- provs/Provenance klass :- s/Any]
   (let [klass (sb/canonical-scalar-schema klass)]
@@ -26,7 +28,42 @@
                     (= klass Object)
                     (= klass java.lang.Object))))
       (at/->GroundT prov {:class klass} (abc/schema-explain klass))
+      (symbol? klass) (cljs-tag->type prov klass)
+      (set? klass) (cljs-tag->type prov klass)
       :else (at/Dyn prov))))
+
+(def ^:private cljs-tag-symbol-table
+  {'string   [:str 'Str]
+   'number   [:numeric-dyn]
+   'boolean  [:bool 'Bool]
+   'clj-nil  [:nil]
+   'cljs.core/Keyword [:keyword 'Keyword]
+   'cljs.core/Symbol  [:symbol 'Symbol]})
+
+(s/defn ^:private cljs-tag-symbol->type :- ats/SemanticType
+  [prov :- provs/Provenance tag :- s/Symbol]
+  (if-let [[kind name-sym] (get cljs-tag-symbol-table tag)]
+    (case kind
+      :nil (ato/exact-value-type prov nil)
+      :numeric-dyn (at/NumericDyn prov)
+      (at/->GroundT prov kind name-sym))
+    (at/Dyn prov)))
+
+(s/defn cljs-tag->type :- ats/SemanticType
+  [prov :- provs/Provenance tag :- s/Any]
+  (cond
+    (symbol? tag) (cljs-tag-symbol->type prov tag)
+    (set? tag) (let [nil? (contains? tag 'clj-nil)
+                     non-nil (disj tag 'clj-nil)
+                     members (mapv #(cljs-tag->type prov %) non-nil)
+                     unioned (cond
+                               (empty? members) (at/Dyn prov)
+                               (= 1 (count members)) (first members)
+                               :else (ato/union-type prov members))]
+                 (if nil?
+                   (at/->MaybeT prov unioned)
+                   unioned))
+    :else (at/Dyn prov)))
 
 (declare type-of-value type-join*)
 
