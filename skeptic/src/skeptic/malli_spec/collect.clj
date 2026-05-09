@@ -13,7 +13,7 @@
   (:require [malli.core :as m]
             [skeptic.analysis.malli-spec.bridge :as amb]))
 
-(defn- malli-declaration-error-result
+(defn malli-declaration-error-result
   [ns-sym qualified-sym entry-meta e]
   {:report-kind :exception
    :phase :malli-declaration
