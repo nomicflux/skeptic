@@ -385,7 +385,7 @@
                     (reset! checked? true)
                     {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Couldn't get namespaces"
+                            #"Skeptic could not read one or more source paths"
                             (sut/check-project {:namespace ["example.ns"]} "." ".")))
       (is (false? @checked?)))))
 
@@ -405,7 +405,7 @@
                     (reset! checked? true)
                     {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Couldn't get namespaces"
+                            #"Skeptic could not read one or more source paths"
                             (sut/check-project {} "." ".")))
       (is (false? @checked?)))))
 
@@ -549,7 +549,7 @@
                     (reset! checked? true)
                     {:results [] :provenance {}})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Couldn't get namespaces"
+                            #"Skeptic could not read one or more source paths"
                             (sut/check-project {:namespace ["a.ns" "missing.ns"]}
                                                "." ".")))
       (is (false? @checked?)))))

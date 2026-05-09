@@ -15,6 +15,7 @@
                  [prismatic/plumbing         "0.6.0"]
                  [metosin/malli              "0.20.1"]
                  [org.clojure/clojure        "1.12.0"]
+                 [org.clojure/clojurescript  "1.11.132"]
                  [org.clojure/data.json      "2.5.1"]
                  [org.clojure/tools.analyzer "1.2.2"]
                  [org.clojure/tools.analyzer.jvm "1.4.0-beta1"]

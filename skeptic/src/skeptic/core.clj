@@ -8,14 +8,14 @@
             [skeptic.output :as output]))
 
 (defn- discover-project-files
-  [root paths]
+  [_root paths]
   (reduce (fn [{:keys [files failures]} path]
-            (let [resolved (file/relative-path (io/file root) path)]
-              (if-not (.exists (io/file resolved))
+            (let [resolved (io/file path)]
+              (if-not (.exists resolved)
                 {:files files :failures failures}
                 (let [{new-files :files
                        new-failures :failures}
-                      (file/discover-clojure-files resolved)]
+                      (file/discover-clojure-files (.getPath resolved))]
                   {:files (into files new-files)
                    :failures (into failures new-failures)}))))
           {:files []
