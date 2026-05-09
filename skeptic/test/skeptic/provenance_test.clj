@@ -87,3 +87,38 @@
 (deftest inferred-sets-empty-refs
   (let [p (sut/inferred {:name 'x :ns 'y})]
     (is (= [] (:refs p)))))
+
+(deftest provenance-defaults-lang-clj
+  (is (= :clj (sut/lang (sut/make-provenance :schema 'a/b 'a nil))))
+  (is (= :clj (sut/lang (sut/make-provenance :schema 'a/b 'a nil [])))))
+
+(deftest provenance-six-arity-takes-lang
+  (is (= :cljs (sut/lang (sut/make-provenance :schema 'a/b 'a nil [] :cljs))))
+  (is (= :clj (sut/lang (sut/make-provenance :schema 'a/b 'a nil [] :clj)))))
+
+(deftest inferred-takes-lang
+  (is (= :cljs (sut/lang (sut/inferred {:name 'x :ns 'y} :cljs))))
+  (is (= :clj (sut/lang (sut/inferred {:name 'x :ns 'y})))))
+
+(deftest make-provenance-rejects-invalid-lang
+  (is (thrown? Exception
+               (sut/make-provenance :schema 'a/b 'a nil [] :java))))
+
+(deftest merge-provenances-keeps-same-lang
+  (let [p1 (sut/make-provenance :schema 'a/b 'a nil [] :clj)
+        p2 (sut/make-provenance :native 'a/b 'a nil [] :clj)]
+    (is (= :clj (sut/lang (sut/merge-provenances p1 p2))))))
+
+(deftest merge-provenances-unions-different-langs
+  (let [p1 (sut/make-provenance :schema 'a/b 'a nil [] :clj)
+        p2 (sut/make-provenance :native 'a/b 'a nil [] :cljs)]
+    (is (= #{:clj :cljs} (sut/lang (sut/merge-provenances p1 p2))))
+    (is (= #{:clj :cljs} (sut/lang (sut/merge-provenances p2 p1))))))
+
+(deftest merge-provenances-absorbs-set-and-keyword
+  (let [p1 (sut/make-provenance :schema 'a/b 'a nil [] :clj)
+        p2 (sut/make-provenance :native 'a/b 'a nil [] :cljs)
+        merged (sut/merge-provenances p1 p2)
+        merged-again (sut/merge-provenances merged
+                                            (sut/make-provenance :inferred 'q nil nil [] :clj))]
+    (is (= #{:clj :cljs} (sut/lang merged-again)))))

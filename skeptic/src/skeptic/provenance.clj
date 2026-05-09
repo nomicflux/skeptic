@@ -4,7 +4,7 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance.schema :as provs]))
 
-(defrecord Provenance [source qualified-sym declared-in var-meta refs])
+(defrecord Provenance [source qualified-sym declared-in var-meta refs lang])
 
 (def ^:private source-rank-map
   {:type-override 0
@@ -24,18 +24,40 @@
             (format "Invalid provenance source: %s" (pr-str source)))))
   source)
 
+(defn- valid-lang?
+  [lang]
+  (or (= :clj lang)
+      (= :cljs lang)
+      (= #{:clj :cljs} lang)
+      (= #{:clj} lang)
+      (= #{:cljs} lang)))
+
+(defn- assert-lang
+  [lang]
+  (when-not (valid-lang? lang)
+    (throw (IllegalArgumentException.
+            (format "Invalid provenance lang: %s" (pr-str lang)))))
+  lang)
+
 (s/defn make-provenance :- provs/Provenance
   ([source        :- provs/Source
     qualified-sym :- (s/maybe s/Symbol)
     declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
     var-meta      :- (s/maybe {s/Keyword s/Any})]
-   (make-provenance source qualified-sym declared-in var-meta []))
+   (make-provenance source qualified-sym declared-in var-meta [] :clj))
   ([source        :- provs/Source
     qualified-sym :- (s/maybe s/Symbol)
     declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
     var-meta      :- (s/maybe {s/Keyword s/Any})
     refs          :- [provs/Provenance]]
-   (->Provenance (assert-source source) qualified-sym declared-in var-meta (vec refs))))
+   (make-provenance source qualified-sym declared-in var-meta refs :clj))
+  ([source        :- provs/Source
+    qualified-sym :- (s/maybe s/Symbol)
+    declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
+    var-meta      :- (s/maybe {s/Keyword s/Any})
+    refs          :- [provs/Provenance]
+    lang          :- provs/Lang]
+   (->Provenance (assert-source source) qualified-sym declared-in var-meta (vec refs) (assert-lang lang))))
 
 (s/defn with-refs :- provs/Provenance
   "Return prov with :refs replaced by the given constituent provs."
@@ -44,9 +66,13 @@
   (assoc prov :refs (vec refs)))
 
 (s/defn inferred :- provs/Provenance
-  [{:keys [name ns]} :- {:name (s/maybe s/Symbol)
-                         :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}]
-  (make-provenance :inferred name ns nil []))
+  ([sym-and-ns :- {:name (s/maybe s/Symbol)
+                   :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}]
+   (inferred sym-and-ns :clj))
+  ([{:keys [name ns]} :- {:name (s/maybe s/Symbol)
+                          :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}
+    lang :- provs/Lang]
+   (make-provenance :inferred name ns nil [] lang)))
 
 (def ^:private ctx-key :skeptic.provenance/ctx-provenance)
 
@@ -71,6 +97,10 @@
   [{:keys [source]} :- provs/Provenance]
   source)
 
+(s/defn lang :- provs/Lang
+  [{:keys [lang]} :- provs/Provenance]
+  lang)
+
 (s/defn of :- provs/Provenance
   [t :- ats/SemanticType]
   (when-not (at/semantic-type-value? t)
@@ -84,9 +114,19 @@
   [p]
   (get source-rank-map (source p) 999))
 
+(defn- as-lang-set
+  [l]
+  (cond
+    (set? l) l
+    :else #{l}))
+
+(defn- combine-langs
+  [l1 l2]
+  (let [s (into (as-lang-set l1) (as-lang-set l2))]
+    (if (= 1 (count s)) (first s) s)))
+
 (s/defn merge-provenances :- provs/Provenance
   [p1 :- provs/Provenance
    p2 :- provs/Provenance]
-  (if (<= (source-rank p1) (source-rank p2))
-    p1
-    p2))
+  (let [winner (if (<= (source-rank p1) (source-rank p2)) p1 p2)]
+    (assoc winner :lang (combine-langs (:lang p1) (:lang p2)))))

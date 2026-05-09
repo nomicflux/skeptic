@@ -415,13 +415,16 @@
     opts :- isch/ReportOpts]
    (let [expected-type (ato/normalize expected)
          actual-type (ato/normalize actual)
-         source (prov/source (prov/of actual-type))
+         actual-prov (prov/of actual-type)
+         source (prov/source actual-prov)
+         lang (prov/lang actual-prov)
          raw (acast/check-cast actual-type expected-type)]
      (if (:ok? raw)
        (let [summary (cast-result/root-summary raw)]
          {:ok? true
           :errors []
           :source source
+          :lang lang
           :cast-summary     summary
           :cast-diagnostics []
           :blame-side :none
@@ -434,7 +437,7 @@
                          (map #(cast-result->message ctx % opts))
                          distinct
                          vec)]
-         (merge {:ok? false :source source :errors errors} metadata))))))
+         (merge {:ok? false :source source :lang lang :errors errors} metadata))))))
 
 (s/defn output-cast-report :- s/Any
   ([ctx :- isch/ReportCtx
@@ -447,13 +450,16 @@
     opts :- isch/ReportOpts]
    (let [expected-type (ato/normalize expected)
          actual-type (ato/normalize actual)
-         source (prov/source (prov/of actual-type))
+         actual-prov (prov/of actual-type)
+         source (prov/source actual-prov)
+         lang (prov/lang actual-prov)
          raw (acast/check-cast actual-type expected-type)]
      (if (:ok? raw)
        (let [summary (cast-result/root-summary raw)]
          {:ok? true
           :errors []
           :source source
+          :lang lang
           :cast-summary     summary
           :cast-diagnostics []
           :blame-side :none
@@ -463,5 +469,6 @@
           :actual-type (:actual-type summary)})
        (merge {:ok? false
                :source source
+               :lang lang
                :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type opts)]}
               (cast-report-metadata raw))))))

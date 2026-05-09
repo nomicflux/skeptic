@@ -77,6 +77,30 @@
       (is (= (name src) (get-in parsed [:location :source]))
           (str "source kind " src " must be serialized")))))
 
+(deftest finding-record-emits-keyword-lang
+  (let [summary (assoc example-input-summary
+                       :location {:file "f.clj" :line 1 :column 2 :source :schema :lang :clj})
+        [line] (capture-lines
+                #((:finding sut/printer) 'foo.bar {} summary {}))
+        parsed (parse-line line)]
+    (is (= "clj" (get-in parsed [:location :lang])))))
+
+(deftest finding-record-emits-cljs-lang
+  (let [summary (assoc example-input-summary
+                       :location {:file "f.clj" :line 1 :column 2 :source :schema :lang :cljs})
+        [line] (capture-lines
+                #((:finding sut/printer) 'foo.bar {} summary {}))
+        parsed (parse-line line)]
+    (is (= "cljs" (get-in parsed [:location :lang])))))
+
+(deftest finding-record-emits-set-lang-as-sorted-array
+  (let [summary (assoc example-input-summary
+                       :location {:file "f.clj" :line 1 :column 2 :source :schema :lang #{:cljs :clj}})
+        [line] (capture-lines
+                #((:finding sut/printer) 'foo.bar {} summary {}))
+        parsed (parse-line line)]
+    (is (= ["clj" "cljs"] (get-in parsed [:location :lang])))))
+
 (deftest exception-record-shape
   (let [[line] (capture-lines
                 #((:finding sut/printer) 'foo.bar example-exception-result

@@ -33,12 +33,20 @@
   (cond-> record
     (:debug opts) (assoc :debug {:raw-result (ser/json-safe result)})))
 
+(defn- location-lang
+  [lang]
+  (cond
+    (nil? lang) nil
+    (set? lang) (mapv name (sort lang))
+    :else (name lang)))
+
 (defn- location-record
-  [{:keys [file line column source]}]
+  [{:keys [file line column source lang]}]
   {:file file
    :line line
    :column column
-   :source (name source)})
+   :source (name source)
+   :lang (location-lang lang)})
 
 (defn- exception-record
   [ns result {:keys [phase location blame errors]} opts]

@@ -47,3 +47,21 @@
     (is (str/includes? out "Per-namespace inconsistencies:"))
     (is (str/includes? out "  foo.a: 0"))
     (is (str/includes? out "  foo.b: 0"))))
+
+(defn- location-text
+  [location]
+  (->> (sut/report-fields {:report-kind :input :location location :blame-side :term :blame-polarity :positive})
+       (some (fn [[label value]]
+               (when (str/starts-with? label "Location:") value)))))
+
+(deftest format-location-renders-keyword-lang
+  (is (= "src/foo.clj:42:3 [source: schema] [lang: clj]"
+         (location-text {:file "src/foo.clj" :line 42 :column 3 :source :schema :lang :clj}))))
+
+(deftest format-location-renders-set-lang-as-slash-joined
+  (is (= "src/foo.clj:42:3 [source: schema] [lang: clj/cljs]"
+         (location-text {:file "src/foo.clj" :line 42 :column 3 :source :schema :lang #{:cljs :clj}}))))
+
+(deftest format-location-omits-lang-when-absent
+  (is (= "src/foo.clj:42:3 [source: schema]"
+         (location-text {:file "src/foo.clj" :line 42 :column 3 :source :schema}))))

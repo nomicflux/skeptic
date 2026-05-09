@@ -34,7 +34,8 @@ parse the machine-readable stream.
     "file": "src/foo/bar.clj",
     "line": 42,
     "column": 3,
-    "source": "schema"
+    "source": "schema",
+    "lang": "clj"
   },
   "blame": "(+ 1 :x)",
   "blame_side": "term",
@@ -58,6 +59,10 @@ removes every line whose `source` would be `"schema"` (and removes
 `"type-override"`, since overrides are Plumatic-domain); `--malli-disable`
 removes every line whose `source` would be `"malli"`. The stream shape, exit
 codes, and per-kind layouts are otherwise unchanged.
+`location.lang` identifies the host language the reported type was admitted
+under: `"clj"` or `"cljs"` for a single-language admission, or a sorted
+JSON array `["clj","cljs"]` when the same fact was confirmed by both passes
+of a `.cljc` file.
 `actual_type` and `expected_type` are structured, tagged representations of
 Skeptic's type system — see [Structured type tags](#structured-type-tags)
 below. The `*_str` fields mirror the same type as a human-readable string;
@@ -74,7 +79,8 @@ wants a quick display without walking nested JSON.
   "location": {
     "file": "src/foo/bar.clj",
     "line": 99,
-    "source": "schema"
+    "source": "schema",
+    "lang": "clj"
   },
   "blame": "my-fn",
   "exception_class": "java.lang.RuntimeException",

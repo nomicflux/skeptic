@@ -10,8 +10,15 @@
 (def ^:private global-blame-label "scope escape")
 (def ^:private missing-blame-label "<missing>")
 
+(defn- format-lang
+  [lang]
+  (cond
+    (nil? lang) nil
+    (set? lang) (str/join "/" (sort (map name lang)))
+    :else (name lang)))
+
 (defn- format-location
-  [{:keys [file line column source]}]
+  [{:keys [file line column source lang]}]
   (let [base (cond
                (and file line column) (str file ":" line ":" column)
                (and file line) (str file ":" line)
@@ -19,7 +26,10 @@
                line (str line)
                :else nil)]
     (when base
-      (str base " [source: " (name source) "]"))))
+      (str base
+           " [source: " (name source) "]"
+           (when-let [lang-text (format-lang lang)]
+             (str " [lang: " lang-text "]"))))))
 
 (defn- format-focuses
   [focuses]

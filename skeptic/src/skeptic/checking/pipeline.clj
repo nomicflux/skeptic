@@ -367,7 +367,7 @@
                                                                      (and source-expression
                                                                           (not= source-expression (pr-str (aapi/node-form body)))))
                                                              (aapi/node-form body))
-                                      :location (assoc source-body-location :source (:source report))}]
+                                      :location (assoc source-body-location :source (:source report) :lang (:lang report))}]
                          {:blame (:expr display)
                           :report-kind :output
                           :source-expression (:source-expression display)
@@ -408,13 +408,14 @@
          :expected-type (:expected-type report)
          :actual-type (:actual-type report)
          :source (:source report)
+         :lang (:lang report)
          :cast-summary (:cast-summary report)
          :cast-diagnostics (:cast-diagnostics report)
          :errors (:errors report)}))))
 
 (defn- location-with-source
-  [location source]
-  (assoc (or location {}) :source source))
+  [location source lang]
+  (assoc (or location {}) :source source :lang lang))
 
 (s/defn input-cast-result :- s/Any
   [enclosing-form node :- aas/AnnotatedNode error-groups]
@@ -424,7 +425,7 @@
      :report-kind :input
      :source-expression (:source-expression display)
      :expanded-expression (:expanded-expression display)
-     :location (location-with-source (:location display) (:source primary-group))
+     :location (location-with-source (:location display) (:source primary-group) (:lang primary-group))
      :enclosing-form enclosing-form
      :focuses (ca/distinctv (keep :focus error-groups))
      :focus-sources (ca/distinctv (keep :focus-source error-groups))
@@ -534,7 +535,7 @@
    :phase :read
    :blame (cf/source-file-path source-file)
    :source-expression nil
-   :location {:file (cf/source-file-path source-file) :source :inferred}
+   :location {:file (cf/source-file-path source-file) :source :inferred :lang :clj}
    :enclosing-form nil
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
@@ -565,7 +566,7 @@
    :phase :expression
    :blame source-form
    :source-expression (cf/form-source source-form)
-   :location (location-with-source (cf/form-location source-file source-form) :inferred)
+   :location (location-with-source (cf/form-location source-file source-form) :inferred :clj)
    :enclosing-form (enclosing-form ns-sym source-form)
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
@@ -828,7 +829,7 @@
    :blame ns-sym
    :enclosing-form ns-sym
    :namespace ns-sym
-   :location {:source :inferred}
+   :location {:source :inferred :lang :clj}
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})
