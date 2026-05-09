@@ -85,12 +85,30 @@ wants a quick display without walking nested JSON.
 
 ## `kind: "ns-discovery-warning"`
 
-Emitted when a file in a source path could not be read or its namespace
-resolved, and the run is still able to proceed.
+Emitted when a discovered file cannot be turned into checkable
+declarations and the run skips the namespace cleanly. Two situations
+produce this record:
+
+- **File-level discovery failure.** A file in a source path could not be
+  read (missing parent, IO error) or no `(ns ...)` form could be located.
+  `path` is the offending file; `message` is the underlying error.
+- **Per-namespace skip.** The namespace was discovered but Skeptic could
+  not run analysis against it. `path` is the namespace's source file and
+  `message` follows the form
+  `Skeptic skipped namespace <ns> (phase <phase>): <ExceptionClass>: <message>`,
+  where `phase` is `load` (the namespace failed to `(require)` — common
+  for `.clj` / `.cljc` files whose body depends on ClojureScript-only
+  namespaces such as `cljs.analyzer.api`), `admission` (the namespace
+  loaded but Skeptic could not admit its declarations), or `accessors`
+  (admission succeeded but accessor-summary collection threw). The other
+  namespaces continue to be checked normally.
 
 ```json
 {"kind": "ns-discovery-warning", "path": "src/foo/broken.clj", "message": "..."}
 ```
+
+Discovery warnings do **not** flip `errored` on the final `run-summary`;
+a project with only discovery warnings exits `0`.
 
 ## `kind: "namespace-error-summary"` — per-namespace error counts
 

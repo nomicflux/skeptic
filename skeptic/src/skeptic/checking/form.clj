@@ -1,8 +1,29 @@
 (ns skeptic.checking.form
-  (:require [schema.core :as s]
+  (:require [clojure.walk :as walk]
+            [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.bridge :as ab])
   (:import [java.io File]))
+
+(defn strip-type-meta
+  "Recursively dissoc :type from metadata so pr-str's dispatch on user forms
+  falls back to (class x). Necessary because some libraries (e.g. malli)
+  install print-method defmethods keyed on :type metadata that call protocol
+  methods on the value — invoking those on a raw source-form list throws
+  IllegalArgumentException. Skeptic must never trigger user print-methods
+  on form data."
+  [x]
+  (walk/postwalk
+   (fn [v]
+     (if (and (instance? clojure.lang.IObj v) (:type (meta v)))
+       (vary-meta v dissoc :type)
+       v))
+   x))
+
+(defn safe-pr-str
+  "pr-str but with :type metadata stripped first (see strip-type-meta)."
+  [x]
+  (pr-str (strip-type-meta x)))
 
 (def spy-on false)
 (def spy-only #{})
@@ -178,7 +199,7 @@
     {:expr expr
      :source-expression source-expression
      :expanded-expression (when (and source-expression
-                                     (not= source-expression (pr-str expr)))
+                                     (not= source-expression (safe-pr-str expr)))
                             expr)
      :location (aapi/node-location node)}))
 

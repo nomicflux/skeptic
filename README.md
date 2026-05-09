@@ -44,6 +44,8 @@ development.
 
 ## Installation
 
+### Leiningen
+
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
@@ -56,16 +58,39 @@ Or for the snapshot version:
 :plugins [[org.clojars.nomicflux/lein-skeptic "0.8.2-SNAPSHOT"]]
 ```
 
+### deps.edn / Clojure CLI
+
+Add an alias to your `deps.edn`:
+
+```clojure
+{:aliases
+ {:skeptic
+  {:extra-deps {org.clojars.nomicflux/skeptic {:mvn/version "0.8.1"}}
+   :main-opts ["-m" "skeptic.cli.main"]}}}
+```
+
+`clj -T` (tool installation) is **not** supported: Skeptic's analyzer
+must load the project's namespaces, and `-T` strips the project's
+`:deps` and `:paths` from the classpath.
+
 ## Running it
 
-From the project you want to check:
+From the project you want to check.
+
+With Leiningen:
 
 ```sh
 lein skeptic
 ```
 
-`lein skeptic` exits with status `0` when no inconsistencies are found and
-status `1` when it reports inconsistencies.
+With the Clojure CLI:
+
+```sh
+clojure -M:skeptic
+```
+
+Both invocations exit with status `0` when no inconsistencies are
+found and status `1` when they report inconsistencies.
 
 Options:
 
@@ -93,6 +118,10 @@ Options:
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
   stdout, so lein/JVM messages stay on stdout. Works with text and `-p` JSONL
   output.
+- `--paths PATHS` (deps.edn only): comma-separated source paths to check,
+  overriding the paths discovered from `deps.edn`.
+- `--alias ALIAS` (deps.edn only): a `deps.edn` alias to merge when
+  discovering source paths (repeatable; e.g. `--alias :test`).
 
 ### Disabling an intake stream
 
@@ -368,11 +397,22 @@ wrap them in a form if needed:
 
 ## How it works
 
-Skeptic loads the namespaces in your project, collects the Plumatic Schema
-annotations you've written on vars and functions, infers a type for each
-expression in your code, and compares the inferred types against the declared
-schemas on function inputs and outputs. Each mismatch is reported with a
-source location, the inferred type, and the expected type.
+Skeptic discovers `.clj` and `.cljc` source files under your project's
+source paths, requires each namespace, collects the Plumatic Schema and
+Malli annotations you've written on vars and functions, infers a type for
+each expression in your code, and compares the inferred types against the
+declared schemas on function inputs and outputs. Each mismatch is reported
+with a source location, the inferred type, and the expected type. `.cljc`
+reader conditionals are read with the `:clj` feature active, so
+Clojure-platform branches are spliced in and ClojureScript-only branches
+are dropped.
+
+If a discovered file cannot be loaded as a Clojure namespace — for
+example, a `.clj` or `.cljc` file whose body depends on a
+ClojureScript-only namespace like `cljs.analyzer.api` — Skeptic skips it
+cleanly with a discovery warning naming the file and the underlying load
+error. The rest of the project continues to be checked. Discovery
+warnings do not flip the run's exit code on their own.
 
 During `lein skeptic`, the checker runs with Plumatic Schema function
 validation disabled around the analysis pass. Projects that enable runtime

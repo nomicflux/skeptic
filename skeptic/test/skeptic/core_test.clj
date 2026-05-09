@@ -356,7 +356,7 @@
             "The later mismatch should have actual errors")))))
 
 (deftest check-project-ignores-unrelated-discovery-failures-for-requested-namespace
-  (let [source-file (java.io.File. "test/example.clj")
+  (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")
         checked (atom [])]
     (with-redefs [file/discover-clojure-files
                   (fn [_]
@@ -365,13 +365,13 @@
                                  :exception (ex-info "unreadable" {})}]})
                   file/ns-for-clojure-file
                   (fn [file]
-                    ['example.ns file])
+                    ['skeptic.fixtures.example-ns file])
                   checking/check-namespace
                   (fn [_opts ns _source-file]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
-      (is (= 0 (sut/check-project {:namespace ["example.ns"]} "." ".")))
-      (is (= ['example.ns] @checked)))))
+      (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.example-ns"]} "." ".")))
+      (is (= ['skeptic.fixtures.example-ns] @checked)))))
 
 (deftest check-project-blocks-when-discovery-failure-prevents-requested-coverage
   (let [checked? (atom false)]
@@ -415,11 +415,11 @@
        (mapv #(json/read-str % :key-fn keyword))))
 
 (deftest check-project-porcelain-clean-run-emits-run-summary
-  (let [source-file (java.io.File. "test/example.clj")]
+  (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")]
     (with-redefs [file/discover-clojure-files
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file
-                  (fn [file] ['example.ns file])
+                  (fn [file] ['skeptic.fixtures.example-ns file])
                   checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
                   (is (= 0 (sut/check-project {:porcelain true} "." "."))))
@@ -433,10 +433,10 @@
           (is (= 1 (:namespace_count summary))))))))
 
 (deftest check-project-porcelain-emits-finding-per-result
-  (let [source-file (java.io.File. "test/example.clj")
+  (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")
         summary-opts (atom nil)
         fake-result {:report-kind :input
-                     :location {:file "test/example.clj" :line 10 :column 1 :source :inferred}
+                     :location {:file "test/skeptic/fixtures/example_ns.clj" :line 10 :column 1 :source :inferred}
                      :blame-side :term
                      :blame-polarity :positive
                      :blame '(+ 1 :x)
@@ -447,7 +447,7 @@
     (with-redefs [file/discover-clojure-files
                   (fn [_] {:files [source-file] :failures []})
                   file/ns-for-clojure-file
-                  (fn [file] ['example.ns file])
+                  (fn [file] ['skeptic.fixtures.example-ns file])
                   checking/check-namespace (fn [& _]
                                              {:results [fake-result]
                                               :provenance {}})
@@ -461,9 +461,9 @@
         (testing "finding record"
           (let [finding (first lines)]
             (is (= "finding" (:kind finding)))
-            (is (= "example.ns" (:ns finding)))
+            (is (= "skeptic.fixtures.example-ns" (:ns finding)))
             (is (= "input" (:report_kind finding)))
-            (is (= "test/example.clj" (get-in finding [:location :file])))
+            (is (= "test/skeptic/fixtures/example_ns.clj" (get-in finding [:location :file])))
             (is (= 10 (get-in finding [:location :line])))
             (is (= "inferred" (get-in finding [:location :source])))
             (is (= "Int" (get-in finding [:expected_type :name])))
@@ -471,7 +471,7 @@
         (testing "namespace-error-summary precedes run-summary"
           (let [ns-summary (second lines)]
             (is (= "namespace-error-summary" (:kind ns-summary)))
-            (is (= {:example.ns 1} (:counts ns-summary)))))
+            (is (= {:skeptic.fixtures.example-ns 1} (:counts ns-summary)))))
         (testing "run-summary has errored=true"
           (let [summary (last lines)]
             (is (= "run-summary" (:kind summary)))
@@ -481,17 +481,17 @@
         (is (false? (:explain-full @summary-opts)))))))
 
 (deftest check-project-porcelain-emits-ns-discovery-warning
-  (let [source-file (java.io.File. "test/example.clj")]
+  (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")]
     (with-redefs [file/discover-clojure-files
                   (fn [_]
                     {:files [source-file]
                      :failures [{:path "missing"
                                  :exception (ex-info "unreadable" {})}]})
                   file/ns-for-clojure-file
-                  (fn [file] ['example.ns file])
+                  (fn [file] ['skeptic.fixtures.example-ns file])
                   checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
-                  (sut/check-project {:porcelain true :namespace ["example.ns"]}
+                  (sut/check-project {:porcelain true :namespace ["skeptic.fixtures.example-ns"]}
                                      "." "."))
             lines (parse-jsonl out)]
         (is (= 3 (count lines)))
@@ -514,9 +514,9 @@
     (is (= ['a.ns 'b.ns] (#'sut/expand-namespace-args [" a.ns , ,b.ns"])))))
 
 (deftest check-project-filters-multiple-namespaces
-  (let [source-files {'a.ns (java.io.File. "test/a.clj")
-                      'b.ns (java.io.File. "test/b.clj")
-                      'c.ns (java.io.File. "test/c.clj")}
+  (let [source-files {'skeptic.fixtures.a (java.io.File. "test/skeptic/fixtures/a.clj")
+                      'skeptic.fixtures.b (java.io.File. "test/skeptic/fixtures/b.clj")
+                      'skeptic.fixtures.c (java.io.File. "test/skeptic/fixtures/c.clj")}
         checked (atom [])]
     (with-redefs [file/discover-clojure-files
                   (fn [_]
@@ -530,8 +530,8 @@
                   (fn [_opts ns _source-file]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
-      (is (= 0 (sut/check-project {:namespace ["a.ns" "c.ns"]} "." ".")))
-      (is (= #{'a.ns 'c.ns} (set @checked)))
+      (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.a" "skeptic.fixtures.c"]} "." ".")))
+      (is (= #{'skeptic.fixtures.a 'skeptic.fixtures.c} (set @checked)))
       (is (= 2 (count @checked))))))
 
 (deftest check-project-blocks-when-any-requested-namespace-is-missing
@@ -570,14 +570,15 @@
       (with-redefs [file/discover-clojure-files
                     (fn [_] {:files [kept-file excluded-file] :failures []})
                     file/ns-for-clojure-file
-                    (fn [f] [(symbol (str "ns." (.getName f))) f])
+                    (fn [f] [(get {kept-file     'skeptic.fixtures.kept
+                                   excluded-file 'skeptic.fixtures.excluded} f) f])
                     checking/check-namespace
                     (fn [_opts ns _f]
                       (swap! checked conj ns)
                       {:results [] :provenance {}})]
         (sut/check-project {} (.getCanonicalPath tmp) "."))
       (is (= 1 (count @checked)))
-      (is (= 'ns.kept.clj (first @checked)))
+      (is (= 'skeptic.fixtures.kept (first @checked)))
       (finally
         (doseq [f (reverse (file-seq tmp))]
           (.delete f))))))

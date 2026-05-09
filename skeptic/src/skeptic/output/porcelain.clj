@@ -2,6 +2,7 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.checking.form :as cf]
             [skeptic.output.serialize :as ser]))
 
 (def ^:private ansi-pattern #"\u001b\[[0-9;]*m")
@@ -10,7 +11,7 @@
   (when s (str/replace s ansi-pattern "")))
 
 (defn- ->str [x]
-  (when (some? x) (pr-str x)))
+  (when (some? x) (cf/safe-pr-str x)))
 
 (defn- empty-value? [v]
   (or (nil? v)

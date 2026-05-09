@@ -1,31 +1,13 @@
 (ns leiningen.skeptic
-  (:require [clojure.tools.cli :as cli]
-            [leiningen.core.main]
+  (:require [leiningen.core.main]
             [leiningen.core.eval]
             [leiningen.core.project]
             [schema.core]
+            [skeptic.cli.options :as cli-opts]
             [skeptic.core]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
                                      ['org.clojars.nomicflux/skeptic "0.8.2-SNAPSHOT"]]})
-
-(def cli-options
-  [["-v" "--verbose" "Turn on verbose logging"]
-   ["-a" "--analyzer" "Use clojure.tools.analyzer to analyse code"]
-   ["-k" "--keep-empty" "Print out checking results with empty error set"]
-   ["-c" "--show-context" "Show context and resolution path on items"]
-   ["-n" "--namespace NAMESPACE"
-    "Only check the specified namespace (repeatable; comma-separated values supported)"
-    :multi true
-    :update-fn (fnil conj [])]
-   [nil  "--explain-full" "Show fully expanded structural forms in type-mismatch output (disable name-folding)"]
-   ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
-   [nil  "--plumatic-disable" "Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema declarations and :skeptic/type-overrides)"]
-   [nil  "--malli-disable" "Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)"]
-   [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
-   [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
-   ["-o" "--output OUTPUT_FILE" "Write skeptic output to this file instead of stdout"]
-   ["-h" "--help"]])
 
 (defn ^{:doc "Run skeptic on this project's source- and test-paths.
 
@@ -50,7 +32,7 @@ Options:
   [project & args]
   (let [profile (or (:skeptic (:profiles project)) skeptic-profile)
         paths (concat (:source-paths project) (:test-paths project))
-        {{:keys [help errors] :as opts} :options summary :summary} (cli/parse-opts args cli-options)]
+        {{:keys [help errors] :as opts} :options summary :summary} (cli-opts/parse args)]
     (if (or help errors)
       (println summary)
       (leiningen.core.eval/eval-in-project

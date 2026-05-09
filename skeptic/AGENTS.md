@@ -27,7 +27,9 @@ Examples:
 Primary execution path:
 
 - `leiningen.skeptic`:
-  Leiningen plugin entrypoint. Parses CLI flags, selects the Skeptic profile, and runs the checker in the target project.
+  Leiningen plugin entrypoint. Parses CLI flags (via the shared `skeptic.cli.options` vector), selects the Skeptic profile, and runs the checker in the target project.
+- `skeptic.cli.main`:
+  deps.edn / Clojure CLI entrypoint (`clojure -M:skeptic` and `clojure -X:skeptic`). Parses CLI flags, resolves source paths via `skeptic.cli.paths`, and calls `skeptic.core/check-project`. Library-pure: no `leiningen.core.*` dependency.
 - `skeptic.profiling`:
   Optional profiling wrapper around a run. Used by the plugin before invoking the main checker.
 - `skeptic.core`:
@@ -37,6 +39,8 @@ Primary execution path:
 
 Source namespace families:
 
+- `skeptic.cli.*`:
+  Runner layer for the deps.edn / Clojure CLI entrypoint. `skeptic.cli.options` owns the shared CLI option vector and `parse` helper, used by both `leiningen.skeptic` and `skeptic.cli.main`. `skeptic.cli.paths` discovers source paths via `clojure.tools.deps/create-basis` (deps.edn-side only). `skeptic.cli.main` is the `-main` / exec-fn entrypoint. Rule: project-metadata reading and CLI parsing live only under `skeptic.cli.*`; library namespaces (`skeptic.core`, `skeptic.checking.*`, etc.) never read project layout — they receive paths as arguments.
 - `skeptic.checking.*`:
   Checking-time orchestration and presentation of analyzed forms.
   `skeptic.checking.ast` extracts call/local context from annotated ASTs.

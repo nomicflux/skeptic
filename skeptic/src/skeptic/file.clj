@@ -10,7 +10,7 @@
 
 (defn try-read
   [stream]
-  (tr/read {:eof nil} stream))
+  (tr/read {:eof nil :read-cond :allow :features #{:clj}} stream))
 
 (defn pushback-reader
   [^File file]
@@ -29,7 +29,7 @@
 (defn- clojure-file?
   [^File file]
   (and (.isFile file)
-       (re-matches #".*\.clj" (.getName file))))
+       (re-matches #".*\.cljc?" (.getName file))))
 
 (defn- discovery-result
   ([]
@@ -117,7 +117,6 @@
     {:files files
      :failures failures}))
 
-;; TODO: confirm working with CLJS & CLJC as well
 (defn clojure-files-for-path
   [^String path]
   (:files (discover-clojure-files path)))

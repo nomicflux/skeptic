@@ -76,6 +76,8 @@
               (select-keys requested-namespaces))
         opts (assoc opts :project-state
                     (checking/project-state opts nss))
+        per-ns-failures (get-in opts [:project-state :per-ns-failures])
+        checkable-nss (apply dissoc nss (keys per-ns-failures))
         {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
         (output/printer opts)
         totals (atom {:finding-count 0
@@ -86,8 +88,15 @@
     (run-start opts nss)
     (doseq [failure failures]
       (discovery-warn (failure->info failure)))
+    (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
+      (discovery-warn {:path (str source-file)
+                       :message (str "Skeptic skipped namespace " ns-sym
+                                     " (phase " (name phase) "): "
+                                     (.getName (class exception))
+                                     ": "
+                                     (or (.getMessage exception) (str exception)))}))
     (let [errored (atom false)]
-      (doseq [[ns source-file] nss]
+      (doseq [[ns source-file] checkable-nss]
         (ns-start ns source-file opts)
         (let [ns-findings (atom 0)
               {:keys [results]} (checking/check-namespace opts ns source-file)

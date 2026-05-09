@@ -119,6 +119,10 @@
                          (cond-> node
                            (= :const (:op node)) (dissoc :type)))))
 
+(def ^:private skeptic-passes-opts
+  (assoc ana.jvm/default-passes-opts
+         :validate/wrong-tag-handler (fn [t _ast] {t Object})))
+
 (s/defn analyze-form :- aas/AnnotatedNode
   ([form :- s/Any]
    (analyze-form form {}))
@@ -127,7 +131,7 @@
          env (binding [*ns* target-ns]
                (analyze-env target-ns locals source-file))]
      (binding [*ns* target-ns]
-       (normalize-raw-ast (ana.jvm/analyze form env))))))
+       (normalize-raw-ast (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts}))))))
 
 (s/defn annotate-form-loop :- aas/AnnotatedNode
   ([dict :- s/Any form :- s/Any]

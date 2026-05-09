@@ -677,9 +677,26 @@
   (reduce (fn [acc [ns-sym source-file]]
             (if-not source-file
               acc
-              (try (assoc acc ns-sym (discovery/discover ns-sym source-file))
-                   (catch Exception _ acc))))
+              (assoc acc ns-sym (discovery/discover ns-sym source-file))))
           {}
+          nss-with-source-files))
+
+(defn- preload-namespaces
+  "Require every discovered namespace once up front. Partitions into
+  {:loaded [[ns-sym source-file] ...] :load-failures {ns-sym {:source-file f
+  :exception e}}}. Subsequent project-state phases iterate :loaded only,
+  so the-ns/ns-resolve calls there cannot trip on an unloaded namespace
+  and load failures are surfaced as discovery warnings instead of bogus
+  per-namespace exception findings."
+  [nss-with-source-files]
+  (reduce (fn [acc [ns-sym source-file]]
+            (try
+              (require ns-sym)
+              (update acc :loaded conj [ns-sym source-file])
+              (catch Throwable e
+                (assoc-in acc [:load-failures ns-sym]
+                          {:source-file source-file :exception e}))))
+          {:loaded [] :load-failures {}}
           nss-with-source-files))
 
 (defn project-var-provs
@@ -705,42 +722,53 @@
   Threaded into every per-namespace check so cross-namespace var resolution
   and conditional discriminators ride the same project pass."
   [opts nss-with-source-files]
-  (let [project-disc (project-discovery nss-with-source-files)
+  (let [{loaded :loaded load-failures :load-failures}
+        (preload-namespaces nss-with-source-files)
+        load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
+                                 {} load-failures)
+        project-disc (project-discovery loaded)
         var-provs (project-var-provs opts project-disc)
         opts (assoc opts
                     :skeptic/project-discovery project-disc
                     :skeptic/var-provs var-provs)
-        per-ns-admission
+        {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file]]
                   (try
-                    (assoc acc ns-sym (namespace-dict opts ns-sym source-file))
-                    (catch Exception _ acc)))
-                {}
-                nss-with-source-files)
+                    (assoc-in acc [:per-ns-admission ns-sym]
+                              (namespace-dict opts ns-sym source-file))
+                    (catch Throwable e
+                      (assoc-in acc [:admission-failures ns-sym]
+                                {:source-file source-file :exception e :phase :admission}))))
+                {:per-ns-admission {} :admission-failures {}}
+                loaded)
         merged-dict (reduce-kv (fn [m _ {:keys [dict]}] (merge m dict))
                                {}
                                per-ns-admission)
-        accessor-summaries
+        {:keys [accessor-summaries accessor-failures]}
         (reduce
          (fn [acc [ns-sym source-file]]
-           (try
-             (if (and source-file ns-sym (contains? per-ns-admission ns-sym))
+           (if (and source-file ns-sym (contains? per-ns-admission ns-sym))
+             (try
                (binding [*ns* (the-ns ns-sym)]
-                 (collect-accessor-summaries-for-ns merged-dict ns-sym source-file
-                                                    (ns-exprs source-file)
-                                                    acc))
-               acc)
-             (catch Exception _ acc)))
-         {}
-         nss-with-source-files)
+                 (update acc :accessor-summaries
+                         #(collect-accessor-summaries-for-ns merged-dict ns-sym source-file
+                                                             (ns-exprs source-file) %)))
+               (catch Throwable e
+                 (assoc-in acc [:accessor-failures ns-sym]
+                           {:source-file source-file :exception e :phase :accessors})))
+             acc))
+         {:accessor-summaries {} :accessor-failures {}}
+         loaded)
         enriched-dict (enrich-conditional-descriptors merged-dict accessor-summaries)
         per-ns (reduce-kv (fn [m k v]
                             (assoc m k (select-keys v [:ignore-body :errors :provenance])))
                           {}
-                          per-ns-admission)]
+                          per-ns-admission)
+        per-ns-failures (merge load-failures admission-failures accessor-failures)]
     {:dict enriched-dict
      :accessor-summaries accessor-summaries
-     :per-ns per-ns}))
+     :per-ns per-ns
+     :per-ns-failures per-ns-failures}))
 
 (defn- prepare-namespace
   [opts ns-sym _source-file]

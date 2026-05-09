@@ -11,6 +11,5 @@
    ["snapshots" {:url "https://repo.clojars.org"
                  :username :env/CLOJARS_USERNAME
                  :password :env/CLOJARS_LEIN_SKEPTIC_TOKEN}]]
-  :dependencies [[org.clojars.nomicflux/skeptic "0.8.2-SNAPSHOT"]
-                 [org.clojure/tools.cli "1.0.214"]]
+  :dependencies [[org.clojars.nomicflux/skeptic "0.8.2-SNAPSHOT"]]
   :eval-in-leiningen true)
