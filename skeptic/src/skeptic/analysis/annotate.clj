@@ -90,7 +90,7 @@
 (s/defn annotate-ast :- aas/AnnotatedNode
   ([dict :- s/Any ast :- aas/AnnotatedNode]
    (annotate-ast dict ast {}))
-  ([dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries]} :- s/Any]
+  ([dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]
    (annotate-node (prov/set-ctx {:dict (or dict {})
                                  :locals (or locals {})
                                  :assumptions (vec assumptions)
@@ -98,7 +98,7 @@
                                  :name name
                                  :ns ns
                                  :accessor-summaries (or accessor-summaries {})}
-                                (prov/inferred {:name name :ns ns}))
+                                (prov/inferred {:name name :ns ns} (or lang :clj)))
                   ast)))
 
 (defn- target-ns

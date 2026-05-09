@@ -13,23 +13,24 @@
 (s/defn ^:private desc->provenance :- provs/Provenance
   [_desc         :- s/Any
    ns            :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
-   qualified-sym :- (s/maybe s/Symbol)]
-  (prov/make-provenance :malli qualified-sym ns nil))
+   qualified-sym :- (s/maybe s/Symbol)
+   lang          :- provs/Lang]
+  (prov/make-provenance :malli qualified-sym ns nil [] lang))
 
 (defn- empty-result [] {:dict {} :provenance {} :ignore-body #{} :errors []})
 
 (defn- convert-desc
-  [ns qualified-sym desc]
-  (let [prov (desc->provenance desc ns qualified-sym)]
+  [ns qualified-sym desc lang]
+  (let [prov (desc->provenance desc ns qualified-sym lang)]
     {:dict {qualified-sym (desc->type prov desc)}
      :provenance {qualified-sym prov}
      :ignore-body #{}
      :errors []}))
 
 (defn- safe-convert
-  [ns qualified-sym desc]
+  [ns qualified-sym desc lang]
   (try
-    (convert-desc ns qualified-sym desc)
+    (convert-desc ns qualified-sym desc lang)
     (catch Exception e
       {:dict {}
        :provenance {}
@@ -48,12 +49,20 @@
    :ignore-body (into (:ignore-body a) (:ignore-body b))
    :errors (into (:errors a) (:errors b))})
 
+(defn convert-collected
+  "Convert a `{:entries :errors}` Malli collector result to the merged
+  type-dict shape, stamping each provenance with the given lang. Used by
+  both the JVM admission path (via `typed-ns-malli-results`) and the cljs
+  admission path (via `skeptic.checking.pipeline/namespace-dict`)."
+  [ns lang {:keys [entries errors]}]
+  (reduce (fn [acc [qualified-sym desc]]
+            (merge-two acc (safe-convert ns qualified-sym desc lang)))
+          (-> (empty-result) (update :errors into errors))
+          entries))
+
 (defn typed-ns-malli-results
   [opts ns]
   (if (:malli-disable opts)
     (empty-result)
-    (let [{:keys [entries errors]} (mcollect/ns-malli-spec-results opts ns)]
-      (reduce (fn [acc [qualified-sym desc]]
-                (merge-two acc (safe-convert ns qualified-sym desc)))
-              (-> (empty-result) (update :errors into errors))
-              entries))))
+    (let [lang (or (:skeptic/lang opts) :clj)]
+      (convert-collected ns lang (mcollect/ns-malli-spec-results opts ns)))))

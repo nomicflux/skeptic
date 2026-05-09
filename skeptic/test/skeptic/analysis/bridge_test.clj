@@ -374,7 +374,8 @@
         result (binding [ab/*form-refs* form-refs]
                  (td/convert-desc 'skeptic.test-examples.form-refs
                                   'skeptic.test-examples.form-refs/fn-with-map-ann
-                                  desc))
+                                  desc
+                                  :clj))
         result-type (get (:dict result) 'skeptic.test-examples.form-refs/fn-with-map-ann)
         val-type (entry-val-by-key result-type :result)]
     (is (some? val-type))

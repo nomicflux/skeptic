@@ -58,7 +58,7 @@
 
 (defn- run-convert [sym]
   (let [desc (desc-for (resolve sym))
-        result (sut/convert-desc *ns* sym desc)]
+        result (sut/convert-desc *ns* sym desc :clj)]
     (get (:provenance result) sym)))
 
 (deftest convert-desc-uses-declared-symbol-provenance
