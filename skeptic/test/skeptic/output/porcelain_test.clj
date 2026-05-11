@@ -116,8 +116,8 @@
 
 (deftest discovery-warning-shape
   (let [[line] (capture-lines
-                #((:discovery-warn sut/printer) {:path "src/broken.clj"
-                                                 :message "parse error"}))
+                #((:discovery-warn sut/printer) {} {:path "src/broken.clj"
+                                                    :message "parse error"}))
         parsed (parse-line line)]
     (is (= "ns-discovery-warning" (:kind parsed)))
     (is (= "src/broken.clj" (:path parsed)))

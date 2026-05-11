@@ -4,6 +4,7 @@
    :source-paths key for cljs/cljc files."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [schema.core :as s]
             [skeptic.cli.cljs.discover :as discover])
   (:import [java.io File PushbackReader]))
 
@@ -18,7 +19,7 @@
   (with-open [r (PushbackReader. (io/reader f))]
     (edn/read r)))
 
-(defn discover-sources
+(s/defn discover-sources :- discover/DiscoverySources
   [root]
   (let [config (read-shadow-edn (shadow-edn-file root))
         source-paths (mapv #(discover/absolutize root %) (:source-paths config))

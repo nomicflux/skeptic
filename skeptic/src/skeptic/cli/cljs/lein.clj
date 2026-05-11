@@ -2,7 +2,8 @@
   "Source discovery for cljs/cljc files in a Leiningen project. Reads
    :source-paths and :test-paths from the project map, plus any cljsbuild
    build :source-paths if present, and walks them for cljs/cljc files."
-  (:require [skeptic.cli.cljs.discover :as discover]))
+  (:require [schema.core :as s]
+            [skeptic.cli.cljs.discover :as discover]))
 
 (defn- cljsbuild-paths [project]
   (let [root (:root project)]
@@ -11,7 +12,7 @@
          (remove nil?)
          (mapv #(discover/absolutize root %)))))
 
-(defn discover-sources
+(s/defn discover-sources :- discover/DiscoverySources
   [project]
   (let [base-paths (concat (:source-paths project)
                            (:test-paths project)

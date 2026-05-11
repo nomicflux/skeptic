@@ -16,21 +16,21 @@
     (aapi/dyn ctx)))
 
 (s/defn annotate-host-call :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode]
+  [ctx :- aapi/AnnotateCtx node :- aas/AnnotatedNode]
   (let [target ((:recurse ctx) ctx (:target node))
         args (mapv #((:recurse ctx) ctx %) (:args node))]
     (assoc node :target target :args args :type (tag-type ctx (:tag node)))))
 
 (s/defn annotate-host-field :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode]
+  [ctx :- aapi/AnnotateCtx node :- aas/AnnotatedNode]
   (let [target ((:recurse ctx) ctx (:target node))]
     (assoc node :target target :type (tag-type ctx (:tag node)))))
 
 (s/defn annotate-js :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode]
+  [ctx :- aapi/AnnotateCtx node :- aas/AnnotatedNode]
   (let [args (mapv #((:recurse ctx) ctx %) (:args node))]
     (assoc node :args args :type (tag-type ctx (:tag node)))))
 
 (s/defn annotate-js-var :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode]
+  [ctx :- aapi/AnnotateCtx node :- aas/AnnotatedNode]
   (assoc node :type (tag-type ctx (:tag node))))

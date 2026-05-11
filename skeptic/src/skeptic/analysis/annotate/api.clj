@@ -9,6 +9,10 @@
             [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
+(s/defschema AnnotateCtx
+  {(s/optional-key :recurse) s/Any
+   s/Keyword s/Any})
+
 (s/defn dyn :- ats/SemanticType [ctx] (at/Dyn (prov/with-ctx ctx)))
 (s/defn bottom :- ats/SemanticType [ctx] (at/BottomType (prov/with-ctx ctx)))
 

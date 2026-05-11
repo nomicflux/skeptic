@@ -13,6 +13,7 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.checking.ast :as ca]
             [skeptic.checking.form :as cf]
+            [skeptic.checking.opts :as copts]
             [skeptic.checking.state :as cstate]
             [skeptic.cljs.analyzer-driver :as cljs-driver]
             [skeptic.file :as file]
@@ -57,45 +58,70 @@
   [opts source-file]
   (#{:clj :both} (lang-of-source-file opts source-file)))
 
+(defn- inert-conditional-type?
+  [t]
+  (or (at/dyn-type? t)
+      (at/bottom-type? t)
+      (at/numeric-dyn-type? t)
+      (at/ground-type? t)
+      (at/type-var-type? t)
+      (at/placeholder-type? t)
+      (at/inf-cycle-type? t)))
+
+(defn- unary-recurse-field
+  [t]
+  (cond
+    (at/maybe-type? t)        :inner
+    (at/optional-key-type? t) :inner
+    (at/var-type? t)          :inner
+    (at/value-type? t)        :inner
+    (at/forall-type? t)       :body
+    (at/sealed-dyn-type? t)   :ground))
+
+(defn- n-ary-recurse-field
+  [t]
+  (cond
+    (at/union-type? t)        :members
+    (at/intersection-type? t) :members
+    (at/vector-type? t)       :items
+    (at/seq-type? t)          :items
+    (at/fun-type? t)          :methods))
+
+(defn- enrich-conditional-branches
+  [t walk accessor-summaries]
+  (let [ns-sym (:declared-in (prov/of t))]
+    (update t :branches
+            (fn [bs]
+              (mapv (fn [[pred typ slot3]]
+                      [pred (walk typ)
+                       (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
+                    bs)))))
+
+(defn- enrich-fn-method-type
+  [t walk]
+  (-> t (update :inputs #(mapv walk %))
+        (update :output walk)))
+
+(defn- enrich-map-entries
+  [t walk]
+  (update t :entries
+          #(into {} (map (fn [[k v]] [(walk k) (walk v)])) %)))
+
 (defn- enrich-conditional-type
   [t accessor-summaries]
-  (let [walk #(enrich-conditional-type % accessor-summaries)]
+  (let [walk      #(enrich-conditional-type % accessor-summaries)
+        unary-k   (when (at/semantic-type-value? t) (unary-recurse-field t))
+        nary-k    (when (at/semantic-type-value? t) (n-ary-recurse-field t))]
     (cond
       (not (at/semantic-type-value? t)) t
-
-      (or (at/dyn-type? t)
-          (at/bottom-type? t)
-          (at/numeric-dyn-type? t)
-          (at/ground-type? t)
-          (at/type-var-type? t)
-          (at/placeholder-type? t)
-          (at/inf-cycle-type? t)) t
-
-      (at/conditional-type? t)
-      (let [ns-sym (:declared-in (prov/of t))]
-        (update t :branches
-                (fn [bs] (mapv (fn [[pred typ slot3]]
-                                 [pred (walk typ)
-                                  (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
-                               bs))))
-
-      (at/maybe-type? t) (update t :inner walk)
-      (at/optional-key-type? t) (update t :inner walk)
-      (at/var-type? t) (update t :inner walk)
-      (at/value-type? t) (update t :inner walk)
-      (at/forall-type? t) (update t :body walk)
-      (at/sealed-dyn-type? t) (update t :ground walk)
-      (at/union-type? t) (update t :members #(mapv walk %))
-      (at/intersection-type? t) (update t :members #(mapv walk %))
-      (at/vector-type? t) (update t :items #(mapv walk %))
-      (at/seq-type? t) (update t :items #(mapv walk %))
-      (at/set-type? t) (update t :members #(into #{} (map walk) %))
-      (at/fn-method-type? t) (-> t (update :inputs #(mapv walk %))
-                                 (update :output walk))
-      (at/fun-type? t) (update t :methods #(mapv walk %))
-      (at/map-type? t) (update t :entries
-                               #(into {} (map (fn [[k v]] [(walk k) (walk v)])) %))
-      :else t)))
+      (inert-conditional-type? t)       t
+      (at/conditional-type? t)          (enrich-conditional-branches t walk accessor-summaries)
+      unary-k                           (update t unary-k walk)
+      nary-k                            (update t nary-k #(mapv walk %))
+      (at/set-type? t)                  (update t :members #(into #{} (map walk) %))
+      (at/fn-method-type? t)            (enrich-fn-method-type t walk)
+      (at/map-type? t)                  (enrich-map-entries t walk)
+      :else                             t)))
 
 (defn- enrich-conditional-descriptors
   [dict accessor-summaries]
@@ -528,7 +554,9 @@
                    (some-> qualified-sym resolve meta :skeptic/opaque))))))
 
 (s/defn check-resolved-form :- s/Any
-  [dict ignore-body :- #{s/Symbol} ns-sym :- s/Symbol source-file source-form analyzed :- aas/AnnotatedNode {:keys [keep-empty remove-context debug] :or {keep-empty false} :as opts}]
+  [dict ignore-body :- #{s/Symbol} ns-sym :- s/Symbol source-file source-form
+   analyzed :- aas/AnnotatedNode
+   {:keys [keep-empty remove-context debug] :or {keep-empty false} :as opts} :- copts/FormCheckOpts]
   (let [enclosing-form (enclosing-form ns-sym source-form)
         ignored? (ignored-body-def? ignore-body ns-sym source-form)
         results (if ignored?
@@ -636,7 +664,7 @@
                                           source-file
                                           source-form
                                           (first resolved)
-                                          opts))
+                                          (select-keys opts [:keep-empty :remove-context :debug])))
        :provenance (resolved-defs-provenance resolved-defs)})
     (catch Exception e
       {:results [(expression-exception-result ns source-file source-form e)]

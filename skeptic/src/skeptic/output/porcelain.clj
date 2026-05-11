@@ -108,7 +108,7 @@
 
 (def printer
   {:run-start (s/fn [_opts :- copts/PrinterOpts _nss])
-   :discovery-warn (fn [{:keys [path message]}]
+   :discovery-warn (s/fn [_opts :- copts/PrinterOpts {:keys [path message]}]
                      (write-line! {:kind "ns-discovery-warning"
                                    :path path
                                    :message message}))

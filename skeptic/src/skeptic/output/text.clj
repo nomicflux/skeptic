@@ -181,7 +181,7 @@
   {:run-start (s/fn [{:keys [verbose]} :- copts/PrinterOpts nss]
                 (when verbose
                   (println "Namespaces to check: " (pr-str (keys nss)))))
-   :discovery-warn (fn [{:keys [path message]}]
+   :discovery-warn (s/fn [_opts :- copts/PrinterOpts {:keys [path message]}]
                      (println "Couldn't get namespaces:" (format "%s (%s)" path message)))
    :ns-start (s/fn [ns _source-file {:keys [verbose]} :- copts/PrinterOpts]
                (when verbose (println "*** Checking" ns "***")))

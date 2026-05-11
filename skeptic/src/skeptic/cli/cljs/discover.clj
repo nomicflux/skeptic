@@ -2,8 +2,14 @@
   "Walk a collection of source roots and partition the matching files into
    cljs and cljc buckets. Paths that do not exist are skipped silently;
    paths that point at a regular file are included if their extension matches."
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [schema.core :as s])
   (:import [java.io File]))
+
+(s/defschema DiscoverySources
+  {:source-paths [s/Str]
+   :cljs-files [File]
+   :cljc-files [File]})
 
 (defn absolutize
   "If `path` is already absolute, return it unchanged; otherwise resolve it

@@ -5,10 +5,11 @@
    for cljs/cljc files. `discover-paths` returns paths verbatim from the
    deps.edn (relative strings like \"src\"); they are absolutized against
    `root` here before walking."
-  (:require [skeptic.cli.cljs.discover :as discover]
+  (:require [schema.core :as s]
+            [skeptic.cli.cljs.discover :as discover]
             [skeptic.cli.paths :as paths]))
 
-(defn discover-sources
+(s/defn discover-sources :- discover/DiscoverySources
   [root aliases]
   (let [raw-paths (paths/discover-paths root aliases)
         source-paths (mapv #(discover/absolutize root %) raw-paths)

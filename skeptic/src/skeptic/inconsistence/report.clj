@@ -404,6 +404,36 @@
      :expected-type    (:expected-type primary)
      :actual-type      (:actual-type primary)}))
 
+(defn- cast-ok-summary
+  [raw source lang]
+  (let [summary (cast-result/root-summary raw)]
+    {:ok? true
+     :errors []
+     :source source
+     :lang lang
+     :cast-summary     summary
+     :cast-diagnostics []
+     :blame-side :none
+     :blame-polarity :none
+     :rule (:rule summary)
+     :expected-type (:expected-type summary)
+     :actual-type (:actual-type summary)}))
+
+(defn- run-cast-report
+  [expected actual error-fn]
+  (let [expected-type (ato/normalize expected)
+        actual-type (ato/normalize actual)
+        actual-prov (prov/of actual-type)
+        source (prov/source actual-prov)
+        lang (prov/lang actual-prov)
+        raw (acast/check-cast actual-type expected-type)]
+    (if (:ok? raw)
+      (cast-ok-summary raw source lang)
+      (let [metadata (cast-report-metadata raw)]
+        (merge {:ok? false :source source :lang lang
+                :errors (error-fn raw actual-type expected-type metadata)}
+               metadata)))))
+
 (s/defn cast-report :- s/Any
   ([ctx :- isch/ReportCtx
     expected :- ats/SemanticType
@@ -413,31 +443,12 @@
     expected :- ats/SemanticType
     actual :- ats/SemanticType
     opts :- isch/ReportOpts]
-   (let [expected-type (ato/normalize expected)
-         actual-type (ato/normalize actual)
-         actual-prov (prov/of actual-type)
-         source (prov/source actual-prov)
-         lang (prov/lang actual-prov)
-         raw (acast/check-cast actual-type expected-type)]
-     (if (:ok? raw)
-       (let [summary (cast-result/root-summary raw)]
-         {:ok? true
-          :errors []
-          :source source
-          :lang lang
-          :cast-summary     summary
-          :cast-diagnostics []
-          :blame-side :none
-          :blame-polarity :none
-          :rule (:rule summary)
-          :expected-type (:expected-type summary)
-          :actual-type (:actual-type summary)})
-       (let [metadata (cast-report-metadata raw)
-             errors (->> (:cast-diagnostics metadata)
-                         (map #(cast-result->message ctx % opts))
-                         distinct
-                         vec)]
-         (merge {:ok? false :source source :lang lang :errors errors} metadata))))))
+   (run-cast-report expected actual
+                    (fn [_raw _actual-type _expected-type metadata]
+                      (->> (:cast-diagnostics metadata)
+                           (map #(cast-result->message ctx % opts))
+                           distinct
+                           vec)))))
 
 (s/defn output-cast-report :- s/Any
   ([ctx :- isch/ReportCtx
@@ -448,27 +459,6 @@
     expected :- ats/SemanticType
     actual :- ats/SemanticType
     opts :- isch/ReportOpts]
-   (let [expected-type (ato/normalize expected)
-         actual-type (ato/normalize actual)
-         actual-prov (prov/of actual-type)
-         source (prov/source actual-prov)
-         lang (prov/lang actual-prov)
-         raw (acast/check-cast actual-type expected-type)]
-     (if (:ok? raw)
-       (let [summary (cast-result/root-summary raw)]
-         {:ok? true
-          :errors []
-          :source source
-          :lang lang
-          :cast-summary     summary
-          :cast-diagnostics []
-          :blame-side :none
-          :blame-polarity :none
-          :rule (:rule summary)
-          :expected-type (:expected-type summary)
-          :actual-type (:actual-type summary)})
-       (merge {:ok? false
-               :source source
-               :lang lang
-               :errors [(mm/mismatched-output-schema-msg ctx actual-type expected-type opts)]}
-              (cast-report-metadata raw))))))
+   (run-cast-report expected actual
+                    (fn [_raw actual-type expected-type _metadata]
+                      [(mm/mismatched-output-schema-msg ctx actual-type expected-type opts)]))))

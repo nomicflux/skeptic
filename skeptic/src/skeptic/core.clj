@@ -102,9 +102,10 @@
                       :per-namespace-counts {}})]
     (run-start printer-opts nss)
     (doseq [failure failures]
-      (discovery-warn (failure->info failure)))
+      (discovery-warn printer-opts (failure->info failure)))
     (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
-      (discovery-warn {:path (str source-file)
+      (discovery-warn printer-opts
+                      {:path (str source-file)
                        :message (str "Skeptic skipped namespace " ns-sym
                                      " (phase " (name phase) "): "
                                      (.getName (class exception))
