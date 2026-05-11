@@ -705,16 +705,14 @@
   (require ns-sym)
   (let [discovery-out (or (get project-discovery ns-sym)
                           (when source-file (discovery/discover ns-sym source-file)))
-        form-refs (java.util.IdentityHashMap.)
-        opts' (cond-> (assoc opts :skeptic/lang :clj)
-                source-file (assoc :skeptic/source-file source-file))]
+        form-refs (java.util.IdentityHashMap.)]
     (when discovery-out
       (populate-form-refs! form-refs ns-sym discovery-out))
     (binding [*ns* (the-ns ns-sym)
               ab/*form-refs* form-refs
               ab/*var-provs* var-provs]
-      (let [schema-result (typed-decls/typed-ns-results opts' ns-sym)
-            malli-result (typed-decls.malli/typed-ns-malli-results opts' ns-sym)]
+      (let [schema-result (typed-decls/typed-ns-results opts ns-sym :clj source-file)
+            malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj)]
         (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))))
 
 (defn- cljs-namespace-dict

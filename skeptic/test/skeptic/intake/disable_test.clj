@@ -26,9 +26,8 @@
 (deftest plumatic-disable-empties-plumatic-stream
   (require fixture-ns)
   (let [res (typed-decls/typed-ns-results
-             {:plumatic-disable true
-              :skeptic/source-file fixture-file}
-             fixture-ns)]
+             {:plumatic-disable true}
+             fixture-ns :clj fixture-file)]
     (testing "Plumatic stream produces no dict / provenance / errors"
       (is (= {} (:dict res)))
       (is (= {} (:provenance res)))
@@ -36,23 +35,22 @@
       (is (= #{} (:ignore-body res))))
     (testing "Malli stream still works under the same flag"
       (let [malli-res (typed-decls.malli/typed-ns-malli-results
-                       {:plumatic-disable true} fixture-ns)]
+                       {:plumatic-disable true} fixture-ns :clj)]
         (is (seq (:dict malli-res)))
         (is (contains? (:dict malli-res) (qsym "malli-arrow")))))))
 
 (deftest malli-disable-empties-malli-stream
   (require fixture-ns)
   (let [res (typed-decls.malli/typed-ns-malli-results
-             {:malli-disable true} fixture-ns)]
+             {:malli-disable true} fixture-ns :clj)]
     (testing "Malli stream produces no dict / provenance / errors"
       (is (= {} (:dict res)))
       (is (= {} (:provenance res)))
       (is (= [] (:errors res))))
     (testing "Plumatic stream still works under the same flag"
       (let [schema-res (typed-decls/typed-ns-results
-                        {:malli-disable true
-                         :skeptic/source-file fixture-file}
-                        fixture-ns)]
+                        {:malli-disable true}
+                        fixture-ns :clj fixture-file)]
         (is (seq (:dict schema-res)))
         (is (contains? (:dict schema-res) (qsym "aliased-defn")))))))
 

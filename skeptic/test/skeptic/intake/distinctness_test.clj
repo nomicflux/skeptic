@@ -16,8 +16,7 @@
 (deftest plumatic-stream-admits-only-plumatic-source-forms
   (require fixture-ns)
   (let [{:keys [entries]} (schema-collect/ns-schema-results
-                           {:skeptic/source-file fixture-file}
-                           fixture-ns)]
+                           {} fixture-ns fixture-file)]
     (testing "Plumatic source-form heads are admitted (alias-resolved)"
       (is (contains? entries (qsym "aliased-defn")))
       (is (contains? entries (qsym "qualified-defn")))
@@ -52,8 +51,7 @@
 (deftest cross-stream-var-appears-in-both-streams
   (require fixture-ns)
   (let [plumatic-entries (:entries (schema-collect/ns-schema-results
-                                    {:skeptic/source-file fixture-file}
-                                    fixture-ns))
+                                    {} fixture-ns fixture-file))
         malli-entries (:entries (malli-collect/ns-malli-spec-results
                                  {} fixture-ns))
         cross-sym (qsym "cross-stream")]

@@ -26,7 +26,8 @@
 
 (deftest typed-ns-results-dict-present-unannotated-absent
   (require 'skeptic.test-examples.basics)
-  (let [{:keys [dict]} (sut/typed-ns-results {} 'skeptic.test-examples.basics)
+  (let [{:keys [dict]} (sut/typed-ns-results {} 'skeptic.test-examples.basics :clj
+                                             (java.io.File. "test/skeptic/test_examples/basics.clj"))
         int-add-type (get dict 'skeptic.test-examples.basics/int-add)]
     (testing "unannotated vars are absent from dict"
       (is (not (contains? dict 'skeptic.test-examples.basics/sample-unannotated-fn))))

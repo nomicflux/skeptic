@@ -446,7 +446,7 @@
         form-refs (form-refs-from-discovery ns-sym source-file)
         result (binding [*ns* (the-ns ns-sym)
                          ab/*form-refs* form-refs]
-                 (td/typed-ns-results {:skeptic/source-file source-file} ns-sym))
+                 (td/typed-ns-results {} ns-sym :clj source-file))
         fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
         input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
         pred-forms (mapv #(nth % 2) (:branches input-type))]

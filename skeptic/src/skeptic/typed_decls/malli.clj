@@ -61,8 +61,7 @@
           entries))
 
 (defn typed-ns-malli-results
-  [opts ns]
+  [opts ns lang]
   (if (:malli-disable opts)
     (empty-result)
-    (let [lang (or (:skeptic/lang opts) :clj)]
-      (convert-collected ns lang (mcollect/ns-malli-spec-results opts ns)))))
+    (convert-collected ns lang (mcollect/ns-malli-spec-results opts ns))))

@@ -1,25 +1,10 @@
 (ns skeptic.schema.collect
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.schema :as dschema]
             [skeptic.schema.discovery :as discovery]
             [schema.core :as s]))
-
-(defn- ns-source-file
-  "Resolve the .clj source for ns-sym via classpath. Used as fallback when
-  callers (typically tests) don't supply :skeptic/source-file in opts.
-  Pipeline always supplies project-aware paths and bypasses this."
-  [ns-sym]
-  (let [path (-> (str ns-sym)
-                 (.replace \. \/)
-                 (.replace \- \_)
-                 (str ".clj"))
-        url (io/resource path)]
-    (when url
-      (try (java.io.File. (.getFile url))
-           (catch Exception _ nil)))))
 
 (defn get-fn-schemas*
   [f]
@@ -247,17 +232,14 @@
             :else acc))))))
 
 (defn ns-schema-results
-  [opts ns-sym]
+  [_opts ns-sym source-file]
   (require ns-sym)
   (binding [*ns* (the-ns ns-sym)]
-    (let [source-file (or (:skeptic/source-file opts) (ns-source-file ns-sym))]
-      (if-not source-file
-        {:entries {} :errors []}
-        (let [{:keys [declarations errors]} (discovery/discover ns-sym source-file)]
-          (reduce (partial admit-declaration ns-sym)
-                  {:entries {} :errors (vec errors)}
-                  declarations))))))
+    (let [{:keys [declarations errors]} (discovery/discover ns-sym source-file)]
+      (reduce (partial admit-declaration ns-sym)
+              {:entries {} :errors (vec errors)}
+              declarations))))
 
 (defn ns-schemas
-  [opts ns]
-  (:entries (ns-schema-results opts ns)))
+  [opts ns source-file]
+  (:entries (ns-schema-results opts ns source-file)))

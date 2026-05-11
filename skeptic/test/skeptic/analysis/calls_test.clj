@@ -15,7 +15,7 @@
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (def static-call-dict
-  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples))
+  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file))
          {'user (T skeptic.static-call-examples/UserDesc)
           'counts (T skeptic.static-call-examples/MaybeCount)
           'left (T skeptic.static-call-examples/LeftFields)
@@ -201,7 +201,7 @@
 
 (deftest resolved-static-get-feeds-parent-call-test
   (testing "resolved static get feeds final reduced field types into parent calls"
-    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples))
+    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file))
           {:keys [resolved]} (checking/analyze-source-exprs dict
                                                             'skeptic.static-call-examples
                                                             static-call-examples-file

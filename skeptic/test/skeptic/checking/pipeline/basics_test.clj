@@ -108,7 +108,8 @@
   (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/div-double-num-success))))
 
 (deftest regex-return-declaration-and-checking
-  (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics)
+  (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics :clj
+                                                            (ps/fixture-file-for-ns 'skeptic.test-examples.basics))
         entries dict
         declaration-error (some #(when (= 'skeptic.test-examples.basics/regex-return-caller
                                           (:blame %))

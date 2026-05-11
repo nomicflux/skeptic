@@ -82,11 +82,10 @@
       (update :errors into errors)))
 
 (defn typed-ns-results
-  [opts ns]
+  [opts ns lang source-file]
   (if (:plumatic-disable opts)
     (empty-result)
-    (let [lang (or (:skeptic/lang opts) :clj)
-          result (convert-collected ns lang (collect/ns-schema-results opts ns))
+    (let [result (convert-collected ns lang (collect/ns-schema-results opts ns source-file))
           overrides (or (:skeptic/type-overrides opts) {})]
       (reduce (fn [acc [sym v]]
                 (-> acc

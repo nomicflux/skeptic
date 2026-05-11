@@ -21,7 +21,8 @@
       "opaque fn body must not produce mismatches")
   (is (empty? (ps/check-fixture 'skeptic.test-examples.fixture-flags/caller-of-opaque))
       "caller of opaque fn must see s/Any and produce no mismatches")
-  (is (not (contains? (:dict (test-state/admit-ns 'skeptic.test-examples.fixture-flags nil))
+  (is (not (contains? (:dict (test-state/admit-ns 'skeptic.test-examples.fixture-flags
+                                                  (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags)))
                       'skeptic.test-examples.fixture-flags/opaque-fn))
       "opaque fn must be absent from dict so callers see Dyn"))
 
@@ -34,7 +35,8 @@
 (deftest type-overrides-merge-into-typed-ns-results
   (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
-        result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags)]
+        result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags :clj
+                                             (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags))]
     (is-type= (ps/T s/Int)
               (get-in result [:dict 'some.ns/some-fn]))))
 

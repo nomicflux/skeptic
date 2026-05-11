@@ -138,8 +138,8 @@
 (def ^:private typed-entry-map
   (delay
     (reduce (fn [acc category]
-              (let [{ns-sym :ns} (get fixture-envs category)
-                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym)]
+              (let [{ns-sym :ns source-file :file} (get fixture-envs category)
+                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym :clj source-file)]
                 (merge acc entries)))
             {}
             schema-fixture-order)))

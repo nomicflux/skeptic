@@ -18,10 +18,6 @@
         url (io/resource path)]
     (when url (File. (.getFile url)))))
 
-(defn- opts-for
-  [ns-sym]
-  {:skeptic/source-file (src-file ns-sym)})
-
 (deftest arg-list-only-varargs
   (is (= {:count 2, :args '[x y], :with-varargs false, :varargs []}
          (sut/arg-list '[x y])))
@@ -32,15 +28,17 @@
 
 (deftest ns-schemas-only-contains-annotated-vars
   (require 'skeptic.test-examples.resolution)
-  (let [schemas (sut/ns-schemas (opts-for 'skeptic.test-examples.resolution)
-                                'skeptic.test-examples.resolution)]
+  (let [schemas (sut/ns-schemas {}
+                                'skeptic.test-examples.resolution
+                                (src-file 'skeptic.test-examples.resolution))]
     (is (contains? schemas 'skeptic.test-examples.resolution/flat-multi-step-f))
     (is (not (contains? schemas 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
   (require 'skeptic.inconsistence.report)
-  (is (map? (sut/ns-schemas (opts-for 'skeptic.inconsistence.report)
-                            'skeptic.inconsistence.report))))
+  (is (map? (sut/ns-schemas {}
+                            'skeptic.inconsistence.report
+                            (src-file 'skeptic.inconsistence.report)))))
 
 (deftest collect-schemas-canonicalizes-schema-representations
   (let [symbol-desc (sut/collect-schemas {:schema (s/make-fn-schema clojure.lang.Symbol
@@ -98,8 +96,9 @@
 
 (deftest ns-schemas-canonicalizes-known-public-schemas
   (require 'skeptic.schema.collect)
-  (let [schemas (sut/ns-schemas (opts-for 'skeptic.schema.collect)
-                                'skeptic.schema.collect)]
+  (let [schemas (sut/ns-schemas {}
+                                'skeptic.schema.collect
+                                (src-file 'skeptic.schema.collect))]
     (is (= s/Symbol
            (get-in schemas ['skeptic.schema.collect/fully-qualify-str :output])))
     (is (= s/Str
