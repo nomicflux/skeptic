@@ -13,8 +13,8 @@
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.checking.ast :as ca]
             [skeptic.checking.form :as cf]
+            [skeptic.checking.state :as cstate]
             [skeptic.cljs.analyzer-driver :as cljs-driver]
-            [skeptic.cljs.compiler-env :as cljs-env]
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
@@ -36,20 +36,30 @@
       (when (pos? i) (subs n (inc i))))))
 
 (defn- lang-of-source-file
-  "`.cljs` → :cljs. `.cljc` → :both. Anything else (.clj or no source-file) → :clj."
-  [source-file]
-  (case (file-extension source-file)
-    "cljs" :cljs
-    "cljc" :both
-    :clj))
+  "`.cljs` → :cljs. `.cljc` → :both. Anything else (.clj or no source-file) → :clj.
+
+  Two-arity form applies `--cljs-disable`: `:cljs` and `:both` collapse to
+  `:clj` (i.e. drop the `:cljs` reader-conditional branch from `.cljc`).
+  Pure `.cljs` files are expected to be filtered at the discovery layer in
+  `core/check-project` before reaching here."
+  ([source-file]
+   (case (file-extension source-file)
+     "cljs" :cljs
+     "cljc" :both
+     :clj))
+  ([opts source-file]
+   (let [lang (lang-of-source-file source-file)]
+     (if (and (:cljs-disable opts) (#{:cljs :both} lang))
+       :clj
+       lang))))
 
 (defn- needs-cljs-analysis?
-  [source-file]
-  (#{:cljs :both} (lang-of-source-file source-file)))
+  [opts source-file]
+  (#{:cljs :both} (lang-of-source-file opts source-file)))
 
 (defn- needs-jvm-load?
-  [source-file]
-  (#{:clj :both} (lang-of-source-file source-file)))
+  [opts source-file]
+  (#{:clj :both} (lang-of-source-file opts source-file)))
 
 (defn- enrich-conditional-type
   [t accessor-summaries]
@@ -275,7 +285,7 @@
 
 (defn- analyze-source-expr
   [dict ns-sym source-file accessor-summaries expr opts]
-  (let [lang (or (:skeptic/lang opts) (lang-of-source-file source-file))]
+  (let [lang (or (:skeptic/lang opts) (lang-of-source-file opts source-file))]
     (case lang
       :clj
       (aa/annotate-form-loop dict
@@ -285,11 +295,12 @@
                               :accessor-summaries accessor-summaries
                               :lang :clj})
       :cljs
-      (let [{:keys [cenv]} (:skeptic/cljs-state opts)
-            _ (when-not cenv
-                (throw (ex-info "cljs analyze-source-expr requires :skeptic/cljs-state"
+      (let [cljs-state (:skeptic/cljs-state opts)
+            ns-ast (some-> cljs-state (get source-file) :ns-ast)
+            _ (when-not ns-ast
+                (throw (ex-info "cljs analyze-source-expr requires :skeptic/cljs-state with :ns-ast for source-file"
                                 {:ns ns-sym :source-file (some-> source-file str)})))
-            ast (cljs-driver/analyze-form cenv ns-sym (cf/normalize-check-form expr))]
+            ast (cljs-driver/analyze-form ns-ast (cf/normalize-check-form expr))]
         (aa/annotate-ast dict ast {:ns ns-sym
                                    :accessor-summaries accessor-summaries
                                    :lang :cljs})))))
@@ -494,10 +505,7 @@
               (format "Actual should have at least as many elements as expected: %s %s\n%s"
                       expected-arglist actual-arglist node))
       (let [arg-nodes (if (aapi/recur-node? node) (aapi/recur-args node) (aapi/call-args node))
-            matched (cf/spy :matched-arglists
-                            (ca/match-up-arglists arg-nodes
-                                                  (cf/spy :expected-argtypes expected-arglist)
-                                                  (cf/spy :actual-argtypes actual-arglist)))]
+            matched (ca/match-up-arglists arg-nodes expected-arglist actual-arglist)]
         (if-let [error-groups (seq (keep (fn [[arg-node expected actual]]
                                            (input-error-group (aapi/node-form node) arg-node expected actual))
                                          matched))]
@@ -713,11 +721,13 @@
 
 (defn- cljs-namespace-dict
   [opts ns-sym source-file]
-  (let [{:keys [cenv asts]} (:skeptic/cljs-state opts)
-        _ (when-not cenv
-            (throw (ex-info "cljs namespace-dict requires :skeptic/cljs-state (intake invariant)"
+  (let [cljs-state (:skeptic/cljs-state opts)
+        per-file (some-> cljs-state (get source-file))
+        {:keys [ns-ast asts]} per-file
+        _ (when-not per-file
+            (throw (ex-info "cljs namespace-dict requires :skeptic/cljs-state with per-file entry (intake invariant)"
                             {:ns ns-sym :source-file (some-> source-file str)})))
-        top-asts (or (get asts source-file) [])
+        top-asts (or asts [])
         form-refs (java.util.IdentityHashMap.)
         var-provs (:skeptic/var-provs opts)
         schema-result (if (:plumatic-disable opts)
@@ -727,7 +737,7 @@
                           (typed-decls/convert-collected
                            ns-sym :cljs
                            (schema-collect-cljs/ns-schema-results-cljs
-                            cenv source-file ns-sym top-asts))))
+                            ns-ast source-file ns-sym top-asts))))
         malli-result (if (:malli-disable opts)
                        (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})
                        (binding [ab/*form-refs* form-refs
@@ -735,12 +745,12 @@
                          (typed-decls.malli/convert-collected
                           ns-sym :cljs
                           (malli-collect-cljs/ns-malli-spec-results-cljs
-                           cenv source-file ns-sym top-asts))))]
+                           source-file ns-sym top-asts))))]
     (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))
 
 (s/defn namespace-dict :- s/Any
   ([opts ns-sym :- s/Symbol source-file]
-   (namespace-dict opts ns-sym source-file (lang-of-source-file source-file)))
+   (namespace-dict opts ns-sym source-file (lang-of-source-file opts source-file)))
   ([opts ns-sym :- s/Symbol source-file lang]
    (when-not (contains? opts :skeptic/var-provs)
      (throw (ex-info "namespace-dict requires :skeptic/var-provs in opts (intake invariant)"
@@ -769,12 +779,15 @@
   Subsequent project-state phases iterate :loaded only, so the-ns/ns-resolve
   calls there cannot trip on an unloaded namespace and load failures are
   surfaced as discovery warnings instead of bogus per-namespace exception
-  findings."
-  [nss-with-source-files]
+  findings.
+
+  `opts` carries `--cljs-disable`; when set, `.cljc` files store `lang :clj`
+  in the triple so downstream passes drop the cljs branch."
+  [opts nss-with-source-files]
   (reduce (fn [acc [ns-sym source-file]]
-            (let [lang (lang-of-source-file source-file)]
+            (let [lang (lang-of-source-file opts source-file)]
               (cond
-                (not (needs-jvm-load? source-file))
+                (not (needs-jvm-load? opts source-file))
                 (update acc :loaded conj [ns-sym source-file lang])
 
                 :else
@@ -788,23 +801,23 @@
           nss-with-source-files))
 
 (defn- preload-cljs-state!
-  "If any source-files require cljs analysis (.cljs or .cljc), build one
-  shared compiler-env via `cljs-env/load-project!` and analyze each file's
-  top-level forms once. Returns `{:cenv cenv :asts {File → [ast …]}}` or
-  `nil` when no cljs/cljc sources are present. macro-libs are JVM-side
-  required so cljs macros (s/defn, m/=>, malli.experimental/defn) expand
-  during analysis."
-  [loaded]
+  "If any source-files require cljs analysis (.cljs or .cljc), parse each
+  one's ns form (which JVM-loads its `:require-macros` namespaces) and
+  analyze its top-level forms via the stateless cljs analyzer driver.
+  Returns `{File → {:ns-ast ns-ast :asts [ast …]}}`, or `nil` when no
+  cljs/cljc sources are present. Each file's analysis is independent and
+  carries no compiler state beyond the call boundary. With
+  `(:cljs-disable opts)`, no cljs analysis runs and this returns `nil`."
+  [opts loaded]
   (let [cljs-files (->> loaded
                         (keep second)
-                        (filter needs-cljs-analysis?)
+                        (filter (partial needs-cljs-analysis? opts))
                         distinct
                         vec)]
     (when (seq cljs-files)
-      (let [cenv (cljs-env/fresh-state)
-            asts (cljs-env/load-project! cenv cljs-files
-                                         '[schema.core malli.core])]
-        {:cenv cenv :asts asts}))))
+      (reduce (fn [m f] (assoc m f (cljs-driver/analyze-source-file f)))
+              {}
+              cljs-files))))
 
 (defn project-var-provs
   [opts project-disc]
@@ -829,19 +842,20 @@
   Threaded into every per-namespace check so cross-namespace var resolution
   and conditional discriminators ride the same project pass.
 
-  When `loaded` includes `.cljs` or `.cljc` source-files, a single shared
-  cljs compiler-env is bootstrapped via `preload-cljs-state!` and stored on
-  opts as `:skeptic/cljs-state`. Per-ns admission/analysis dispatches on
-  the per-source-file `lang` carried in each `loaded` triple."
+  When `loaded` includes `.cljs` or `.cljc` source-files, each is parsed
+  and analyzed independently via the stateless cljs analyzer driver and
+  the results are stored on opts as `:skeptic/cljs-state` (a map keyed by
+  source-file → `{:ns-ast :asts}`). Per-ns admission/analysis dispatches
+  on the per-source-file `lang` carried in each `loaded` triple."
   [opts nss-with-source-files]
   (let [{loaded :loaded load-failures :load-failures}
-        (preload-namespaces nss-with-source-files)
+        (preload-namespaces opts nss-with-source-files)
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
                                  {} load-failures)
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
         project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
         var-provs (project-var-provs opts project-disc)
-        cljs-state (preload-cljs-state! loaded)
+        cljs-state (preload-cljs-state! opts loaded)
         opts (cond-> (assoc opts
                             :skeptic/project-discovery project-disc
                             :skeptic/var-provs var-provs)
@@ -882,16 +896,12 @@
                           {}
                           per-ns-admission)
         per-ns-failures (merge load-failures admission-failures accessor-failures)]
-    {:dict enriched-dict
-     :accessor-summaries accessor-summaries
-     :per-ns per-ns
-     :per-ns-failures per-ns-failures
-     :cljs-state cljs-state}))
+    (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
+                           cljs-state project-disc var-provs)))
 
 (defn- prepare-namespace
-  [opts ns-sym _source-file]
-  (let [{:keys [project-state]} opts
-        per-ns-entry (get-in project-state [:per-ns ns-sym])]
+  [project-state ns-sym _source-file]
+  (let [per-ns-entry (get-in project-state [:per-ns ns-sym])]
     (when-not (and project-state per-ns-entry)
       (throw (ex-info "prepare-namespace requires project-state with per-ns entry (intake invariant)"
                       {:ns ns-sym :have-project-state? (some? project-state)})))
@@ -904,9 +914,9 @@
        :provenance provenance})))
 
 (s/defn check-s-expr :- s/Any
-  [s-expr {:keys [ns source-file check-def] :as opts}]
+  [s-expr project-state {:keys [ns source-file check-def] :as opts}]
   (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict ignore-body accessor-summaries]} (prepare-namespace opts ns source-file)
+    (let [{:keys [dict ignore-body accessor-summaries]} (prepare-namespace project-state ns source-file)
           source-form (find-source-form s-expr source-file check-def)
           form-opts (assoc opts :accessor-summaries accessor-summaries)
           {:keys [results]} (check-ns-form dict ignore-body ns source-file source-form form-opts)]
@@ -984,30 +994,32 @@
                                      (read-exception-result source-file exception))))))))
 
 (s/defn check-ns :- s/Any
-  [ns :- s/Symbol source-file opts]
-  (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
-        (prepare-namespace opts ns source-file)
-        lang (lang-of-source-file source-file)
-        passes (case lang :both [:clj :cljs] [lang])
-        cljs-state (get-in opts [:project-state :cljs-state])
-        form-opts (cond-> (assoc opts :accessor-summaries accessor-summaries)
-                    cljs-state (assoc :skeptic/cljs-state cljs-state))
-        pass-results (mapv (fn [pass-lang]
-                             (let [needs-jvm? (#{:clj :both} pass-lang)
-                                   pass-opts (assoc form-opts :skeptic/lang pass-lang)]
-                               (with-jvm-ns needs-jvm? ns
-                                 #(read-pass-results dict ignore-body ns source-file pass-opts))))
-                           passes)
-        form-findings (vec (mapcat :results pass-results))
-        deduped (if (= :both lang)
-                  (dedup-cljc-findings form-findings)
-                  form-findings)
-        merged-prov (-> (reduce (fn [m r] (merge m (:provenance r)))
-                                {}
-                                pass-results)
-                        (merge (or provenance {})))]
-    {:results (vec (concat (vec errors) deduped))
-     :provenance merged-prov}))
+  ([ns :- s/Symbol source-file opts]
+   (check-ns (:project-state opts) ns source-file (dissoc opts :project-state)))
+  ([project-state ns :- s/Symbol source-file form-opts]
+   (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
+         (prepare-namespace project-state ns source-file)
+         lang (lang-of-source-file form-opts source-file)
+         passes (case lang :both [:clj :cljs] [lang])
+         cljs-state (:cljs-state project-state)
+         pass-base-opts (cond-> (assoc form-opts :accessor-summaries accessor-summaries)
+                          cljs-state (assoc :skeptic/cljs-state cljs-state))
+         pass-results (mapv (fn [pass-lang]
+                              (let [needs-jvm? (#{:clj :both} pass-lang)
+                                    pass-opts (assoc pass-base-opts :skeptic/lang pass-lang)]
+                                (with-jvm-ns needs-jvm? ns
+                                  #(read-pass-results dict ignore-body ns source-file pass-opts))))
+                            passes)
+         form-findings (vec (mapcat :results pass-results))
+         deduped (if (= :both lang)
+                   (dedup-cljc-findings form-findings)
+                   form-findings)
+         merged-prov (-> (reduce (fn [m r] (merge m (:provenance r)))
+                                 {}
+                                 pass-results)
+                         (merge (or provenance {})))]
+     {:results (vec (concat (vec errors) deduped))
+      :provenance merged-prov})))
 
 (s/defn load-exception-result :- s/Any
   [ns-sym :- s/Symbol e :- Throwable]
@@ -1025,9 +1037,11 @@
   "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
   (typed declarations and form checking). Returns
   {:results [...] :provenance {sym → Provenance}}."
-  [opts ns-sym :- s/Symbol source-file]
-  (try
-    (check-ns ns-sym source-file opts)
-    (catch Exception e
-      {:results [(load-exception-result ns-sym e)]
-       :provenance {}})))
+  ([opts ns-sym :- s/Symbol source-file]
+   (check-namespace (:project-state opts) ns-sym source-file (dissoc opts :project-state)))
+  ([project-state ns-sym :- s/Symbol source-file form-opts]
+   (try
+     (check-ns project-state ns-sym source-file form-opts)
+     (catch Exception e
+       {:results [(load-exception-result ns-sym e)]
+        :provenance {}}))))

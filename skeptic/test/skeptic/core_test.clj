@@ -367,7 +367,7 @@
                   (fn [file]
                     ['skeptic.fixtures.example-ns file])
                   checking/check-namespace
-                  (fn [_opts ns _source-file]
+                  (fn [_project-state ns _source-file _form-opts]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
       (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.example-ns"]} "." ".")))
@@ -527,7 +527,7 @@
                     (some (fn [[ns f]] (when (= f file) [ns file]))
                           source-files))
                   checking/check-namespace
-                  (fn [_opts ns _source-file]
+                  (fn [_project-state ns _source-file _form-opts]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
       (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.a" "skeptic.fixtures.c"]} "." ".")))
@@ -573,7 +573,7 @@
                     (fn [f] [(get {kept-file     'skeptic.fixtures.kept
                                    excluded-file 'skeptic.fixtures.excluded} f) f])
                     checking/check-namespace
-                    (fn [_opts ns _f]
+                    (fn [_project-state ns _f _form-opts]
                       (swap! checked conj ns)
                       {:results [] :provenance {}})]
         (sut/check-project {} (.getCanonicalPath tmp) "."))

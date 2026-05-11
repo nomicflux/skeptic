@@ -1,6 +1,8 @@
 (ns skeptic.core
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [schema.core :as s]
+            [skeptic.checking.opts :as copts]
             [skeptic.checking.pipeline :as checking]
             [skeptic.config :as config]
             [skeptic.file :as file]
@@ -46,15 +48,19 @@
        (remove str/blank?)
        (mapv symbol)))
 
-(defn check-project
-  [{raw-namespaces :namespace :as opts} root & paths]
-  (let [requested-namespaces (when (seq raw-namespaces)
+(s/defn check-project :- s/Int
+  [opts :- copts/CheckProjectOpts root :- (s/cond-pre s/Str java.io.File) & paths :- [s/Str]]
+  (let [raw-namespaces (:namespace opts)
+        requested-namespaces (when (seq raw-namespaces)
                                (expand-namespace-args raw-namespaces))
         raw-config (config/load-raw-config root)
         type-overrides (config/compile-overrides (:type-overrides raw-config))
         opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
         {:keys [files failures]} (discover-project-files root paths)
         files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
+        files (if (:cljs-disable opts)
+                (remove #(str/ends-with? (.getName ^java.io.File %) ".cljs") files)
+                files)
         discovered-nss (try (->> files
                                  (map file/ns-for-clojure-file)
                                  (remove (comp nil? first))
@@ -81,10 +87,12 @@
         nss (cond-> discovered-nss
               (seq requested-namespaces)
               (select-keys requested-namespaces))
-        opts (assoc opts :project-state
-                    (checking/project-state opts nss))
-        per-ns-failures (get-in opts [:project-state :per-ns-failures])
+        project-state (checking/project-state opts nss)
+        per-ns-failures (:per-ns-failures project-state)
         checkable-nss (apply dissoc nss (keys per-ns-failures))
+        printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
+        report-opts {:explain-full (boolean (:explain-full opts))}
+        form-opts opts
         {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
         (output/printer opts)
         totals (atom {:finding-count 0
@@ -92,7 +100,7 @@
                       :namespace-count (count nss)
                       :namespaces-with-findings 0
                       :per-namespace-counts {}})]
-    (run-start opts nss)
+    (run-start printer-opts nss)
     (doseq [failure failures]
       (discovery-warn (failure->info failure)))
     (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
@@ -104,16 +112,15 @@
                                      (or (.getMessage exception) (str exception)))}))
     (let [errored (atom false)]
       (doseq [[ns source-file] checkable-nss]
-        (ns-start ns source-file opts)
+        (ns-start ns source-file printer-opts)
         (let [ns-findings (atom 0)
-              {:keys [results]} (checking/check-namespace opts ns source-file)
-              opts* (assoc opts :explain-full (boolean (:explain-full opts)))]
+              {:keys [results]} (checking/check-namespace project-state ns source-file form-opts)]
           (doseq [result results]
             (if (= :debug-form (:report-kind result))
-              (form-debug ns result opts)
-              (let [summary (inrep/report-summary result opts*)
+              (form-debug ns result printer-opts)
+              (let [summary (inrep/report-summary result report-opts)
                     exception? (= :exception (:report-kind summary))]
-                (finding ns result summary opts*)
+                (finding ns result summary printer-opts)
                 (reset! errored true)
                 (swap! ns-findings inc)
                 (swap! totals update
@@ -122,6 +129,6 @@
           (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
           (when (pos? @ns-findings)
             (swap! totals update :namespaces-with-findings inc))
-          (ns-end ns @ns-findings opts*)))
-      (run-end @errored @totals opts)
+          (ns-end ns @ns-findings printer-opts)))
+      (run-end @errored @totals printer-opts)
       (if @errored 1 0))))

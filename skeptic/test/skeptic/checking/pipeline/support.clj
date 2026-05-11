@@ -88,10 +88,10 @@
    (check-fixture sym {}))
   ([sym opts]
    (sut/check-s-expr (normalize-fn-code opts sym)
+                     @fixture-project-state
                      (assoc opts
                             :ns (fixture-ns sym)
-                            :source-file (fixture-file sym)
-                            :project-state @fixture-project-state))))
+                            :source-file (fixture-file sym)))))
 
 (defn fixture-exprs
   [ns-sym]

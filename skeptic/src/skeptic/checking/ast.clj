@@ -2,8 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
-            [skeptic.analysis.calls :as ac]
-            [skeptic.checking.form :as cf]))
+            [skeptic.analysis.calls :as ac]))
 
 (def invoke-ops aapi/invoke-ops)
 
@@ -26,14 +25,12 @@
 
 (s/defn match-up-arglists :- s/Any
   [arg-nodes :- [(s/maybe aas/AnnotatedNode)] expected actual]
-  (cf/spy :match-up-actual-list actual)
-  (cf/spy :match-up-expected-list expected)
   (let [size (max (count expected) (count actual))
         expected-vararg (last expected)]
     (for [n (range 0 size)]
       [(get arg-nodes n)
-       (cf/spy :match-up-expected (get expected n expected-vararg))
-       (cf/spy :match-up-actual (get actual n))])))
+       (get expected n expected-vararg)
+       (get actual n)])))
 
 (s/defn local-resolution-path :- s/Any
   [local-node :- aas/AnnotatedNode]
