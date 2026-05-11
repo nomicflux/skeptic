@@ -6,10 +6,7 @@
     m/=> and mx/defn entries.
   Does NOT call malli.instrument/collect!, which validates each schema as a
   function schema (`[:=> ...]`) and rejects non-function shapes that the
-  bridge admits as Dyn (e.g. `:map` Var-meta on a value Var).
-
-  Plumatic's `:schema` Var-meta channel — which mx/defn also writes raw
-  Malli vectors into — is intentionally not consulted here."
+  bridge admits as Dyn (e.g. `:map` Var-meta on a value Var)."
   (:require [malli.core :as m]
             [skeptic.analysis.malli-spec.bridge :as amb]))
 
