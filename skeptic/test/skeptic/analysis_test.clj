@@ -146,7 +146,8 @@
           {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
                                                                           fixture-ns
                                                                           fixture-file
-                                                                          (source-exprs-in fixture-ns fixture-file))
+                                                                          (source-exprs-in fixture-ns fixture-file)
+                                                                          {} {} :clj)
           failure-ast (ast-by-name resolved 'flat-multi-step-failure)
           call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
       (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f))
@@ -189,7 +190,7 @@
                                                                fixture-ns
                                                                fixture-file
                                                                [form]
-                                                               {:accessor-summaries accessor-summaries})))
+                                                               accessor-summaries {} :clj)))
           handle-a (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
@@ -211,7 +212,7 @@
                                                                fixture-ns
                                                                fixture-file
                                                                [form]
-                                                               {:accessor-summaries accessor-summaries})))
+                                                               accessor-summaries {} :clj)))
           f-a (aapi/find-node ast #(and (aapi/call-node? %)
                                         (= '(f-a x) (aapi/node-form %))))
           f-b (aapi/find-node ast #(and (aapi/call-node? %)

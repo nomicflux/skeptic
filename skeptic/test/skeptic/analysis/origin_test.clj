@@ -179,16 +179,19 @@
                                                           'skeptic.test-examples.control-flow
                                                           (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)
                                                           (atst/source-exprs-in 'skeptic.test-examples.control-flow
-                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)))
+                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow))
+                                                          {} {} :clj)
           resolution-res (checking/analyze-source-exprs test-dict
                                                         'skeptic.test-examples.resolution
                                                         (atst/fixture-file-for-ns 'skeptic.test-examples.resolution)
                                                         (atst/source-exprs-in 'skeptic.test-examples.resolution
-                                                                              (atst/fixture-file-for-ns 'skeptic.test-examples.resolution)))
+                                                                              (atst/fixture-file-for-ns 'skeptic.test-examples.resolution))
+                                                        {} {} :clj)
           example-res (checking/analyze-source-exprs example-dict
                                                      'skeptic.examples
                                                      atst/examples-file
-                                                     (atst/source-exprs-in 'skeptic.examples atst/examples-file))]
+                                                     (atst/source-exprs-in 'skeptic.examples atst/examples-file)
+                                                     {} {} :clj)]
       (is-type= (T (sb/join s/Int s/Str))
           (aapi/resolved-def-output-type (:resolved-defs control-flow-res)
                                          'skeptic.test-examples.control-flow/sample-if-mixed-fn))
@@ -284,7 +287,8 @@
                                                           'skeptic.test-examples.nullability
                                                           (atst/fixture-file-for-ns 'skeptic.test-examples.nullability)
                                                           (atst/source-exprs-in 'skeptic.test-examples.nullability
-                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.nullability)))
+                                                                                (atst/fixture-file-for-ns 'skeptic.test-examples.nullability))
+                                                          {} {} :clj)
         ast (atst/ast-by-name resolved 'guarded-keys-caller)
         guarded-if (aapi/find-node ast #(and (= :if (aapi/node-op %))
                                              (= 'pair (aapi/node-form (aapi/node-test %)))))

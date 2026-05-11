@@ -144,13 +144,11 @@
         exprs (vec (sut/ns-exprs file))
         exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
     (is (some? exploding-form))
-    (with-redefs [sut/analyze-source-exprs (fn redef
-                                             ([dict ns-sym source-file exprs]
-                                              (redef dict ns-sym source-file exprs {}))
-                                             ([dict ns-sym source-file exprs opts]
-                                              (if (= exploding-form (first exprs))
-                                                (throw (ex-info "boom during analysis" {}))
-                                                (real-analyze dict ns-sym source-file exprs opts))))]
+    (with-redefs [sut/analyze-source-exprs
+                  (fn [dict ns-sym source-file exprs accessor-summaries cljs-state lang]
+                    (if (= exploding-form (first exprs))
+                      (throw (ex-info "boom during analysis" {}))
+                      (real-analyze dict ns-sym source-file exprs accessor-summaries cljs-state lang)))]
       (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
                                          {:remove-context true})
             exception-result (some #(when (= :expression (:phase %)) %) results)
@@ -182,6 +180,9 @@
                                             'skeptic.test-examples.basics
                                             file
                                             exploding-form
+                                            {}
+                                            {}
+                                            :clj
                                             {:remove-context true})
             exception-result (first (:results form-results))
             results (ps/check-fixture-ns 'skeptic.test-examples.basics

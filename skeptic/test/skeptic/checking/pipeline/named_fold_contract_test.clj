@@ -29,7 +29,7 @@
   []
   (let [exprs (pipeline/ns-exprs fixture-file)
         {:keys [dict]} (test-state/admit-ns fixture-ns fixture-file)
-        analyzed (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs)]
+        analyzed (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs {} {} :clj)]
     (assoc analyzed :dict dict)))
 
 (defn- actual-output-type

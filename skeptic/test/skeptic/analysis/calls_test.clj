@@ -205,7 +205,8 @@
           {:keys [resolved]} (checking/analyze-source-exprs dict
                                                             'skeptic.static-call-examples
                                                             static-call-examples-file
-                                                            (atst/source-exprs-in 'skeptic.static-call-examples static-call-examples-file))
+                                                            (atst/source-exprs-in 'skeptic.static-call-examples static-call-examples-file)
+                                                            {} {} :clj)
           failure-ast (atst/ast-by-name resolved 'nested-multi-step-failure)
           call-node (atst/node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
       (let [args (aapi/call-actual-argtypes call-node)]
