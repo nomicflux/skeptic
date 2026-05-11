@@ -20,6 +20,7 @@
                  [org.clojure/tools.analyzer.jvm "1.4.0-beta1"]
                  [org.clojure/tools.cli      "1.0.214"]
                  [org.clojure/tools.deps     "0.29.1598"]
+                 [org.babashka/sci           "0.12.51"]
                  [commons-io                 "2.11.0"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}

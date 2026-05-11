@@ -17,12 +17,12 @@
                    and `input-schema*` gensyms.
 
   The cljs `:meta :schema` value is a symbolic form (the cljs analyzer
-  does not evaluate JVM-side); resolving it to a real Schema record uses
-  `eval`, which works because schema forms after macroexpansion are fully
-  qualified (`schema.core/Int`, `(schema.core/one schema.core/Int (quote x))`)
-  and `schema.core` is a `.cljc` namespace loadable on the JVM."
+  does not evaluate JVM-side); resolution to a real Schema record goes
+  through `skeptic.cljs.schema-interpreter`, which interprets the form
+  in a sci-sandboxed context that exposes only `schema.core`."
   (:require [clojure.walk :as walk]
             [schema.core :as s]
+            [skeptic.cljs.schema-interpreter :as si]
             [skeptic.schema.collect :as collect]))
 
 (def ^:dynamic *requires*
@@ -109,8 +109,7 @@
 
 (defn- resolve-schema-form
   [form]
-  (binding [*ns* (the-ns 'user)]
-    (eval (resolve-aliases form))))
+  (si/interpret-schema-form (resolve-aliases form)))
 
 (defn- build-fn-schema
   [ast meta-info]
