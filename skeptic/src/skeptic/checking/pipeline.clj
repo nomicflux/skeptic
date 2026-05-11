@@ -701,9 +701,9 @@
     (merge schema-provs malli-provs)))
 
 (defn- clj-namespace-dict
-  [opts ns-sym source-file var-provs]
+  [opts ns-sym source-file var-provs project-discovery]
   (require ns-sym)
-  (let [discovery-out (or (get-in opts [:skeptic/project-discovery ns-sym])
+  (let [discovery-out (or (get project-discovery ns-sym)
                           (when source-file (discovery/discover ns-sym source-file)))
         form-refs (java.util.IdentityHashMap.)
         opts' (cond-> (assoc opts :skeptic/lang :clj)
@@ -745,12 +745,12 @@
     (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))
 
 (s/defn namespace-dict :- s/Any
-  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs]
+  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs project-discovery]
   (case lang
-    :clj  (clj-namespace-dict opts ns-sym source-file var-provs)
+    :clj  (clj-namespace-dict opts ns-sym source-file var-provs project-discovery)
     :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)
     :both (typed-decls/merge-type-dicts
-           [(clj-namespace-dict opts ns-sym source-file var-provs)
+           [(clj-namespace-dict opts ns-sym source-file var-provs project-discovery)
             (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)])))
 
 (defn project-discovery
@@ -849,12 +849,11 @@
         project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
         var-provs (project-var-provs opts project-disc)
         cljs-state (preload-cljs-state! (:cljs-disable opts) loaded)
-        opts (assoc opts :skeptic/project-discovery project-disc)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs))
+                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs project-disc))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))
