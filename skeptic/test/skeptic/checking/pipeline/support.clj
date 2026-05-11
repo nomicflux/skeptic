@@ -101,15 +101,17 @@
 
 (defn check-fixture-ns
   [ns-sym opts]
-  (:results (sut/check-ns ns-sym
+  (:results (sut/check-ns @fixture-project-state
+                          ns-sym
                           (fixture-file-for-ns ns-sym)
-                          (assoc opts :project-state @fixture-project-state))))
+                          opts)))
 
 (defn check-fixture-namespace
   [ns-sym opts]
-  (:results (sut/check-namespace (assoc opts :project-state @fixture-project-state)
+  (:results (sut/check-namespace @fixture-project-state
                                  ns-sym
-                                 (fixture-file-for-ns ns-sym))))
+                                 (fixture-file-for-ns ns-sym)
+                                 opts)))
 
 (defn run-with-timeout
   [timeout-ms f]

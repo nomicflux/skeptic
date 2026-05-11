@@ -336,10 +336,10 @@
                       (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
       (let [proj-state (checking/project-state {:remove-context true}
                                                 [['skeptic.check-project-best-effort-examples source-file]])
-            {:keys [results]} (checking/check-namespace {:remove-context true
-                                                          :project-state proj-state}
+            {:keys [results]} (checking/check-namespace proj-state
                                                         'skeptic.check-project-best-effort-examples
-                                                        source-file)
+                                                        source-file
+                                                        {:remove-context true})
             exception-result (some #(when (= :expression (:phase %)) %) results)
             mismatch-result (some #(when (= 'skeptic.check-project-best-effort-examples/later-mismatch
                                             (:enclosing-form %))

@@ -45,10 +45,10 @@
                                     (:enclosing-form %))
                              %)
                           flat-results)
-        nested-results (:results (sut/check-ns 'skeptic.static-call-examples
+        nested-results (:results (sut/check-ns (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)
+                                               'skeptic.static-call-examples
                                                ps/static-call-examples-file
-                                               {:remove-context true
-                                                :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                               {:remove-context true}))
         nested-result (some #(when (= 'skeptic.static-call-examples/nested-multi-step-failure
                                       (:enclosing-form %))
                                %)

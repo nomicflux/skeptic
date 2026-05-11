@@ -15,18 +15,19 @@
   (require 'skeptic.core-fns)
   (let [file (java.io.File. "src/skeptic/core_fns.clj")]
     (is (= []
-           (:results (sut/check-ns 'skeptic.core-fns
+           (:results (sut/check-ns (ps/project-state-for 'skeptic.core-fns file)
+                                   'skeptic.core-fns
                                    file
-                                   {:project-state (ps/project-state-for 'skeptic.core-fns file)}))))))
+                                   {}))))))
 
 (deftest check-namespace-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
-        {:keys [results]} (sut/check-namespace {:remove-context true
-                                                :project-state (ps/project-state-for 'skeptic.test-examples.basics temp-file)}
+        {:keys [results]} (sut/check-namespace (ps/project-state-for 'skeptic.test-examples.basics temp-file)
                                                'skeptic.test-examples.basics
-                                               temp-file)]
+                                               temp-file
+                                               {:remove-context true})]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
     (is (= :read (:phase (first results))))))
@@ -54,10 +55,10 @@
     (is (= [] results))))
 
 (deftest static-call-examples-check-ns
-  (let [results (:results (sut/check-ns 'skeptic.static-call-examples
+  (let [results (:results (sut/check-ns (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)
+                                        'skeptic.static-call-examples
                                         ps/static-call-examples-file
-                                        {:remove-context true
-                                         :project-state (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)}))
+                                        {:remove-context true}))
         count-result (some #(when (= 'skeptic.static-call-examples/bad-count-default
                                       (:enclosing-form %))
                               %)
@@ -99,10 +100,10 @@
                    results))))
 
 (deftest examples-maybe-multi-step-check-ns
-  (let [results (:results (sut/check-ns 'skeptic.examples
+  (let [results (:results (sut/check-ns (ps/project-state-for 'skeptic.examples ps/examples-file)
+                                        'skeptic.examples
                                         ps/examples-file
-                                        {:remove-context true
-                                         :project-state (ps/project-state-for 'skeptic.examples ps/examples-file)}))]
+                                        {:remove-context true}))]
     (is (some #(when (= 'skeptic.examples/flat-maybe-base-type-failure
                         (:enclosing-form %))
                  %)
@@ -129,9 +130,12 @@
                   results)))))
 
 (deftest check-namespace-localizes-load-failure
-  (let [{:keys [results]} (sut/check-namespace {}
+  (let [valid-ns 'skeptic.test-examples.basics
+        valid-file (ps/fixture-file-for-ns valid-ns)
+        {:keys [results]} (sut/check-namespace (ps/project-state-for valid-ns valid-file)
                                                'skeptic.nonexistent.namespace.that.does.not.exist
-                                               (java.io.File. "nonexistent.clj"))]
+                                               (java.io.File. "nonexistent.clj")
+                                               {})]
     (is (= 1 (count results)))
     (is (= :exception (:report-kind (first results))))
     (is (= :load (:phase (first results))))

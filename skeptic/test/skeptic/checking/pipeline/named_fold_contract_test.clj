@@ -55,8 +55,10 @@
 (defn- public-output-result
   [target-sym]
   (some #(when (= target-sym (:enclosing-form %)) %)
-        (:results (pipeline/check-ns fixture-ns fixture-file
-                                     {:project-state (fixture-project-state)}))))
+        (:results (pipeline/check-ns (fixture-project-state)
+                                     fixture-ns
+                                     fixture-file
+                                     {}))))
 
 (defn- assert-no-producer-name
   [rendered]

@@ -984,31 +984,29 @@
                                      (read-exception-result source-file exception))))))))
 
 (s/defn check-ns :- s/Any
-  ([ns :- s/Symbol source-file opts]
-   (check-ns (:project-state opts) ns source-file (dissoc opts :project-state)))
-  ([project-state ns :- s/Symbol source-file form-opts]
-   (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
-         (prepare-namespace project-state ns source-file)
-         lang (lang-of-source-file form-opts source-file)
-         passes (case lang :both [:clj :cljs] [lang])
-         cljs-state (:cljs-state project-state)
-         pass-results (mapv (fn [pass-lang]
-                              (let [needs-jvm? (#{:clj :both} pass-lang)]
-                                (with-jvm-ns needs-jvm? ns
-                                  #(read-pass-results dict ignore-body ns source-file
-                                                      accessor-summaries cljs-state pass-lang
-                                                      form-opts))))
-                            passes)
-         form-findings (vec (mapcat :results pass-results))
-         deduped (if (= :both lang)
-                   (dedup-cljc-findings form-findings)
-                   form-findings)
-         merged-prov (-> (reduce (fn [m r] (merge m (:provenance r)))
-                                 {}
-                                 pass-results)
-                         (merge (or provenance {})))]
-     {:results (vec (concat (vec errors) deduped))
-      :provenance merged-prov})))
+  [project-state ns :- s/Symbol source-file form-opts]
+  (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
+        (prepare-namespace project-state ns source-file)
+        lang (lang-of-source-file form-opts source-file)
+        passes (case lang :both [:clj :cljs] [lang])
+        cljs-state (:cljs-state project-state)
+        pass-results (mapv (fn [pass-lang]
+                             (let [needs-jvm? (#{:clj :both} pass-lang)]
+                               (with-jvm-ns needs-jvm? ns
+                                 #(read-pass-results dict ignore-body ns source-file
+                                                     accessor-summaries cljs-state pass-lang
+                                                     form-opts))))
+                           passes)
+        form-findings (vec (mapcat :results pass-results))
+        deduped (if (= :both lang)
+                  (dedup-cljc-findings form-findings)
+                  form-findings)
+        merged-prov (-> (reduce (fn [m r] (merge m (:provenance r)))
+                                {}
+                                pass-results)
+                        (merge (or provenance {})))]
+    {:results (vec (concat (vec errors) deduped))
+     :provenance merged-prov}))
 
 (s/defn load-exception-result :- s/Any
   [ns-sym :- s/Symbol e :- Throwable]
@@ -1026,11 +1024,9 @@
   "Owns the full per-namespace run: :load (require), :declaration + :read + :expression
   (typed declarations and form checking). Returns
   {:results [...] :provenance {sym → Provenance}}."
-  ([opts ns-sym :- s/Symbol source-file]
-   (check-namespace (:project-state opts) ns-sym source-file (dissoc opts :project-state)))
-  ([project-state ns-sym :- s/Symbol source-file form-opts]
-   (try
-     (check-ns project-state ns-sym source-file form-opts)
-     (catch Exception e
-       {:results [(load-exception-result ns-sym e)]
-        :provenance {}}))))
+  [project-state ns-sym :- s/Symbol source-file form-opts]
+  (try
+    (check-ns project-state ns-sym source-file form-opts)
+    (catch Exception e
+      {:results [(load-exception-result ns-sym e)]
+       :provenance {}})))

@@ -28,19 +28,19 @@
 
 (deftest mixed-language-project-attributes-lang-correctly
   (let [ps (pipeline/project-state {} fixture-nss)
-        opts {:project-state ps :remove-context true}]
+        form-opts {:remove-context true}]
     (testing "foo.clj produces a finding tagged :clj"
-      (let [{:keys [results]} (pipeline/check-namespace opts foo-ns foo-file)
+      (let [{:keys [results]} (pipeline/check-namespace ps foo-ns foo-file form-opts)
             f (input-finding results)]
         (is (some? f) "foo.clj should produce an input mismatch")
         (is (= :clj (get-in f [:location :lang])))))
     (testing "bar.cljs produces a finding tagged :cljs"
-      (let [{:keys [results]} (pipeline/check-namespace opts bar-ns bar-file)
+      (let [{:keys [results]} (pipeline/check-namespace ps bar-ns bar-file form-opts)
             f (input-finding results)]
         (is (some? f) "bar.cljs should produce an input mismatch")
         (is (= :cljs (get-in f [:location :lang])))))
     (testing "baz.cljc produces one finding tagged #{:clj :cljs}"
-      (let [{:keys [results]} (pipeline/check-namespace opts baz-ns baz-file)
+      (let [{:keys [results]} (pipeline/check-namespace ps baz-ns baz-file form-opts)
             inputs (filter #(= :input (:report-kind %)) results)]
         (is (= 1 (count inputs))
             "baz.cljc identical findings under both passes should dedup to one")
