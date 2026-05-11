@@ -701,12 +701,11 @@
     (merge schema-provs malli-provs)))
 
 (defn- clj-namespace-dict
-  [opts ns-sym source-file]
+  [opts ns-sym source-file var-provs]
   (require ns-sym)
   (let [discovery-out (or (get-in opts [:skeptic/project-discovery ns-sym])
                           (when source-file (discovery/discover ns-sym source-file)))
         form-refs (java.util.IdentityHashMap.)
-        var-provs (:skeptic/var-provs opts)
         opts' (cond-> (assoc opts :skeptic/lang :clj)
                 source-file (assoc :skeptic/source-file source-file))]
     (when discovery-out
@@ -719,7 +718,7 @@
         (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))))
 
 (defn- cljs-namespace-dict
-  [opts ns-sym source-file cljs-state]
+  [opts ns-sym source-file cljs-state var-provs]
   (let [per-file (some-> cljs-state (get source-file))
         {:keys [ns-ast asts]} per-file
         _ (when-not per-file
@@ -727,7 +726,6 @@
                             {:ns ns-sym :source-file (some-> source-file str)})))
         top-asts (or asts [])
         form-refs (java.util.IdentityHashMap.)
-        var-provs (:skeptic/var-provs opts)
         schema-result (if (:plumatic-disable opts)
                         (typed-decls/convert-collected ns-sym :cljs {:entries {} :errors []})
                         (binding [ab/*form-refs* form-refs
@@ -747,13 +745,13 @@
     (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))
 
 (s/defn namespace-dict :- s/Any
-  [opts ns-sym :- s/Symbol source-file lang cljs-state]
+  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs]
   (case lang
-    :clj  (clj-namespace-dict opts ns-sym source-file)
-    :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state)
+    :clj  (clj-namespace-dict opts ns-sym source-file var-provs)
+    :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)
     :both (typed-decls/merge-type-dicts
-           [(clj-namespace-dict opts ns-sym source-file)
-            (cljs-namespace-dict opts ns-sym source-file cljs-state)])))
+           [(clj-namespace-dict opts ns-sym source-file var-provs)
+            (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)])))
 
 (defn project-discovery
   [nss-with-source-files]
@@ -851,14 +849,12 @@
         project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
         var-provs (project-var-provs opts project-disc)
         cljs-state (preload-cljs-state! (:cljs-disable opts) loaded)
-        opts (assoc opts
-                    :skeptic/project-discovery project-disc
-                    :skeptic/var-provs var-provs)
+        opts (assoc opts :skeptic/project-discovery project-disc)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang cljs-state))
+                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))

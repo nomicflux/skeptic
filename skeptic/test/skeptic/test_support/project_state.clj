@@ -13,8 +13,7 @@
   (require ns-sym)
   (let [project-disc (pipeline/project-discovery [[ns-sym source-file]])
         var-provs (pipeline/project-var-provs {} project-disc)
-        opts {:skeptic/project-discovery project-disc
-              :skeptic/var-provs var-provs}
+        opts {:skeptic/project-discovery project-disc}
         lang (pipeline/lang-of-source-file source-file)
         cljs-state (pipeline/preload-cljs-state! false [[ns-sym source-file lang]])]
-    (pipeline/namespace-dict opts ns-sym source-file lang cljs-state)))
+    (pipeline/namespace-dict opts ns-sym source-file lang cljs-state var-provs)))
