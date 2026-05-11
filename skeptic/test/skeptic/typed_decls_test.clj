@@ -6,7 +6,7 @@
             [skeptic.provenance :as prov]
             [skeptic.typed-decls :as sut]))
 
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
 (defn T [schema] (ab/schema->type tp schema))
 

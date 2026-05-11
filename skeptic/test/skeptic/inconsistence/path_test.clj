@@ -11,7 +11,7 @@
   {:expr '(f x 2)
    :arg 'x})
 
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
 (defn T
   [schema]

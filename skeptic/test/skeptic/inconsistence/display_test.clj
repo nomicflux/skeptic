@@ -7,7 +7,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.display :as sut]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest ppr-str-test
   (is (str/includes? (sut/ppr-str {:a 1}) ":a"))
@@ -69,7 +69,7 @@
     (is (= ['Str] (vec (nth r 2))))))
 
 (deftest describe-type-honours-fold-opts
-  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil [] :clj)
         named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil)]
     (is (= "foo/NamedVec"
            (sut/describe-type named-type {:root? false})))

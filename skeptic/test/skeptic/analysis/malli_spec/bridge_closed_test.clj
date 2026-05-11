@@ -5,7 +5,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (def open-domain-key (at/->GroundT tp :keyword 'Keyword))
 

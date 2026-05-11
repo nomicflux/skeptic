@@ -7,7 +7,7 @@
             [skeptic.test-helpers :refer [tp]]))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest shared-call-contains-uses-anchor-prov-test
   (testing ":contains returns bool with default-output-type's prov (not args' provs)"

@@ -4,7 +4,7 @@
             [skeptic.provenance :as prov]
             [skeptic.analysis.type-ops :as ato]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest eq-with-keyword-value
   (is (= (ato/exact-value-type tp :a)

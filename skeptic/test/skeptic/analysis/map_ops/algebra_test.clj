@@ -31,7 +31,7 @@
                                           (at/->MapT tp {(ato/exact-value-type tp :b) (T s/Str)})]))))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest merge-types-container-owns-prov-test
   (testing "empty types with anchor does not crash and carries anchor prov"

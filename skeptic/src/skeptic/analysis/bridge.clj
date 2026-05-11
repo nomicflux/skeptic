@@ -123,7 +123,9 @@
       (prov/make-provenance :schema
                             name-sym
                             (:declared-in ctx-prov)
-                            (:var-meta ctx-prov)))))
+                            (:var-meta ctx-prov)
+                            []
+                            (:lang ctx-prov)))))
 
 (defn- var-source-prov
   [v]
@@ -141,7 +143,9 @@
             (prov/make-provenance :schema
                                   qsym
                                   (some-> v .ns ns-name)
-                                  m)))))))
+                                  m
+                                  []
+                                  :clj)))))))
 
 (defn- named-prov
   [ctx-prov v form]
@@ -485,7 +489,9 @@
         named-prov (prov/make-provenance :schema
                                          name-sym
                                          (:declared-in prov)
-                                         (:var-meta prov))]
+                                         (:var-meta prov)
+                                         []
+                                         (:lang prov))]
     (run (assoc ctx :schema (sb/de-named schema) :prov named-prov :name-claimed? false))))
 
 (defn- var-import-type
@@ -520,7 +526,8 @@
                         nil
                         (:declared-in ctx-prov)
                         (:var-meta ctx-prov)
-                        (vec (distinct (keep identity child-provs)))))
+                        (vec (distinct (keep identity child-provs)))
+                        (:lang ctx-prov)))
 
 (def ^:private schema-foldable-sources
   #{:schema :malli :type-override})

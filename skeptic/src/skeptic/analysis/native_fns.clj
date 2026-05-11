@@ -12,12 +12,12 @@
   (:import [clojure.lang Numbers]))
 
 (defn- native-prov
-  ([sym] (native-prov sym :clj))
-  ([sym lang] (prov/make-provenance :native sym nil nil [] lang)))
+  [sym lang]
+  (prov/make-provenance :native sym nil nil [] lang))
 
 (defn- numbers-prov
   [method]
-  (native-prov (symbol (str "clojure.lang.Numbers/" method))))
+  (native-prov (symbol (str "clojure.lang.Numbers/" method)) :clj))
 
 (s/defn static-call-native-info :- (s/maybe {s/Keyword s/Any})
   [class :- s/Any method :- s/Any arity :- s/Int]

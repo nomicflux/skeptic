@@ -17,7 +17,7 @@
 
 (deftest detailed-def-and-fn-shape-test
   (testing "defn produces def with wrapped fn init"
-    (let [ast (aat/annotate-form-loop {} '(defn sample [x] x) {:ns 'user})
+    (let [ast (aat/annotate-form-loop {} '(defn sample [x] x) {:ns 'user :lang :clj})
           init-node (some! (aapi/def-init-node ast))]
       (is (= :def (aapi/node-op ast)))
       (is (= 'sample (aapi/node-name ast)))

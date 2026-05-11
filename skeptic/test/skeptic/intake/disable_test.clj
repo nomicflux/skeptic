@@ -5,6 +5,7 @@
   native-fn entries."
   (:require [clojure.test :refer [deftest is testing]]
             [skeptic.checking.pipeline :as pipeline]
+            [skeptic.provenance :as prov]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli])
   (:import [java.io File]))
@@ -70,7 +71,7 @@
             (str sym " should still be admitted via Malli"))))
     (testing "cross-stream Var survives via Malli"
       (is (contains? dict cross-stream-sym))
-      (is (= :malli (:source (get ns-provs cross-stream-sym)))
+      (is (= :malli (prov/source (get ns-provs cross-stream-sym)))
           "cross-stream prov should be :malli when Plumatic is disabled"))))
 
 (deftest malli-disable-removes-malli-qsyms-from-merged-dict
@@ -89,7 +90,7 @@
             (str sym " should still be admitted via Plumatic"))))
     (testing "cross-stream Var survives via Plumatic"
       (is (contains? dict cross-stream-sym))
-      (is (= :schema (:source (get ns-provs cross-stream-sym)))
+      (is (= :schema (prov/source (get ns-provs cross-stream-sym)))
           "cross-stream prov should be :schema when Malli is disabled"))))
 
 (deftest both-disabled-leaves-only-native-entries

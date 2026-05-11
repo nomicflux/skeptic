@@ -12,7 +12,7 @@
 
 (defn- annotated [form]
   (let [ast (ad/analyze-form @bootstrap-ns-ast form)]
-    (annotate/annotate-ast {} ast)))
+    (annotate/annotate-ast {} ast {:lang :cljs})))
 
 (deftest host-call-routes-and-types
   (let [node (annotated '(.toUpperCase "abc"))]

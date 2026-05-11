@@ -105,14 +105,14 @@
 
 (defn analyze-form
   ([form]
-   (aat/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test}))
+   (aat/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test :lang :clj}))
   ([arg1 arg2]
    (if (map? arg1)
-     (aat/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test})
-     (aat/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test}
+     (aat/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test :lang :clj})
+     (aat/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test :lang :clj}
                                                        arg2))))
   ([dict form opts]
-   (aat/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test}
+   (aat/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test :lang :clj}
                                             opts))))
 
 (defn ast-by-name
@@ -134,7 +134,7 @@
           form (->> 'skeptic.test-examples.resolution/unannotated-local-helper-g
                     (source/get-fn-code {})
                     read-string)
-          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution})
+          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution :lang :clj})
           call-node (node-by-form ast '(unannotated-local-helper-f))]
       (is-type= (T s/Any) (aapi/node-type call-node))
       (is (not (at/union-type? (aapi/node-type call-node))))))

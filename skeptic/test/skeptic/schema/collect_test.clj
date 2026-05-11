@@ -7,7 +7,7 @@
             [skeptic.schema.collect :as sut])
   (:import [java.io File]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (defn- src-file
   [ns-sym]

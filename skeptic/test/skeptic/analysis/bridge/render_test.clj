@@ -7,7 +7,7 @@
 
 (defn- p
   [source sym]
-  (prov/make-provenance source sym 'skeptic.test nil))
+  (prov/make-provenance source sym 'skeptic.test nil [] :clj))
 
 (defn- ground-int
   [prov]

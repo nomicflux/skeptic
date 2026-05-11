@@ -9,7 +9,7 @@
 
 (def ^:private fixture-path "dev-resources/cljs-fixtures/p4.cljs")
 
-(def ^:private p (prov/make-provenance :schema 'p4/anon 'p4 nil))
+(def ^:private p (prov/make-provenance :schema 'p4/anon 'p4 nil [] :clj))
 
 (def ^:private ^:dynamic *result* nil)
 

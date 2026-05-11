@@ -6,7 +6,7 @@
 
 (s/defschema Lang
   (s/conditional set?
-                 #{(s/enum :clj :cljs)}
+                 (s/eq #{:clj :cljs})
                  :else
                  (s/enum :clj :cljs)))
 

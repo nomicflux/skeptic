@@ -28,9 +28,7 @@
   [lang]
   (or (= :clj lang)
       (= :cljs lang)
-      (= #{:clj :cljs} lang)
-      (= #{:clj} lang)
-      (= #{:cljs} lang)))
+      (= #{:clj :cljs} lang)))
 
 (defn- assert-lang
   [lang]
@@ -40,24 +38,13 @@
   lang)
 
 (s/defn make-provenance :- provs/Provenance
-  ([source        :- provs/Source
-    qualified-sym :- (s/maybe s/Symbol)
-    declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
-    var-meta      :- (s/maybe {s/Keyword s/Any})]
-   (make-provenance source qualified-sym declared-in var-meta [] :clj))
-  ([source        :- provs/Source
-    qualified-sym :- (s/maybe s/Symbol)
-    declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
-    var-meta      :- (s/maybe {s/Keyword s/Any})
-    refs          :- [provs/Provenance]]
-   (make-provenance source qualified-sym declared-in var-meta refs :clj))
-  ([source        :- provs/Source
-    qualified-sym :- (s/maybe s/Symbol)
-    declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
-    var-meta      :- (s/maybe {s/Keyword s/Any})
-    refs          :- [provs/Provenance]
-    lang          :- provs/Lang]
-   (->Provenance (assert-source source) qualified-sym declared-in var-meta (vec refs) (assert-lang lang))))
+  [source        :- provs/Source
+   qualified-sym :- (s/maybe s/Symbol)
+   declared-in   :- (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))
+   var-meta      :- (s/maybe {s/Keyword s/Any})
+   refs          :- [provs/Provenance]
+   lang          :- provs/Lang]
+  (->Provenance (assert-source source) qualified-sym declared-in var-meta (vec refs) (assert-lang lang)))
 
 (s/defn with-refs :- provs/Provenance
   "Return prov with :refs replaced by the given constituent provs."
@@ -66,13 +53,10 @@
   (assoc prov :refs (vec refs)))
 
 (s/defn inferred :- provs/Provenance
-  ([sym-and-ns :- {:name (s/maybe s/Symbol)
-                   :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}]
-   (inferred sym-and-ns :clj))
-  ([{:keys [name ns]} :- {:name (s/maybe s/Symbol)
-                          :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}
-    lang :- provs/Lang]
-   (make-provenance :inferred name ns nil [] lang)))
+  [{:keys [name ns]} :- {:name (s/maybe s/Symbol)
+                         :ns   (s/maybe (s/cond-pre s/Symbol clojure.lang.Namespace))}
+   lang :- provs/Lang]
+  (make-provenance :inferred name ns nil [] lang))
 
 (def ^:private ctx-key :skeptic.provenance/ctx-provenance)
 

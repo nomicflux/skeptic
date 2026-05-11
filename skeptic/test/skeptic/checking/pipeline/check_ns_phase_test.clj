@@ -9,7 +9,7 @@
             [skeptic.provenance :as prov]
             [skeptic.test-support.project-state :as test-state]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)

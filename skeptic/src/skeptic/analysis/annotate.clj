@@ -71,7 +71,7 @@
         (throw (IllegalArgumentException.
                 (format "Invalid :skeptic/type override: %s" (pr-str type-form)))))
       (ab/schema->type (prov/make-provenance :type-override
-                                             (:name ctx) (:ns ctx) nil)
+                                             (:name ctx) (:ns ctx) nil [] :clj)
                        schema))))
 
 (defn- apply-type-override
@@ -88,18 +88,16 @@
         abr/strip-derived-types)))
 
 (s/defn annotate-ast :- aas/AnnotatedNode
-  ([dict :- s/Any ast :- aas/AnnotatedNode]
-   (annotate-ast dict ast {}))
-  ([dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]
-   (annotate-node (prov/set-ctx {:dict (or dict {})
-                                 :locals (or locals {})
-                                 :assumptions (vec assumptions)
-                                 :recur-targets {}
-                                 :name name
-                                 :ns ns
-                                 :accessor-summaries (or accessor-summaries {})}
-                                (prov/inferred {:name name :ns ns} (or lang :clj)))
-                  ast)))
+  [dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]
+  (annotate-node (prov/set-ctx {:dict (or dict {})
+                                :locals (or locals {})
+                                :assumptions (vec assumptions)
+                                :recur-targets {}
+                                :name name
+                                :ns ns
+                                :accessor-summaries (or accessor-summaries {})}
+                               (prov/inferred {:name name :ns ns} lang))
+                 ast))
 
 (defn- target-ns
   [ns-sym]
@@ -139,9 +137,7 @@
        (normalize-raw-ast (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts}))))))
 
 (s/defn annotate-form-loop :- aas/AnnotatedNode
-  ([dict :- s/Any form :- s/Any]
-   (annotate-form-loop dict form {}))
-  ([dict :- s/Any form :- s/Any opts :- s/Any]
-   (annotate-ast dict
-                 (analyze-form form opts)
-                 opts)))
+  [dict :- s/Any form :- s/Any opts :- s/Any]
+  (annotate-ast dict
+                (analyze-form form opts)
+                opts))

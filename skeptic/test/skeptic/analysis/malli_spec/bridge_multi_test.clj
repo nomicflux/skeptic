@@ -4,7 +4,7 @@
             [skeptic.provenance :as prov]
             [skeptic.analysis.types :as at]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest multi-with-keyword-dispatch-emits-values-descriptors
   (is (= (at/->ConditionalT

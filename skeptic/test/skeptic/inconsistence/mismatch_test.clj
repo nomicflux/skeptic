@@ -8,7 +8,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.inconsistence.mismatch :as sut]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (def ^:private ui-internal-markers
   [":skeptic.analysis.types/"

@@ -4,7 +4,7 @@
             [skeptic.analysis.schema.cast :as sut]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest raw-schema-check-cast-adapts-to-type-domain-test
   (let [exact (sut/check-cast tp s/Int s/Int)

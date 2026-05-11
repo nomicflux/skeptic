@@ -11,7 +11,7 @@
   (testing "annotation stays first-order and keeps typed call metadata"
     (let [ast (aat/annotate-form-loop atst/analysis-dict
                                       '(skeptic.test-examples.basics/int-add 1 2)
-                                      {:ns 'skeptic.analysis-test})]
+                                      {:ns 'skeptic.analysis-test :lang :clj})]
       (is (= :invoke (aapi/node-op ast)))
       (let [args (aapi/call-actual-argtypes ast)]
         (is (= 2 (count args)))

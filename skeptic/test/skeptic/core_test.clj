@@ -14,7 +14,7 @@
   (:import [java.io File]
            [java.nio.file Files]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (def ui-internal-markers
   [":skeptic.analysis.types/"

@@ -4,7 +4,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest sequential-of-int-imports-as-empty-prefix-int-tail-seqt
   (is (= (at/->SeqT tp [] (at/->GroundT tp :int 'Int))

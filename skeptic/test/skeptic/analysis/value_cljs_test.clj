@@ -7,7 +7,7 @@
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]))
 
-(def ^:private p (prov/make-provenance :inferred 'sym 'ns nil))
+(def ^:private p (prov/make-provenance :inferred 'sym 'ns nil [] :clj))
 
 (deftest cljs-tag-symbol-string
   (is (at/type=? (at/->GroundT p :str 'Str) (av/cljs-tag->type p 'string))))

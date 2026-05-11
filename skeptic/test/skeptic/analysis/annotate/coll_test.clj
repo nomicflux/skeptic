@@ -7,7 +7,7 @@
             [skeptic.test-helpers :refer [is-type= T tp some!]]))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest collection-shape-helpers-test
   (let [vec-type (T [(s/one s/Int 'a) (s/one s/Int 'b)])

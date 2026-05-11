@@ -5,7 +5,7 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest and-with-two-primitive-members
   (is (= (ato/intersection-type tp [(at/->GroundT tp :int 'Int) (at/->GroundT tp :str 'Str)])

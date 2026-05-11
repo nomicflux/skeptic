@@ -15,7 +15,7 @@
             [skeptic.test-helpers :refer [some!]]))
 
 (def ^:private tp
-  (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+  (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
 (defn- carries-real-prov?
   [t]

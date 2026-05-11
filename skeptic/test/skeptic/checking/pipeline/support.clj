@@ -12,7 +12,7 @@
             [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (def examples-file
   (File. "src/skeptic/examples.clj"))

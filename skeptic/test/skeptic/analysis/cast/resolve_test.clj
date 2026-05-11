@@ -11,7 +11,7 @@
 (s/defschema X-bound s/Int)
 (s/defschema X-self (s/recursive #'X-self))
 
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.analysis.cast.resolve-test nil))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.analysis.cast.resolve-test nil [] :clj))
 
 (use-fixtures :each
   (fn [test-fn]
@@ -20,7 +20,7 @@
                     (keep (fn [[_ v]]
                             (when (and (var? v) (bound? v))
                               (let [qsym (sb/qualified-var-symbol v)]
-                                [qsym (prov/make-provenance :schema qsym 'skeptic.analysis.cast.resolve-test (meta v))]))))
+                                [qsym (prov/make-provenance :schema qsym 'skeptic.analysis.cast.resolve-test (meta v) [] :clj)]))))
                     (ns-interns 'skeptic.analysis.cast.resolve-test))]
       (test-fn))))
 

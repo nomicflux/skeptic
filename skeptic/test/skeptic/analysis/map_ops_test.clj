@@ -55,7 +55,7 @@
                                        (ab/schema->type tp s/Int)]))))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest merge-map-types-container-owns-prov-test
   (testing "empty types with anchor does not crash and carries anchor prov"

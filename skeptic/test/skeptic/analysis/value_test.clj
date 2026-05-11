@@ -8,7 +8,7 @@
             [skeptic.test-helpers :refer [is-type= T tp]]))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest join-container-owns-prov-test
   (testing "empty item seq does not crash; result carries anchor prov"

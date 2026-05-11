@@ -4,10 +4,10 @@
             [skeptic.provenance :as prov]))
 
 (def ^:private p-schema
-  (prov/make-provenance :schema 'a/b 'a nil))
+  (prov/make-provenance :schema 'a/b 'a nil [] :clj))
 
 (def ^:private p-native
-  (prov/make-provenance :native 'x/y 'x nil))
+  (prov/make-provenance :native 'x/y 'x nil [] :clj))
 
 (deftest constructors-attach-provenance
   (testing "every constructor attaches its prov arg"

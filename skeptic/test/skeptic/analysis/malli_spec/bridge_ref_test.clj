@@ -5,7 +5,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest schema-with-local-registry-resolving-ref-to-ground
   (is (= (at/->GroundT tp :int 'Int)

@@ -8,7 +8,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
 (defn T
   [schema]

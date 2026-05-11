@@ -6,7 +6,7 @@
             [skeptic.output.porcelain :as sut]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (defn- capture-lines
   [f]
@@ -228,7 +228,7 @@
     (is (nil? (:debug parsed)))))
 
 (deftest explain-full-controls-named-folding-in-porcelain
-  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil [] :clj)
         named-type (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil)
         summary (assoc example-input-summary
                        :actual-type named-type

@@ -67,7 +67,7 @@
       (is-type= f (sut/inc-dec-output-type f)))))
 
 (def ^:private other-prov
-  (prov/make-provenance :schema 'other 'other.ns nil))
+  (prov/make-provenance :schema 'other 'other.ns nil [] :clj))
 
 (deftest invoke-integral-math-narrow-type-uses-anchor-prov-test
   (testing "result prov is the anchor, not derived from arg-type provs"

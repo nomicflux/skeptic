@@ -6,7 +6,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(defn- prov [] (prov/make-provenance :native 'test-sym nil nil))
+(defn- prov [] (prov/make-provenance :native 'test-sym nil nil [] :clj))
 
 (deftest predicate?-test
   (is (predicates/predicate? 'clojure.core/string?))
@@ -26,7 +26,7 @@
         (str "expected output schema (maybe Symbol); got: " (pr-str out)))))
 
 (deftest predicate-fn-type-test
-  (let [t (predicates/predicate-fn-type 'clojure.core/string?)]
+  (let [t (predicates/predicate-fn-type 'clojure.core/string? :clj)]
     (is (at/fun-type? t))
     (let [methods (:methods t)]
       (is (= 1 (count methods)))

@@ -86,7 +86,7 @@
 
 (s/defn annotate-form-loop :- aas/AnnotatedNode
   ([dict :- s/Any form :- s/Any]
-   (annotate-form-loop dict form {}))
+   (annotate-form-loop dict form {:lang :clj}))
   ([dict :- s/Any form :- s/Any opts :- s/Any]
    (aa/annotate-form-loop dict form opts)))
 

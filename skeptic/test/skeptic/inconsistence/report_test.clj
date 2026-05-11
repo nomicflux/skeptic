@@ -10,7 +10,7 @@
             [skeptic.inconsistence.report :as sut]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil))
+(def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
 (def sample-ctx
   {:expr '(f x 2)
@@ -399,8 +399,8 @@
     (is (:ok? (sut/output-cast-report sample-ctx (T s/Str) (T hello-or-bye))))))
 
 (deftest report-summary-honours-fold-options
-  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil)
-        inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil)
+  (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil [] :clj)
+        inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil [] :clj)
         named-vec (at/->VectorT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil)
         kw-key (at/->ValueT inferred-prov (at/->GroundT inferred-prov :keyword 'Keyword) :result)
         outer-map (at/->MapT inferred-prov {kw-key named-vec})

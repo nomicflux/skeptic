@@ -688,14 +688,14 @@
                 (keep (fn [[qsym {:keys [declared-sym]}]]
                         (when-let [v (ns-resolve (the-ns ns-sym) declared-sym)]
                           (when (var? v)
-                            [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
+                            [qsym (prov/make-provenance :schema qsym ns-sym (meta v) [] :clj)]))))
                 (:declarations discovery-out)))
         malli-provs
         (when-not (:malli-disable opts)
           (try
             (into {}
                   (map (fn [qsym]
-                         [qsym (prov/make-provenance :malli qsym ns-sym nil)]))
+                         [qsym (prov/make-provenance :malli qsym ns-sym nil [] :clj)]))
                   (malli-collect/malli-admitted-qsyms ns-sym))
             (catch Exception _ {})))]
     (merge schema-provs malli-provs)))
@@ -816,7 +816,7 @@
           {}
           (into {}
                 (map (fn [[sym _]]
-                       [sym (prov/make-provenance :type-override sym nil nil)]))
+                       [sym (prov/make-provenance :type-override sym nil nil [] :clj)]))
                 (or (:skeptic/type-overrides opts) {})))]
     (reduce-kv (fn [acc ns-sym discovery-out]
                  (merge acc (ns-var-provs opts ns-sym discovery-out)))

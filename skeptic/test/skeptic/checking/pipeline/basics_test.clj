@@ -9,11 +9,11 @@
             [skeptic.test-examples.basics :as basics]
             [skeptic.typed-decls :as typed-decls]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (defn- named-schema-type
   [sym schema]
-  (ab/schema->type (prov/make-provenance :schema sym 'skeptic.test nil) schema))
+  (ab/schema->type (prov/make-provenance :schema sym 'skeptic.test nil [] :clj) schema))
 
 (deftest annotated-input-ground-type-mismatch
   (are [sym errors] (= (set (partition 2 errors))

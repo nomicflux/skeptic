@@ -39,18 +39,16 @@
   (some? (resolve-predicate-symbol sym)))
 
 (defn- native-prov
-  ([sym] (native-prov sym :clj))
-  ([sym lang] (prov/make-provenance :native sym nil nil [] lang)))
+  [sym lang]
+  (prov/make-provenance :native sym nil nil [] lang))
 
 (s/defn predicate-fn-type :- ats/SemanticType
-  ([qualified-sym :- s/Symbol]
-   (predicate-fn-type qualified-sym :clj))
-  ([qualified-sym :- s/Symbol
-    lang          :- provs/Lang]
-   (let [p (native-prov qualified-sym lang)
-         bool-t (at/->GroundT p :bool 'Bool)
-         method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
-     (at/->FunT p [method]))))
+  [qualified-sym :- s/Symbol
+   lang          :- provs/Lang]
+  (let [p (native-prov qualified-sym lang)
+        bool-t (at/->GroundT p :bool 'Bool)
+        method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
+    (at/->FunT p [method])))
 
 (s/defn witness-type :- ats/SemanticType
   [qualified-sym :- s/Symbol

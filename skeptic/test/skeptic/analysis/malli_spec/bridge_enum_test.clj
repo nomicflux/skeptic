@@ -4,7 +4,7 @@
             [skeptic.provenance :as prov]
             [skeptic.analysis.type-ops :as ato]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest enum-with-two-keyword-members
   (is (= (ato/union-type tp [(ato/exact-value-type tp :a) (ato/exact-value-type tp :b)])

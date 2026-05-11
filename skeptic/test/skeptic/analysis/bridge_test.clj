@@ -25,7 +25,7 @@
         (keep (fn [[_ v]]
                 (when (and (var? v) (bound? v))
                   (let [qsym (sb/qualified-var-symbol v)]
-                    [qsym (prov/make-provenance :schema qsym ns-sym (meta v))]))))
+                    [qsym (prov/make-provenance :schema qsym ns-sym (meta v) [] :clj)]))))
         (ns-interns ns-sym)))
 
 (use-fixtures :each
@@ -221,7 +221,7 @@
   (reduce (fn [m v]
             (let [meta-m (meta v)
                   qsym (sb/qualified-var-symbol v)]
-              (assoc m qsym (prov/make-provenance :schema qsym (some-> v .ns ns-name) meta-m))))
+              (assoc m qsym (prov/make-provenance :schema qsym (some-> v .ns ns-name) meta-m [] :clj))))
           acc
           vars))
 

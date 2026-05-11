@@ -4,7 +4,7 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil))
+(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
 (deftest set-of-int-imports-as-homogeneous-singleton-set
   (is (= (at/->SetT tp #{(at/->GroundT tp :int 'Int)} true)
