@@ -3,8 +3,10 @@
             [clojure.string :as str]
             [clojure.tools.analyzer.jvm :as ana.jvm]
             [clojure.tools.analyzer.passes.jvm.emit-form :as ana.ef]
+            [schema.core :as s]
             [skeptic.analysis.annotation :as aa]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.checking.opts :as copts]
             [skeptic.colours :as colours]))
 
 (def ^:private global-blame-label "scope escape")
@@ -146,8 +148,8 @@
     (println (str "\t" (colours/blue (pr-str (aa/unannotate-expr expr)) true)
                   " <- " (colours/green (pr-str type))))))
 
-(defn- print-finding!
-  [ns result summary {:keys [verbose show-context debug] :as _opts}]
+(s/defn ^:private print-finding! :- s/Any
+  [ns result summary {:keys [verbose show-context debug] :as _opts} :- copts/PrinterOpts]
   (let [{:keys [path context]} result]
     (println "---------")
     (println (colours/white (str "Namespace: \t\t" ns) true))
@@ -164,30 +166,30 @@
       (println "--- DEBUG (finding) ---")
       (pprint/pprint result))))
 
-(defn- print-form-debug!
-  [_ns record _opts]
+(s/defn ^:private print-form-debug! :- s/Any
+  [_ns record _opts :- copts/PrinterOpts]
   (println "--- DEBUG (form) ---")
   (pprint/pprint record)
   (println "--- END DEBUG ---"))
 
-(defn- print-analyzer-dump!
-  [ns {:keys [verbose analyzer]}]
+(s/defn ^:private print-analyzer-dump! :- s/Any
+  [ns {:keys [verbose analyzer]} :- copts/PrinterOpts]
   (when (and verbose analyzer (find-ns ns))
     (pprint/pprint (mapv ana.ef/emit-form (ana.jvm/analyze-ns ns)))))
 
 (def printer
-  {:run-start (fn [{:keys [verbose]} nss]
+  {:run-start (s/fn [{:keys [verbose]} :- copts/PrinterOpts nss]
                 (when verbose
                   (println "Namespaces to check: " (pr-str (keys nss)))))
    :discovery-warn (fn [{:keys [path message]}]
                      (println "Couldn't get namespaces:" (format "%s (%s)" path message)))
-   :ns-start (fn [ns _source-file {:keys [verbose]}]
+   :ns-start (s/fn [ns _source-file {:keys [verbose]} :- copts/PrinterOpts]
                (when verbose (println "*** Checking" ns "***")))
    :finding print-finding!
    :form-debug print-form-debug!
-   :ns-end (fn [ns _count opts]
+   :ns-end (s/fn [ns _count opts :- copts/PrinterOpts]
              (print-analyzer-dump! ns opts))
-   :run-end (fn [errored? totals opts]
+   :run-end (s/fn [errored? totals opts :- copts/PrinterOpts]
               (when-not errored?
                 (println "No inconsistencies found"))
               (let [{:keys [per-namespace-counts]} totals

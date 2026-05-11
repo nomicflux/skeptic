@@ -1,11 +1,13 @@
 (ns skeptic.output
-  (:require [skeptic.output.porcelain :as porcelain]
+  (:require [schema.core :as s]
+            [skeptic.checking.opts :as copts]
+            [skeptic.output.porcelain :as porcelain]
             [skeptic.output.text :as text]))
 
-(defn printer
+(s/defn printer :- s/Any
   "Return the printer lifecycle map for the given opts.
   Porcelain emits JSONL; otherwise the human-readable text printer."
-  [opts]
+  [opts :- copts/CheckProjectOpts]
   (if (:porcelain opts)
     porcelain/printer
     text/printer))

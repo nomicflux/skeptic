@@ -1,8 +1,10 @@
 (ns skeptic.output.porcelain
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
+            [schema.core :as s]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.checking.form :as cf]
+            [skeptic.checking.opts :as copts]
             [skeptic.output.serialize :as ser]))
 
 (def ^:private ansi-pattern #"\u001b\[[0-9;]*m")
@@ -105,20 +107,20 @@
                    true (map (fn [[k v]] [(str k) v]))))})
 
 (def printer
-  {:run-start (fn [_opts _nss])
+  {:run-start (s/fn [_opts :- copts/PrinterOpts _nss])
    :discovery-warn (fn [{:keys [path message]}]
                      (write-line! {:kind "ns-discovery-warning"
                                    :path path
                                    :message message}))
-   :ns-start (fn [_ns _source-file _opts])
+   :ns-start (s/fn [_ns _source-file _opts :- copts/PrinterOpts])
    :finding (fn [ns result summary opts]
               (let [record (if (= :exception (:report-kind summary))
                              (exception-record ns result summary opts)
                              (finding-record ns result summary opts))]
                 (write-line-raw! (if (:debug opts) record (drop-empties record)))))
-   :form-debug (fn [_ns record _opts]
+   :form-debug (s/fn [_ns record _opts :- copts/PrinterOpts]
                  (write-line-raw! (ser/json-safe record)))
-   :ns-end (fn [_ns _count _opts])
-   :run-end (fn [errored? totals opts]
+   :ns-end (s/fn [_ns _count _opts :- copts/PrinterOpts])
+   :run-end (s/fn [errored? totals opts :- copts/PrinterOpts]
               (write-line-raw! (namespace-error-summary-record totals (:verbose opts)))
               (write-line! (run-summary-record errored? totals)))})
