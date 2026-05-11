@@ -29,7 +29,7 @@
 (defn- clojure-file?
   [^File file]
   (and (.isFile file)
-       (re-matches #".*\.cljc?" (.getName file))))
+       (re-matches #".*\.clj[cs]?" (.getName file))))
 
 (defn- discovery-result
   ([]

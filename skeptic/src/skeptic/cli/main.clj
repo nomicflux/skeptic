@@ -7,10 +7,12 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [schema.core :as s]
+            [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.options :as opts]
             [skeptic.cli.paths :as paths]
             [skeptic.core :as core]
-            [skeptic.profiling :as profiling]))
+            [skeptic.profiling :as profiling])
+  (:import [java.io File]))
 
 (def deps-cli-options
   [[nil "--paths PATHS"
@@ -28,12 +30,29 @@
        (remove str/blank?)
        vec))
 
+(defn- has-file?
+  [root name]
+  (.exists ^File (io/file root name)))
+
+(defn- deps-source-paths
+  [root aliases]
+  (when (has-file? root "deps.edn")
+    (paths/discover-paths root (or aliases []))))
+
+(defn- shadow-source-paths
+  [root]
+  (when (has-file? root "shadow-cljs.edn")
+    (:source-paths (shadow/discover-sources root))))
+
 (defn- resolve-paths
+  "Both deps.edn and shadow-cljs.edn may be present and contribute paths.
+  --paths overrides everything; --alias only affects deps.edn discovery."
   [{:keys [paths alias]} root]
   (cond
     (string? paths)     (split-paths-arg paths)
     (sequential? paths) (vec paths)
-    :else               (paths/discover-paths root (or alias []))))
+    :else               (vec (distinct (concat (deps-source-paths root alias)
+                                               (shadow-source-paths root))))))
 
 (defn- run-checker
   [opts root paths]

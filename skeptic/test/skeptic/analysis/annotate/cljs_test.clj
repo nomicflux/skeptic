@@ -5,12 +5,13 @@
   (:require [clojure.test :refer [deftest is]]
             [skeptic.analysis.annotate :as annotate]
             [skeptic.analysis.types :as at]
-            [skeptic.cljs.analyzer-driver :as ad]
-            [skeptic.cljs.compiler-env :as compiler-env]))
+            [skeptic.cljs.analyzer-driver :as ad]))
+
+(def ^:private bootstrap-ns-ast
+  (delay (ad/parse-source-ns "dev-resources/cljs-fixtures/p1.cljs")))
 
 (defn- annotated [form]
-  (let [cenv (compiler-env/fresh-state)
-        ast (ad/analyze-form cenv 'cljs.user form)]
+  (let [ast (ad/analyze-form @bootstrap-ns-ast form)]
     (annotate/annotate-ast {} ast)))
 
 (deftest host-call-routes-and-types

@@ -4,14 +4,16 @@
   Mirrors `skeptic.malli-spec.collect/ns-malli-spec-results` for cljs source
   files. Two channels:
 
-  - Var-meta channel: `[::ana/namespaces ns :defs sym :meta :malli/schema]`
+  - Var-meta channel: each per-form `:def` AST has `[:var :info :meta]`
+    holding the source-form metadata. The `:malli/schema` key on that map
     holds the literal Malli spec vector (self-evaluating; no quote wrapper).
   - Registration channel: `(malli.core/=> sym SPEC)` macroexpands to a
     top-level `:op :do` whose form is
     `(do (malli.core/-register-function-schema! 'ns 'sym SPEC nil :cljs id) 'ns/sym)`.
-    Classification walks the outer `:form` directly."
-  (:require [cljs.analyzer :as ana]
-            [skeptic.analysis.malli-spec.bridge :as amb]
+    Classification walks the outer `:form` directly.
+
+  No cenv reads, no caller-managed compiler state."
+  (:require [skeptic.analysis.malli-spec.bridge :as amb]
             [skeptic.malli-spec.collect :as collect]))
 
 (defn- bare-sym
@@ -33,13 +35,25 @@
   [top-level-asts]
   (keep registration-form top-level-asts))
 
+(defn- find-def-ast
+  "Walk an AST to find the `:def` op node (may be nested inside lets)."
+  [ast]
+  (cond
+    (= :def (:op ast)) ast
+    (map? ast) (some find-def-ast (vals ast))
+    (sequential? ast) (some find-def-ast ast)
+    :else nil))
+
 (defn- var-meta-entries
-  [cenv ns-sym registered-syms]
-  (keep (fn [[fn-sym def-info]]
-          (when-let [spec (get-in def-info [:meta :malli/schema])]
-            (when-not (registered-syms fn-sym)
-              [fn-sym spec])))
-        (get-in @cenv [::ana/namespaces ns-sym :defs])))
+  [top-level-asts registered-syms]
+  (keep (fn [ast]
+          (when-let [def-ast (find-def-ast ast)]
+            (let [meta-info (get-in def-ast [:var :info :meta])
+                  spec (:malli/schema meta-info)
+                  fn-sym (bare-sym (:name def-ast))]
+              (when (and spec fn-sym (not (registered-syms fn-sym)))
+                [fn-sym spec]))))
+        top-level-asts))
 
 (defn- admit
   [ns-sym source-file {:keys [entries errors]} [fn-sym spec]]
@@ -55,10 +69,16 @@
                                ns-sym qualified-sym {:file source-file} e))}))))
 
 (defn ns-malli-spec-results-cljs
-  [cenv source-file ns-sym top-level-asts]
+  "Per-namespace Malli admission for cljs sources. Inputs:
+  - `source-file`: the cljs source file, attached to error results.
+  - `ns-sym`: the namespace symbol.
+  - `top-level-asts`: per-form analyzed ASTs from
+    `skeptic.cljs.analyzer-driver/analyze-form`. Both intake channels
+    derive from these ASTs alone; no cenv reads."
+  [source-file ns-sym top-level-asts]
   (let [registered (registry-entries top-level-asts)
         registered-syms (into #{} (map first) registered)
-        meta-only (var-meta-entries cenv ns-sym registered-syms)]
+        meta-only (var-meta-entries top-level-asts registered-syms)]
     (reduce (partial admit ns-sym source-file)
             {:entries {} :errors []}
             (concat registered meta-only))))

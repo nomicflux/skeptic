@@ -18,6 +18,7 @@
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
    [nil  "--plumatic-disable" "Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema declarations and :skeptic/type-overrides)"]
    [nil  "--malli-disable" "Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)"]
+   [nil  "--cljs-disable" "Disable ClojureScript intake (skip .cljs files; treat .cljc as :clj-only — drop the :cljs reader-conditional branch)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]
    ["-o" "--output OUTPUT_FILE" "Write skeptic output to this file instead of stdout"]

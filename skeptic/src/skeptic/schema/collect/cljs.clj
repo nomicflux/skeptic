@@ -2,8 +2,11 @@
   "ClojureScript admission for Plumatic Schema declarations.
 
   Mirrors `skeptic.schema.collect/ns-schema-results` for cljs source files.
-  Operates on per-form analyzed ASTs from `skeptic.cljs.analyzer-driver`,
-  plus the compiler-env's `[::ana/namespaces ns :defs]` map.
+  Operates on per-form analyzed ASTs from `skeptic.cljs.analyzer-driver`.
+  Reads alias requires from the parsed ns AST (output of
+  `cljs.analyzer.api/parse-ns`) and Var metadata directly from each
+  `:def` AST node's `[:var :info :meta]` slot — no cenv reads, no caller-
+  managed compiler state.
 
   Three top-level shapes are recognized:
 
@@ -18,8 +21,7 @@
   `eval`, which works because schema forms after macroexpansion are fully
   qualified (`schema.core/Int`, `(schema.core/one schema.core/Int (quote x))`)
   and `schema.core` is a `.cljc` namespace loadable on the JVM."
-  (:require [cljs.analyzer :as ana]
-            [clojure.walk :as walk]
+  (:require [clojure.walk :as walk]
             [schema.core :as s]
             [skeptic.schema.collect :as collect]))
 
@@ -66,19 +68,30 @@
   (when s (symbol (name s))))
 
 (defn- unquote-form
-  "cljs cenv-meta preserves arglists as the quoted form `(quote ([x]))` rather
-  than the evaluated value `([x])` (the JVM-side `(meta v)` evaluates meta).
-  Unwrap one level of `quote` so downstream code sees the same shape."
+  "cljs analyzer preserves arglists meta as the quoted form `(quote ([x]))`
+  rather than the evaluated value `([x])`. Unwrap one level of `quote` so
+  downstream code sees the same shape as JVM `(meta v)`."
   [form]
   (if (and (seq? form) (= 'quote (first form)))
     (second form)
     form))
 
-(defn- inner-def-name
+(defn- find-def-ast
+  "Walk an AST to find the inner `:def` op node. The s/defn / s/def shapes
+  nest the actual `:def` inside one or more `:let`s; this finds it directly
+  without committing to a single nesting depth."
   [ast]
-  (bare-sym (or (some-> ast :body :ret :name)
-                (some-> ast :body :ret :bindings first :init :name)
-                (some-> ast :body :ret :bindings first :init :statements first :name))))
+  (cond
+    (= :def (:op ast)) ast
+    (map? ast) (some find-def-ast (vals ast))
+    (sequential? ast) (some find-def-ast ast)
+    :else nil))
+
+(defn- def-ast-meta
+  "Reads Var metadata (e.g. {:schema ... :arglists ...}) from a `:def` AST
+  node. cljs analyzer attaches it at `[:var :info :meta]`."
+  [def-ast]
+  (get-in def-ast [:var :info :meta]))
 
 (defn- resolve-alias-sym
   [sym]
@@ -128,10 +141,11 @@
       {:err (error-result ns-sym qualified-sym defn-sym source-file e)})))
 
 (defn- admit-s-def
-  [cenv ns-sym source-file ast]
-  (let [defn-sym (inner-def-name ast)
+  [ns-sym source-file ast]
+  (let [def-ast (find-def-ast ast)
+        defn-sym (some-> def-ast :name bare-sym)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
-        meta-info (get-in @cenv [::ana/namespaces ns-sym :defs defn-sym :meta])
+        meta-info (def-ast-meta def-ast)
         schema (resolve-schema-form (:schema meta-info))]
     [qualified-sym
      (admit-with ns-sym qualified-sym defn-sym source-file
@@ -139,7 +153,7 @@
                    {:schema schema :ns ns-sym :name defn-sym :arglists nil}))]))
 
 (defn- admit-s-defschema
-  [_cenv ns-sym source-file ast]
+  [ns-sym source-file ast]
   (let [defn-sym (:name ast)
         qualified-sym (if (qualified-symbol? defn-sym)
                         defn-sym
@@ -152,10 +166,11 @@
                    {:schema schema :ns ns-sym :name bare-name :arglists nil}))]))
 
 (defn- admit-s-defn
-  [cenv ns-sym source-file ast]
-  (let [defn-sym (inner-def-name ast)
+  [ns-sym source-file ast]
+  (let [def-ast (find-def-ast ast)
+        defn-sym (some-> def-ast :name bare-sym)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
-        meta-info (get-in @cenv [::ana/namespaces ns-sym :defs defn-sym :meta])
+        meta-info (def-ast-meta def-ast)
         fn-schema (build-fn-schema ast meta-info)]
     [qualified-sym
      (admit-with ns-sym qualified-sym defn-sym source-file
@@ -166,25 +181,35 @@
                     :arglists (unquote-form (:arglists meta-info))}))]))
 
 (defn- admit-form
-  [cenv ns-sym source-file ast]
+  [ns-sym source-file ast]
   (cond
     (and (top-level-let? ast) (s-defn-shape? ast))
-    (admit-s-defn cenv ns-sym source-file ast)
+    (admit-s-defn ns-sym source-file ast)
 
     (and (top-level-let? ast) (s-def-shape? ast))
-    (admit-s-def cenv ns-sym source-file ast)
+    (admit-s-def ns-sym source-file ast)
 
     (s-defschema-shape? ast)
-    (admit-s-defschema cenv ns-sym source-file ast)
+    (admit-s-defschema ns-sym source-file ast)
 
     :else nil))
 
 (defn ns-schema-results-cljs
-  [cenv source-file ns-sym top-level-asts]
-  (binding [*requires* (get-in @cenv [::ana/namespaces ns-sym :requires])]
+  "Per-namespace Plumatic Schema admission for cljs sources.
+
+  Inputs:
+  - `ns-ast`: the parsed ns AST from
+    `skeptic.cljs.analyzer-driver/parse-source-ns`. Provides `:requires`
+    (alias→target map) for alias rewriting before JVM eval of schema forms.
+  - `source-file`: the cljs source file, attached to error results.
+  - `ns-sym`: the namespace symbol.
+  - `top-level-asts`: per-form analyzed ASTs for the file's top-level
+    forms (from `analyzer-driver/analyze-form`)."
+  [ns-ast source-file ns-sym top-level-asts]
+  (binding [*requires* (:requires ns-ast)]
     (reduce
      (fn [acc ast]
-       (if-let [[qualified-sym {:keys [ok err]}] (admit-form cenv ns-sym source-file ast)]
+       (if-let [[qualified-sym {:keys [ok err]}] (admit-form ns-sym source-file ast)]
          (cond-> acc
            ok  (update :entries assoc qualified-sym ok)
            err (update :errors conj err))

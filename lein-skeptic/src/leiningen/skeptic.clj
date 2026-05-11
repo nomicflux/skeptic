@@ -3,6 +3,7 @@
             [leiningen.core.eval]
             [leiningen.core.project]
             [schema.core]
+            [skeptic.cli.cljs.lein :as cljs-lein]
             [skeptic.cli.options :as cli-opts]
             [skeptic.core]))
 
@@ -25,6 +26,7 @@ Options:
   -p, --porcelain           Emit machine-readable JSONL (one JSON object per line)
       --plumatic-disable    Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema and :skeptic/type-overrides)
       --malli-disable       Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)
+      --cljs-disable        Disable ClojureScript intake (skip .cljs files; treat .cljc as :clj-only)
       --debug               Emit raw internal state for cross-environment diffing
       --profile             Profile the run (CPU, memory, wall-clock time)
   -o, --output FILE         Write skeptic output to this file instead of stdout
@@ -32,7 +34,7 @@ Options:
   skeptic
   [project & args]
   (let [profile (or (:skeptic (:profiles project)) skeptic-profile)
-        paths (concat (:source-paths project) (:test-paths project))
+        paths (:source-paths (cljs-lein/discover-sources project))
         {{:keys [help errors] :as opts} :options summary :summary} (cli-opts/parse args)]
     (if (or help errors)
       (println summary)

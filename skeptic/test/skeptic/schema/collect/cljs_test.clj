@@ -3,7 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
-            [skeptic.cljs.compiler-env :as compiler-env]
+            [skeptic.cljs.analyzer-driver :as driver]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect.cljs :as sut]))
 
@@ -16,9 +16,8 @@
 (defn- collect-once
   [f]
   (require 'schema.core)
-  (let [cenv (compiler-env/fresh-state)
-        asts (compiler-env/load-source! cenv fixture-path)
-        result (sut/ns-schema-results-cljs cenv fixture-path 'p4 asts)]
+  (let [{:keys [ns-ast asts]} (driver/analyze-source-file fixture-path)
+        result (sut/ns-schema-results-cljs ns-ast fixture-path 'p4 asts)]
     (binding [*result* result] (f))))
 
 (use-fixtures :once collect-once)

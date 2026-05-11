@@ -1,41 +1,30 @@
 (ns skeptic.cljs.analyzer-driver
-  "Single-form cljs analyzer entrypoint. The compiler-env passed in must be
-  bootstrapped via `skeptic.cljs.compiler-env/fresh-state`.
+  "Stateless cljs analyzer entrypoints via the public cljs.analyzer.api.
 
-  cljs ASTs carry a `:type` field on `:binding` (`:let|:loop|:arg|...`) and
-  similar nodes that conflicts with skeptic's `:type` slot (SemanticType).
-  `analyze-form` strips `:type` recursively before returning so the skeptic
-  annotate pipeline starts from a clean slate, mirroring `normalize-raw-ast`
-  on the JVM side."
-  (:require [cljs.analyzer :as ana]
+  Skeptic constructs no compiler state. Each cljs source file is parsed
+  once via `parse-source-ns`, which JVM-loads any required macro
+  namespaces and returns the analyzed ns AST. Per-form analysis uses the
+  3-arity `cljs.analyzer.api/analyze` with that ns AST as the env's `:ns`
+  slot, so aliased symbols (`s/defn`, `m/=>`, etc.) macroexpand correctly
+  without any caller-managed compiler state.
+
+  cljs ASTs carry `:type` on `:binding`/`:fn-method` nodes that conflicts
+  with skeptic's `:type` slot (SemanticType), and `:binding` nodes lack
+  `:form`. `analyze-form` strips and synthesizes via `normalize-cljs-node`
+  so the skeptic annotate pipeline starts from a clean shape."
+  (:require [skeptic.classloader-fix]
             [cljs.analyzer.api :as ana-api]
-            [cljs.env :as env]))
-
-(defn- ns-info
-  [cenv ns-sym]
-  (or (get-in @cenv [::ana/namespaces ns-sym])
-      {:name ns-sym}))
+            [cljs.compiler]
+            [clojure.java.io :as io]
+            [clojure.tools.reader :as reader]
+            [clojure.tools.reader.reader-types :as reader-types]))
 
 (defn- normalize-cljs-node
-  "Per-node fixups bridging cljs AST shape to skeptic's JVM-shaped expectations:
-  - dissoc `:type`   — cljs uses `:type` on `:binding` etc. for the binding kind
-                       (`:let|:loop|:arg|...`); collides with skeptic's
-                       SemanticType slot.
-  - synthesize :form — cljs `:binding` nodes carry `:name` but no `:form`;
-                       skeptic reads `:form` via `aapi/node-form` and rejects
-                       missing-required-key."
   [n]
   (let [n (dissoc n :type)]
     (if (and (= :binding (:op n)) (not (contains? n :form)))
       (assoc n :form (:name n))
       n)))
-
-(defn- ast-children-keys
-  "cljs analyzer nodes carry a `:children` vector listing keys whose values
-  are child AST nodes (or vectors of child AST nodes). Falls back to nil
-  for nodes without `:children` (leaves)."
-  [n]
-  (:children n))
 
 (defn- walk-ast
   "Directed AST walker: applies f to the node, then recurses only through
@@ -53,18 +42,60 @@
                   (assoc a k (mapv #(walk-ast f %) v))
                   :else a)))
             ast'
-            (ast-children-keys ast'))))
+            (:children ast'))))
 
-(defn- strip-cljs-type
-  [ast]
-  (walk-ast normalize-cljs-node ast))
+(defn- strip-cljs-type [ast] (walk-ast normalize-cljs-node ast))
+
+(defn parse-source-ns
+  "Parse a `.cljs` / `.cljc` source file's `(ns ...)` form. Triggers JVM
+  loading of any `:require-macros` namespaces and returns the analyzed ns
+  AST: a map with `:name`, `:requires`, `:require-macros`, `:uses`, etc.
+  Suitable for use as the `:ns` slot of an analysis env passed to
+  `analyze-form`. Discards the ephemeral compiler state parse-ns auto-
+  creates internally; the JVM-loaded macro namespaces persist."
+  [source-file]
+  (:ast (ana-api/parse-ns source-file
+                          {:load-macros true :analyze-deps true})))
 
 (defn analyze-form
-  [cenv ns-sym form]
-  (env/with-compiler-env cenv
-    (binding [ana/*cljs-ns* ns-sym
-              ana/*analyze-deps* false]
-      (ana-api/no-warn
-       (-> (ana/analyze (assoc (ana/empty-env) :ns (ns-info cenv ns-sym))
-                        form nil {})
-           strip-cljs-type)))))
+  "Analyze a single cljs form via the 3-arity `cljs.analyzer.api/analyze`.
+  `ns-ast` is the ns AST returned by `parse-source-ns` for the source
+  file the form belongs to; it carries the file's `:requires` and
+  `:require-macros` so aliased symbols resolve. The 3-arity auto-creates
+  a fresh ephemeral compilation state; skeptic carries no state between
+  calls."
+  [ns-ast form]
+  (ana-api/no-warn
+   (-> (ana-api/analyze (assoc (ana-api/empty-env) :ns ns-ast)
+                        form
+                        (:name ns-ast))
+       strip-cljs-type)))
+
+(defn- read-all-forms
+  "Read every top-level form from a cljs/cljc source file using
+  `clojure.tools.reader` with the `:cljs` reader feature. State-free."
+  [source-file]
+  (with-open [r (io/reader source-file)]
+    (let [pbr (reader-types/indexing-push-back-reader r 1 (str source-file))
+          eof (Object.)
+          opts {:eof eof :read-cond :allow :features #{:cljs}}]
+      (loop [acc []]
+        (let [form (reader/read opts pbr)]
+          (if (identical? form eof)
+            acc
+            (recur (conj acc form))))))))
+
+(defn- ns-form?
+  [form]
+  (and (seq? form) (= 'ns (first form))))
+
+(defn analyze-source-file
+  "Analyze every top-level non-ns form of a cljs/cljc source file. Returns
+  `{:ns-ast <ns-AST> :asts [<form-AST> ...]}`. The ns form is consumed by
+  `parse-source-ns`; remaining forms are analyzed with that ns AST as the
+  env's `:ns` slot."
+  [source-file]
+  (let [ns-ast (parse-source-ns source-file)
+        forms  (read-all-forms source-file)
+        asts   (mapv #(analyze-form ns-ast %) (remove ns-form? forms))]
+    {:ns-ast ns-ast :asts asts}))

@@ -25,24 +25,6 @@
   [x]
   (pr-str (strip-type-meta x)))
 
-(def spy-on false)
-(def spy-only #{})
-
-(s/defn spy* :- s/Any
-  [msg x]
-  (when (and spy-on (or (nil? spy-only)
-                        (contains? spy-only msg)))
-    (try (println msg (pr-str x))
-         (catch Exception e
-           (println msg e))))
-  x)
-
-(defmacro spy
-  [_msg x]
-  #_
-  `(spy* ~_msg ~x)
-  x)
-
 (s/defn valid-schema? :- s/Any
   [schema]
   (ab/schema-domain? schema))

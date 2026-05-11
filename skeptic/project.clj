@@ -10,7 +10,6 @@
    ["snapshots" {:url "https://repo.clojars.org"
                  :username :env/CLOJARS_USERNAME
                  :password :env/CLOJARS_SKEPTIC_TOKEN}]]
-  :plugins [[jonase/eastwood "1.3.0"]]
   :dependencies [[prismatic/schema           "1.4.1"]
                  [prismatic/plumbing         "0.6.0"]
                  [metosin/malli              "0.20.1"]
