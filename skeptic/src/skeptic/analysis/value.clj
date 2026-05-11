@@ -8,30 +8,6 @@
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]))
 
-(declare cljs-tag->type)
-
-(s/defn class->type :- ats/SemanticType
-  [prov :- provs/Provenance klass :- s/Any]
-  (let [klass (sb/canonical-scalar-schema klass)]
-    (cond
-      (= klass s/Int) (at/->GroundT prov :int 'Int)
-      (= klass s/Str) (at/->GroundT prov :str 'Str)
-      (= klass s/Keyword) (at/->GroundT prov :keyword 'Keyword)
-      (= klass s/Symbol) (at/->GroundT prov :symbol 'Symbol)
-      (= klass s/Bool) (at/->GroundT prov :bool 'Bool)
-      (or (= klass s/Num)
-          (= klass Number)
-          (= klass java.lang.Number))
-      (at/NumericDyn prov)
-      (and (class? klass)
-           (not (or (= klass s/Any)
-                    (= klass Object)
-                    (= klass java.lang.Object))))
-      (at/->GroundT prov {:class klass} (abc/schema-explain klass))
-      (symbol? klass) (cljs-tag->type prov klass)
-      (set? klass) (cljs-tag->type prov klass)
-      :else (at/Dyn prov))))
-
 (def ^:private cljs-tag-symbol-table
   {'string   [:str 'Str]
    'number   [:numeric-dyn]
@@ -64,6 +40,28 @@
                    (at/->MaybeT prov unioned)
                    unioned))
     :else (at/Dyn prov)))
+
+(s/defn class->type :- ats/SemanticType
+  [prov :- provs/Provenance klass :- s/Any]
+  (let [klass (sb/canonical-scalar-schema klass)]
+    (cond
+      (= klass s/Int) (at/->GroundT prov :int 'Int)
+      (= klass s/Str) (at/->GroundT prov :str 'Str)
+      (= klass s/Keyword) (at/->GroundT prov :keyword 'Keyword)
+      (= klass s/Symbol) (at/->GroundT prov :symbol 'Symbol)
+      (= klass s/Bool) (at/->GroundT prov :bool 'Bool)
+      (or (= klass s/Num)
+          (= klass Number)
+          (= klass java.lang.Number))
+      (at/NumericDyn prov)
+      (and (class? klass)
+           (not (or (= klass s/Any)
+                    (= klass Object)
+                    (= klass java.lang.Object))))
+      (at/->GroundT prov {:class klass} (abc/schema-explain klass))
+      (symbol? klass) (cljs-tag->type prov klass)
+      (set? klass) (cljs-tag->type prov klass)
+      :else (at/Dyn prov))))
 
 (declare type-of-value type-join*)
 

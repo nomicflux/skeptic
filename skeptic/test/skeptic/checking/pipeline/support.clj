@@ -7,7 +7,6 @@
             [skeptic.examples]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect]
-            [skeptic.source :as source]
             [skeptic.static-call-examples]
             [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
@@ -61,18 +60,6 @@
   [sym]
   (:ns (fixture-env sym)))
 
-(let [fn-map (atom {})]
-  (defn normalize-fn-code
-    [opts sym]
-    (let [{ns-sym :ns} (fixture-env sym)]
-      (get (swap! fn-map update sym (fn [cached]
-                                      (or cached
-                                          (binding [*ns* (the-ns ns-sym)]
-                                            (->> sym
-                                                 (source/get-fn-code opts)
-                                                 read-string)))))
-           sym))))
-
 (def ^:private fixture-project-state
   (delay
     (sut/project-state
@@ -87,11 +74,11 @@
   ([sym]
    (check-fixture sym {}))
   ([sym opts]
-   (sut/check-s-expr (normalize-fn-code opts sym)
-                     @fixture-project-state
-                     (assoc opts
-                            :ns (fixture-ns sym)
-                            :source-file (fixture-file sym)))))
+   (filterv #(= sym (:enclosing-form %))
+            (:results (sut/check-ns @fixture-project-state
+                                    (fixture-ns sym)
+                                    (fixture-file sym)
+                                    opts)))))
 
 (defn fixture-exprs
   [ns-sym]

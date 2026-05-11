@@ -149,7 +149,7 @@
     [qualified-sym
      (admit-with ns-sym qualified-sym defn-sym source-file
                  #(collect/collect-schemas
-                   {:schema schema :ns ns-sym :name defn-sym :arglists nil}))]))
+                   {:schema schema :ns ns-sym :name defn-sym :arglists []}))]))
 
 (defn- admit-s-defschema
   [ns-sym source-file ast]
@@ -162,7 +162,7 @@
     [qualified-sym
      (admit-with ns-sym qualified-sym bare-name source-file
                  #(collect/collect-schemas
-                   {:schema schema :ns ns-sym :name bare-name :arglists nil}))]))
+                   {:schema schema :ns ns-sym :name bare-name :arglists []}))]))
 
 (defn- admit-s-defn
   [ns-sym source-file ast]

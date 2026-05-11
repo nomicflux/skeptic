@@ -1,10 +1,6 @@
 (ns skeptic.checking.state
   (:require [schema.core :as s]))
 
-(defrecord CljsState [cenv])
-
-(s/defschema CljsStateSchema (s/pred (partial instance? CljsState) 'CljsState))
-
 (defrecord ProjectState
   [dict
    accessor-summaries

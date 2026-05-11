@@ -5,7 +5,6 @@
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
-            [skeptic.source :as source]
             [skeptic.provenance :as prov]
             [skeptic.test-support.project-state :as test-state]))
 
@@ -33,25 +32,21 @@
     (is (= :read (:phase (first results))))))
 
 (deftest symbol-output-annotation-regression
-  (let [form (->> 'skeptic.schema.collect/fully-qualify-str
-                  (source/get-fn-code {})
-                  read-string)
-        results (vec (sut/check-s-expr form
-                                       (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)
-                                       {:ns 'skeptic.schema.collect
-                                        :source-file ps/schema-collect-file
-                                        :remove-context true}))]
+  (let [results (filterv #(= 'skeptic.schema.collect/fully-qualify-str
+                             (:enclosing-form %))
+                         (:results (sut/check-ns (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)
+                                                 'skeptic.schema.collect
+                                                 ps/schema-collect-file
+                                                 {:remove-context true})))]
     (is (= [] results))))
 
 (deftest collect-annotations-output-annotation-regression
-  (let [form (->> 'skeptic.schema.collect/collect-schemas
-                  (source/get-fn-code {})
-                  read-string)
-        results (vec (sut/check-s-expr form
-                                       (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)
-                                       {:ns 'skeptic.schema.collect
-                                        :source-file ps/schema-collect-file
-                                        :remove-context true}))]
+  (let [results (filterv #(= 'skeptic.schema.collect/collect-schemas
+                             (:enclosing-form %))
+                         (:results (sut/check-ns (ps/project-state-for 'skeptic.schema.collect ps/schema-collect-file)
+                                                 'skeptic.schema.collect
+                                                 ps/schema-collect-file
+                                                 {:remove-context true})))]
     (is (= [] results))))
 
 (deftest static-call-examples-check-ns

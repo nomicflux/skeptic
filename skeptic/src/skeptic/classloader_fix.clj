@@ -37,11 +37,14 @@
   intake chain — so the cache is populated before any cljs require can
   drag clojure.instant in.")
 
-(let [cache-field (.getDeclaredField clojure.lang.DynamicClassLoader "classCache")]
-  (.setAccessible cache-field true)
-  (let [cache ^java.util.concurrent.ConcurrentHashMap (.get cache-field nil)]
-    (.put cache
-          "java.sql.Timestamp"
-          (java.lang.ref.SoftReference. java.sql.Timestamp))))
+(when-not (try (Class/forName "java.sql.Timestamp" false nil)
+               true
+               (catch ClassNotFoundException _ false))
+  (let [cache-field (.getDeclaredField clojure.lang.DynamicClassLoader "classCache")]
+    (.setAccessible cache-field true)
+    (let [cache ^java.util.concurrent.ConcurrentHashMap (.get cache-field nil)]
+      (.put cache
+            "java.sql.Timestamp"
+            (java.lang.ref.SoftReference. java.sql.Timestamp)))))
 
 (require 'clojure.instant)

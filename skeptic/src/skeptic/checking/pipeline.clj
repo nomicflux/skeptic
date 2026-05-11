@@ -642,19 +642,6 @@
       {:results [(expression-exception-result ns source-file source-form e)]
        :provenance {}})))
 
-(defn- find-source-form
-  "Locate the top-level form for the def name in source-file by name match.
-  Throws if not found — no index-0 fallback."
-  [s-expr source-file check-def]
-  (let [def-name (or (when check-def (-> check-def name symbol))
-                     (when (seq? s-expr) (second s-expr)))]
-    (if (and def-name source-file)
-      (let [exprs (ns-exprs source-file)]
-        (or (first (filter #(= def-name (second %)) exprs))
-            (throw (ex-info (str "No top-level form found for: " def-name)
-                            {:def-name def-name}))))
-      (cf/normalize-check-form s-expr))))
-
 (defn- native-result []
   {:dict native-fns/native-fn-dict
    :provenance native-fns/native-fn-provenance
@@ -899,17 +886,6 @@
        :accessor-summaries accessor-summaries
        :errors errors
        :provenance provenance})))
-
-(s/defn check-s-expr :- s/Any
-  [s-expr project-state {:keys [ns source-file check-def] :as opts}]
-  (binding [*ns* (the-ns ns)]
-    (let [{:keys [dict ignore-body accessor-summaries]} (prepare-namespace project-state ns source-file)
-          cljs-state (:cljs-state project-state)
-          lang (lang-of-source-file opts source-file)
-          source-form (find-source-form s-expr source-file check-def)
-          {:keys [results]} (check-ns-form dict ignore-body ns source-file source-form
-                                           accessor-summaries cljs-state lang opts)]
-      (vec results))))
 
 (defmacro block-in-ns
   [_ns ^File file & body]

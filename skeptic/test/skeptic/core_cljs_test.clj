@@ -30,7 +30,8 @@
     (is (true? (:cljs-disable options))
         "--cljs-disable should appear as :cljs-disable true on the opts map")))
 
-(declare finding-for-basename)
+(defn- finding-for-basename [findings basename]
+  (some #(when (str/ends-with? (or (finding-file %) "") basename) %) findings))
 
 (deftest check-project-end-to-end-with-cljs-and-cljc
   (testing "default run picks up .clj, .cljs, and .cljc and tags each finding"
@@ -47,9 +48,6 @@
       (is (= "cljs" (finding-lang cljs-finding)) ":lang :cljs on .cljs finding")
       (is (= ["clj" "cljs"] (sort (finding-lang cljc-finding)))
           ":lang #{:clj :cljs} (JSONL sorted array) on .cljc finding after dedup"))))
-
-(defn- finding-for-basename [findings basename]
-  (some #(when (str/ends-with? (or (finding-file %) "") basename) %) findings))
 
 (deftest cljs-disable-skips-cljs-files-and-collapses-cljc
   (testing "--cljs-disable drops .cljs files and runs .cljc as :clj only"
