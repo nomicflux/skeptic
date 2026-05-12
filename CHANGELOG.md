@@ -80,6 +80,13 @@ All notable changes to this project will be documented in this file.
 - Multi-arity `defn` output is now checked per arity against the declared
   return type for that specific arity, instead of comparing every analyzed
   method against the first arity's declared output.
+- `(assoc nilable-map k v)` (and `update` on a nilable map) no longer
+  carries a `Maybe` wrapper through the result, since `(assoc nil k v)`
+  returns `{k v}` — not `nil`. The nil-branch is captured by downgrading
+  the inner map's required keys to optional, so callers that previously
+  saw a spurious nullability finding now get a clean check, while callers
+  that depended on inner keys being required see a `:map-nullable-key`
+  finding instead of a false pass.
 
 ## [0.7.1] - 2026-04-22
 

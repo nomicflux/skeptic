@@ -169,3 +169,19 @@
                                           {:remove-context true}))]
       (is (some? result))
       (is (= 1 (-> result :cast-diagnostics first :path first :index))))))
+
+(deftest assoc-on-nilable-treats-nil-as-empty-map
+  (testing "assoc on (s/maybe {}) result narrows to map of assoc'd keys"
+    (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/assoc-on-maybe-empty-map-success))))
+  (testing "assoc on literal nil produces map of assoc'd keys"
+    (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/assoc-on-nil-literal-success)))))
+
+(deftest assoc-on-nilable-non-empty-keeps-inner-keys-optional
+  (testing "inner-key tolerated as optional in declared return: clean"
+    (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/assoc-on-maybe-non-empty-narrows-success))))
+  (testing "inner-key required in declared return: nullable-key finding"
+    (let [result (first (ps/check-fixture 'skeptic.test-examples.collections/assoc-on-maybe-non-empty-required-failure
+                                          {:remove-context true}))]
+      (is (some? result))
+      (is (= :map-nullable-key (:rule result)))
+      (is (= :nullable-key (-> result :cast-diagnostics first :reason))))))

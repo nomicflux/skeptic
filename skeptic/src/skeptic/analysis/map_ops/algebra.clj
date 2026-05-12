@@ -21,6 +21,15 @@
                              (at/type=? (:inner k) ev))))
                   entries))))
 
+(defn- downgrade-required-to-optional
+  [prov entries]
+  (into {}
+        (map (fn [[k v]]
+               (if (at/value-type? k)
+                 [(at/->OptionalKeyT prov k) v]
+                 [k v])))
+        entries))
+
 (s/defn assoc-type :- ats/SemanticType
   [m-type :- ats/SemanticType key-lit :- s/Any value-type :- ats/SemanticType]
   (let [m-type (ato/normalize m-type)
@@ -28,8 +37,17 @@
         prov (ato/derive-prov m-type value-type)
         k (exact-key-for-literal prov key-lit)]
     (cond
+      ;; assoc never returns nil — nil branch contributes {k v}, non-nil branch
+      ;; contributes (assoc inner k v); downgrading inner's required keys to
+      ;; optional expresses "MAY be present" so neither branch over-promises.
+      (and (at/maybe-type? m-type) (at/map-type? (:inner m-type)))
+      (let [inner (:inner m-type)
+            optional-inner (at/->MapT (:prov inner)
+                                      (downgrade-required-to-optional prov (:entries inner)))]
+        (assoc-type optional-inner key-lit value-type))
+
       (at/maybe-type? m-type)
-      (at/->MaybeT prov (assoc-type (:inner m-type) key-lit value-type))
+      (assoc-type (:inner m-type) key-lit value-type)
 
       (at/map-type? m-type)
       (at/->MapT (prov/with-refs prov [(prov/of m-type) (prov/of k) (prov/of value-type)])

@@ -209,3 +209,41 @@
 (s/defn string-keys-missing-failure
   []
   (takes-string-keys {}))
+
+(s/defschema MapAInt {:a s/Int})
+
+(s/defschema EmptyMap {})
+
+(s/defn maybe-empty-map :- (s/maybe EmptyMap)
+  []
+  nil)
+
+(s/defn assoc-on-maybe-empty-map-success :- MapAInt
+  []
+  (let [m (assoc (maybe-empty-map) :a 1)]
+    m))
+
+(s/defn assoc-on-nil-literal-success :- MapAInt
+  []
+  (let [m (assoc nil :a 1)]
+    m))
+
+(s/defschema HasB {:b s/Int})
+
+(s/defschema MapABInts {:a s/Int :b s/Int})
+
+(s/defschema MapAReqBOpt {:a s/Int (s/optional-key :b) s/Int})
+
+(s/defn maybe-has-b :- (s/maybe HasB)
+  []
+  nil)
+
+(s/defn assoc-on-maybe-non-empty-narrows-success :- MapAReqBOpt
+  []
+  (let [m (assoc (maybe-has-b) :a 1)]
+    m))
+
+(s/defn assoc-on-maybe-non-empty-required-failure :- MapABInts
+  []
+  (let [m (assoc (maybe-has-b) :a 1)]
+    m))
