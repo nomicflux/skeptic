@@ -87,6 +87,14 @@ All notable changes to this project will be documented in this file.
   saw a spurious nullability finding now get a clean check, while callers
   that depended on inner keys being required see a `:map-nullable-key`
   finding instead of a false pass.
+- `(when (or (nil? a) (nil? b) ...) (throw ...))` now narrows every
+  guarded local in subsequent statements, not just the single-variable
+  shape. Previously a disjunctive throw-guard's De-Morgan negation was
+  treated as unsupported, so the rest of the enclosing `do` continued to
+  see each local as `(maybe T)` — yielding a spurious nullability
+  finding on a correct program. The conjunctive shape
+  `(when (and (nil? a) (nil? b)) (throw))` was already handled and is
+  unchanged.
 
 ## [0.7.1] - 2026-04-22
 

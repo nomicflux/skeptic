@@ -270,3 +270,37 @@
   (let [x (fn-ns/f)
         y (take-val x)]
     y))
+
+(s/defschema AB
+  {:a s/Int
+   :b s/Int})
+
+(s/defn repro-success :- AB
+  [x :- (s/maybe s/Int)
+   y :- (s/maybe s/Int)]
+  (let [mx (some-> x inc)
+        my (some-> y inc)]
+    (when (or (nil? mx) (nil? my))
+      (throw (ex-info "nope" {:x x :y y})))
+    {:a mx
+     :b my}))
+
+(s/defn repro-first-failure :- AB
+  [x :- (s/maybe s/Int)
+   y :- (s/maybe s/Int)]
+  (let [mx (some-> x inc)
+        my (some-> y inc)]
+    (when (nil? my)
+      (throw (ex-info "nope" {:x x :y y})))
+    {:a mx
+     :b my}))
+
+(s/defn repro-second-failure :- AB
+  [x :- (s/maybe s/Int)
+   y :- (s/maybe s/Int)]
+  (let [mx (some-> x inc)
+        my (some-> y inc)]
+    (when (nil? mx)
+      (throw (ex-info "nope" {:x x :y y})))
+    {:a mx
+     :b my}))

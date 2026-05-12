@@ -171,11 +171,17 @@
   (when (every? invertible-assumption? conjuncts)
     (disjunction-assumption (mapv flip-assumption-polarity conjuncts))))
 
+(defn- negate-disjunct-list
+  [disjuncts]
+  (when (every? invertible-assumption? disjuncts)
+    (conjunction-assumption (mapv flip-assumption-polarity disjuncts))))
+
 (s/defn opposite-polarity :- (s/maybe aos/Assumption)
   [assumption :- aos/Assumption]
   (case (:kind assumption)
     :conjunction (negate-conjunct-list (:parts assumption))
-    (:disjunction :contradicted) nil
+    :disjunction (negate-disjunct-list (:parts assumption))
+    :contradicted nil
     (flip-assumption-polarity assumption)))
 
 (s/defn invert-assumption :- (s/maybe aos/Assumption)

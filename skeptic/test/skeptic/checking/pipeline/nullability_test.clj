@@ -1,5 +1,6 @@
 (ns skeptic.checking.pipeline.nullability-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
 (deftest guarded-keys-nullability-contract
@@ -142,3 +143,25 @@
                   'skeptic.test-examples.nullability/xns-let-bound-maybe-int-into-int-arg-failure)]
     (is (seq (ps/result-errors results))
         "expected checker error: cross-ns (maybe Int) from fn-ns/f let-bound and passed into non-null Int arg")))
+
+(deftest when-or-nil-throw-both-narrow
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/repro-success)]
+    (is (empty? (ps/result-errors results))
+        (str "expected no checker errors; (when (or (nil? mx) (nil? my)) (throw)) should narrow both; got: "
+             (pr-str (ps/result-errors results))))))
+
+(deftest when-nil-throw-narrows-only-guarded-first
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/repro-first-failure)
+        msg (ps/strip-ansi (pr-str (ps/result-errors results)))]
+    (is (seq (ps/result-errors results))
+        "expected checker error on :a mx; only my is narrowed by (when (nil? my) (throw)), mx is still (maybe Int)")
+    (is (str/includes? msg ":a (maybe Int), :b Int")
+        (str "expected inferred output type to narrow :b to Int but leave :a as (maybe Int); got: " msg))))
+
+(deftest when-nil-throw-narrows-only-guarded-second
+  (let [results (ps/check-fixture 'skeptic.test-examples.nullability/repro-second-failure)
+        msg (ps/strip-ansi (pr-str (ps/result-errors results)))]
+    (is (seq (ps/result-errors results))
+        "expected checker error on :b my; only mx is narrowed by (when (nil? mx) (throw)), my is still (maybe Int)")
+    (is (str/includes? msg ":a Int, :b (maybe Int)")
+        (str "expected inferred output type to narrow :a to Int but leave :b as (maybe Int); got: " msg))))

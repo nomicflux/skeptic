@@ -365,6 +365,23 @@
              :polarity false}]
            (:parts result)))))
 
+(deftest opposite-polarity-negates-disjunction-to-conjunction
+  (let [mx-root (ao/root-origin 'mx (T (s/maybe s/Int)))
+        my-root (ao/root-origin 'my (T (s/maybe s/Int)))
+        nil-mx (ao/type-predicate-assumption mx-root {:pred :nil?} true)
+        nil-my (ao/type-predicate-assumption my-root {:pred :nil?} true)
+        result (ao/opposite-polarity (ao/disjunction-assumption [nil-mx nil-my]))]
+    (is (= :conjunction (:kind result)))
+    (is (= [{:kind :type-predicate
+             :root mx-root
+             :pred :nil?
+             :polarity false}
+            {:kind :type-predicate
+             :root my-root
+             :pred :nil?
+             :polarity false}]
+           (:parts result)))))
+
 (deftest simplify-assumptions-flattens-conjunction
   (let [a (bp 'a true)
         b (bp 'b true)
