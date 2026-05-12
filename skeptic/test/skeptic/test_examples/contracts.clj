@@ -715,3 +715,24 @@
   (cond
     (vector? (:k1 x)) 1
     (some? (:k1 x))   2))
+
+(s/defschema Base {:base s/Int})
+
+(s/defschema As
+  (s/conditional
+    #(vector? (:a %)) (merge Base {:a [s/Int]})
+    #(some? (:a %)) (merge Base {:a s/Int})))
+
+(s/defn f
+  [xs :- [s/Int]]
+  nil)
+
+(s/defn g
+  [x :- s/Int]
+  nil)
+
+(s/defn repro-success
+  [as :- As]
+  (cond
+    (vector? (:a as)) (f (:a as))
+    (some? (:a as)) (g (:a as))))

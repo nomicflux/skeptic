@@ -174,3 +174,7 @@
                   'skeptic.test-examples.contracts/xns-int-into-str-arg-failure)]
     (is (seq (ps/result-errors results))
         "expected checker error: cross-ns Int from xns/f let-bound and passed into Str arg")))
+
+(deftest cond-some-key-refinement-on-closed-base-conditional
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/repro-success))
