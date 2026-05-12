@@ -9,3 +9,17 @@
                               '(s/defn g :- s/Int [x :- s/Int] (+ x 1)))]
     (is (= :let (:op ast)))
     (is (= 5 (count (:bindings ast))))))
+
+(deftest analyze-source-file-returns-ns-ast-and-asts
+  (require 'schema.core)
+  (let [result (sut/analyze-source-file "dev-resources/cljs-fixtures/p1.cljs")
+        ns-ast (:ns-ast result)
+        asts   (:asts result)]
+    (is (map? result))
+    (is (contains? result :ns-ast))
+    (is (contains? result :asts))
+    (is (= 'p1 (:name ns-ast)))
+    (is (contains? (set (vals (:requires ns-ast))) 'schema.core))
+    (is (vector? asts))
+    (is (= 1 (count asts)))
+    (is (every? #(contains? % :op) asts))))
