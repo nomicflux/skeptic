@@ -64,6 +64,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Plumatic Schema map schemas using non-keyword required keys
+  (e.g. `{(s/required-key "a") s/Int}`) now check correctly: correct
+  call sites are no longer flagged with a spurious unexpected-key
+  finding, and missing-required-key cases are now reported instead of
+  being silently dropped. Keyword required keys were already handled
+  by Plumatic's short-circuit to bare keywords; the bug only affected
+  string and other non-keyword keys.
 - Additional nullability and conditional-narrowing cases now preserve
   flow-sensitive facts through aliases, let-bound vars, path-shaped map
   projections, conditional branches, and enum/sum-type tests.

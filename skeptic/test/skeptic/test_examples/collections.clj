@@ -186,3 +186,26 @@
 
 (defn maybe-tail-success-strs    [] (takes-int-then-maybe-str [1 "x" "y"]))
 (defn maybe-tail-failure-int     [] (takes-int-then-maybe-str [1 99]))
+
+(s/defschema StringKeys
+  {(s/required-key "a") s/Int})
+
+(s/defn takes-string-keys :- s/Int
+  [x :- StringKeys]
+  (get x "a"))
+
+(s/defn string-keys-input-success
+  []
+  (takes-string-keys {"a" 1}))
+
+(s/defn string-keys-wrong-key-failure
+  []
+  (takes-string-keys {"b" 2}))
+
+(s/defn string-keys-wrong-value-failure
+  []
+  (takes-string-keys {"a" "b"}))
+
+(s/defn string-keys-missing-failure
+  []
+  (takes-string-keys {}))

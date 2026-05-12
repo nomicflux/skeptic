@@ -594,6 +594,9 @@
                                      :schema (:k schema)
                                      :source (unary-source source))))
 
+      (s/required-key? schema)
+      (import-result (ato/exact-value-type prov (:k schema)))
+
       (sb/eq? schema)
       (import-result (ato/exact-value-type prov (sb/de-eq schema)))
 

@@ -14,3 +14,4 @@ pom.xml.asc
 docs/current-plans
 CLAUDE.md
 .claude/
+.clj-kondo/.cache

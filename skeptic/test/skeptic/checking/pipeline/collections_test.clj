@@ -125,6 +125,42 @@
       (is (some? result))
       (is (= :vector-arity-mismatch (-> result :cast-diagnostics first :reason))))))
 
+(deftest string-keyed-map-schema-cases
+  (testing "good map literal under string-required-key schema: clean"
+    (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/string-keys-input-success))))
+
+  (testing "wrong string key: missing required \"a\" plus unexpected \"b\""
+    (let [results (ps/check-fixture 'skeptic.test-examples.collections/string-keys-wrong-key-failure
+                                    {:remove-context true})
+          result  (first results)]
+      (is (= 1 (count results)))
+      (is (= '(takes-string-keys {"b" 2}) (:blame result)))
+      (is (= 2 (count (:errors result))))
+      (is (some #(str/includes? % "[\"a\"] is missing") (:errors result)))
+      (is (some #(str/includes? % "[\"b\"] is not allowed by the expected type") (:errors result)))))
+
+  (testing "wrong value at \"a\": Str vs Int mismatch"
+    (let [results (ps/check-fixture 'skeptic.test-examples.collections/string-keys-wrong-value-failure
+                                    {:remove-context true})
+          result  (first results)]
+      (is (= 1 (count results)))
+      (is (= '(takes-string-keys {"a" "b"}) (:blame result)))
+      (is (= 1 (count (:errors result))))
+      (is (some #(and (str/includes? % "[\"a\"]")
+                      (str/includes? % "Str")
+                      (str/includes? % "Int")
+                      (str/includes? % "mismatched type"))
+                (:errors result)))))
+
+  (testing "missing required \"a\": missing-key finding"
+    (let [results (ps/check-fixture 'skeptic.test-examples.collections/string-keys-missing-failure
+                                    {:remove-context true})
+          result  (first results)]
+      (is (= 1 (count results)))
+      (is (= '(takes-string-keys {}) (:blame result)))
+      (is (= 1 (count (:errors result))))
+      (is (some #(str/includes? % "[\"a\"] is missing") (:errors result))))))
+
 (deftest maybe-tail-cases
   (testing "string tail elements satisfy (maybe Str): clean"
     (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/maybe-tail-success-strs))))
