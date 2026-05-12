@@ -55,7 +55,7 @@
   creates internally; the JVM-loaded macro namespaces persist."
   [source-file]
   (:ast (ana-api/parse-ns source-file
-                          {:load-macros true :analyze-deps true})))
+                          {:load-macros true :analyze-deps false})))
 
 (defn analyze-form
   "Analyze a single cljs form via the 3-arity `cljs.analyzer.api/analyze`.
