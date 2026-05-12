@@ -214,7 +214,8 @@ line, in this order:
     "file": "src/foo/bar.clj",
     "line": 42,
     "column": 3,
-    "source": "schema"
+    "source": "schema",
+    "lang": "clj"
   },
   "blame": "(+ 1 :x)",
   "blame_side": "term",
@@ -239,7 +240,8 @@ line, in this order:
   "location": {
     "file": "src/foo/bar.clj",
     "line": 99,
-    "source": "schema"
+    "source": "schema",
+    "lang": "clj"
   },
   "blame": "my-fn",
   "exception_class": "java.lang.RuntimeException",
@@ -304,6 +306,44 @@ symbol at call sites.
 ```
 
 After this, call sites of `infof` are checked as returning `nil`.
+
+## ClojureScript support
+
+Skeptic loads and admits ClojureScript source files alongside Clojure.
+It discovers `.cljs` and `.cljc` files via project-layout-aware helpers
+for deps.edn, Leiningen, and Shadow-CLJS.
+
+Each cljs source file is parsed with the public
+`cljs.analyzer.api/parse-ns` (which loads any `:require-macros`
+namespaces on the JVM) and analyzed form-by-form with the 3-arity
+`analyze`. No compiler state is constructed or carried across calls —
+every form analysis rebuilds a fresh ephemeral environment from the
+source file's ns AST.
+
+Both intake streams support cljs:
+
+- **Plumatic Schema:** `s/defn`, `s/def`, and `s/defschema` declarations
+  on cljs vars are admitted. Post-macroexpansion schema bodies are
+  evaluated in a sci-sandboxed Clojure interpreter configured with
+  `schema.core` pre-loaded, so `s/Int`, `s/maybe`, `s/eq`, and the rest
+  resolve to the same Plumatic Schema record values they would on the
+  JVM without using `clojure.lang.Compiler/eval`.
+- **Malli:** `:malli/schema` var-meta on cljs vars is read directly off
+  the cljs analyzer AST and passes through the same
+  `malli-spec->type` bridge used for JVM admissions.
+
+`.cljc` files are admitted twice — once with `:clj` reader-conditional
+features active and once with `:cljs` — and identical findings from both
+passes are deduped at the JSONL layer with `lang` set to
+`["clj","cljs"]`. Findings unique to one pass keep `lang` as a single
+keyword string (`"clj"` or `"cljs"`).
+
+Pass `--cljs-disable` to skip cljs admission entirely. With the flag
+set, `.cljs` files are dropped and `.cljc` files are admitted as
+`:clj`-only — the `:cljs` reader-conditional branch is discarded.
+
+Known limitation: a pure-cljs schema that references another pure-cljs
+namespace requires the dependency to be analyzable in dependency order.
 
 ## Experimental Malli support
 
@@ -397,21 +437,23 @@ wrap them in a form if needed:
 
 ## How it works
 
-Skeptic discovers `.clj` and `.cljc` source files under your project's
-source paths, requires each namespace, collects the Plumatic Schema and
-Malli annotations you've written on vars and functions, infers a type for
-each expression in your code, and compares the inferred types against the
-declared schemas on function inputs and outputs. Each mismatch is reported
-with a source location, the inferred type, and the expected type. `.cljc`
-reader conditionals are read with the `:clj` feature active, so
-Clojure-platform branches are spliced in and ClojureScript-only branches
-are dropped.
+Skeptic discovers `.clj`, `.cljs`, and `.cljc` source files under your
+project's source paths, loads each namespace (via JVM `require` for
+Clojure and via the public `cljs.analyzer.api` for ClojureScript),
+collects the Plumatic Schema and Malli annotations you've written on
+vars and functions, infers a type for each expression in your code, and
+compares the inferred types against the declared schemas on function
+inputs and outputs. Each mismatch is reported with a source location,
+the inferred type, and the expected type. `.cljc` files are admitted
+twice — once with the `:clj` reader-conditional feature active and once
+with `:cljs` — and identical findings from both passes are deduped with
+their `lang` set to `["clj","cljs"]`.
 
-If a discovered file cannot be loaded as a Clojure namespace — for
-example, a `.clj` or `.cljc` file whose body depends on a
-ClojureScript-only namespace like `cljs.analyzer.api` — Skeptic skips it
-cleanly with a discovery warning naming the file and the underlying load
-error. The rest of the project continues to be checked. Discovery
+If a discovered file cannot be loaded — for example, a `.clj` file
+whose body depends on a runtime not available to the lein/JVM process,
+or a `.cljs` file whose require graph cannot be parsed — Skeptic skips
+it cleanly with a discovery warning naming the file and the underlying
+load error. The rest of the project continues to be checked. Discovery
 warnings do not flip the run's exit code on their own.
 
 During `lein skeptic`, the checker runs with Plumatic Schema function
@@ -439,8 +481,8 @@ inconsistencies are flagged without required proof of consistency.
 
 To run an unreleased version of the plugin from a local checkout:
 
-1. Running `script/install-local.sh` we delete old versions in you `.m2` cache, install the Skeptic library, then
-   install the lein-skeptic plugin. This will insure a clean run, but careful if you are running multiple versions.
+1. Running `script/install-local.sh` we delete old versions in your `.m2` cache, install the Skeptic library, then
+   install the lein-skeptic plugin. This will ensure a clean run, but careful if you are running multiple versions.
 2. Otherwise, run `lein install` in the `skeptic/` directory first to install the core library, then again in the
    `lein-skeptic/` directory to install the plugin.
 

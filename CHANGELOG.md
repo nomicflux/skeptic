@@ -6,6 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- ClojureScript source-file support, including project-layout discovery for
+  deps.edn, Leiningen, and Shadow-CLJS. Skeptic now reads `.cljs` source
+  files via the public `cljs.analyzer.api` and admits both Plumatic Schema
+  and Malli declarations on cljs vars. `.cljc` files are admitted twice
+  (once per host language); identical findings from both passes are deduped
+  with their `lang` set to `["clj","cljs"]`.
+- `clojure -M:skeptic` deps.edn entrypoint via `skeptic.cli.main`. Skeptic
+  is now usable from a `deps.edn` alias in addition to the existing
+  Leiningen plugin; the analyzer must load the project's namespaces, so
+  `clj -T` (tool installation) is not supported.
+- `--paths PATHS` and `--alias ALIAS` flags (deps.edn entrypoint only) for
+  overriding the discovered source paths or merging additional deps.edn
+  aliases before path resolution.
+- `--cljs-disable` flag to skip ClojureScript admission entirely. With the
+  flag set, `.cljs` files are dropped and `.cljc` files are admitted as
+  `:clj`-only — the `:cljs` reader-conditional branch is discarded.
+- `lang` field on every JSONL `location` object identifying the host
+  language the reported type was admitted under: `"clj"`, `"cljs"`, or a
+  sorted JSON array `["clj","cljs"]` when both passes of a `.cljc` file
+  produced the same finding.
 - `--plumatic-disable` and `--malli-disable` CLI flags to switch off either
   intake stream entirely. A disabled stream contributes no entries to the
   merged type dict, no provenance, and no findings whose source matches the
