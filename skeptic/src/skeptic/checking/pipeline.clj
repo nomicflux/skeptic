@@ -37,16 +37,25 @@
   {:value                       s/Any
    s/Keyword                    s/Any})
 
+(s/defschema FiniteValue
+  "A literal value extracted from a `ValueT` Type's `:value` slot — i.e., the
+  finite values a Skeptic-known function can return when its output type is a
+  union of `s/eq`/`:=` constants. The realistic dispatch case is enum-like
+  primitives. Extending to collection-valued literals (`(s/eq [:a :b])`)
+  requires adding the collection variant here, not widening callers to
+  `s/Any`."
+  (s/cond-pre s/Keyword s/Num s/Str s/Symbol s/Bool Character (s/eq nil)))
+
 (s/defschema AccessorSummary
   ;; Producer-faithful shape. `:default` and `:cases` values are heterogeneous:
   ;; literal map-key values from get-call-summary, or raw source forms from
   ;; the case-classifier branch (`(:form (:then ...))`). `:values` from
-  ;; `enrich-summary-with-declared-output` are ValueT inner :value, which the
-  ;; semantic type layer leaves as `s/Any`.
+  ;; `enrich-summary-with-declared-output` are `ValueT` inner :value typed by
+  ;; `FiniteValue`.
   {:kind                                (s/enum :unary-identity :unary-map-projection)
    (s/optional-key :path)               [AccessorPathElem]
    (s/optional-key :default)            s/Any
-   (s/optional-key :values)             [s/Any]
+   (s/optional-key :values)             [FiniteValue]
    (s/optional-key :cases)              {s/Any s/Any}
    (s/optional-key :result-transform)   (s/enum :keyword)})
 
@@ -233,38 +242,57 @@
                :kind :unary-map-projection
                :result-transform :keyword)))))
 
-(defn- finite-values
-  [type]
+(s/defn ^:private finite-values :- [FiniteValue]
+  [type :- at/SemanticType]
   (cond
     (at/value-type? type)
     [(:value type)]
 
     (at/union-type? type)
     (let [values (mapcat finite-values (:members type))]
-      (when (= (count values) (count (:members type)))
-        values))
+      (if (= (count values) (count (:members type)))
+        (vec values)
+        []))
 
-    :else nil))
+    :else []))
 
-(defn- declared-output-values
-  [dict sym]
-  (when-let [type (get dict sym)]
-    (when (at/fun-type? type)
-      (let [values (mapcat (comp finite-values at/fn-method-output)
-                           (at/fun-methods type))]
-        (when (seq values)
-          (vec (distinct values)))))))
+(s/defn ^:private declared-output-values :- [FiniteValue]
+  [dict :- {s/Symbol at/SemanticType}
+   sym :- s/Symbol]
+  (if-let [type (get dict sym)]
+    (if (at/fun-type? type)
+      (vec (distinct (mapcat (comp finite-values at/fn-method-output)
+                             (at/fun-methods type))))
+      [])
+    []))
 
-(defn- enrich-summary-with-declared-output
-  [dict {:keys [sym summary] :as entry}]
-  (if (and (= :unary-map-projection (:kind summary))
+(s/defschema PipelineDefEntry
+  "Output of pipeline-local `analyzed-def-entry` and input/output of
+  `enrich-summary-with-declared-output`. The `:entry` field reuses the
+  strict `aapi/AnalyzedDefEntry`, so `:entry`'s `:type` is mandatory."
+  {(s/required-key :sym)     s/Symbol
+   (s/required-key :entry)   aapi/AnalyzedDefEntry
+   (s/required-key :summary) (s/maybe AccessorSummary)})
+
+(s/defn ^:private maybe-enrich-summary :- (s/maybe AccessorSummary)
+  [dict    :- {s/Symbol at/SemanticType}
+   sym     :- s/Symbol
+   summary :- (s/maybe AccessorSummary)]
+  (if (and summary
+           (= :unary-map-projection (:kind summary))
            (not (contains? summary :values)))
-    (if-let [values (declared-output-values dict sym)]
-      (assoc entry :summary (assoc summary :values values))
-      entry)
-    entry))
+    (let [values (declared-output-values dict sym)]
+      (if (seq values)
+        (assoc summary :values (vec values))
+        summary))
+    summary))
 
-(s/defn analyzed-def-entry :- s/Any
+(s/defn ^:private enrich-summary-with-declared-output :- PipelineDefEntry
+  [dict :- {s/Symbol at/SemanticType}
+   entry :- PipelineDefEntry]
+  (update entry :summary (partial maybe-enrich-summary dict (:sym entry))))
+
+(s/defn analyzed-def-entry :- (s/maybe PipelineDefEntry)
   [ns-sym :- (s/maybe s/Symbol) analyzed :- aas/AnnotatedNode]
   (letfn [(literal-keyword [node]
             (when (ac/literal-map-key? node)
@@ -656,19 +684,35 @@
                           (str e))})
 
 (s/defn ^:private resolved-defs-provenance :- {s/Symbol provs/Provenance}
-  [resolved-defs :- {s/Symbol {(s/required-key :type) at/SemanticType
-                               s/Any                  s/Any}}]
+  [resolved-defs :- {s/Symbol aapi/AnalyzedDefEntry}]
   (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
 
-(defn- resolved-defs-for-analyzed
-  [dict ns-sym analyzed]
-  (if-let [{:keys [sym entry]} (some-> (analyzed-def-entry ns-sym analyzed)
-                                       (enrich-summary-with-declared-output dict))]
+(s/defschema CljsCachedFormEntry
+  "Shape of a single cached CLJS form entry under `cljs-state[source-file] :entries`."
+  {(s/required-key :source-form) s/Any
+   (s/required-key :ast)         aas/AnnotatedNode})
+
+(s/defschema CljsPassResults
+  {(s/required-key :results)    [s/Any]
+   (s/required-key :provenance) {s/Symbol provs/Provenance}})
+
+(s/defn ^:private resolved-defs-for-analyzed :- {s/Symbol aapi/AnalyzedDefEntry}
+  [dict :- {s/Symbol at/SemanticType}
+   ns-sym :- s/Symbol
+   analyzed :- aas/AnnotatedNode]
+  (if-let [{:keys [sym entry]} (some->> (analyzed-def-entry ns-sym analyzed)
+                                        (enrich-summary-with-declared-output dict))]
     {sym entry}
     {}))
 
-(defn- check-cached-cljs-entry
-  [dict ignore-body ns source-file {:keys [source-form ast]} accessor-summaries form-opts]
+(s/defn ^:private check-cached-cljs-entry :- CljsPassResults
+  [dict               :- {s/Symbol at/SemanticType}
+   ignore-body        :- #{s/Symbol}
+   ns                 :- s/Symbol
+   source-file        :- (s/maybe (s/cond-pre File s/Str))
+   {:keys [source-form ast]} :- CljsCachedFormEntry
+   accessor-summaries :- AccessorSummaries
+   form-opts          :- {s/Keyword s/Any}]
   (try
     (let [analyzed (aa/annotate-ast dict ast {:ns ns
                                              :accessor-summaries accessor-summaries
@@ -686,8 +730,14 @@
       {:results [(expression-exception-result ns source-file source-form e :cljs)]
        :provenance {}})))
 
-(defn- cljs-read-pass-results
-  [dict ignore-body ns source-file accessor-summaries cljs-state form-opts]
+(s/defn ^:private cljs-read-pass-results :- CljsPassResults
+  [dict               :- {s/Symbol at/SemanticType}
+   ignore-body        :- #{s/Symbol}
+   ns                 :- s/Symbol
+   source-file        :- (s/maybe (s/cond-pre File s/Str))
+   accessor-summaries :- AccessorSummaries
+   cljs-state         :- {s/Any s/Any}
+   form-opts          :- {s/Keyword s/Any}]
   (let [entries (some-> cljs-state (get source-file) :entries)
         _ (when-not (some? entries)
             (throw (ex-info "cljs read-pass-results requires cached cljs :entries for source-file"

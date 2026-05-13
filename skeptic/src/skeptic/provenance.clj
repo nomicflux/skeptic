@@ -84,14 +84,35 @@
   [{:keys [lang]} :- provs/Provenance]
   lang)
 
+(defn- caller-frame
+  "First stack frame outside `java.*`, `clojure.*`, and `skeptic.provenance`.
+  Returned as `\"className/method (file:line)\"`. Used by `of` to make a
+  contract-violation message self-locating."
+  []
+  (let [trace (.getStackTrace (Thread/currentThread))
+        prov-prefix "skeptic.provenance"
+        skip? (fn [^StackTraceElement f]
+                (let [c (.getClassName f)]
+                  (or (.startsWith c "java.")
+                      (.startsWith c "clojure.")
+                      (.startsWith c "schema.")
+                      (.startsWith c prov-prefix))))
+        ^StackTraceElement frame (or (->> trace (drop-while skip?) first)
+                                     (first trace))]
+    (when frame
+      (str (.getClassName frame) "/" (.getMethodName frame)
+           " (" (.getFileName frame) ":" (.getLineNumber frame) ")"))))
+
 (s/defn of :- provs/Provenance
   [t :- at/SemanticType]
   (when-not (at/semantic-type-value? t)
     (throw (IllegalArgumentException.
-            (format "prov/of called on non-Type value: %s" (pr-str t)))))
+            (format "prov/of called on non-Type value: %s at %s"
+                    (pr-str t) (caller-frame)))))
   (or (:prov t)
       (throw (IllegalArgumentException.
-              "prov/of called on Type with nil provenance"))))
+              (format "prov/of called on Type with nil provenance at %s"
+                      (caller-frame))))))
 
 (defn- source-rank
   [p]

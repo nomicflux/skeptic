@@ -293,8 +293,20 @@
     (let [init-node (some-> node def-init-node unwrap-with-meta)]
       (or (some-> init-node :expr unwrap-with-meta) init-node))))
 
-(s/defn analyzed-def-entry :- s/Any
-  [ns-sym :- s/Any analyzed :- aas/AnnotatedNode]
+(s/defschema AnalyzedDefEntry
+  "Strict shape of the data side of `analyzed-def-entry`'s tuple. `:type` is
+  mandatory: a def's value-node MUST carry a `:type` after the annotator
+  pass. A missing `:type` means the responsible annotator handler failed to
+  assign a Type, which is a contract violation surfaced as a thrown
+  exception inside `analyzed-def-entry`."
+  {(s/required-key :type)         at/SemanticType
+   (s/optional-key :output-type)  at/SemanticType
+   (s/optional-key :arglists)     s/Any
+   (s/optional-key :arglist)      s/Any})
+
+(s/defn analyzed-def-entry :- (s/maybe [(s/one s/Symbol "sym")
+                                        (s/one AnalyzedDefEntry "entry")])
+  [ns-sym :- (s/maybe s/Symbol) analyzed :- aas/AnnotatedNode]
   (let [node (unwrap-with-meta analyzed)]
     (when (def-node? node)
       (let [value-node (def-value-node node)
@@ -302,14 +314,17 @@
             qualified-name (when (and raw-name ns-sym)
                              (symbol (str ns-sym "/" raw-name)))]
         (when (and qualified-name value-node)
+          (when-not (:type value-node)
+            (throw (IllegalArgumentException.
+                    (format "analyzed-def-entry: value-node for %s has no :type (op = %s). The responsible annotator handler did not assign a Type to the def's value-node."
+                            qualified-name
+                            (pr-str (:op value-node))))))
           [qualified-name
            (strip-derived-types
-            (into {}
-                  (remove (comp nil? val))
-                  {:type (:type value-node)
-                   :output-type (:output-type value-node)
-                   :arglists (:arglists value-node)
-                   :arglist (:arglist value-node)}))])))))
+            (cond-> {:type (:type value-node)}
+              (:output-type value-node) (assoc :output-type (:output-type value-node))
+              (:arglists value-node)    (assoc :arglists (:arglists value-node))
+              (:arglist value-node)     (assoc :arglist (:arglist value-node))))])))))
 
 (s/defn method-result-type :- s/Any
   [method :- s/Any]

@@ -65,7 +65,25 @@ Add an alias to your `deps.edn`:
 ```clojure
 {:aliases
  {:skeptic
-  {:extra-deps {org.clojars.nomicflux/skeptic {:mvn/version "0.8.1"}}
+  {:extra-deps
+   {org.clojars.nomicflux/skeptic  {:mvn/version "0.8.2-SNAPSHOT"
+                                    :exclusions [org.clojure/tools.deps]}
+    ;; Runtime deps Skeptic was built against, forced at depth 1 in the
+    ;; consumer's resolution so transitive nearest-wins cannot drop or
+    ;; downgrade them. Mirrors lein-skeptic's `skeptic-profile`, which
+    ;; also excludes `org.clojure/tools.deps` from skeptic and re-adds
+    ;; it at depth 1 here.
+    org.clojure/clojurescript      {:mvn/version "1.11.132"}
+    org.clojure/data.json          {:mvn/version "2.5.1"}
+    org.clojure/tools.analyzer     {:mvn/version "1.2.2"}
+    org.clojure/tools.analyzer.jvm {:mvn/version "1.4.0-beta1"}
+    org.clojure/tools.cli          {:mvn/version "1.0.214"}
+    org.clojure/tools.deps         {:mvn/version "0.29.1598"}
+    org.babashka/sci               {:mvn/version "0.12.51"}
+    prismatic/schema               {:mvn/version "1.4.1"}
+    prismatic/plumbing             {:mvn/version "0.6.0"}
+    metosin/malli                  {:mvn/version "0.20.1"}
+    commons-io/commons-io          {:mvn/version "2.11.0"}}
    :main-opts ["-m" "skeptic.cli.main"]}}}
 ```
 
