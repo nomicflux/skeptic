@@ -65,6 +65,10 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/cond-key-some-narrowing-repro))
 
+(deftest when-some-key-refinement-on-open-conditional
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/when-some-key-narrowing-repro))
+
 (deftest cond-some-key-refinement-requires-arm-dispatch-refinement
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/cond-key-some-narrowing-int-wildcard-repro))

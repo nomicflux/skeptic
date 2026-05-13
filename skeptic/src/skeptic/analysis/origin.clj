@@ -650,11 +650,10 @@
       (let [targ (if (= :instance? (:pred invoke-pred-info))
                    (second invoke-args)
                    (first invoke-args))]
-        (if-let [root (when (aapi/stable-identity-node? targ)
-                        (local-root-origin ctx targ))]
-          (type-predicate-assumption root invoke-pred-info true)
-
-          (map-key-lookup-path-assumption targ invoke-pred-info true)))
+        (or (map-key-lookup-path-assumption targ invoke-pred-info true)
+            (when-let [root (when (aapi/stable-identity-node? targ)
+                              (local-root-origin ctx targ))]
+              (type-predicate-assumption root invoke-pred-info true))))
 
       (and invoke? (contains? ac/blank-call-syms invoke-sym))
       (let [targ (first invoke-args)]
