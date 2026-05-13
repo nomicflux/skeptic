@@ -755,3 +755,37 @@
     nil)
   (when (some? k2)
     (consume-when-some-key-int-single params)))
+
+(s/defschema InstanceArmStr (merge KeyOpenBase {:k2 s/Str}))
+(s/defschema InstanceArmInt (merge KeyOpenBase {:k2 s/Int}))
+
+(s/defschema InstanceArmCond
+  (s/conditional
+    #(instance? java.lang.String (:k2 %)) InstanceArmStr
+    :else InstanceArmInt))
+
+(s/defn consume-instance-arm-str
+  [_ :- InstanceArmStr]
+  nil)
+
+(s/defn when-instance-destructured-narrowing
+  [{:keys [k2] :as params} :- InstanceArmCond]
+  (when (instance? java.lang.String k2)
+    (consume-instance-arm-str params)))
+
+(s/defschema NilArmNil (merge KeyOpenBase {:k2 (s/eq nil)}))
+(s/defschema NilArmInt (merge KeyOpenBase {:k2 s/Int}))
+
+(s/defschema NilArmCond
+  (s/conditional
+    #(nil? (:k2 %)) NilArmNil
+    :else NilArmInt))
+
+(s/defn consume-nil-arm-int
+  [_ :- NilArmInt]
+  nil)
+
+(s/defn when-not-nil-destructured-narrowing
+  [{:keys [k2] :as params} :- NilArmCond]
+  (when-not (nil? k2)
+    (consume-nil-arm-int params)))

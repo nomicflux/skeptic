@@ -69,6 +69,14 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/when-some-key-narrowing-repro))
 
+(deftest when-not-nil-destructured-narrowing-on-conditional
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/when-not-nil-destructured-narrowing))
+
+(deftest when-instance-destructured-narrowing-on-conditional
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts/when-instance-destructured-narrowing))
+
 (deftest cond-some-key-refinement-requires-arm-dispatch-refinement
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/cond-key-some-narrowing-int-wildcard-repro))

@@ -64,6 +64,7 @@
   (:bindings node))
 (s/defn node-target :- aas/AnnotatedNode [node :- aas/KeywordInvokeNode] (:target node))
 (s/defn node-keyword :- aas/AnnotatedNode [node :- aas/KeywordInvokeNode] (:keyword node))
+(s/defn node-instance-target :- aas/AnnotatedNode [node :- aas/InstanceOfNode] (:target node))
 (s/defn call-fn-node :- aas/AnnotatedNode [node :- aas/InvokeNode] (:fn node))
 (s/defn call-args :- [aas/AnnotatedNode]
   [node :- (s/conditional

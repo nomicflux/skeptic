@@ -44,6 +44,9 @@
 (s/defschema KeywordInvokeNode
   (assoc AnnotatedNode :target AnnotatedNode :keyword AnnotatedNode))
 
+(s/defschema InstanceOfNode
+  (assoc AnnotatedNode :target AnnotatedNode :class s/Any))
+
 (s/defschema FnMethodNode
   (assoc AnnotatedNode :body AnnotatedNode))
 

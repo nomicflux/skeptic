@@ -622,14 +622,13 @@
         (truthy-local-assumption root true))
 
       (= :instance? op)
-      (let [target (aapi/node-target test-node)
+      (let [target (aapi/node-instance-target test-node)
             cls (aapi/node-class test-node)]
         (when (class? cls)
-          (if-let [root (when (aapi/stable-identity-node? target)
-                          (local-root-origin ctx target))]
-            (type-predicate-assumption root {:pred :instance? :class cls} true)
-
-            (map-key-lookup-path-assumption target {:pred :instance? :class cls} true))))
+          (or (map-key-lookup-path-assumption target {:pred :instance? :class cls} true)
+              (when-let [root (when (aapi/stable-identity-node? target)
+                                (local-root-origin ctx target))]
+                (type-predicate-assumption root {:pred :instance? :class cls} true)))))
 
       (and invoke? (contains? ac/not-call-syms invoke-sym))
       (when (= 1 (count invoke-args))
@@ -684,11 +683,10 @@
       (and (= :static-call op)
            (ac/static-nil?-call? test-node))
       (when-let [targ (ac/static-nil?-target test-node)]
-        (if-let [root (when (aapi/stable-identity-node? targ)
-                        (local-root-origin ctx targ))]
-          (type-predicate-assumption root {:pred :nil?} true)
-
-          (map-key-lookup-path-assumption targ {:pred :nil?} true)))
+        (or (map-key-lookup-path-assumption targ {:pred :nil?} true)
+            (when-let [root (when (aapi/stable-identity-node? targ)
+                              (local-root-origin ctx targ))]
+              (type-predicate-assumption root {:pred :nil?} true))))
 
       (aapi/let-node? test-node)
       (test->assumption ctx (aapi/node-body test-node))
