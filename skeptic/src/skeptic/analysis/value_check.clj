@@ -263,9 +263,9 @@
 
       (at/conditional-type? type)
       (boolean
-       (some (fn [[pred branch-t _]]
-               (and (try (pred value) (catch Exception _ false))
-                    (value-satisfies-type? value branch-t)))
+       (some (fn [b]
+               (and (try ((:pred b) value) (catch Exception _ false))
+                    (value-satisfies-type? value (:type b))))
              (:branches type)))
 
       (at/intersection-type? type)

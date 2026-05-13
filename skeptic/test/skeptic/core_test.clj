@@ -274,8 +274,8 @@
               fields))))
 
 (deftest output-report-fields-prefer-actionable-leaf-metadata-in-verbose-mode
-  (let [actual-result (at/->ConditionalT tp [[integer? (ab/schema->type tp s/Int)]
-                                          [string? (ab/schema->type tp s/Str)]])
+  (let [actual-result (at/->ConditionalT tp [(at/->ConditionalBranch integer? (ab/schema->type tp s/Int) nil nil)
+                                              (at/->ConditionalBranch string? (ab/schema->type tp s/Str) nil nil)])
         summary (inrep/report-summary
                  {:report-kind :output
                   :blame 'bad-user

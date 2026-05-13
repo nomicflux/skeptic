@@ -45,7 +45,7 @@
 
 (defn- conditional-branch-types
   [type opts]
-  (mapv (comp #(render-type-form* % opts) second) (:branches type)))
+  (mapv (comp #(render-type-form* % opts) :type) (:branches type)))
 
 (defn- render-refinement-form
   [type opts]
@@ -179,7 +179,7 @@
       (at/fun-type? type) {:t "fun" :methods (mapv #(fn-method->json-data* % opts) (:methods type))}
       (at/maybe-type? type) {:t "maybe" :inner (type->json-data* (:inner type) opts)}
       (at/conditional-type? type) {:t "conditional"
-                                   :branches (mapv (comp #(type->json-data* % opts) second) (:branches type))}
+                                   :branches (mapv (comp #(type->json-data* % opts) :type) (:branches type))}
       (at/union-type? type) {:t "union"
                              :members (mapv #(type->json-data* % opts)
                                             (sort-by pr-str (:members type)))}

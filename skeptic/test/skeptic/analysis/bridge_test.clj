@@ -313,7 +313,7 @@
 
 (deftest source-intake-conditional-with-recursion-test
   (let [t (ab/import-schema-type tp #'skeptic.analysis.origin.schema/Origin)
-        map-key-lookup-branch (second (nth (:branches t) 2))
+        map-key-lookup-branch (:type (nth (:branches t) 2))
         root-slot (entry-val-by-key map-key-lookup-branch :root)]
     (is (at/conditional-type? t))
     (is (at/map-type? map-key-lookup-branch))
@@ -449,7 +449,7 @@
                  (td/typed-ns-results {} ns-sym :clj source-file))
         fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
         input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
-        pred-forms (mapv #(nth % 2) (:branches input-type))]
+        pred-forms (mapv :pred-form (:branches input-type))]
     (is (= 2 (count pred-forms)))
     (is (every? seq? pred-forms))
     (is (every? #(= 'fn* (first %)) pred-forms))

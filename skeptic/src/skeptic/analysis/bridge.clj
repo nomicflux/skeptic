@@ -472,11 +472,11 @@
                                      branch-result (run (assoc inner-ctx
                                                                :schema branch
                                                                :source (:schema-source branch-source)))]
-                                 {:branch [pred (:type branch-result) (:pred-form branch-source)]
+                                 {:branch (at/->ConditionalBranch pred (:type branch-result) nil (:pred-form branch-source))
                                   :closed-refs (:closed-refs branch-result)}))
                              (range)
                              (:preds-and-schemas schema))
-        branch-provs (mapv (fn [{:keys [branch]}] (prov/of (second branch))) branch-results)
+        branch-provs (mapv (fn [{:keys [branch]}] (prov/of (:type branch))) branch-results)
         node-p (node-prov prov nil branch-provs name-claimed?)]
     (import-result
      (at/->ConditionalT node-p (mapv :branch branch-results))

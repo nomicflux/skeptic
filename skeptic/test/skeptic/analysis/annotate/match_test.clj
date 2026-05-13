@@ -25,7 +25,7 @@
     (let [map-type (at/->MapT tp {(ato/exact-value-type tp :k) (at/->GroundT tp :int 'Int)
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly true)
-          branches [[pred map-type]]
+          branches [(at/->ConditionalBranch pred map-type nil nil)]
           result (sut/narrow-conditional-by-discriminator tp branches [:k] [:a])]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
@@ -35,7 +35,7 @@
     (let [map-type (at/->MapT tp {(ato/exact-value-type tp :k) (at/->GroundT tp :int 'Int)
                                    (ato/exact-value-type tp :x) (at/->GroundT tp :str 'String)})
           pred (constantly false)
-          branches [[pred map-type]]
+          branches [(at/->ConditionalBranch pred map-type nil nil)]
           result (sut/narrow-conditional-default tp branches [:k] [:a])]
       (is (not (at/bottom-type? result)))
       (is (contains? (:entries result) (ato/exact-value-type tp :k))))))
@@ -48,7 +48,8 @@
                                      (ato/exact-value-type tp :disc) (at/->GroundT tp :str 'String)})
           pred-a (fn [m] (= (get-in m [:x :k]) "a"))
           pred-b (fn [m] (= (get-in m [:x :k]) "b"))
-          branches [[pred-a map-type-a] [pred-b map-type-b]]
+          branches [(at/->ConditionalBranch pred-a map-type-a nil nil)
+                    (at/->ConditionalBranch pred-b map-type-b nil nil)]
           path [:x :k]
           result (sut/narrow-conditional-by-discriminator tp branches path ["b"])]
       (is (not (at/bottom-type? result)))
@@ -61,8 +62,8 @@
           b-type (at/->GroundT tp :int 'Int)
           always-false (constantly false)
           path [:k]
-          branches [[always-false a-type {:path [{:value :k}] :values ["a"]}]
-                    [always-false b-type {:path [{:value :k}] :values ["b"]}]]
+          branches [(at/->ConditionalBranch always-false a-type {:path [{:value :k}] :values ["a"]} nil)
+                    (at/->ConditionalBranch always-false b-type {:path [{:value :k}] :values ["b"]} nil)]
           result (sut/narrow-conditional-by-discriminator
                    tp branches path ["b"])]
       (is (= b-type result)))))

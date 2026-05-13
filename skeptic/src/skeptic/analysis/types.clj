@@ -187,6 +187,8 @@
 (defrecord ConditionalTRec [prov branches]
   proto/SemanticType (semantic-tag [_] conditional-type-tag))
 
+(defrecord ConditionalBranchRec [pred type descriptor pred-form])
+
 (s/defschema SemanticType
   (s/cond-pre DynTRec BottomTRec GroundTRec NumericDynTRec
               RefinementTRec AdapterLeafTRec OptionalKeyTRec
@@ -195,6 +197,9 @@
               SeqTRec VarTRec PlaceholderTRec InfCycleTRec
               ValueTRec TypeVarTRec ForallTRec SealedDynTRec
               ConditionalTRec))
+
+(s/defschema ConditionalBranches [ConditionalBranchRec])
+
 
 (defn- ensure-prov!
   [record-name prov]
@@ -225,7 +230,14 @@
 (s/defn ->TypeVarT :- SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarTRec. prov name))
 (s/defn ->ForallT :- SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallTRec. prov binder body))
 (s/defn ->SealedDynT :- SemanticType [prov :- provs/Provenance ground :- TypeVarTRec] (ensure-prov! "SealedDynT" prov) (SealedDynTRec. prov ground))
-(s/defn ->ConditionalT :- SemanticType [prov :- provs/Provenance branches] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches))
+(s/defn ->ConditionalT :- SemanticType [prov :- provs/Provenance branches :- [ConditionalBranchRec]] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches))
+
+(s/defn ->ConditionalBranch :- ConditionalBranchRec
+  [pred       :- s/Any
+   type       :- SemanticType
+   descriptor :- (s/maybe {s/Keyword s/Any})
+   pred-form  :- s/Any]
+  (ConditionalBranchRec. pred type descriptor pred-form))
 
 (s/defn Dyn :- SemanticType
   [prov :- provs/Provenance]
@@ -264,6 +276,7 @@
 (s/defn forall-type? :- s/Bool [t :- s/Any] (instance? ForallTRec t))
 (s/defn sealed-dyn-type? :- s/Bool [t :- s/Any] (instance? SealedDynTRec t))
 (s/defn conditional-type? :- s/Bool [t :- s/Any] (instance? ConditionalTRec t))
+(s/defn conditional-branch? :- s/Bool [b :- s/Any] (instance? ConditionalBranchRec b))
 (s/defn placeholder-type? :- s/Bool [t :- s/Any] (instance? PlaceholderTRec t))
 (s/defn inf-cycle-type? :- s/Bool [t :- s/Any] (instance? InfCycleTRec t))
 (s/defn value-type? :- s/Bool [t :- s/Any] (instance? ValueTRec t))
@@ -336,8 +349,8 @@
 
 (defn- branch-type=?
   [same? a b]
-  (and (= (first a) (first b))
-       (same? (second a) (second b))))
+  (and (= (:pred a) (:pred b))
+       (same? (:type a) (:type b))))
 
 (defn- ordered-branch-type=?
   [same? a b]
@@ -473,8 +486,8 @@
              m))
 
 (defn- branch-type-hash
-  [type-hash-fn [pred typ]]
-  (combine-hash (hash pred) (type-hash-fn typ)))
+  [type-hash-fn branch]
+  (combine-hash (hash (:pred branch)) (type-hash-fn (:type branch))))
 
 (defn- type-hash
   [x]

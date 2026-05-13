@@ -167,8 +167,8 @@
         (if (empty? eff-branches)
           (at/BottomType (prov/of type))
           (at/->ConditionalT (prov/of type)
-                             (mapv (fn [[pred eff-typ slot3]]
-                                     [pred (de-maybe-type prov eff-typ) slot3])
+                             (mapv (fn [b]
+                                     (assoc b :type (de-maybe-type prov (:type b))))
                                    eff-branches))))
 
       :else

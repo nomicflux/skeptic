@@ -79,8 +79,10 @@
                       (sut/->FunT p-native [(sut/->FnMethodT p-native [native-int] native-str 1 false ['x])])))
       (is (sut/type=? (sut/->ForallT p-schema ['T] (sut/->TypeVarT p-schema 'T))
                       (sut/->ForallT p-native ['T] (sut/->TypeVarT p-native 'T))))
-      (is (sut/type=? (sut/->ConditionalT p-schema [[:truthy schema-int] [:else schema-str]])
-                      (sut/->ConditionalT p-native [[:truthy native-int] [:else native-str]]))))
+      (is (sut/type=? (sut/->ConditionalT p-schema [(sut/->ConditionalBranch :truthy schema-int nil nil)
+                                                    (sut/->ConditionalBranch :else schema-str nil nil)])
+                      (sut/->ConditionalT p-native [(sut/->ConditionalBranch :truthy native-int nil nil)
+                                                    (sut/->ConditionalBranch :else native-str nil nil)]))))
     (testing "non-provenance differences still matter"
       (is (not (sut/type=? (sut/->VectorT p-schema [] schema-int)
                            (sut/->VectorT p-native [native-int] nil))))

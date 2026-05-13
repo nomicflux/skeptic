@@ -45,7 +45,7 @@
 
 (defn- source-conditional-result
   [run-child source-type target-type opts]
-  (let [pairs (mapv #(vector (second %) target-type) (:branches source-type))
+  (let [pairs (mapv #(vector (:type %) target-type) (:branches source-type))
         children (run-indexed-children run-child :source-union-branch pairs opts)]
     (ascs/aggregate-children source-type
                              target-type
@@ -56,7 +56,7 @@
 
 (defn- target-conditional-result
   [run-child source-type target-type opts]
-  (let [pairs (mapv #(vector source-type (second %)) (:branches target-type))
+  (let [pairs (mapv #(vector source-type (:type %)) (:branches target-type))
         children (run-indexed-children run-child :target-union-branch pairs opts)]
     (if-let [success (some #(when (:ok? %) %) children)]
       (ascs/cast-ok source-type target-type :target-union children {:chosen-rule (:rule success)})

@@ -61,7 +61,8 @@
 (deftest sum-alternatives-on-conditional-test
   (let [k1 (ato/exact-value-type tp :a)
         k2 (ato/exact-value-type tp :b)
-        cond-type (at/->ConditionalT tp [[:keyword? k1 nil] [:keyword? k2 nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch :keyword? k1 nil nil)
+                                          (at/->ConditionalBranch :keyword? k2 nil nil)])
         alts (sut/sum-alternatives cond-type)]
     (is (= 2 (count alts)))
     (is (some #(at/type=? k1 %) alts))

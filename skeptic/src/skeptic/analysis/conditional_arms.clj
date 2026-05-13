@@ -30,18 +30,8 @@
     (mapv #(exact-key-query' p %) path)))
 
 (s/defn ^:private refine-by-descriptor :- at/SemanticType
-  "ConditionalT slot3's lifecycle: bridge admission emits the raw predicate
-   form for Plumatic conditional (a symbol like 'integer? or an inline-fn
-   form), which `enrich-conditional-descriptors` replaces post-admission with
-   a descriptor map (or nil) computed via accessor-summaries. Production runs
-   accessor-summary collection — which analyzes user code — against the
-   unenriched dict (chicken-and-egg: enrichment requires accessor-summaries),
-   so this function sees the full lifecycle range: nil, descriptor map, raw
-   pred symbol, fn-form vector, runtime fn. Only descriptor maps drive
-   narrowing; everything else falls through to `arm-type` unchanged. The
-   `descriptor` schema is `s/Any` because that's the honest contract."
   [arm-type   :- at/SemanticType
-   descriptor :- s/Any]
+   descriptor :- (s/maybe {s/Keyword s/Any})]
   (cond
     (nil? descriptor) arm-type
 
@@ -60,11 +50,11 @@
 
     :else arm-type))
 
-(s/defn effective-conditional-branches :- [s/Any]
-  "Return live arm triples `[pred eff-type slot3]`, where each arm's
-   structural type is narrowed by the negation of all earlier arms'
-   recognized descriptors. Arms whose effective type is BottomType are
-   dropped (unreachable). Unrecognized earlier descriptors are skipped."
+(s/defn effective-conditional-branches :- at/ConditionalBranches
+  "Return live branches whose effective type is narrowed by the negation
+   of all earlier arms' recognized descriptors. Branches whose effective
+   type is BottomType are dropped (unreachable). Unrecognized earlier
+   descriptors are skipped."
   [cond-type :- at/SemanticType]
   (let [branches (vec (:branches cond-type))]
     (loop [k 0
@@ -72,19 +62,19 @@
            acc []]
       (if (>= k (count branches))
         acc
-        (let [[pred typ slot3] (nth branches k)
-              eff (reduce refine-by-descriptor typ earlier-descriptors)]
+        (let [b (nth branches k)
+              eff (reduce refine-by-descriptor (:type b) earlier-descriptors)]
           (recur (inc k)
-                 (conj earlier-descriptors slot3)
+                 (conj earlier-descriptors (:descriptor b))
                  (if (at/bottom-type? eff)
                    acc
-                   (conj acc [pred eff slot3]))))))))
+                   (conj acc (assoc b :type eff)))))))))
 
 (s/defn effective-conditional-arms :- [at/SemanticType]
   "Structural type of each surviving arm post-dispatch refinement.
    See `effective-conditional-branches`."
   [cond-type :- at/SemanticType]
-  (mapv second (effective-conditional-branches cond-type)))
+  (mapv :type (effective-conditional-branches cond-type)))
 
 (defn- unwrap-exact-path
   "Convert path (vector of `exact-key-query` records) to the raw key vector
@@ -115,17 +105,15 @@
   [branches matches?]
   (loop [k 0]
     (when (< k (count branches))
-      (let [[_pred _typ slot3] (nth branches k)]
-        (if (matches? slot3)
-          k
-          (recur (inc k)))))))
+      (if (matches? (:descriptor (nth branches k)))
+        k
+        (recur (inc k))))))
 
 (defn- effective-arm-at
   [cond-type idx]
   (let [branches (vec (:branches cond-type))
-        earlier-descs (mapv #(nth (nth branches %) 2) (range idx))
-        [_pred typ _slot3] (nth branches idx)]
-    (reduce refine-by-descriptor typ earlier-descs)))
+        earlier-descs (mapv #(:descriptor (nth branches %)) (range idx))]
+    (reduce refine-by-descriptor (:type (nth branches idx)) earlier-descs)))
 
 (s/defn ^:private rebuild-without-arm :- at/SemanticType
   [cond-type :- at/SemanticType
@@ -136,7 +124,7 @@
         prov (prov/of cond-type)]
     (cond
       (empty? kept)      (at/BottomType prov)
-      (= 1 (count kept)) (second (first kept))
+      (= 1 (count kept)) (:type (first kept))
       :else              (at/->ConditionalT prov kept))))
 
 (s/defn route-conditional-by-predicate :- (s/maybe at/SemanticType)

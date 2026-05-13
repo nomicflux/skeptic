@@ -174,11 +174,11 @@
   (when (and (keyword? dispatch) (not= multi-default-tag tag))
     {:path [dispatch] :values [tag]}))
 
-(defn- multi-branch->triple
+(defn- multi-branch->branch
   [run ctx dispatch entry]
   (let [[tag schema] entry
         r (run ctx schema)]
-    {:triple [tag (:type r) (multi-branch-descriptor dispatch tag)]
+    {:branch (at/->ConditionalBranch tag (:type r) (multi-branch-descriptor dispatch tag) nil)
      :closed-refs (:closed-refs r)}))
 
 (defn- enum-values
@@ -308,9 +308,9 @@
       (multi-shape? form)
       (let [dispatch (get-in form [1 :dispatch])
             entries (drop 2 form)
-            triples (mapv #(multi-branch->triple form->type ctx dispatch %) entries)]
-        (import-result (at/->ConditionalT prov (mapv :triple triples))
-                       (merge-closed-refs triples)))
+            branches (mapv #(multi-branch->branch form->type ctx dispatch %) entries)]
+        (import-result (at/->ConditionalT prov (mapv :branch branches))
+                       (merge-closed-refs branches)))
 
       (enum-shape? form)
       (import-result (ato/union-type prov (mapv #(ato/exact-value-type prov %)

@@ -41,7 +41,7 @@
       (into #{} (mapcat type-free-vars (:members type)))
 
       (at/conditional-type? type)
-      (into #{} (mapcat type-free-vars (map second (:branches type))))
+      (into #{} (mapcat type-free-vars (map :type (:branches type))))
 
       (at/map-type? type)
       (reduce (fn [acc [k v]]
@@ -124,8 +124,12 @@
 
       (at/conditional-type? type)
       (at/->ConditionalT prov
-                         (mapv (fn [[pred branch-t pred-form]]
-                                 [pred (type-substitute branch-t binder replacement) pred-form])
+                         (mapv (fn [b]
+                                 (at/->ConditionalBranch
+                                  (:pred b)
+                                  (type-substitute (:type b) binder replacement)
+                                  (:descriptor b)
+                                  (:pred-form b)))
                                (:branches type)))
 
       (at/map-type? type)

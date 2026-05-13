@@ -118,9 +118,12 @@
   (let [ns-sym (:declared-in (prov/of t))]
     (update t :branches
             (fn [bs]
-              (mapv (fn [[pred typ slot3]]
-                      [pred (walk typ)
-                       (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
+              (mapv (fn [b]
+                      (at/->ConditionalBranch
+                       (:pred b)
+                       (walk (:type b))
+                       (pd/predicate-form->descriptor (:pred-form b) ns-sym accessor-summaries)
+                       (:pred-form b)))
                     bs)))))
 
 (s/defn ^:private enrich-fn-method-type :- FnMethodTRec

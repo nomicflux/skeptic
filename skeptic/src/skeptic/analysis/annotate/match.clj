@@ -208,9 +208,9 @@
    a union of selected branch types."
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
   (let [pick (fn [lit]
-               (some (fn [[pred branch-type descriptor]]
-                       (when (pred-matches-lit? pred descriptor discriminator lit)
-                         branch-type))
+               (some (fn [b]
+                       (when (pred-matches-lit? (:pred b) (:descriptor b) discriminator lit)
+                         (:type b)))
                      branches))
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
@@ -219,10 +219,10 @@
   "Default-branch counterpart: returns the union of branch types whose
    preds did NOT match any of `lits`."
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
-  (let [matched? (fn [[pred _ descriptor]]
-                   (some #(pred-matches-lit? pred descriptor discriminator %) lits))
+  (let [matched? (fn [b]
+                   (some #(pred-matches-lit? (:pred b) (:descriptor b) discriminator %) lits))
         default-types (into [] (comp (remove matched?)
-                                     (map second))
+                                     (map :type))
                             branches)]
     (if (empty? default-types)
       (at/BottomType anchor-prov)

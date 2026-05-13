@@ -362,13 +362,13 @@
 
       (at/conditional-type? type)
       (let [anchor (prov/of type)
-            refined (keep (fn [[pred eff-typ slot3]]
-                            (let [r (refine-by-contains-key eff-typ key polarity)]
-                              (when-not (at/bottom-type? r) [pred r slot3])))
+            refined (keep (fn [b]
+                            (let [r (refine-by-contains-key (:type b) key polarity)]
+                              (when-not (at/bottom-type? r) (assoc b :type r))))
                           (ca/effective-conditional-branches type))]
         (case (count refined)
           0 (at/BottomType anchor)
-          1 (second (first refined))
+          1 (:type (first refined))
           (at/->ConditionalT anchor (vec refined))))
 
       (at/maybe-type? type)
@@ -510,13 +510,13 @@
     (or (ca/route-conditional-by-values cond-type path values polarity)
         (let [anchor (prov/of cond-type)
               leaf (values-leaf-fn values polarity)
-              refined (keep (fn [[pred eff-typ slot3]]
-                              (let [r (refine-map-path eff-typ path leaf nil)]
-                                (when-not (at/bottom-type? r) [pred r slot3])))
+              refined (keep (fn [b]
+                              (let [r (refine-map-path (:type b) path leaf nil)]
+                                (when-not (at/bottom-type? r) (assoc b :type r))))
                             (ca/effective-conditional-branches cond-type))]
           (case (count refined)
             0 (at/BottomType anchor)
-            1 (second (first refined))
+            1 (:type (first refined))
             (at/->ConditionalT anchor (vec refined)))))))
 
 (s/defn refine-map-path-by-values :- at/SemanticType
@@ -537,13 +537,13 @@
           (cond-fn [cond-type cond-path]
             (or (ca/route-conditional-by-predicate cond-type cond-path pred-info polarity)
                 (let [anchor (prov/of cond-type)
-                      refined (keep (fn [[pred eff-typ slot3]]
-                                      (let [r (refine-map-path eff-typ cond-path leaf-fn cond-fn)]
-                                        (when-not (at/bottom-type? r) [pred r slot3])))
+                      refined (keep (fn [b]
+                                      (let [r (refine-map-path (:type b) cond-path leaf-fn cond-fn)]
+                                        (when-not (at/bottom-type? r) (assoc b :type r))))
                                     (ca/effective-conditional-branches cond-type))]
                   (case (count refined)
                     0 (at/BottomType anchor)
-                    1 (second (first refined))
+                    1 (:type (first refined))
                     (at/->ConditionalT anchor (vec refined))))))]
     (refine-map-path root-type path leaf-fn cond-fn)))
 

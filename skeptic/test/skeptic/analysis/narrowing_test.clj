@@ -83,7 +83,8 @@
 (deftest partition-conditional-by-predicate-test
   (let [int-t (T s/Int)
         str-t (T s/Str)
-        cond-type (at/->ConditionalT tp [[:integer? int-t nil] [:string? str-t nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch :integer? int-t nil nil)
+                                          (at/->ConditionalBranch :string? str-t nil nil)])
         kept (an/partition-type-for-predicate cond-type {:pred :integer?} true)
         dropped (an/partition-type-for-predicate cond-type {:pred :integer?} false)]
     (is-type= int-t kept)
@@ -92,22 +93,25 @@
 (deftest partition-conditional-by-values-test
   (let [int-t (T s/Int)
         true-v (ato/exact-value-type tp true)
-        cond-type (at/->ConditionalT tp [[:integer? int-t nil] [:boolean? true-v nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch :integer? int-t nil nil)
+                                          (at/->ConditionalBranch :boolean? true-v nil nil)])
         kept-true (an/partition-type-for-values cond-type [true] true)]
     (is-type= true-v kept-true)))
 
 (deftest can-be-falsy-conditional-test
   (let [int-t (T s/Int)
         false-v (ato/exact-value-type tp false)
-        all-truthy (at/->ConditionalT tp [[:integer? int-t nil]])
-        has-falsy (at/->ConditionalT tp [[:integer? int-t nil] [:boolean? false-v nil]])]
+        all-truthy (at/->ConditionalT tp [(at/->ConditionalBranch :integer? int-t nil nil)])
+        has-falsy (at/->ConditionalT tp [(at/->ConditionalBranch :integer? int-t nil nil)
+                                          (at/->ConditionalBranch :boolean? false-v nil nil)])]
     (is (not (an/can-be-falsy-type? all-truthy)))
     (is (an/can-be-falsy-type? has-falsy))))
 
 (deftest apply-truthy-local-conditional-test
   (let [int-t (T s/Int)
         false-v (ato/exact-value-type tp false)
-        cond-type (at/->ConditionalT tp [[:integer? int-t nil] [:boolean? false-v nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch :integer? int-t nil nil)
+                                          (at/->ConditionalBranch :boolean? false-v nil nil)])
         result (an/apply-truthy-local cond-type true)]
     (is-type= int-t result)))
 

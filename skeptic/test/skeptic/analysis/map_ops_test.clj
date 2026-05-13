@@ -123,7 +123,8 @@
         branch-b-type (ab/schema->type tp {:x {:k (s/eq "b")} :disc "b"})
         pred-a (fn [m] (= (get-in m [:x :k]) "a"))
         pred-b (fn [m] (= (get-in m [:x :k]) "b"))
-        cond-type (at/->ConditionalT tp [[pred-a branch-a-type] [pred-b branch-b-type]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch pred-a branch-a-type nil nil)
+                                          (at/->ConditionalBranch pred-b branch-b-type nil nil)])
         result (amo/refine-map-path-by-values cond-type path ["b"] true)]
     (is (not (at/bottom-type? result)))
     (is (at/map-type? result))

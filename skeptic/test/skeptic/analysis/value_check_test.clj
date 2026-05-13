@@ -23,11 +23,11 @@
 (deftest contains-key-classification-on-conditional-test
   (let [has-a (ab/schema->type tp {:a s/Int})
         has-b (ab/schema->type tp {:b s/Int})
-        cond-type (at/->ConditionalT tp [[#(contains? % :a) has-a nil]
-                                         [#(contains? % :b) has-b nil]])]
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch #(contains? % :a) has-a nil nil)
+                                          (at/->ConditionalBranch #(contains? % :b) has-b nil nil)])]
     (testing "key present in every branch -> :always"
-      (let [both (at/->ConditionalT tp [[#(contains? % :a) has-a nil]
-                                        [#(contains? % :a) has-a nil]])]
+      (let [both (at/->ConditionalT tp [(at/->ConditionalBranch #(contains? % :a) has-a nil nil)
+                                         (at/->ConditionalBranch #(contains? % :a) has-a nil nil)])]
         (is (= :always (avc/contains-key-type-classification both :a)))))
     (testing "key present in some branches -> :unknown"
       (is (= :unknown (avc/contains-key-type-classification cond-type :a))))
@@ -37,8 +37,8 @@
 (deftest refine-by-contains-key-on-conditional-test
   (let [has-a (ab/schema->type tp {:a s/Int})
         has-b (ab/schema->type tp {:b s/Int})
-        cond-type (at/->ConditionalT tp [[#(contains? % :a) has-a nil]
-                                         [#(contains? % :b) has-b nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch #(contains? % :a) has-a nil nil)
+                                          (at/->ConditionalBranch #(contains? % :b) has-b nil nil)])
         refined-true (amo/refine-by-contains-key cond-type :a true)
         refined-false (amo/refine-by-contains-key cond-type :a false)]
     (is-type= has-a refined-true)
@@ -47,8 +47,8 @@
 (deftest value-satisfies-conditional-test
   (let [has-a (ab/schema->type tp {:a s/Int})
         has-b (ab/schema->type tp {:b s/Int})
-        cond-type (at/->ConditionalT tp [[#(contains? % :a) has-a nil]
-                                         [#(contains? % :b) has-b nil]])]
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch #(contains? % :a) has-a nil nil)
+                                          (at/->ConditionalBranch #(contains? % :b) has-b nil nil)])]
     (is (avc/value-satisfies-type? {:a 1} cond-type))
     (is (avc/value-satisfies-type? {:b 2} cond-type))
     (is (not (avc/value-satisfies-type? {:c 3} cond-type)))

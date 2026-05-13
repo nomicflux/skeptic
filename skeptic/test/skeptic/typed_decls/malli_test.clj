@@ -102,7 +102,7 @@
                        [:b [:map {:closed true} [:tag [:= :b]] [:value :string]]]])]
     (is (at/conditional-type? t))
     (is (= 2 (count (:branches t))))
-    (is (= [:a :b] (mapv first (:branches t))))))
+    (is (= [:a :b] (mapv :pred (:branches t))))))
 
 (deftest desc->type-schema-with-registry
   (is-type= Int (desc->type [:schema {:registry {::int :int}} [:ref ::int]])))

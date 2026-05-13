@@ -78,8 +78,8 @@
 (deftest normalize-type-preserves-conditional-test
   (let [pred1 :map?
         pred2 :vector?
-        cond-type (at/->ConditionalT tp [[pred1 (ab/schema->type tp s/Int) nil]
-                                         [pred2 (ab/schema->type tp s/Str) nil]])]
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch pred1 (ab/schema->type tp s/Int) nil nil)
+                                          (at/->ConditionalBranch pred2 (ab/schema->type tp s/Str) nil nil)])]
     (is (at/conditional-type? (ato/normalize-type tp cond-type)))
     (is-type= cond-type (ato/normalize-type tp cond-type))))
 
@@ -88,18 +88,18 @@
         pred2 :vector?
         int-t (ab/schema->type tp s/Int)
         str-t (ab/schema->type tp s/Str)
-        cond-type (at/->ConditionalT tp [[pred1 (at/->MaybeT tp int-t) nil]
-                                         [pred2 str-t nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch pred1 (at/->MaybeT tp int-t) nil nil)
+                                          (at/->ConditionalBranch pred2 str-t nil nil)])
         result (ato/de-maybe-type tp cond-type)]
     (is (at/conditional-type? result))
     (is (= 2 (count (:branches result))))
-    (is-type= int-t (second (first (:branches result))))
-    (is-type= str-t (second (second (:branches result))))))
+    (is-type= int-t (:type (first (:branches result))))
+    (is-type= str-t (:type (second (:branches result))))))
 
 (deftest de-maybe-type-on-maybe-conditional-test
   (let [pred1 :map?
         int-t (ab/schema->type tp s/Int)
-        cond-type (at/->ConditionalT tp [[pred1 int-t nil]])
+        cond-type (at/->ConditionalT tp [(at/->ConditionalBranch pred1 int-t nil nil)])
         wrapped (at/->MaybeT tp cond-type)
         result (ato/de-maybe-type tp wrapped)]
     (is (at/conditional-type? result))
@@ -110,8 +110,10 @@
         pred2 :vector?
         int-t (ab/schema->type tp s/Int)
         str-t (ab/schema->type tp s/Str)
-        all-concrete (at/->ConditionalT tp [[pred1 int-t nil] [pred2 str-t nil]])
-        with-dyn (at/->ConditionalT tp [[pred1 int-t nil] [pred2 (at/Dyn tp) nil]])]
+        all-concrete (at/->ConditionalT tp [(at/->ConditionalBranch pred1 int-t nil nil)
+                                             (at/->ConditionalBranch pred2 str-t nil nil)])
+        with-dyn (at/->ConditionalT tp [(at/->ConditionalBranch pred1 int-t nil nil)
+                                         (at/->ConditionalBranch pred2 (at/Dyn tp) nil nil)])]
     (is (not (ato/uninformative-for-narrowing? all-concrete)))
     (is (ato/uninformative-for-narrowing? with-dyn))))
 
@@ -119,8 +121,8 @@
   (let [pred1 :map?
         pred2 :vector?
         int-t (ab/schema->type tp s/Int)
-        cond-with-maybe (at/->ConditionalT tp [[pred1 (at/->MaybeT tp int-t) nil]
-                                               [pred2 int-t nil]])
+        cond-with-maybe (at/->ConditionalT tp [(at/->ConditionalBranch pred1 (at/->MaybeT tp int-t) nil nil)
+                                                (at/->ConditionalBranch pred2 int-t nil nil)])
         result (ato/union [cond-with-maybe int-t])]
     (is (at/maybe-type? result))))
 

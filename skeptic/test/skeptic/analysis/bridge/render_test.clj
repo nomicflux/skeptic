@@ -48,8 +48,8 @@
            (sut/type->json-data (at/->MaybeT tp (at/->GroundT tp :int 'Int))))))
 
   (testing "Conditional"
-    (let [conditional (at/->ConditionalT tp [[integer? (at/->GroundT tp :int 'Int)]
-                                          [string? (at/->MaybeT tp (at/->GroundT tp :keyword 'Keyword))]])]
+    (let [conditional (at/->ConditionalT tp [(at/->ConditionalBranch integer? (at/->GroundT tp :int 'Int) nil nil)
+                                              (at/->ConditionalBranch string? (at/->MaybeT tp (at/->GroundT tp :keyword 'Keyword)) nil nil)])]
       (is (= '(conditional Int (maybe Keyword))
              (sut/render-type-form conditional)))
       (is (= {:t "conditional"
@@ -154,8 +154,8 @@
 (deftest render-type-form*-folds-conditional-leaf-branches
   (let [int-branch (ground-int (p :schema 'demo/IntBranch))
         str-branch (ground-str (p :schema 'demo/StrBranch))
-        conditional (at/->ConditionalT tp [[integer? int-branch]
-                                           [string? str-branch]])]
+        conditional (at/->ConditionalT tp [(at/->ConditionalBranch integer? int-branch nil nil)
+                                            (at/->ConditionalBranch string? str-branch nil nil)])]
     (is (= '(conditional demo/IntBranch demo/StrBranch)
            (sut/render-type-form* conditional {})))
     (is (= {:t "conditional"
