@@ -5,7 +5,6 @@
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.colours :as colours]
             [skeptic.inconsistence.display :as disp]
             [skeptic.inconsistence.mismatch :as mm]
@@ -135,7 +134,7 @@
                    seq)))
 
 (s/defn dynamic-display-type? :- s/Bool
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (let [type (some-> type ato/normalize)]
     (or (nil? type)
         (at/dyn-type? type))))
@@ -165,7 +164,7 @@
   (first (filter actionable-output-leaf?
                  (ordered-output-leaves report))))
 
-(s/defn output-declared-expected-type :- ats/SemanticType
+(s/defn output-declared-expected-type :- at/SemanticType
   [report :- isch/OutputReport]
   (:expected-type (:cast-summary report)))
 
@@ -419,8 +418,10 @@
      :expected-type (:expected-type summary)
      :actual-type (:actual-type summary)}))
 
-(defn- run-cast-report
-  [expected actual error-fn]
+(s/defn ^:private run-cast-report :- {s/Keyword s/Any}
+  [expected :- at/SemanticType
+   actual   :- at/SemanticType
+   error-fn :- (s/pred fn?)]
   (let [expected-type (ato/normalize expected)
         actual-type (ato/normalize actual)
         actual-prov (prov/of actual-type)
@@ -436,12 +437,12 @@
 
 (s/defn cast-report :- s/Any
   ([ctx :- isch/ReportCtx
-    expected :- ats/SemanticType
-    actual :- ats/SemanticType]
+    expected :- at/SemanticType
+    actual :- at/SemanticType]
    (cast-report ctx expected actual {}))
   ([ctx :- isch/ReportCtx
-    expected :- ats/SemanticType
-    actual :- ats/SemanticType
+    expected :- at/SemanticType
+    actual :- at/SemanticType
     opts :- isch/ReportOpts]
    (run-cast-report expected actual
                     (fn [_raw _actual-type _expected-type metadata]
@@ -452,12 +453,12 @@
 
 (s/defn output-cast-report :- s/Any
   ([ctx :- isch/ReportCtx
-    expected :- ats/SemanticType
-    actual :- ats/SemanticType]
+    expected :- at/SemanticType
+    actual :- at/SemanticType]
    (output-cast-report ctx expected actual {}))
   ([ctx :- isch/ReportCtx
-    expected :- ats/SemanticType
-    actual :- ats/SemanticType
+    expected :- at/SemanticType
+    actual :- at/SemanticType
     opts :- isch/ReportOpts]
    (run-cast-report expected actual
                     (fn [_raw actual-type expected-type _metadata]

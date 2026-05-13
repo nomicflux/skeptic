@@ -1,14 +1,14 @@
 (ns skeptic.analysis.cast.schema
   (:require [schema.core :as s]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (s/defschema CastResult
   {:ok?            s/Bool
    :blame-side     s/Keyword
    :blame-polarity s/Keyword
    :rule           s/Keyword
-   :source-type    ats/SemanticType
-   :target-type    ats/SemanticType
+   :source-type    at/SemanticType
+   :target-type    at/SemanticType
    :children       [(s/recursive #'CastResult)]
    :reason         (s/maybe s/Keyword)
    s/Keyword       s/Any})
@@ -17,8 +17,8 @@
   {:rule                          s/Keyword
    :reason                        (s/maybe s/Keyword)
    :path                          [s/Any]
-   :actual-type                   ats/SemanticType
-   :expected-type                 ats/SemanticType
+   :actual-type                   at/SemanticType
+   :expected-type                 at/SemanticType
    :blame-side                    s/Keyword
    :blame-polarity                s/Keyword
    (s/optional-key :actual-key)        s/Any
@@ -30,5 +30,5 @@
    :rule           s/Keyword
    :blame-side     s/Keyword
    :blame-polarity s/Keyword
-   :actual-type    ats/SemanticType
-   :expected-type  ats/SemanticType})
+   :actual-type    at/SemanticType
+   :expected-type  at/SemanticType})

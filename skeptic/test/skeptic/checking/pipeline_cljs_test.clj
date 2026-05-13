@@ -17,6 +17,8 @@
 (def ^:private bar-ns 'skeptic.cljs-fixtures.p7.bar)
 (def ^:private baz-ns 'skeptic.cljs-fixtures.p7.baz)
 
+(def ^:private p5-file (File. "dev-resources/cljs-fixtures/p5.cljs"))
+
 (def ^:private fixture-nss
   [[foo-ns foo-file]
    [bar-ns bar-file]
@@ -25,6 +27,12 @@
 (defn- input-finding
   [results]
   (first (filter #(= :input (:report-kind %)) results)))
+
+(defn- read-exceptions
+  [results]
+  (filter #(and (= :exception (:report-kind %))
+                (= :read (:phase %)))
+          results))
 
 (deftest mixed-language-project-attributes-lang-correctly
   (let [ps (pipeline/project-state {} fixture-nss)
@@ -37,11 +45,20 @@
     (testing "bar.cljs produces a finding tagged :cljs"
       (let [{:keys [results]} (pipeline/check-namespace ps bar-ns bar-file form-opts)
             f (input-finding results)]
+        (is (empty? (read-exceptions results)))
         (is (some? f) "bar.cljs should produce an input mismatch")
         (is (= :cljs (get-in f [:location :lang])))))
     (testing "baz.cljc produces one finding tagged #{:clj :cljs}"
       (let [{:keys [results]} (pipeline/check-namespace ps baz-ns baz-file form-opts)
             inputs (filter #(= :input (:report-kind %)) results)]
+        (is (empty? (read-exceptions results)))
         (is (= 1 (count inputs))
             "baz.cljc identical findings under both passes should dedup to one")
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
+
+(deftest cljs-malli-registration-is-admitted-through-production-path
+  (let [ps (pipeline/project-state {} [['p5 p5-file]])
+        {:keys [results provenance]} (pipeline/check-namespace ps 'p5 p5-file {:remove-context true})]
+    (is (empty? (read-exceptions results)))
+    (is (contains? provenance 'p5/g))
+    (is (contains? provenance 'p5/h))))

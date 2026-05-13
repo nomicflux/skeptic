@@ -204,7 +204,6 @@
           accessor-summaries (:accessor-summaries (checking/project-state
                                                    {} [[fixture-ns fixture-file]]))
           {dict :dict} (test-state/admit-ns fixture-ns fixture-file)
-          dict (#'checking/enrich-conditional-descriptors dict accessor-summaries)
           form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})
                     read-string)

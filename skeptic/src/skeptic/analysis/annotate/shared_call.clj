@@ -7,8 +7,7 @@
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.map-ops.algebra :as amoa]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (defn- shared-get-output-type
   [ctx args]
@@ -36,11 +35,11 @@
           :else nil)
         (at/Dyn (ato/derive-prov type)))))
 
-(s/defn shared-call-output-type :- ats/SemanticType
+(s/defn shared-call-output-type :- at/SemanticType
   [ctx :- s/Any
    shared-op :- s/Any
    args :- s/Any
-   default-output-type :- ats/SemanticType]
+   default-output-type :- at/SemanticType]
   (let [anchor-prov (ato/derive-prov default-output-type)]
     (case shared-op
       :get (shared-get-output-type ctx args)

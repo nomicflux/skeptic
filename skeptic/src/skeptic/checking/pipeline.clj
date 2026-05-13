@@ -8,8 +8,8 @@
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]
+            [skeptic.provenance.schema :as provs]
             [skeptic.analysis.bridge.localize :as abl]
             [skeptic.checking.ast :as ca]
             [skeptic.checking.form :as cf]
@@ -27,7 +27,31 @@
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli]
             [skeptic.analysis.predicate-descriptor :as pd])
-  (:import [java.io File]))
+  (:import [java.io File]
+           [skeptic.analysis.types ConditionalTRec FnMethodTRec MapTRec]))
+
+(s/defschema AccessorPathElem
+  ;; get-call-summary / accessor-summary-from-body emit `{:value Keyword}`.
+  ;; case-classifier branch emits `amo/exact-key-query` maps with `:value Any`,
+  ;; `:kind :exact`, `:prov`, `:source-form`, plus ::amo/map-key-query.
+  {:value                       s/Any
+   s/Keyword                    s/Any})
+
+(s/defschema AccessorSummary
+  ;; Producer-faithful shape. `:default` and `:cases` values are heterogeneous:
+  ;; literal map-key values from get-call-summary, or raw source forms from
+  ;; the case-classifier branch (`(:form (:then ...))`). `:values` from
+  ;; `enrich-summary-with-declared-output` are ValueT inner :value, which the
+  ;; semantic type layer leaves as `s/Any`.
+  {:kind                                (s/enum :unary-identity :unary-map-projection)
+   (s/optional-key :path)               [AccessorPathElem]
+   (s/optional-key :default)            s/Any
+   (s/optional-key :values)             [s/Any]
+   (s/optional-key :cases)              {s/Any s/Any}
+   (s/optional-key :result-transform)   (s/enum :keyword)})
+
+(s/defschema AccessorSummaries
+  {s/Symbol AccessorSummary})
 
 (defn- file-extension
   [^File f]
@@ -87,8 +111,10 @@
     (at/seq-type? t)          :items
     (at/fun-type? t)          :methods))
 
-(defn- enrich-conditional-branches
-  [t walk accessor-summaries]
+(s/defn ^:private enrich-conditional-branches :- ConditionalTRec
+  [t :- ConditionalTRec
+   walk :- (s/pred fn?)
+   accessor-summaries :- (s/recursive #'AccessorSummaries)]
   (let [ns-sym (:declared-in (prov/of t))]
     (update t :branches
             (fn [bs]
@@ -97,23 +123,25 @@
                        (pd/predicate-form->descriptor slot3 ns-sym accessor-summaries)])
                     bs)))))
 
-(defn- enrich-fn-method-type
-  [t walk]
+(s/defn ^:private enrich-fn-method-type :- FnMethodTRec
+  [t :- FnMethodTRec
+   walk :- (s/pred fn?)]
   (-> t (update :inputs #(mapv walk %))
         (update :output walk)))
 
-(defn- enrich-map-entries
-  [t walk]
+(s/defn ^:private enrich-map-entries :- MapTRec
+  [t :- MapTRec
+   walk :- (s/pred fn?)]
   (update t :entries
           #(into {} (map (fn [[k v]] [(walk k) (walk v)])) %)))
 
-(defn- enrich-conditional-type
-  [t accessor-summaries]
-  (let [walk      #(enrich-conditional-type % accessor-summaries)
-        unary-k   (when (at/semantic-type-value? t) (unary-recurse-field t))
-        nary-k    (when (at/semantic-type-value? t) (n-ary-recurse-field t))]
+(s/defn ^:private enrich-conditional-type :- at/SemanticType
+  [t :- at/SemanticType
+   accessor-summaries :- (s/recursive #'AccessorSummaries)]
+  (let [walk    #(enrich-conditional-type % accessor-summaries)
+        unary-k (unary-recurse-field t)
+        nary-k  (n-ary-recurse-field t)]
     (cond
-      (not (at/semantic-type-value? t)) t
       (inert-conditional-type? t)       t
       (at/conditional-type? t)          (enrich-conditional-branches t walk accessor-summaries)
       unary-k                           (update t unary-k walk)
@@ -123,8 +151,9 @@
       (at/map-type? t)                  (enrich-map-entries t walk)
       :else                             t)))
 
-(defn- enrich-conditional-descriptors
-  [dict accessor-summaries]
+(s/defn ^:private enrich-conditional-descriptors :- {s/Symbol at/SemanticType}
+  [dict :- {s/Symbol at/SemanticType}
+   accessor-summaries :- (s/recursive #'AccessorSummaries)]
   (reduce-kv (fn [m k t] (assoc m k (enrich-conditional-type t accessor-summaries)))
              {}
              dict))
@@ -352,31 +381,8 @@
    lang :- (s/enum :clj :cljs :both)]
   (run-analyze-source-exprs dict ns-sym source-file exprs accessor-summaries cljs-state lang))
 
-(s/defschema AccessorPathElem
-  ;; get-call-summary / accessor-summary-from-body emit `{:value Keyword}`.
-  ;; case-classifier branch emits `amo/exact-key-query` maps with `:value Any`,
-  ;; `:kind :exact`, `:prov`, `:source-form`, plus ::amo/map-key-query.
-  {:value                       s/Any
-   s/Keyword                    s/Any})
-
-(s/defschema AccessorSummary
-  ;; Producer-faithful shape. `:default` and `:cases` values are heterogeneous:
-  ;; literal map-key values from get-call-summary, or raw source forms from
-  ;; the case-classifier branch (`(:form (:then ...))`). `:values` from
-  ;; `enrich-summary-with-declared-output` are ValueT inner :value, which the
-  ;; semantic type layer leaves as `s/Any`.
-  {:kind                                (s/enum :unary-identity :unary-map-projection)
-   (s/optional-key :path)               [AccessorPathElem]
-   (s/optional-key :default)            s/Any
-   (s/optional-key :values)             [s/Any]
-   (s/optional-key :cases)              {s/Any s/Any}
-   (s/optional-key :result-transform)   (s/enum :keyword)})
-
-(s/defschema AccessorSummaries
-  {s/Symbol AccessorSummary})
-
 (s/defn ^:private collect-accessor-summaries-for-ns :- AccessorSummaries
-  [dict :- {s/Symbol ats/SemanticType}
+  [dict :- {s/Symbol at/SemanticType}
    ns-sym :- s/Symbol
    source-file :- (s/maybe File)
    exprs :- [(s/pred seq?)]
@@ -396,7 +402,7 @@
    seed-summaries
    exprs))
 
-(s/defn method-output-type :- ats/SemanticType
+(s/defn method-output-type :- at/SemanticType
   [method]
   (let [{:keys [body output-type]} (aapi/method-result-type method)
         tagged-output (when-let [tag (aapi/node-tag body)]
@@ -463,7 +469,7 @@
                           :errors (:errors report)})))))))))
 
 (s/defn input-error-group :- s/Any
-  [expr arg-node :- (s/maybe aas/AnnotatedNode) expected :- ats/SemanticType actual :- ats/SemanticType]
+  [expr arg-node :- (s/maybe aas/AnnotatedNode) expected :- at/SemanticType actual :- at/SemanticType]
   (let [arg-expr (if (some? arg-node)
                    (aapi/node-form arg-node)
                    arg-node)
@@ -634,20 +640,65 @@
        :exception e})))
 
 (s/defn expression-exception-result :- s/Any
-  [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable]
+  [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable
+   lang :- (s/enum :clj :cljs :both)]
   {:report-kind :exception
    :phase :expression
    :blame source-form
    :source-expression (cf/form-source source-form)
-   :location (location-with-source (cf/form-location source-file source-form) :inferred :clj)
+   :location (location-with-source (cf/form-location source-file source-form) :inferred lang)
    :enclosing-form (enclosing-form ns-sym source-form)
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})
 
-(defn- resolved-defs-provenance
-  [resolved-defs]
+(s/defn ^:private resolved-defs-provenance :- {s/Symbol provs/Provenance}
+  [resolved-defs :- {s/Symbol {(s/required-key :type) at/SemanticType
+                               s/Any                  s/Any}}]
   (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
+
+(defn- resolved-defs-for-analyzed
+  [dict ns-sym analyzed]
+  (if-let [{:keys [sym entry]} (some-> (analyzed-def-entry ns-sym analyzed)
+                                       (enrich-summary-with-declared-output dict))]
+    {sym entry}
+    {}))
+
+(defn- check-cached-cljs-entry
+  [dict ignore-body ns source-file {:keys [source-form ast]} accessor-summaries form-opts]
+  (try
+    (let [analyzed (aa/annotate-ast dict ast {:ns ns
+                                             :accessor-summaries accessor-summaries
+                                             :lang :cljs})
+          resolved-defs (resolved-defs-for-analyzed dict ns analyzed)]
+      {:results (vec (check-resolved-form dict
+                                          ignore-body
+                                          ns
+                                          source-file
+                                          source-form
+                                          analyzed
+                                          (select-keys form-opts [:keep-empty :remove-context :debug])))
+       :provenance (resolved-defs-provenance resolved-defs)})
+    (catch Exception e
+      {:results [(expression-exception-result ns source-file source-form e :cljs)]
+       :provenance {}})))
+
+(defn- cljs-read-pass-results
+  [dict ignore-body ns source-file accessor-summaries cljs-state form-opts]
+  (let [entries (some-> cljs-state (get source-file) :entries)
+        _ (when-not (some? entries)
+            (throw (ex-info "cljs read-pass-results requires cached cljs :entries for source-file"
+                            {:ns ns :source-file (some-> source-file str)})))]
+    (reduce
+     (fn [acc entry]
+       (let [{form-results :results form-prov :provenance}
+             (check-cached-cljs-entry dict ignore-body ns source-file entry
+                                      accessor-summaries form-opts)]
+         (-> acc
+             (update :results into form-results)
+             (update :provenance merge form-prov))))
+     {:results [] :provenance {}}
+     entries)))
 
 (s/defn check-ns-form :- s/Any
   [dict ignore-body :- #{s/Symbol} ns :- s/Symbol source-file source-form
@@ -667,7 +718,7 @@
                                           (select-keys opts [:keep-empty :remove-context :debug])))
        :provenance (resolved-defs-provenance resolved-defs)})
     (catch Exception e
-      {:results [(expression-exception-result ns source-file source-form e)]
+      {:results [(expression-exception-result ns source-file source-form e lang)]
        :provenance {}})))
 
 (defn- native-result []
@@ -806,12 +857,12 @@
 
 (defn preload-cljs-state!
   "Parse and analyze every source-file requiring cljs analysis (.cljs or
-  .cljc). Each ns form is parsed (which JVM-loads its `:require-macros`
-  namespaces) and its top-level forms are analyzed via the stateless cljs
-  analyzer driver. Returns `{File → {:ns-ast ns-ast :asts [ast …]}}` —
-  empty when `cljs-disable?` is truthy or `loaded` contains no cljs/cljc
-  sources. Each file's analysis is independent and carries no compiler
-  state beyond the call boundary."
+  .cljc). Each file is read and analyzed once through a file-local cljs
+  analyzer state so the cljs reader sees analyzer aliases and cljs data
+  readers. Returns `{File → {:ns-ast ns-ast :entries [{:source-form :ast}]
+  :asts [ast …]}}` — empty when `cljs-disable?` is truthy or `loaded`
+  contains no cljs/cljc sources. The compiler state does not escape the
+  analyzer driver; downstream phases consume only cached entries."
   [cljs-disable? loaded]
   (if cljs-disable?
     {}
@@ -847,10 +898,10 @@
   Threaded into every per-namespace check so cross-namespace var resolution
   and conditional discriminators ride the same project pass.
 
-  When `loaded` includes `.cljs` or `.cljc` source-files, each is parsed
-  and analyzed independently via the stateless cljs analyzer driver and
-  the results are carried as a local `cljs-state` map (source-file →
-  `{:ns-ast :asts}`) — threaded into per-ns admission and stored on the
+  When `loaded` includes `.cljs` or `.cljc` source-files, each is read and
+  analyzed independently via the cljs analyzer driver and the results are
+  carried as a local `cljs-state` map (source-file → `{:ns-ast :entries
+  :asts}`) — threaded into per-ns admission/checking and stored on the
   returned `ProjectState`. Per-ns admission/analysis dispatches on the
   per-source-file `lang` carried in each `loaded` triple."
   [opts nss-with-source-files]
@@ -973,19 +1024,21 @@
 
 (defn- read-pass-results
   [dict ignore-body ns source-file accessor-summaries cljs-state lang form-opts]
-  (with-open [reader (file/pushback-reader source-file)]
-    (loop [acc {:results [] :provenance {}}]
-      (let [{:keys [kind form exception]} (next-checkable-form reader)]
-        (case kind
-          :eof acc
-          :form (let [{form-results :results form-prov :provenance}
-                      (check-ns-form dict ignore-body ns source-file form
-                                     accessor-summaries cljs-state lang form-opts)]
-                  (recur (-> acc
-                             (update :results into form-results)
-                             (update :provenance merge form-prov))))
-          :read-error (recur (update acc :results conj
-                                     (read-exception-result source-file exception))))))))
+  (if (= :cljs lang)
+    (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state form-opts)
+    (with-open [reader (file/pushback-reader source-file)]
+      (loop [acc {:results [] :provenance {}}]
+        (let [{:keys [kind form exception]} (next-checkable-form reader)]
+          (case kind
+            :eof acc
+            :form (let [{form-results :results form-prov :provenance}
+                        (check-ns-form dict ignore-body ns source-file form
+                                       accessor-summaries cljs-state lang form-opts)]
+                    (recur (-> acc
+                               (update :results into form-results)
+                               (update :provenance merge form-prov))))
+            :read-error (recur (update acc :results conj
+                                       (read-exception-result source-file exception)))))))))
 
 (s/defn check-ns :- s/Any
   [project-state ns :- s/Symbol source-file form-opts]

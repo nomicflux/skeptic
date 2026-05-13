@@ -2,8 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (declare sum-alternatives)
 
@@ -38,7 +37,7 @@
         (when-not (open-type? type)
           [type]))))
 
-(s/defn sum-alternatives :- (s/maybe [ats/SemanticType])
+(s/defn sum-alternatives :- (s/maybe [at/SemanticType])
   [type :- s/Any]
   (let [type (ato/normalize type)]
     (cond
@@ -68,7 +67,7 @@
           (every? #(covered? covered %) alternatives)))))
 
 (s/defn exhausted-by-values? :- s/Bool
-  [sum-type :- ats/SemanticType
+  [sum-type :- at/SemanticType
    values   :- [s/Any]]
   (let [prov (ato/derive-prov sum-type)
         covered (map #(ato/exact-value-type prov %) values)]

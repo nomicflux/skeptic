@@ -1,23 +1,22 @@
 (ns skeptic.cljs.analyzer-driver
-  "Stateless cljs analyzer entrypoints via the public cljs.analyzer.api.
+  "cljs analyzer entrypoints via a file-local cljs compiler state.
 
-  Skeptic constructs no compiler state. Each cljs source file is parsed
-  once via `parse-source-ns`, which JVM-loads any required macro
-  namespaces and returns the analyzed ns AST. Per-form analysis uses the
-  3-arity `cljs.analyzer.api/analyze` with that ns AST as the env's `:ns`
-  slot, so aliased symbols (`s/defn`, `m/=>`, etc.) macroexpand correctly
-  without any caller-managed compiler state.
+  Each cljs source file is read and analyzed inside one non-leaking compiler
+  state. This lets `cljs.analyzer.api/forms-seq` read with the analyzer's
+  current cljs namespace, cljs data readers, and alias map, then immediately
+  analyzes each top-level form against the same state. The file pass loads
+  macros but does not analyze required cljs dependencies; the state is local
+  to the source file and is not threaded through the checker.
 
   cljs ASTs carry `:type` on `:binding`/`:fn-method` nodes that conflicts
   with skeptic's `:type` slot (SemanticType), and `:binding` nodes lack
   `:form`. `analyze-form` strips and synthesizes via `normalize-cljs-node`
   so the skeptic annotate pipeline starts from a clean shape."
   (:require [skeptic.classloader-fix]
+            [cljs.analyzer :as ana]
             [cljs.analyzer.api :as ana-api]
             [cljs.compiler]
-            [clojure.java.io :as io]
-            [clojure.tools.reader :as reader]
-            [clojure.tools.reader.reader-types :as reader-types]))
+            [clojure.java.io :as io]))
 
 (defn- normalize-cljs-node
   [n]
@@ -46,6 +45,24 @@
 
 (defn- strip-cljs-type [ast] (walk-ast normalize-cljs-node ast))
 
+(defn find-by-op
+  "Return the first AST node whose `:op` is `op`, located by directed descent
+  through `:children` keys only. Mirrors `walk-ast`'s pruning so callers do
+  not traverse `:env`, `:info`, `:meta`, or other non-AST slots that can
+  carry compiler-state cycles or large binding-info trees on real cljs ASTs."
+  [op ast]
+  (when (and (map? ast) (contains? ast :op))
+    (if (= op (:op ast))
+      ast
+      (some (fn [k]
+              (let [v (get ast k)]
+                (cond
+                  (and (map? v) (contains? v :op))
+                  (find-by-op op v)
+                  (and (vector? v) (seq v) (every? #(and (map? %) (contains? % :op)) v))
+                  (some #(find-by-op op %) v))))
+            (:children ast)))))
+
 (defn parse-source-ns
   "Parse a `.cljs` / `.cljc` source file's `(ns ...)` form. Triggers JVM
   loading of any `:require-macros` namespaces and returns the analyzed ns
@@ -58,12 +75,9 @@
                           {:load-macros true :analyze-deps false})))
 
 (defn analyze-form
-  "Analyze a single cljs form via the 3-arity `cljs.analyzer.api/analyze`.
-  `ns-ast` is the ns AST returned by `parse-source-ns` for the source
-  file the form belongs to; it carries the file's `:requires` and
-  `:require-macros` so aliased symbols resolve. The 3-arity auto-creates
-  a fresh ephemeral compilation state; skeptic carries no state between
-  calls."
+  "Analyze an already-read cljs form using the supplied ns AST. Real source
+  files should use `analyze-source-file`, which keeps cljs reading and
+  analysis in one file-local compiler state."
   [ns-ast form]
   (ana-api/no-warn
    (-> (ana-api/analyze (assoc (ana-api/empty-env) :ns ns-ast)
@@ -71,31 +85,44 @@
                         (:name ns-ast))
        strip-cljs-type)))
 
-(defn- read-all-forms
-  "Read every top-level form from a cljs/cljc source file using
-  `clojure.tools.reader` with the `:cljs` reader feature. State-free."
-  [source-file]
-  (with-open [r (io/reader source-file)]
-    (let [pbr (reader-types/indexing-push-back-reader r 1 (str source-file))
-          eof (Object.)
-          opts {:eof eof :read-cond :allow :features #{:cljs}}]
-      (loop [acc []]
-        (let [form (reader/read opts pbr)]
-          (if (identical? form eof)
-            acc
-            (recur (conj acc form))))))))
-
-(defn- ns-form?
-  [form]
-  (and (seq? form) (= 'ns (first form))))
+(defn- analyze-source-entry
+  [state base-env source-form]
+  (let [env (assoc base-env
+                   :ns (or (ana-api/find-ns state (ana-api/current-ns))
+                           (:ns base-env)))]
+    (ana-api/no-warn
+     (-> (ana-api/analyze state env source-form nil {})
+         strip-cljs-type))))
 
 (defn analyze-source-file
-  "Analyze every top-level non-ns form of a cljs/cljc source file. Returns
-  `{:ns-ast <ns-AST> :asts [<form-AST> ...]}`. The ns form is consumed by
-  `parse-source-ns`; remaining forms are analyzed with that ns AST as the
-  env's `:ns` slot."
+  "Analyze every top-level form of a cljs/cljc source file using the cljs
+  analyzer's reader loop. Returns `{:ns-ast ns-ast
+  :entries [{:source-form form :ast ast} ...] :asts [ast ...]}`. `:entries`
+  preserves the source-form/AST pairing needed by checker reporting; `:asts`
+  remains for collector compatibility."
   [source-file]
-  (let [ns-ast (parse-source-ns source-file)
-        forms  (read-all-forms source-file)
-        asts   (mapv #(analyze-form ns-ast %) (remove ns-form? forms))]
-    {:ns-ast ns-ast :asts asts}))
+  (let [state (ana-api/empty-state)
+        path  (str source-file)]
+    (ana-api/with-state state
+      (binding [ana/*file-defs* (atom #{})
+                ana/*unchecked-if* false
+                ana/*unchecked-arrays* false
+                ana/*analyze-deps* false
+                ana/*load-macros* true
+                ana/*cljs-ns* 'cljs.user
+                ana/*cljs-file* path]
+        (with-open [r (io/reader source-file)]
+          (let [base-env (assoc (ana-api/empty-env) :build-options {})]
+            (loop [forms (ana-api/forms-seq r path)
+                   ns-ast nil
+                   entries []]
+              (if-let [s (seq forms)]
+                (let [source-form (first s)
+                      ast (analyze-source-entry state base-env source-form)]
+                  (if (= :ns (:op ast))
+                    (recur (next s) ast entries)
+                    (recur (next s) ns-ast (conj entries {:source-form source-form
+                                                          :ast ast}))))
+                {:ns-ast ns-ast
+                 :entries entries
+                 :asts (mapv :ast entries)}))))))))

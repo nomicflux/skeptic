@@ -4,8 +4,7 @@
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (s/defn sealed-ground-name :- s/Any
   [type :- s/Any]
@@ -161,18 +160,18 @@
         (cast-ok type (at/->TypeVarT (ato/derive-prov type) binder) :nu-pass [] nil)))))
 
 (s/defn method-accepts-arity? :- s/Bool
-  [method :- ats/SemanticType arity :- s/Int]
+  [method :- at/SemanticType arity :- s/Int]
   (if (:variadic? method)
     (>= arity (:min-arity method))
     (= arity (:min-arity method))))
 
-(s/defn matching-source-method :- (s/maybe ats/SemanticType)
-  [source-fun :- ats/SemanticType target-method :- ats/SemanticType]
+(s/defn matching-source-method :- (s/maybe at/SemanticType)
+  [source-fun :- at/SemanticType target-method :- at/SemanticType]
   (some #(when (method-accepts-arity? % (count (:inputs target-method))) %)
         (:methods source-fun)))
 
-(s/defn optional-key-inner :- ats/SemanticType
-  [type :- ats/SemanticType]
+(s/defn optional-key-inner :- at/SemanticType
+  [type :- at/SemanticType]
   (if (at/optional-key-type? type)
     (:inner type)
     type))

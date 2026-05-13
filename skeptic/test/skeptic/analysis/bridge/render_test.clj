@@ -114,9 +114,9 @@
            (sut/type->json-data (at/->TypeVarT tp 'T)))))
 
   (testing "SealedDyn"
-    (is (= {:t "sealed" :ground {:t "ground" :name "Int"}}
+    (is (= {:t "sealed" :ground {:t "type-var" :name "T"}}
            (sut/type->json-data
-            (at/->SealedDynT tp (at/->GroundT tp :int 'Int))))))
+            (at/->SealedDynT tp (at/->TypeVarT tp 'T))))))
 
   (testing "Set and Seq and Var"
     (is (= {:t "set" :members [{:t "ground" :name "Int"}]}

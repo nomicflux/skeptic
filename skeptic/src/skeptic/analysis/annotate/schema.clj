@@ -1,18 +1,18 @@
 (ns skeptic.analysis.annotate.schema
   (:require [schema.core :as s]
             [skeptic.analysis.origin.schema :as aos]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (s/defschema AnnotatedNode
   {:op                                  s/Keyword
    :form                                s/Any
    (s/optional-key :children)           [s/Keyword]
-   (s/optional-key :type)               ats/SemanticType
-   (s/optional-key :output-type)        ats/SemanticType
-   (s/optional-key :fn-type)            ats/SemanticType
+   (s/optional-key :type)               at/SemanticType
+   (s/optional-key :output-type)        at/SemanticType
+   (s/optional-key :fn-type)            at/SemanticType
    (s/optional-key :origin)             (s/maybe aos/Origin)
-   (s/optional-key :expected-argtypes)  [ats/SemanticType]
-   (s/optional-key :actual-argtypes)    [ats/SemanticType]
+   (s/optional-key :expected-argtypes)  [at/SemanticType]
+   (s/optional-key :actual-argtypes)    [at/SemanticType]
    s/Keyword                            s/Any})
 
 (s/defschema CaseNode

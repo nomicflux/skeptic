@@ -2,8 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.type-ops :as ato]
-            [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats])
+            [skeptic.analysis.types :as at])
   (:import [java.lang Number]))
 
 (declare partition-type-for-predicate*)
@@ -45,7 +44,7 @@
 
 (s/defn classify-leaf-for-predicate? :- s/Keyword
   [pred-info :- s/Any
-   t         :- ats/SemanticType]
+   t         :- at/SemanticType]
   (let [t (ato/normalize t)
         pred (:pred pred-info)]
     (cond
@@ -230,8 +229,8 @@
 
       :else (partition-leaf type pred-info polarity))))
 
-(s/defn partition-type-for-predicate :- ats/SemanticType
-  [type      :- ats/SemanticType
+(s/defn partition-type-for-predicate :- at/SemanticType
+  [type      :- at/SemanticType
    pred-info :- s/Any
    polarity  :- s/Bool]
   (partition-type-for-predicate* (ato/normalize type) pred-info polarity))
@@ -242,7 +241,7 @@
        (false? (:value t))))
 
 (s/defn can-be-falsy-type? :- s/Any
-  [t :- ats/SemanticType]
+  [t :- at/SemanticType]
   (let [t (ato/normalize t)]
     (cond
       (at/dyn-type? t) true
@@ -255,11 +254,11 @@
       :else false)))
 
 (s/defn statically-truthy-type? :- s/Any
-  [t :- (s/maybe ats/SemanticType)]
+  [t :- (s/maybe at/SemanticType)]
   (and t (not (can-be-falsy-type? t))))
 
-(s/defn apply-truthy-local :- ats/SemanticType
-  [type     :- ats/SemanticType
+(s/defn apply-truthy-local :- at/SemanticType
+  [type     :- at/SemanticType
    polarity :- s/Bool]
   (if-not polarity
     type
@@ -312,8 +311,8 @@
     :else
     (if polarity (ato/bottom t) t)))
 
-(s/defn partition-type-for-values :- ats/SemanticType
-  [type     :- ats/SemanticType
+(s/defn partition-type-for-values :- at/SemanticType
+  [type     :- at/SemanticType
    values   :- [s/Any]
    polarity :- s/Bool]
   (let [type (ato/normalize type)

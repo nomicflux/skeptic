@@ -3,7 +3,6 @@
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (def ^:private sam-spec
@@ -42,8 +41,8 @@
 
 (s/defn check-java-callable-cast :- csch/CastResult
   [run-child   :- (s/pred fn?)
-   source-type :- ats/SemanticType
-   target-type :- ats/SemanticType
+   source-type :- at/SemanticType
+   target-type :- at/SemanticType
    opts        :- s/Any]
   (let [class    (target-class target-type)
         {:keys [arity return-builder]} (sam-spec class)

@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (s/defn type-var-name :- (s/maybe s/Symbol)
@@ -11,7 +10,7 @@
     (:name type)))
 
 (s/defn type-free-vars :- #{s/Symbol}
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (let [type (ato/normalize type)]
     (cond
       (or (at/dyn-type? type)
@@ -80,10 +79,10 @@
       :else
       #{})))
 
-(s/defn type-substitute :- ats/SemanticType
-  [type        :- ats/SemanticType
+(s/defn type-substitute :- at/SemanticType
+  [type        :- at/SemanticType
    binder      :- s/Any
-   replacement :- ats/SemanticType]
+   replacement :- at/SemanticType]
   (let [type (ato/normalize type)
         replacement (ato/normalize replacement)
         prov (ato/derive-prov type replacement)]
@@ -175,9 +174,6 @@
         (at/->ForallT prov
                       (:binder type)
                       (type-substitute (:body type) binder replacement)))
-
-      (at/sealed-dyn-type? type)
-      (at/->SealedDynT prov (type-substitute (:ground type) binder replacement))
 
       :else
       type)))

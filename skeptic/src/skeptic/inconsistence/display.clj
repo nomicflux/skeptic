@@ -3,7 +3,6 @@
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [clojure.string :as str]
             [clojure.pprint :as pprint]))
 
@@ -93,9 +92,9 @@
         inline))))
 
 (s/defn user-type-form :- s/Any
-  ([type :- ats/SemanticType]
+  ([type :- at/SemanticType]
    (user-type-form type {}))
-  ([type :- ats/SemanticType
+  ([type :- at/SemanticType
     opts :- s/Any]
    (if (nil? type)
      (throw (ex-info "Missing semantic type for display"
@@ -126,16 +125,16 @@
        inputs))))
 
 (s/defn describe-type :- (s/maybe s/Str)
-  ([type :- ats/SemanticType]
+  ([type :- at/SemanticType]
    (describe-type type {}))
-  ([type :- ats/SemanticType
+  ([type :- at/SemanticType
     opts :- s/Any]
    (format-user-form (user-type-form type opts))))
 
 (s/defn describe-type-block :- (s/maybe s/Str)
-  ([type :- ats/SemanticType]
+  ([type :- at/SemanticType]
    (describe-type-block type {}))
-  ([type :- ats/SemanticType
+  ([type :- at/SemanticType
     opts :- s/Any]
    (block-user-form (user-type-form type opts))))
 

@@ -1,7 +1,6 @@
 (ns skeptic.provenance
   (:require [schema.core :as s]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance.schema :as provs]))
 
 (defrecord Provenance [source qualified-sym declared-in var-meta refs lang])
@@ -86,7 +85,7 @@
   lang)
 
 (s/defn of :- provs/Provenance
-  [t :- ats/SemanticType]
+  [t :- at/SemanticType]
   (when-not (at/semantic-type-value? t)
     (throw (IllegalArgumentException.
             (format "prov/of called on non-Type value: %s" (pr-str t)))))

@@ -1,7 +1,6 @@
 (ns skeptic.analysis.conditional-arms
   (:require [schema.core :as s]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (defn- exact-key-query'
@@ -22,15 +21,27 @@
   ((requiring-resolve 'skeptic.analysis.map-ops/refine-map-path-by-values)
    t path values polarity))
 
-(defn- query-path
+(s/defn ^:private query-path :- [{s/Keyword s/Any}]
   "Descriptor paths are raw keywords; map-ops walkers expect
    `exact-key-query` records. Wrap each element using the arm-type's prov."
-  [arm-type path]
+  [arm-type :- at/SemanticType
+   path     :- [s/Any]]
   (let [p (prov/of arm-type)]
     (mapv #(exact-key-query' p %) path)))
 
-(defn- refine-by-descriptor
-  [arm-type descriptor]
+(s/defn ^:private refine-by-descriptor :- at/SemanticType
+  "ConditionalT slot3's lifecycle: bridge admission emits the raw predicate
+   form for Plumatic conditional (a symbol like 'integer? or an inline-fn
+   form), which `enrich-conditional-descriptors` replaces post-admission with
+   a descriptor map (or nil) computed via accessor-summaries. Production runs
+   accessor-summary collection — which analyzes user code — against the
+   unenriched dict (chicken-and-egg: enrichment requires accessor-summaries),
+   so this function sees the full lifecycle range: nil, descriptor map, raw
+   pred symbol, fn-form vector, runtime fn. Only descriptor maps drive
+   narrowing; everything else falls through to `arm-type` unchanged. The
+   `descriptor` schema is `s/Any` because that's the honest contract."
+  [arm-type   :- at/SemanticType
+   descriptor :- s/Any]
   (cond
     (nil? descriptor) arm-type
 
@@ -54,7 +65,7 @@
    structural type is narrowed by the negation of all earlier arms'
    recognized descriptors. Arms whose effective type is BottomType are
    dropped (unreachable). Unrecognized earlier descriptors are skipped."
-  [cond-type :- ats/SemanticType]
+  [cond-type :- at/SemanticType]
   (let [branches (vec (:branches cond-type))]
     (loop [k 0
            earlier-descriptors []
@@ -69,10 +80,10 @@
                    acc
                    (conj acc [pred eff slot3]))))))))
 
-(s/defn effective-conditional-arms :- [ats/SemanticType]
+(s/defn effective-conditional-arms :- [at/SemanticType]
   "Structural type of each surviving arm post-dispatch refinement.
    See `effective-conditional-branches`."
-  [cond-type :- ats/SemanticType]
+  [cond-type :- at/SemanticType]
   (mapv second (effective-conditional-branches cond-type)))
 
 (defn- unwrap-exact-path
@@ -116,8 +127,9 @@
         [_pred typ _slot3] (nth branches idx)]
     (reduce refine-by-descriptor typ earlier-descs)))
 
-(defn- rebuild-without-arm
-  [cond-type idx]
+(s/defn ^:private rebuild-without-arm :- at/SemanticType
+  [cond-type :- at/SemanticType
+   idx       :- s/Int]
   (let [branches (vec (:branches cond-type))
         kept (vec (concat (subvec branches 0 idx)
                           (subvec branches (inc idx))))
@@ -127,11 +139,11 @@
       (= 1 (count kept)) (second (first kept))
       :else              (at/->ConditionalT prov kept))))
 
-(s/defn route-conditional-by-predicate :- (s/maybe ats/SemanticType)
+(s/defn route-conditional-by-predicate :- (s/maybe at/SemanticType)
   "If any arm's descriptor matches `(path, pred-info)`, return that arm's
    effective type (polarity=true) or the ConditionalT minus that arm
    (polarity=false). Else nil so callers can fall back to a structural walk."
-  [cond-type :- ats/SemanticType
+  [cond-type :- at/SemanticType
    path      :- [s/Any]
    pred-info :- {s/Keyword s/Any}
    polarity  :- s/Bool]
@@ -143,10 +155,10 @@
         (effective-arm-at cond-type idx)
         (rebuild-without-arm cond-type idx)))))
 
-(s/defn route-conditional-by-values :- (s/maybe ats/SemanticType)
+(s/defn route-conditional-by-values :- (s/maybe at/SemanticType)
   "Like `route-conditional-by-predicate`, but for descriptors of `:values`
    shape (e.g. discriminator-keyword case)."
-  [cond-type :- ats/SemanticType
+  [cond-type :- at/SemanticType
    path      :- [s/Any]
    values    :- [s/Any]
    polarity  :- s/Bool]

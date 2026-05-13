@@ -5,7 +5,6 @@
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (defn- unary-summary-output
@@ -15,11 +14,11 @@
                (= 1 (count args)))
       (:type (first args)))))
 
-(s/defn invoke-output-type :- ats/SemanticType
+(s/defn invoke-output-type :- at/SemanticType
   [ctx :- s/Any
    fn-node :- s/Any
    args :- [s/Any]
-   output-type :- ats/SemanticType
+   output-type :- at/SemanticType
    call-sym :- (s/maybe s/Symbol)]
   (if-let [summary-output (unary-summary-output fn-node args)]
     summary-output

@@ -2,10 +2,10 @@
   (:require [schema.core :as s]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops.algebra :as amoa]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
-(s/defn reduce-assoc-pairs :- ats/SemanticType
-  [m-type :- ats/SemanticType
+(s/defn reduce-assoc-pairs :- at/SemanticType
+  [m-type :- at/SemanticType
    kv-pairs :- s/Any]
   (reduce (fn [type [key-node value-node]]
             (if-let [literal (and (ac/literal-map-key? key-node)
@@ -17,8 +17,8 @@
           m-type
           kv-pairs))
 
-(s/defn reduce-dissoc-keys :- ats/SemanticType
-  [m-type :- ats/SemanticType
+(s/defn reduce-dissoc-keys :- at/SemanticType
+  [m-type :- at/SemanticType
    key-nodes :- s/Any]
   (reduce (fn [type key-node]
             (if-let [literal (and (ac/literal-map-key? key-node)

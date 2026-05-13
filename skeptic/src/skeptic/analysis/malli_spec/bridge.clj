@@ -4,7 +4,6 @@
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance.schema :as provs]))
 
 (defn- invalid-malli-spec-input
@@ -330,7 +329,7 @@
       :else
       (import-result (malli-leaf->type prov form)))))
 
-(s/defn malli-spec->type :- ats/SemanticType
+(s/defn malli-spec->type :- at/SemanticType
   "Convert a Malli spec to a semantic type."
   [prov  :- provs/Provenance
    value :- s/Any]

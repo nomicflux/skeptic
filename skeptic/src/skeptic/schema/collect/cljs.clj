@@ -22,6 +22,7 @@
   in a sci-sandboxed context that exposes only `schema.core`."
   (:require [clojure.walk :as walk]
             [schema.core :as s]
+            [skeptic.cljs.analyzer-driver :as ad]
             [skeptic.cljs.schema-interpreter :as si]
             [skeptic.schema.collect :as collect]))
 
@@ -75,17 +76,6 @@
   (if (and (seq? form) (= 'quote (first form)))
     (second form)
     form))
-
-(defn- find-def-ast
-  "Walk an AST to find the inner `:def` op node. The s/defn / s/def shapes
-  nest the actual `:def` inside one or more `:let`s; this finds it directly
-  without committing to a single nesting depth."
-  [ast]
-  (cond
-    (= :def (:op ast)) ast
-    (map? ast) (some find-def-ast (vals ast))
-    (sequential? ast) (some find-def-ast ast)
-    :else nil))
 
 (defn- def-ast-meta
   "Reads Var metadata (e.g. {:schema ... :arglists ...}) from a `:def` AST
@@ -141,7 +131,7 @@
 
 (defn- admit-s-def
   [ns-sym source-file ast]
-  (let [def-ast (find-def-ast ast)
+  (let [def-ast (ad/find-by-op :def ast)
         defn-sym (some-> def-ast :name bare-sym)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
         meta-info (def-ast-meta def-ast)
@@ -166,7 +156,7 @@
 
 (defn- admit-s-defn
   [ns-sym source-file ast]
-  (let [def-ast (find-def-ast ast)
+  (let [def-ast (ad/find-by-op :def ast)
         defn-sym (some-> def-ast :name bare-sym)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
         meta-info (def-ast-meta def-ast)

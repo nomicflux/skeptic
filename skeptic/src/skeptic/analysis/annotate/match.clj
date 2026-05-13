@@ -8,7 +8,6 @@
             [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.sum-types :as sums]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]
@@ -138,7 +137,7 @@
      (catch Exception _ false))))
 
 (s/defn case-conditional-branches-from-type :- (s/maybe s/Any)
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (let [type (if (at/maybe-type? type) (:inner type) type)]
     (cond
       (at/conditional-type? type) (:branches type)
@@ -203,7 +202,7 @@
   [discriminator]
   (contains? #{:path :classifier} (:kind (discriminator-info discriminator))))
 
-(s/defn narrow-conditional-by-discriminator :- ats/SemanticType
+(s/defn narrow-conditional-by-discriminator :- at/SemanticType
   "Pick branches of `branches` whose pred matches each literal in `lits`
    against `discriminator` (path vector or discriminator info map). Returns
    a union of selected branch types."
@@ -216,7 +215,7 @@
         picked (vec (distinct (keep pick lits)))]
     (if (empty? picked) (at/BottomType anchor-prov) (ato/union picked))))
 
-(s/defn narrow-conditional-default :- ats/SemanticType
+(s/defn narrow-conditional-default :- at/SemanticType
   "Default-branch counterpart: returns the union of branch types whose
    preds did NOT match any of `lits`."
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
@@ -229,11 +228,11 @@
       (at/BottomType anchor-prov)
       (ato/union default-types))))
 
-(s/defn case-conditional-narrow-for-lits :- ats/SemanticType
+(s/defn case-conditional-narrow-for-lits :- at/SemanticType
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, lits :- [s/Any]]
   (narrow-conditional-by-discriminator anchor-prov branches discriminator lits))
 
-(s/defn case-conditional-default-narrow :- ats/SemanticType
+(s/defn case-conditional-default-narrow :- at/SemanticType
   [anchor-prov :- provs/Provenance, branches :- s/Any, discriminator :- s/Any, all-lits :- [s/Any]]
   (narrow-conditional-default anchor-prov branches discriminator all-lits))
 

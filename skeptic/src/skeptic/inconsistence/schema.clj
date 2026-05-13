@@ -1,12 +1,12 @@
 (ns skeptic.inconsistence.schema
   (:require [schema.core :as s]
             [skeptic.analysis.cast.schema :as csch]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (s/defschema CastSummary
   {:rule s/Keyword
-   :actual-type ats/SemanticType
-   :expected-type ats/SemanticType
+   :actual-type at/SemanticType
+   :expected-type at/SemanticType
    (s/optional-key :ok?) s/Bool
    (s/optional-key :blame-side) s/Keyword
    (s/optional-key :blame-polarity) s/Keyword
@@ -31,8 +31,8 @@
    (s/optional-key :blame-side) s/Keyword
    (s/optional-key :blame-polarity) s/Keyword
    (s/optional-key :rule) s/Keyword
-   (s/optional-key :expected-type) ats/SemanticType
-   (s/optional-key :actual-type) ats/SemanticType
+   (s/optional-key :expected-type) at/SemanticType
+   (s/optional-key :actual-type) at/SemanticType
    (s/optional-key :focus-sources) [s/Any]
    (s/optional-key :errors) [s/Str]})
 
@@ -52,8 +52,8 @@
    (s/optional-key :blame-side) s/Keyword
    (s/optional-key :blame-polarity) s/Keyword
    (s/optional-key :rule) s/Keyword
-   (s/optional-key :expected-type) ats/SemanticType
-   (s/optional-key :actual-type) ats/SemanticType
+   (s/optional-key :expected-type) at/SemanticType
+   (s/optional-key :actual-type) at/SemanticType
    (s/optional-key :errors) [s/Str]})
 
 (s/defschema ExceptionReport

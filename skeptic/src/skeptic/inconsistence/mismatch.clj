@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.colours :as colours]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.inconsistence.display :as disp]
             [skeptic.inconsistence.schema :as isch]))
 
@@ -72,5 +71,5 @@
              (colours/yellow (describe-display-block expected-type opts))))))
 
 (s/defn unknown-output-type? :- s/Bool
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (at/dyn-type? type))

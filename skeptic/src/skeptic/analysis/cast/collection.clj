@@ -4,7 +4,6 @@
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value-check :as avc]))
 
 (defn- prefix-tail-cast-fails-arity?
@@ -87,7 +86,7 @@
         (set-member-failure source-member target-members (:polarity opts)))))
 
 (s/defn check-vector-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (prefix-tail-collection-result run-child
                                  source-type
                                  target-type
@@ -98,7 +97,7 @@
                                  :vector-arity-mismatch))
 
 (s/defn check-seq-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (prefix-tail-collection-result run-child
                                  source-type
                                  target-type
@@ -109,7 +108,7 @@
                                  :seq-arity-mismatch))
 
 (s/defn check-seq-to-vector-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (prefix-tail-collection-result run-child
                                  source-type
                                  target-type
@@ -120,7 +119,7 @@
                                  :seq-to-vector-arity-mismatch))
 
 (s/defn check-vector-to-seq-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (prefix-tail-collection-result run-child
                                  source-type
                                  target-type
@@ -131,7 +130,7 @@
                                  :vector-to-seq-arity-mismatch))
 
 (s/defn check-set-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (if (= (count (:members source-type)) (count (:members target-type)))
     (let [children (mapv #(set-member-result run-child % (:members target-type) opts)
                          (:members source-type))]
@@ -139,7 +138,7 @@
     (ascs/cast-fail source-type target-type :set (:polarity opts) :set-cardinality-mismatch)))
 
 (s/defn check-leaf-cast :- csch/CastResult
-  [source-type :- ats/SemanticType target-type :- ats/SemanticType polarity :- s/Any]
+  [source-type :- at/SemanticType target-type :- at/SemanticType polarity :- s/Any]
   (cond
     (at/value-type? source-type)
     (if (avc/value-satisfies-type? (:value source-type) target-type)

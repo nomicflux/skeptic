@@ -5,7 +5,6 @@
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value-check :as avc]))
 
 (defn- map-entry-failure
@@ -155,6 +154,6 @@
                          source-domains)))))
 
 (s/defn check-map-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- ats/SemanticType target-type :- ats/SemanticType opts :- s/Any]
+  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
   (let [children (map-children run-child source-type target-type opts)]
     (ascs/aggregate-children source-type target-type :map (:polarity opts) :map-cast-failed children)))

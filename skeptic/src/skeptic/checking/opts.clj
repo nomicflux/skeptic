@@ -1,6 +1,6 @@
 (ns skeptic.checking.opts
   (:require [schema.core :as s]
-            [skeptic.analysis.types.schema :as ats]
+            [skeptic.analysis.types :as at]
             [skeptic.provenance.schema :as provs]))
 
 (s/defschema RawTypeOverride
@@ -14,7 +14,7 @@
    (s/optional-key :type-overrides) {s/Symbol RawTypeOverride}
    s/Keyword s/Any})
 
-(s/defschema CompiledTypeOverride ats/SemanticType)
+(s/defschema CompiledTypeOverride at/SemanticType)
 
 (s/defschema CheckProjectOpts
   {(s/optional-key :namespace) [s/Str]

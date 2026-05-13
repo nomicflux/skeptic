@@ -2,7 +2,7 @@
   (:require [schema.core :as s]
             [clojure.string :as str]
             [skeptic.colours :as colours]
-            [skeptic.analysis.types.schema :as ats]
+            [skeptic.analysis.types :as at]
             [skeptic.inconsistence.display :as disp]
             [skeptic.inconsistence.schema :as isch]))
 
@@ -158,12 +158,12 @@
 
 (s/defn mismatch-detail :- s/Str
   ([path :- [s/Any]
-    source-type :- ats/SemanticType
-    target-type :- ats/SemanticType]
+    source-type :- at/SemanticType
+    target-type :- at/SemanticType]
    (mismatch-detail path source-type target-type {}))
   ([path :- [s/Any]
-    source-type :- ats/SemanticType
-    target-type :- ats/SemanticType
+    source-type :- at/SemanticType
+    target-type :- at/SemanticType
     opts :- s/Any]
    (let [path-text (render-visible-path path)
          source-text (disp/describe-type source-type opts)

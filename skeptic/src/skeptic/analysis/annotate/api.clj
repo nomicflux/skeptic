@@ -6,21 +6,20 @@
             [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (s/defschema AnnotateCtx
   {(s/optional-key :recurse) s/Any
    s/Keyword s/Any})
 
-(s/defn dyn :- ats/SemanticType [ctx] (at/Dyn (prov/with-ctx ctx)))
-(s/defn bottom :- ats/SemanticType [ctx] (at/BottomType (prov/with-ctx ctx)))
+(s/defn dyn :- at/SemanticType [ctx] (at/Dyn (prov/with-ctx ctx)))
+(s/defn bottom :- at/SemanticType [ctx] (at/BottomType (prov/with-ctx ctx)))
 
-(s/defn normalize-type :- ats/SemanticType
+(s/defn normalize-type :- at/SemanticType
   [ctx value]
   (ato/normalize-type (prov/with-ctx ctx) value))
 
-(s/defn exact-value-type :- ats/SemanticType
+(s/defn exact-value-type :- at/SemanticType
   [ctx value]
   (ato/exact-value-type (prov/with-ctx ctx) value))
 
@@ -29,9 +28,9 @@
 
 (s/defn node-op :- s/Keyword [node :- aas/AnnotatedNode] (:op node))
 (s/defn node-form :- s/Any [node :- aas/AnnotatedNode] (:form node))
-(s/defn node-type :- (s/maybe ats/SemanticType) [node :- aas/AnnotatedNode] (:type node))
-(s/defn node-output-type :- (s/maybe ats/SemanticType) [node :- aas/AnnotatedNode] (:output-type node))
-(s/defn node-fn-type :- (s/maybe ats/SemanticType) [node :- aas/AnnotatedNode] (:fn-type node))
+(s/defn node-type :- (s/maybe at/SemanticType) [node :- aas/AnnotatedNode] (:type node))
+(s/defn node-output-type :- (s/maybe at/SemanticType) [node :- aas/AnnotatedNode] (:output-type node))
+(s/defn node-fn-type :- (s/maybe at/SemanticType) [node :- aas/AnnotatedNode] (:fn-type node))
 (s/defn node-origin :- (s/maybe aos/Origin) [node :- aas/AnnotatedNode] (:origin node))
 (s/defn node-var :- s/Any [node :- aas/AnnotatedNode] (:var node))
 (s/defn node-name :- s/Any [node :- aas/AnnotatedNode] (:name node))
@@ -73,14 +72,14 @@
             #(= :instance-call (:op %)) aas/InstanceCallNode)]
   (:args node))
 (s/defn recur-args :- [aas/AnnotatedNode] [node :- aas/RecurNode] (:exprs node))
-(s/defn call-actual-argtypes :- [ats/SemanticType] [node :- aas/CallNode] (:actual-argtypes node))
-(s/defn call-expected-argtypes :- [ats/SemanticType] [node :- aas/CallNode] (:expected-argtypes node))
+(s/defn call-actual-argtypes :- [at/SemanticType] [node :- aas/CallNode] (:actual-argtypes node))
+(s/defn call-expected-argtypes :- [at/SemanticType] [node :- aas/CallNode] (:expected-argtypes node))
 (s/defn binding-init :- (s/maybe aas/AnnotatedNode) [holder :- aas/BindingHolder] (:binding-init holder))
 
 (s/defn with-type :- s/Any
   "Public setter for the inferred value-type of an annotated node.
    Use this (not raw (assoc node :type ...)) from any code that does not own node shape."
-  [node :- aas/AnnotatedNode type :- ats/SemanticType]
+  [node :- aas/AnnotatedNode type :- at/SemanticType]
   (assoc node :type type))
 
 (s/defn node-location :- s/Any

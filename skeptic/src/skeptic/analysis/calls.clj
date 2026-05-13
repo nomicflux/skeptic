@@ -5,7 +5,6 @@
             [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov])
   (:import [clojure.lang Util]))
 
@@ -24,7 +23,7 @@
     :quote (-> node aapi/node-form second)
     (aapi/node-form node)))
 
-(s/defn map-literal-key-type :- ats/SemanticType
+(s/defn map-literal-key-type :- at/SemanticType
   [ctx :- s/Any
    node :- s/Any]
   (if (literal-map-key? node)
@@ -77,7 +76,7 @@
     (some accessor-summaries candidates)))
 
 (s/defn fun-type->call-opts :- s/Any
-  [fun-type :- ats/SemanticType]
+  [fun-type :- at/SemanticType]
   (let [{:keys [methods]} fun-type
         arglists (into {}
                        (map (fn [{:keys [inputs min-arity variadic?]}]
@@ -92,7 +91,7 @@
 (s/defn default-call-info :- s/Any
   [ctx :- s/Any
    arity :- s/Int
-   output :- (s/maybe ats/SemanticType)]
+   output :- (s/maybe at/SemanticType)]
   (let [output-type (or output (aapi/dyn ctx))
         prov (ato/derive-prov output-type)
         expected-argtypes (vec (repeat arity (at/Dyn prov)))

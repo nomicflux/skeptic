@@ -6,7 +6,6 @@
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs])
   (:import [clojure.lang IPersistentCollection Var$Unbound]
@@ -38,7 +37,7 @@
       true
       :else false)))
 
-(s/defn primitive-ground-type :- (s/maybe ats/SemanticType)
+(s/defn primitive-ground-type :- (s/maybe at/SemanticType)
   [prov :- provs/Provenance
    schema :- s/Any]
   (let [schema (sb/canonical-scalar-schema schema)]
@@ -846,7 +845,7 @@
     (catch IllegalArgumentException _e
       false)))
 
-(s/defn import-schema-type :- ats/SemanticType
+(s/defn import-schema-type :- at/SemanticType
   "Input must be in the schema domain."
   ([prov   :- provs/Provenance
     schema :- s/Any]
@@ -862,7 +861,7 @@
                   :prov prov
                   :source source})))))
 
-(s/defn schema->type :- ats/SemanticType
+(s/defn schema->type :- at/SemanticType
   "Input must be schema-domain (e.g. from admitted declarations)."
   ([prov   :- provs/Provenance
     schema :- s/Any]

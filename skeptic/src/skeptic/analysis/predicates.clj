@@ -6,7 +6,6 @@
       both convert to the predicate's witness type."
   (:require [schema.core :as s]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]))
@@ -42,7 +41,7 @@
   [sym lang]
   (prov/make-provenance :native sym nil nil [] lang))
 
-(s/defn predicate-fn-type :- ats/SemanticType
+(s/defn predicate-fn-type :- at/SemanticType
   [qualified-sym :- s/Symbol
    lang          :- provs/Lang]
   (let [p (native-prov qualified-sym lang)
@@ -50,7 +49,7 @@
         method (at/->FnMethodT p [(at/Dyn p)] bool-t 1 false '[x])]
     (at/->FunT p [method])))
 
-(s/defn witness-type :- ats/SemanticType
+(s/defn witness-type :- at/SemanticType
   [qualified-sym :- s/Symbol
    prov          :- provs/Provenance]
   ((get witness-builders qualified-sym) prov))

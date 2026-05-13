@@ -10,7 +10,6 @@
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.analysis.value :as av]))
 
 (defn- normalize-if-needed
@@ -36,11 +35,11 @@
 
 (s/defn root-origin :- aos/RootOrigin
   [sym :- s/Any
-   type :- ats/SemanticType]
+   type :- at/SemanticType]
   (root-origin* sym (normalize-if-needed type)))
 
 (s/defn opaque-origin :- aos/Origin
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (opaque-origin* (normalize-if-needed type)))
 
 (s/defn map-key-lookup-origin :- aos/MapKeyLookupOrigin
@@ -270,8 +269,8 @@
   (or (= :contradicted (:kind assumption))
       (assumption-root? assumption root)))
 
-(s/defn apply-assumption-to-root-type :- ats/SemanticType
-  [type :- ats/SemanticType
+(s/defn apply-assumption-to-root-type :- at/SemanticType
+  [type :- at/SemanticType
    assumption :- aos/Assumption]
   (letfn [(non-blank-string-type [t]
             (let [non-nil (an/partition-type-for-predicate t {:pred :some?} true)]
@@ -314,7 +313,7 @@
 
       type)))
 
-(s/defn refine-root-type :- ats/SemanticType
+(s/defn refine-root-type :- at/SemanticType
   [root :- aos/RootOrigin
    assumptions :- [aos/Assumption]]
   (reduce (fn [type assumption]
@@ -324,7 +323,7 @@
           (:type root)
           assumptions))
 
-(s/defn assumption-base-type :- ats/SemanticType
+(s/defn assumption-base-type :- at/SemanticType
   [assumption :- aos/RootedAssumption
    assumptions :- [aos/Assumption]]
   (let [same-proposition? #(same-assumption-proposition? % assumption)]
@@ -332,7 +331,7 @@
                       (remove same-proposition? assumptions))))
 
 (s/defn ^:private type-predicate-classification :- s/Any
-  [base :- ats/SemanticType
+  [base :- at/SemanticType
    pred-info :- aos/PredInfo]
   (let [pos (an/partition-type-for-predicate base pred-info true)
         neg (an/partition-type-for-predicate base pred-info false)]
@@ -344,7 +343,7 @@
       :else :unknown)))
 
 (s/defn ^:private value-in-values-classification :- s/Any
-  [base :- ats/SemanticType
+  [base :- at/SemanticType
    values :- [s/Any]]
   (let [pos (an/partition-type-for-values base values true)
         neg (an/partition-type-for-values base values false)]
@@ -354,7 +353,7 @@
       :else :unknown)))
 
 (s/defn ^:private value-not-in-values-classification :- s/Any
-  [base :- ats/SemanticType
+  [base :- at/SemanticType
    values :- [s/Any]]
   (let [pos (an/partition-type-for-values base values true)
         neg (an/partition-type-for-values base values false)]
@@ -508,7 +507,7 @@
         current
         (recur next)))))
 
-(s/defn origin-type :- ats/SemanticType
+(s/defn origin-type :- at/SemanticType
   [origin :- aos/Origin
    assumptions :- [aos/Assumption]]
   (let [t (case (:kind origin)
@@ -544,7 +543,7 @@
     (let [d (aapi/dyn ctx)]
       [d (root-origin* sym d)])))
 
-(s/defn effective-type :- ats/SemanticType
+(s/defn effective-type :- at/SemanticType
   [ctx :- s/Any
    sym :- s/Any
    entry :- s/Any
@@ -860,7 +859,7 @@
            :locals (refine-locals-for-assumption ctx locals new-assumptions))))
 
 (s/defn ^:private ground-classifying-pred-info :- (s/maybe aos/PredInfo)
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (let [type (ato/normalize type)]
     (cond
       (at/numeric-dyn-type? type) {:pred :number?}
@@ -893,7 +892,7 @@
 
 (s/defn ^:private call-arg-contract-assumption :- (s/maybe aos/TypePredicateAssumption)
   [arg-node :- aas/AnnotatedNode
-   arg-type :- ats/SemanticType]
+   arg-type :- at/SemanticType]
   (when (aapi/stable-identity-node? arg-node)
     (when-let [pred-info (ground-classifying-pred-info arg-type)]
       (when-let [root (contract-root-origin arg-node)]

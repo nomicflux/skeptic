@@ -2,7 +2,6 @@
   (:require [schema.core :as s]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]))
 
 (def foldable-sources
@@ -20,8 +19,8 @@
      schema.core/Num
      schema.core/Any})
 
-(defn- folded-name
-  [t]
+(s/defn ^:private folded-name :- (s/maybe s/Symbol)
+  [t :- at/SemanticType]
   (let [p (prov/of t)
         sym (:qualified-sym p)]
     (when (and sym
@@ -32,7 +31,7 @@
 (declare render-type-form*)
 
 (s/defn render-fn-input-form* :- s/Any
-  [method :- ats/SemanticType
+  [method :- at/SemanticType
    opts :- s/Any]
   (let [inputs (mapv #(render-type-form* % opts) (:inputs method))]
     (if (:variadic? method)
@@ -41,7 +40,7 @@
       inputs)))
 
 (s/defn render-fn-input-form :- s/Any
-  [method :- ats/SemanticType]
+  [method :- at/SemanticType]
   (render-fn-input-form* method default-render-opts))
 
 (defn- conditional-branch-types
@@ -60,7 +59,7 @@
       display)))
 
 (s/defn render-type-form* :- s/Any
-  [type :- (s/maybe ats/SemanticType)
+  [type :- (s/maybe at/SemanticType)
    opts :- s/Any]
   (let [opts (merge default-render-opts opts)
         type (some-> type ato/normalize)
@@ -117,18 +116,18 @@
         :else type))))
 
 (s/defn render-type-form :- s/Any
-  [type :- (s/maybe ats/SemanticType)]
+  [type :- (s/maybe at/SemanticType)]
   (render-type-form* type default-render-opts))
 
 (s/defn render-type* :- (s/maybe s/Str)
-  [type :- (s/maybe ats/SemanticType)
+  [type :- (s/maybe at/SemanticType)
    opts :- s/Any]
   (some-> type
           (render-type-form* opts)
           pr-str))
 
 (s/defn render-type :- (s/maybe s/Str)
-  [type :- (s/maybe ats/SemanticType)]
+  [type :- (s/maybe at/SemanticType)]
   (render-type* type default-render-opts))
 
 (declare type->json-data*)
@@ -149,7 +148,7 @@
 
 (s/defn type->json-data* :- s/Any
   "Serialize a semantic type into JSON-friendly tagged data. Returns nil for nil."
-  [type :- (s/maybe ats/SemanticType)
+  [type :- (s/maybe at/SemanticType)
    opts :- s/Any]
   (let [opts (merge default-render-opts opts)
         type (some-> type ato/normalize)
@@ -206,7 +205,7 @@
       :else {:t "unknown" :form (pr-str type)})))
 
 (s/defn type->json-data :- s/Any
-  [type :- (s/maybe ats/SemanticType)]
+  [type :- (s/maybe at/SemanticType)]
   (type->json-data* type default-render-opts))
 
 (defn polarity->side

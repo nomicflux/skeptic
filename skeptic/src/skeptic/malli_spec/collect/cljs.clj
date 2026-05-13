@@ -14,6 +14,7 @@
 
   No cenv reads, no caller-managed compiler state."
   (:require [skeptic.analysis.malli-spec.bridge :as amb]
+            [skeptic.cljs.analyzer-driver :as ad]
             [skeptic.malli-spec.collect :as collect]))
 
 (defn- bare-sym
@@ -35,19 +36,10 @@
   [top-level-asts]
   (keep registration-form top-level-asts))
 
-(defn- find-def-ast
-  "Walk an AST to find the `:def` op node (may be nested inside lets)."
-  [ast]
-  (cond
-    (= :def (:op ast)) ast
-    (map? ast) (some find-def-ast (vals ast))
-    (sequential? ast) (some find-def-ast ast)
-    :else nil))
-
 (defn- var-meta-entries
   [top-level-asts registered-syms]
   (keep (fn [ast]
-          (when-let [def-ast (find-def-ast ast)]
+          (when-let [def-ast (ad/find-by-op :def ast)]
             (let [meta-info (get-in def-ast [:var :info :meta])
                   spec (:malli/schema meta-info)
                   fn-sym (bare-sym (:name def-ast))]

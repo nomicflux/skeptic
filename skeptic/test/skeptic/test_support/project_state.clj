@@ -7,12 +7,17 @@
   (:require [skeptic.checking.pipeline :as pipeline]))
 
 (defn admit-ns
-  "Project-state-backed single-ns admission. Returns the namespace-dict shape:
-  {:dict ... :provenance ... :ignore-body ... :errors ...}."
+  "Project-state-backed single-ns admission, mirroring production. Returns the
+  namespace-dict shape: {:dict ... :provenance ... :ignore-body ... :errors ...}.
+  The :dict is enriched (ConditionalT descriptors filled in via
+  accessor-summaries) the same way production's `pipeline/project-state` does,
+  so callers see the same dict shape that downstream analysis assumes."
   [ns-sym source-file]
   (require ns-sym)
-  (let [project-disc (pipeline/project-discovery [[ns-sym source-file]])
-        var-provs (pipeline/project-var-provs {} project-disc)
-        lang (pipeline/lang-of-source-file source-file)
-        cljs-state (pipeline/preload-cljs-state! false [[ns-sym source-file lang]])]
-    (pipeline/namespace-dict {} ns-sym source-file lang cljs-state var-provs project-disc)))
+  (let [ps (pipeline/project-state {} [[ns-sym source-file]])
+        per-ns-entry (get-in ps [:per-ns ns-sym])
+        failure (get-in ps [:per-ns-failures ns-sym])]
+    (when failure
+      (throw (or (:exception failure)
+                 (ex-info "namespace-dict failed" {:ns ns-sym :failure failure}))))
+    (assoc per-ns-entry :dict (:dict ps))))

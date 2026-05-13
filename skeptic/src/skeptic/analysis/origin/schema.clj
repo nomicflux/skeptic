@@ -1,17 +1,17 @@
 (ns skeptic.analysis.origin.schema
   (:require [schema.core :as s]
-            [skeptic.analysis.types.schema :as ats]))
+            [skeptic.analysis.types :as at]))
 
 (declare Origin Assumption RootOrigin)
 
 (s/defschema RootOrigin
   {:kind (s/eq :root)
    :sym  s/Any
-   :type ats/SemanticType})
+   :type at/SemanticType})
 
 (s/defschema OpaqueOrigin
   {:kind                          (s/eq :opaque)
-   :type                          ats/SemanticType
+   :type                          at/SemanticType
    (s/optional-key :binding-sym)  s/Symbol})
 
 (s/defschema MapKeyLookupOrigin
@@ -87,7 +87,7 @@
 (s/defschema ConditionalBranchAssumption
   {:kind          (s/eq :conditional-branch)
    :root          RootOrigin
-   :narrowed-type ats/SemanticType
+   :narrowed-type at/SemanticType
    :polarity      s/Bool})
 
 (s/defschema ConjunctionAssumption

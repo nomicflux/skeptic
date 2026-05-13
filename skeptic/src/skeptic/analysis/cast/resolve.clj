@@ -1,7 +1,7 @@
 (ns skeptic.analysis.cast.resolve
   (:require [schema.core :as s]
             [skeptic.analysis.bridge :as bridge]
-            [skeptic.analysis.types.schema :as ats]
+            [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
 (def ^:dynamic *resolve-active* #{})
@@ -14,10 +14,10 @@
   [v]
   (when (and v (bound? v)) @v))
 
-(s/defn resolve-named :- (s/maybe ats/SemanticType)
+(s/defn resolve-named :- (s/maybe at/SemanticType)
   "Resolve a PlaceholderT or InfCycleT to its bridge-imported Type, or nil
    on cycle (this ref currently being resolved) or unbound var."
-  [t :- ats/SemanticType]
+  [t :- at/SemanticType]
   (let [ref (:ref t)]
     (when-not (*resolve-active* ref)
       (some->> (lookup-var ref)

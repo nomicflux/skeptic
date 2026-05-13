@@ -3,20 +3,19 @@
             [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.types.schema :as ats]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]))
 
 (s/defn derive-prov :- provs/Provenance
   "Merge attached provenance of typed inputs. Requires at least one input —
   throws otherwise, signalling a caller without real provenance context."
-  [& types :- [ats/SemanticType]]
+  [& types :- [at/SemanticType]]
   (if (seq types)
     (reduce prov/merge-provenances (map prov/of types))
     (throw (IllegalArgumentException.
             "derive-prov called without any typed input carrying provenance"))))
 
-(s/defn literal-ground-type :- (s/maybe ats/SemanticType)
+(s/defn literal-ground-type :- (s/maybe at/SemanticType)
   [prov  :- provs/Provenance
    value :- s/Any]
   (cond
@@ -30,7 +29,7 @@
     (boolean? value) (at/->GroundT prov :bool 'Bool)
     :else nil))
 
-(s/defn exact-value-type :- ats/SemanticType
+(s/defn exact-value-type :- at/SemanticType
   [prov  :- provs/Provenance
    value :- s/Any]
   (at/->ValueT prov (or (literal-ground-type prov value) (at/Dyn prov)) value))
@@ -71,7 +70,7 @@
 
 (s/defn nil-bearing-type-members :- {:nil-bearing?    s/Bool
                                      :has-nil-value?  s/Bool
-                                     :members         #{ats/SemanticType}}
+                                     :members         #{at/SemanticType}}
   [norm-fn :- (s/pred fn?)
    prov    :- provs/Provenance
    members :- s/Any]
@@ -103,7 +102,7 @@
       nil-bearing? (at/->MaybeT prov base)
       :else base)))
 
-(s/defn normalize-type :- ats/SemanticType
+(s/defn normalize-type :- at/SemanticType
   [prov  :- provs/Provenance
    value :- s/Any]
   (cond
@@ -122,7 +121,7 @@
     (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) nil)
     :else (invalid-normalize-type-input value)))
 
-(s/defn normalize-intersection-members :- #{ats/SemanticType}
+(s/defn normalize-intersection-members :- #{at/SemanticType}
   [prov    :- provs/Provenance
    members :- s/Any]
   (->> members
@@ -133,12 +132,12 @@
                    [member])))
        set))
 
-(s/defn union-type :- ats/SemanticType
+(s/defn union-type :- at/SemanticType
   [prov    :- provs/Provenance
    members :- s/Any]
   (union-type-with-normalize normalize-type prov members))
 
-(s/defn intersection-type :- ats/SemanticType
+(s/defn intersection-type :- at/SemanticType
   [prov    :- provs/Provenance
    members :- s/Any]
   (let [members (normalize-intersection-members prov members)]
@@ -147,7 +146,7 @@
       (= 1 (count members)) (first members)
       :else (at/->IntersectionT prov members))))
 
-(s/defn de-maybe-type :- ats/SemanticType
+(s/defn de-maybe-type :- at/SemanticType
   [prov :- provs/Provenance
    type :- s/Any]
   (let [type (normalize-type prov type)]
@@ -180,7 +179,7 @@
   Distinct from `at/dyn-type?` because narrowing must also bail on
   unresolved resolver states (PlaceholderT, InfCycleT) and on structural
   carriers whose members include any of the above."
-  [t :- ats/SemanticType]
+  [t :- at/SemanticType]
   (boolean
    (cond
      (at/dyn-type? t) true
@@ -191,37 +190,37 @@
      (at/conditional-type? t) (some uninformative-for-narrowing? (ca/effective-conditional-arms t))
      :else false)))
 
-(s/defn normalize :- ats/SemanticType
+(s/defn normalize :- at/SemanticType
   "Convenience: derives prov from the typed input."
-  [value :- ats/SemanticType]
+  [value :- at/SemanticType]
   (normalize-type (derive-prov value) value))
 
-(s/defn union :- ats/SemanticType
+(s/defn union :- at/SemanticType
   "Convenience: derives prov from members."
-  [members :- [ats/SemanticType]]
+  [members :- [at/SemanticType]]
   (union-type (apply derive-prov members) members))
 
-(s/defn intersection :- ats/SemanticType
+(s/defn intersection :- at/SemanticType
   "Convenience: derives prov from members."
-  [members :- [ats/SemanticType]]
+  [members :- [at/SemanticType]]
   (intersection-type (apply derive-prov members) members))
 
-(s/defn de-maybe :- ats/SemanticType
+(s/defn de-maybe :- at/SemanticType
   "Convenience: derives prov from the typed input."
-  [type :- ats/SemanticType]
+  [type :- at/SemanticType]
   (de-maybe-type (derive-prov type) type))
 
-(s/defn dyn :- ats/SemanticType
+(s/defn dyn :- at/SemanticType
   "Convenience: produce an at/Dyn with prov derived from typed inputs."
-  [& types :- [ats/SemanticType]]
+  [& types :- [at/SemanticType]]
   (at/Dyn (apply derive-prov types)))
 
-(s/defn bottom :- ats/SemanticType
+(s/defn bottom :- at/SemanticType
   "Convenience: produce an at/BottomType with prov derived from typed inputs."
-  [& types :- [ats/SemanticType]]
+  [& types :- [at/SemanticType]]
   (at/BottomType (apply derive-prov types)))
 
-(s/defn numeric-dyn :- ats/SemanticType
+(s/defn numeric-dyn :- at/SemanticType
   "Convenience: produce an at/NumericDyn with prov derived from typed inputs."
-  [& types :- [ats/SemanticType]]
+  [& types :- [at/SemanticType]]
   (at/NumericDyn (apply derive-prov types)))

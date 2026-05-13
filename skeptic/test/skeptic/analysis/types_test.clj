@@ -21,8 +21,8 @@
     (is (= p-schema (prov/of (sut/->FnMethodT p-schema [] (sut/Dyn p-schema) 0 false []))))
     (is (= p-schema (prov/of (sut/->FunT p-schema []))))
     (is (= p-schema (prov/of (sut/->MaybeT p-schema (sut/Dyn p-schema)))))
-    (is (= p-schema (prov/of (sut/->UnionT p-schema []))))
-    (is (= p-schema (prov/of (sut/->IntersectionT p-schema []))))
+    (is (= p-schema (prov/of (sut/->UnionT p-schema #{}))))
+    (is (= p-schema (prov/of (sut/->IntersectionT p-schema #{}))))
     (is (= p-schema (prov/of (sut/->MapT p-schema {}))))
     (is (= p-schema (prov/of (sut/->VectorT p-schema [] nil))))
     (is (= p-schema (prov/of (sut/->SetT p-schema #{} true))))
@@ -33,7 +33,7 @@
     (is (= p-schema (prov/of (sut/->ValueT p-schema (sut/Dyn p-schema) 1))))
     (is (= p-schema (prov/of (sut/->TypeVarT p-schema 'T))))
     (is (= p-schema (prov/of (sut/->ForallT p-schema ['T] (sut/Dyn p-schema)))))
-    (is (= p-schema (prov/of (sut/->SealedDynT p-schema (sut/Dyn p-schema)))))
+    (is (= p-schema (prov/of (sut/->SealedDynT p-schema (sut/->TypeVarT p-schema 'T)))))
     (is (= p-schema (prov/of (sut/->ConditionalT p-schema []))))))
 
 (deftest singleton-wrappers-carry-prov

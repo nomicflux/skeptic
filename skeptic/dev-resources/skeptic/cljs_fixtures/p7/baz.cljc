@@ -5,4 +5,7 @@
 
 (s/defn add-int :- s/Int [x :- s/Int] (+ x 1))
 
+#?(:cljs (def js-config #js {:a 1})
+   :clj  (def clj-config {:a 1}))
+
 (s/defn caller [] (add-int "not-int"))

@@ -104,7 +104,7 @@
 (deftest refine-map-path-by-values-union-shape
   (let [branch-a (ab/schema->type tp {:x {:k (s/eq "a")}})
         branch-b (ab/schema->type tp {:x {:k (s/eq "b")}})
-        union-root (at/->UnionT tp [branch-a branch-b])
+        union-root (at/->UnionT tp #{branch-a branch-b})
         path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
         result (amo/refine-map-path-by-values union-root path ["b"] true)]
     (is (not (at/bottom-type? result)))))

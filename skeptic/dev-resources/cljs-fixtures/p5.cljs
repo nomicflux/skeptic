@@ -9,3 +9,7 @@
   {:malli/schema [:=> [:cat :int] :int]}
   [x]
   (+ x 1))
+
+(def default-key ::m/default)
+
+(def js-value #js {:a 1})
