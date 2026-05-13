@@ -988,10 +988,12 @@
                     (#{:clj :both} lang))
              (try
                (binding [*ns* (the-ns ns-sym)]
-                 (update acc :accessor-summaries
-                         #(collect-accessor-summaries-for-ns merged-dict ns-sym source-file
-                                                             (ns-exprs source-file) %
-                                                             cljs-state :clj)))
+                 (aa/with-loaded-namespace-analyzer-env
+                   #(update acc :accessor-summaries
+                            (fn [summaries]
+                              (collect-accessor-summaries-for-ns merged-dict ns-sym source-file
+                                                                 (ns-exprs source-file) summaries
+                                                                 cljs-state :clj)))))
                (catch Throwable e
                  (assoc-in acc [:accessor-failures ns-sym]
                            {:source-file source-file :exception e :phase :accessors})))
@@ -1081,19 +1083,20 @@
   [dict ignore-body ns source-file accessor-summaries cljs-state lang form-opts]
   (if (= :cljs lang)
     (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state form-opts)
-    (with-open [reader (file/pushback-reader source-file)]
-      (loop [acc {:results [] :provenance {}}]
-        (let [{:keys [kind form exception]} (next-checkable-form reader)]
-          (case kind
-            :eof acc
-            :form (let [{form-results :results form-prov :provenance}
-                        (check-ns-form dict ignore-body ns source-file form
-                                       accessor-summaries cljs-state lang form-opts)]
-                    (recur (-> acc
-                               (update :results into form-results)
-                               (update :provenance merge form-prov))))
-            :read-error (recur (update acc :results conj
-                                       (read-exception-result source-file exception)))))))))
+    (aa/with-loaded-namespace-analyzer-env
+      #(with-open [reader (file/pushback-reader source-file)]
+         (loop [acc {:results [] :provenance {}}]
+           (let [{:keys [kind form exception]} (next-checkable-form reader)]
+             (case kind
+               :eof acc
+               :form (let [{form-results :results form-prov :provenance}
+                           (check-ns-form dict ignore-body ns source-file form
+                                          accessor-summaries cljs-state lang form-opts)]
+                       (recur (-> acc
+                                  (update :results into form-results)
+                                  (update :provenance merge form-prov))))
+               :read-error (recur (update acc :results conj
+                                          (read-exception-result source-file exception))))))))))
 
 (s/defn check-ns :- s/Any
   [project-state ns :- s/Symbol source-file form-opts]

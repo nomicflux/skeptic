@@ -1,6 +1,7 @@
 (ns skeptic.checking.pipeline.check-ns-phase-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
@@ -18,6 +19,20 @@
                                    'skeptic.core-fns
                                    file
                                    {}))))))
+
+(deftest check-ns-shares-analyzer-namespace-map-across-forms
+  (let [ns-sym 'skeptic.test-examples.basics
+        file (ps/fixture-file-for-ns ns-sym)
+        project-state (ps/project-state-for ns-sym file)
+        form-count (count (sut/ns-exprs file))
+        calls (atom 0)
+        real-build-ns-map ana.jvm/build-ns-map]
+    (is (< 1 form-count))
+    (with-redefs [ana.jvm/build-ns-map (fn []
+                                         (swap! calls inc)
+                                         (real-build-ns-map))]
+      (sut/check-ns project-state ns-sym file {:remove-context true})
+      (is (= 1 @calls)))))
 
 (deftest check-namespace-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
