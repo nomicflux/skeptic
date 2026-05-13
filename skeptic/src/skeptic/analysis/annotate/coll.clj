@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.coll
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.type-ops :as ato]
@@ -9,6 +10,11 @@
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs])
   (:import [clojure.lang LazySeq]))
+
+(s/defschema ^:private TypedNode
+  (-> aas/AnnotatedNode
+      (dissoc (s/optional-key :type))
+      (assoc :type at/SemanticType)))
 
 (defn const-long-value
   [node]
@@ -47,7 +53,7 @@
         :else nil))))
 
 (s/defn instance-nth-element-type :- (s/maybe at/SemanticType)
-  [coll-type :- at/SemanticType, idx-node :- s/Any]
+  [coll-type :- at/SemanticType, idx-node :- aas/AnnotatedNode]
   (let [coll-type (ato/normalize coll-type)
         literal (const-long-value idx-node)]
     (cond
@@ -144,7 +150,7 @@
     (at/->SeqT (prov/with-refs (ato/derive-prov elem) [(prov/of elem)]) [] elem)))
 
 (s/defn concat-output-type :- (s/maybe at/SemanticType)
-  [anchor-prov :- provs/Provenance, args :- [s/Any]]
+  [anchor-prov :- provs/Provenance, args :- [TypedNode]]
   (let [arg-types (map :type args)
         elems (keep seqish-element-type arg-types)]
     (cond
@@ -155,7 +161,7 @@
       :else nil)))
 
 (s/defn into-output-type :- (s/maybe at/SemanticType)
-  [args :- [s/Any]]
+  [args :- [TypedNode]]
   (when (>= (count args) 2)
     (let [to-type (ato/normalize (:type (first args)))
           from-type (ato/normalize (:type (second args)))
@@ -173,12 +179,12 @@
           (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem))))))
 
 (s/defn invoke-nth-output-type :- (s/maybe at/SemanticType)
-  [args :- [s/Any]]
+  [args :- [TypedNode]]
   (when (>= (count args) 2)
     (instance-nth-element-type (:type (first args)) (second args))))
 
 (s/defn for-body-element-type :- (s/maybe at/SemanticType)
-  [body :- s/Any]
+  [body :- TypedNode]
   (let [cons-types
         (->> (sac/ast-nodes body)
              (keep (fn [node]
@@ -192,7 +198,7 @@
       (ato/normalize (av/join (ato/derive-prov (:type body)) cons-types)))))
 
 (s/defn lazy-seq-new-type :- (s/maybe at/SemanticType)
-  [class-node :- s/Any, args :- [s/Any]]
+  [class-node :- aas/AnnotatedNode, args :- [TypedNode]]
   (when (and (aapi/const-node? class-node)
              (= LazySeq (:val class-node)))
     (let [fn-arg (first args)

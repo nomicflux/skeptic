@@ -1,7 +1,8 @@
 (ns skeptic.inconsistence.schema
   (:require [schema.core :as s]
             [skeptic.analysis.cast.schema :as csch]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance.schema :as provs]))
 
 (s/defschema CastSummary
   {:rule s/Keyword
@@ -83,3 +84,16 @@
 
 (s/defschema ReportOpts
   {(s/optional-key :explain-full) s/Bool})
+
+(s/defschema CastOkSummary
+  {:ok? (s/eq true)
+   :errors [s/Str]
+   :source provs/Source
+   :lang provs/Lang
+   :cast-summary CastSummary
+   :cast-diagnostics [csch/LeafDiagnostic]
+   :blame-side (s/eq :none)
+   :blame-polarity (s/eq :none)
+   :rule s/Keyword
+   :expected-type at/SemanticType
+   :actual-type at/SemanticType})

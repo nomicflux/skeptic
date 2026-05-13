@@ -201,7 +201,7 @@
 
 (defn- loop-recur-nodes
   [body loop-id]
-  (filterv #(and (aapi/recur-node? %) (= loop-id (:loop-id %)))
+  (filterv #(and (aapi/recur-node? %) (= loop-id (aapi/loop-recur-id %)))
            (sac/ast-nodes body)))
 
 (s/defn widen-int-loop-counter-recur-targets :- [at/SemanticType]
@@ -210,7 +210,7 @@
     (reduce (fn [acc recur-node]
               (let [exprs (:exprs recur-node)]
                 (if (and (= (count acc) (count exprs)) (pos? (count acc)))
-                        (mapv (fn [target expr]
+                  (mapv (fn [target expr]
                           (let [actual (:type expr)]
                             (if (and (at/ground-type? target)
                                      (= :int (:ground target))
@@ -290,12 +290,13 @@
       ((:recurse ctx)
        (assoc ctx
               :locals final-locals
-              :recur-targets (assoc recur-targets loop-id targets-v1))
+              :recur-targets (assoc recur-targets loop-id targets-v1)
+              aapi/current-loop-id-key loop-id)
        (:body node)))))
 
 (s/defn annotate-loop :- aas/AnnotatedNode
   [{:keys [locals recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [loop-id (:loop-id node)
+  (let [loop-id (gensym "skeptic-loop-")
         recur-targets (or recur-targets {})
         [bindings final-locals]
         (reduce (fn [[acc env] binding]
@@ -306,7 +307,8 @@
         targets-v0 (binding-recur-target-types ctx bindings)
         recur-ctx (assoc ctx
                          :locals final-locals
-                         :recur-targets (assoc recur-targets loop-id targets-v0))
+                         :recur-targets (assoc recur-targets loop-id targets-v0)
+                         aapi/current-loop-id-key loop-id)
         body-v1 ((:recurse recur-ctx) recur-ctx (:body node))
         body-final (annotate-loop-body-with-recur-target-widening
                     ctx node final-locals recur-targets loop-id targets-v0 body-v1)]
@@ -315,9 +317,11 @@
 (s/defn annotate-recur :- aas/AnnotatedNode
   [{:keys [recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
-        targets (some-> (:loop-id node) recur-targets)
+        current-loop-id (get ctx aapi/current-loop-id-key)
+        targets (some-> current-loop-id recur-targets)
         actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
-    (cond-> (assoc node :exprs exprs :type (aapi/bottom ctx))
+    (cond-> (aapi/with-loop-id (assoc node :exprs exprs :type (aapi/bottom ctx))
+                               current-loop-id)
       (and (seq targets) (= (count targets) (count exprs)))
       (assoc :expected-argtypes (mapv #(aapi/normalize-type ctx %) targets)
              :actual-argtypes actual-argtypes))))

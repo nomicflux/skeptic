@@ -75,7 +75,15 @@
                             (aapi/node-info-name node)])]
     (some accessor-summaries candidates)))
 
-(s/defn fun-type->call-opts :- s/Any
+(s/defschema CallOptsArglistEntry
+  {:types                    [at/SemanticType]
+   (s/optional-key :count)   s/Int})
+
+(s/defschema CallOpts
+  {:arglists    {(s/cond-pre s/Int (s/eq :varargs)) CallOptsArglistEntry}
+   :output-type at/SemanticType})
+
+(s/defn fun-type->call-opts :- CallOpts
   [fun-type :- at/SemanticType]
   (let [{:keys [methods]} fun-type
         arglists (into {}

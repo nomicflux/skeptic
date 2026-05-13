@@ -11,6 +11,7 @@
             [skeptic.inconsistence.path :as pth]
             [skeptic.inconsistence.schema :as isch]
             [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]
             [clojure.string :as str]))
 
 (declare cast-result->message
@@ -403,8 +404,10 @@
      :expected-type    (:expected-type primary)
      :actual-type      (:actual-type primary)}))
 
-(defn- cast-ok-summary
-  [raw source lang]
+(s/defn ^:private cast-ok-summary :- isch/CastOkSummary
+  [raw    :- csch/CastResult
+   source :- provs/Source
+   lang   :- provs/Lang]
   (let [summary (cast-result/root-summary raw)]
     {:ok? true
      :errors []

@@ -14,6 +14,12 @@
 (def ^:dynamic *var-provs* nil)
 (def ^:dynamic *form-refs* nil)
 
+(def ^:private ImportResult
+  {:type at/SemanticType :closed-refs #{s/Any}})
+
+(def ^:private CtxWithProv
+  {:prov provs/Provenance s/Keyword s/Any})
+
 (defn broad-dynamic-schema?
   [schema]
   (contains? #{s/Any
@@ -316,15 +322,24 @@
                         (= (sb/check-if-schema schema value) sb/plumatic-valid))
                       {:source-schema schema})))
 
-(defn- unary-node-result
-  [ctx-prov name-claimed? ctor source child-result]
+(s/defn ^:private unary-node-result :- ImportResult
+  [ctx-prov      :- provs/Provenance
+   name-claimed? :- s/Bool
+   ctor          :- s/Any
+   source        :- s/Any
+   child-result  :- ImportResult]
   (let [child-prov (prov/of (:type child-result))
         node-p (node-prov ctx-prov source [child-prov] name-claimed?)]
     (import-result (ctor node-p (:type child-result))
                    (:closed-refs child-result))))
 
-(defn- collection-import-type
-  [run {:keys [owner-ref prov name-claimed?] :as ctx} schemas source fixed-ctor union-ctor]
+(s/defn ^:private collection-import-type :- ImportResult
+  [run         :- s/Any
+   {:keys [owner-ref prov name-claimed?] :as ctx} :- CtxWithProv
+   schemas     :- [s/Any]
+   source      :- s/Any
+   fixed-ctor  :- s/Any
+   union-ctor  :- s/Any]
   (let [inner-ctx (descend-ctx ctx)
         child-results (mapv (fn [i s]
                               (run (assoc inner-ctx :schema s :source (child-source source i))))
@@ -360,8 +375,12 @@
                         (fn [_value] false)
                         {:source-schema form :invalid-prefix-tail? true}))))
 
-(defn- prefix-tail-import-type
-  [run {:keys [owner-ref prov name-claimed?] :as ctx} schemas source ctor]
+(s/defn ^:private prefix-tail-import-type :- ImportResult
+  [run     :- s/Any
+   {:keys [owner-ref prov name-claimed?] :as ctx} :- CtxWithProv
+   schemas :- [s/Any]
+   source  :- s/Any
+   ctor    :- s/Any]
   (if-not (valid-prefix-tail? schemas)
     (invalid-prefix-tail-leaf prov schemas)
     (let [inner-ctx (descend-ctx ctx)
@@ -393,8 +412,11 @@
                  (ctor node-p prefix-types tail-type))]
       (import-result type closed-refs))))
 
-(defn- map-import-type
-  [run {:keys [prov name-claimed?] :as ctx} schema source]
+(s/defn ^:private map-import-type :- ImportResult
+  [run    :- s/Any
+   {:keys [prov name-claimed?] :as ctx} :- CtxWithProv
+   schema :- s/Any
+   source :- s/Any]
   (let [inner-ctx (descend-ctx ctx)
         entry-results (mapv (fn [[k v]]
                               (let [entry-source (get-in source [:map-entries k])
@@ -417,8 +439,11 @@
         k (if (contains? arglists n-inputs) n-inputs :varargs)]
     (get-in arglists [k :input-sources])))
 
-(defn- function-import-type
-  [run {:keys [prov name-claimed?] :as ctx} schema source]
+(s/defn ^:private function-import-type :- ImportResult
+  [run    :- s/Any
+   {:keys [prov name-claimed?] :as ctx} :- CtxWithProv
+   schema :- s/Any
+   source :- s/Any]
   (let [defn? (and (map? source) (= :defn (:kind source)))
         output-source (when defn? (:output-source source))
         inner-ctx (descend-ctx ctx)
@@ -450,8 +475,12 @@
      (at/->FunT fun-p (mapv :type method-results))
      (merge-closed-refs (conj method-results output-result)))))
 
-(defn- branch-import-type
-  [run {:keys [prov name-claimed?] :as ctx} schemas source build]
+(s/defn ^:private branch-import-type :- ImportResult
+  [run     :- s/Any
+   {:keys [prov name-claimed?] :as ctx} :- CtxWithProv
+   schemas :- (s/cond-pre [s/Any] #{s/Any})
+   source  :- s/Any
+   build   :- s/Any]
   (let [inner-ctx (descend-ctx ctx)
         child-results (mapv (fn [i schema]
                               (run (assoc inner-ctx
@@ -464,8 +493,11 @@
     (import-result (build node-p child-types)
                    (merge-closed-refs child-results))))
 
-(defn- conditional-import-type
-  [run {:keys [prov name-claimed?] :as ctx} schema source]
+(s/defn ^:private conditional-import-type :- ImportResult
+  [run    :- s/Any
+   {:keys [prov name-claimed?] :as ctx} :- CtxWithProv
+   schema :- s/Any
+   source :- s/Any]
   (let [inner-ctx (descend-ctx ctx)
         branch-results (mapv (fn [i [pred branch]]
                                (let [branch-source (get-in source [:conditional-branches i])
@@ -519,8 +551,9 @@
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
 
-(defn- composite-node-prov
-  [ctx-prov child-provs]
+(s/defn ^:private composite-node-prov :- provs/Provenance
+  [ctx-prov    :- provs/Provenance
+   child-provs :- [provs/Provenance]]
   (prov/make-provenance (:source ctx-prov)
                         nil
                         (:declared-in ctx-prov)
@@ -535,8 +568,11 @@
   [p]
   (and p (:qualified-sym p) (contains? schema-foldable-sources (:source p))))
 
-(defn- node-prov
-  [ctx-prov source child-provs name-claimed?]
+(s/defn ^:private node-prov :- provs/Provenance
+  [ctx-prov      :- provs/Provenance
+   source        :- s/Any
+   child-provs   :- [provs/Provenance]
+   name-claimed? :- s/Bool]
   (or (:named-prov source)
       (when (and (not name-claimed?) (schema-named-prov? ctx-prov)) ctx-prov)
       (when (seq child-provs)
@@ -859,7 +895,8 @@
                   :active-refs #{}
                   :owner-ref nil
                   :prov prov
-                  :source source})))))
+                  :source source
+                  :name-claimed? false})))))
 
 (s/defn schema->type :- at/SemanticType
   "Input must be schema-domain (e.g. from admitted declarations)."

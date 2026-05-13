@@ -8,15 +8,16 @@
   (:require [schema.core :as s]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov])
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs])
   (:import [clojure.lang Numbers]))
 
-(defn- native-prov
-  [sym lang]
+(s/defn ^:private native-prov :- provs/Provenance
+  [sym :- s/Symbol, lang :- provs/Lang]
   (prov/make-provenance :native sym nil nil [] lang))
 
-(defn- numbers-prov
-  [method]
+(s/defn ^:private numbers-prov :- provs/Provenance
+  [method :- s/Symbol]
   (native-prov (symbol (str "clojure.lang.Numbers/" method)) :clj))
 
 (s/defn static-call-native-info :- (s/maybe {s/Keyword s/Any})
@@ -46,8 +47,8 @@
 
         :else nil))))
 
-(defn- plus-star-type-for
-  [sym lang]
+(s/defn ^:private plus-star-type-for :- at/SemanticType
+  [sym :- s/Symbol, lang :- provs/Lang]
   (let [p (native-prov sym lang)
         n (at/NumericDyn p)
         zero (at/->FnMethodT p [] n 0 false [])
@@ -56,15 +57,15 @@
         variadic (at/->FnMethodT p [n n n] n 3 true '[x y more])]
     (at/->FunT p [zero unary binary variadic])))
 
-(defn- inc-type-for
-  [sym lang]
+(s/defn ^:private inc-type-for :- at/SemanticType
+  [sym :- s/Symbol, lang :- provs/Lang]
   (let [p (native-prov sym lang)
         n (at/NumericDyn p)
         unary (at/->FnMethodT p [n] n 1 false '[n])]
     (at/->FunT p [unary])))
 
-(defn- str-type-for
-  [sym lang]
+(s/defn ^:private str-type-for :- at/SemanticType
+  [sym :- s/Symbol, lang :- provs/Lang]
   (let [p (native-prov sym lang)
         str-t (at/->GroundT p :str 'Str)
         str-arg (at/Dyn p)
@@ -73,8 +74,8 @@
         variadic (at/->FnMethodT p [str-arg str-arg] str-t 2 true '[s args])]
     (at/->FunT p [zero unary variadic])))
 
-(defn- format-type-for
-  [sym lang]
+(s/defn ^:private format-type-for :- at/SemanticType
+  [sym :- s/Symbol, lang :- provs/Lang]
   (let [p (native-prov sym lang)
         str-t (at/->GroundT p :str 'Str)
         str-arg (at/Dyn p)
@@ -82,8 +83,8 @@
         variadic (at/->FnMethodT p [str-t str-arg] str-t 2 true '[fmt args])]
     (at/->FunT p [unary variadic])))
 
-(defn- int-pred-type-for
-  [sym lang]
+(s/defn ^:private int-pred-type-for :- at/SemanticType
+  [sym :- s/Symbol, lang :- provs/Lang]
   (let [p (native-prov sym lang)
         int-t (at/->GroundT p :int 'Int)
         bool-t (at/->GroundT p :bool 'Bool)

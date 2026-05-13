@@ -7,6 +7,13 @@
 (def foldable-sources
   #{:schema :malli :type-override})
 
+(s/defschema FnMethodJsonData
+  {:t (s/eq "fn-method")
+   :inputs [s/Any]
+   :output s/Any
+   :variadic s/Bool
+   :min_arity s/Int})
+
 (def ^:private default-render-opts
   {:explain-full false})
 
@@ -43,12 +50,14 @@
   [method :- at/SemanticType]
   (render-fn-input-form* method default-render-opts))
 
-(defn- conditional-branch-types
-  [type opts]
+(s/defn ^:private conditional-branch-types :- [s/Any]
+  [type :- at/SemanticType
+   opts :- s/Any]
   (mapv (comp #(render-type-form* % opts) :type) (:branches type)))
 
-(defn- render-refinement-form
-  [type opts]
+(s/defn ^:private render-refinement-form :- s/Any
+  [type :- at/SemanticType
+   opts :- s/Any]
   (let [display (:display-form type)]
     (if (and (seq? display)
              (= 'constrained (first display))
@@ -132,14 +141,16 @@
 
 (declare type->json-data*)
 
-(defn- name-str [x]
+(s/defn ^:private name-str :- (s/maybe s/Str)
+  [x :- s/Any]
   (cond
     (nil? x) nil
     (or (symbol? x) (keyword? x)) (name x)
     :else (pr-str x)))
 
-(defn- fn-method->json-data*
-  [method opts]
+(s/defn ^:private fn-method->json-data* :- FnMethodJsonData
+  [method :- at/SemanticType
+   opts :- s/Any]
   {:t "fn-method"
    :inputs (mapv #(type->json-data* % opts) (:inputs method))
    :output (type->json-data* (:output method) opts)

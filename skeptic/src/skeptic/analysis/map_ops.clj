@@ -3,6 +3,7 @@
             [schema.core :as s]
             [skeptic.analysis.cast.support :as ascs]
             [skeptic.analysis.conditional-arms :as ca]
+            [skeptic.analysis.map-ops.schema :as amos]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -44,18 +45,15 @@
       :else
       nil)))
 
-(def map-key-query-tag
-  ::map-key-query)
-
 (s/defn map-key-query? :- s/Bool
   [query :- s/Any]
-  (at/tagged-map? query map-key-query-tag true))
+  (at/tagged-map? query ::map-key-query true))
 
-(s/defn exact-key-query :- {s/Keyword s/Any}
+(s/defn exact-key-query :- amos/ExactKeyQuery
   ([prov :- provs/Provenance value :- s/Any]
    (exact-key-query prov value nil))
   ([prov :- provs/Provenance value :- s/Any source-form :- s/Any]
-   {map-key-query-tag true
+   {::map-key-query true
     :kind :exact
     :prov prov
     :value value
@@ -65,7 +63,7 @@
   ([type :- at/SemanticType]
    (domain-key-query type nil))
   ([type :- at/SemanticType source-form :- s/Any]
-   {map-key-query-tag true
+   {::map-key-query true
     :kind :domain
     :type (ato/normalize type)
     :source-form source-form}))

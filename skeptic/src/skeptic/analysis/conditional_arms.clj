@@ -1,10 +1,13 @@
 (ns skeptic.analysis.conditional-arms
   (:require [schema.core :as s]
+            [skeptic.analysis.map-ops.schema :as amos]
             [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.provenance.schema :as provs]))
 
-(defn- exact-key-query'
-  [prov k]
+(s/defn ^:private exact-key-query' :- amos/ExactKeyQuery
+  [prov :- provs/Provenance
+   k    :- s/Any]
   ((requiring-resolve 'skeptic.analysis.map-ops/exact-key-query) prov k))
 
 (defn- exact-key-query?'

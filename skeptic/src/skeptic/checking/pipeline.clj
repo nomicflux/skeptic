@@ -16,6 +16,7 @@
             [skeptic.checking.opts :as copts]
             [skeptic.checking.state :as cstate]
             [skeptic.cljs.analyzer-driver :as cljs-driver]
+            [skeptic.cljs.analyzer-driver.schema :as ads]
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
@@ -365,6 +366,14 @@
          :entry (aapi/strip-derived-types entry)
          :summary summary}))))
 
+(s/defn ^:private require-cljs-per-file :- ads/SourceFileAnalysis
+  [cljs-state  :- {s/Any s/Any}
+   source-file :- s/Any
+   ns-sym      :- s/Symbol]
+  (or (get cljs-state source-file)
+      (throw (ex-info "cljs requires cljs-state with per-file entry for source-file"
+                      {:ns ns-sym :source-file (some-> source-file str)}))))
+
 (defn- analyze-source-expr
   [dict ns-sym source-file accessor-summaries cljs-state lang expr]
   (case lang
@@ -376,10 +385,7 @@
                             :accessor-summaries accessor-summaries
                             :lang :clj})
     :cljs
-    (let [ns-ast (some-> cljs-state (get source-file) :ns-ast)
-          _ (when-not ns-ast
-              (throw (ex-info "cljs analyze-source-expr requires cljs-state with :ns-ast for source-file"
-                              {:ns ns-sym :source-file (some-> source-file str)})))
+    (let [ns-ast (:ns-ast (require-cljs-per-file cljs-state source-file ns-sym))
           ast (cljs-driver/analyze-form ns-ast (cf/normalize-check-form expr))]
       (aa/annotate-ast dict ast {:ns ns-sym
                                  :accessor-summaries accessor-summaries
@@ -434,7 +440,7 @@
    exprs))
 
 (s/defn method-output-type :- at/SemanticType
-  [method]
+  [method :- aas/AnnotatedNode]
   (let [{:keys [body output-type]} (aapi/method-result-type method)
         tagged-output (when-let [tag (aapi/node-tag body)]
                         (av/class->type (prov/of output-type) tag))]
@@ -836,11 +842,7 @@
 
 (defn- cljs-namespace-dict
   [opts ns-sym source-file cljs-state var-provs]
-  (let [per-file (some-> cljs-state (get source-file))
-        {:keys [ns-ast asts]} per-file
-        _ (when-not per-file
-            (throw (ex-info "cljs namespace-dict requires cljs-state with per-file entry (intake invariant)"
-                            {:ns ns-sym :source-file (some-> source-file str)})))
+  (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
         top-asts (or asts [])
         form-refs (java.util.IdentityHashMap.)
         schema-result (if (:plumatic-disable opts)

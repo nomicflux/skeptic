@@ -32,7 +32,7 @@
   (if-let [init (:init node)]
     (let [annotated-init ((:recurse ctx) ctx init)]
       (merge node {:init annotated-init} (ac/node-info annotated-init)))
-    node))
+    (assoc node :type (aapi/dyn ctx))))
 
 (defn- local-origin-for-entry
   [ctx sym entry t]

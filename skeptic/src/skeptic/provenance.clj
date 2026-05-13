@@ -1,5 +1,6 @@
 (ns skeptic.provenance
-  (:require [schema.core :as s]
+  (:require [clojure.string :as str]
+            [schema.core :as s]
             [skeptic.analysis.types :as at]
             [skeptic.provenance.schema :as provs]))
 
@@ -84,35 +85,41 @@
   [{:keys [lang]} :- provs/Provenance]
   lang)
 
-(defn- caller-frame
-  "First stack frame outside `java.*`, `clojure.*`, and `skeptic.provenance`.
-  Returned as `\"className/method (file:line)\"`. Used by `of` to make a
-  contract-violation message self-locating."
-  []
+(defn- caller-frames
+  "First `n` stack frames outside `java.*`, `clojure.*`, `schema.*`,
+  `skeptic.provenance`, and `skeptic.analysis.type_ops`. The type-ops
+  skip exists because prov/of is invoked from `derive-prov` and its
+  convenience cousins; the truly informative frames are the chain of
+  external callers, not derive-prov's own reduce lambda."
+  [n]
   (let [trace (.getStackTrace (Thread/currentThread))
         prov-prefix "skeptic.provenance"
+        type-ops-prefix "skeptic.analysis.type_ops"
         skip? (fn [^StackTraceElement f]
                 (let [c (.getClassName f)]
                   (or (.startsWith c "java.")
                       (.startsWith c "clojure.")
                       (.startsWith c "schema.")
-                      (.startsWith c prov-prefix))))
-        ^StackTraceElement frame (or (->> trace (drop-while skip?) first)
-                                     (first trace))]
-    (when frame
-      (str (.getClassName frame) "/" (.getMethodName frame)
-           " (" (.getFileName frame) ":" (.getLineNumber frame) ")"))))
+                      (.startsWith c prov-prefix)
+                      (.startsWith c type-ops-prefix))))]
+    (->> trace
+         (drop-while skip?)
+         (take n)
+         (mapv (fn [^StackTraceElement f]
+                 (str (.getClassName f) "/" (.getMethodName f)
+                      " (" (.getFileName f) ":" (.getLineNumber f) ")"))))))
 
 (s/defn of :- provs/Provenance
   [t :- at/SemanticType]
   (when-not (at/semantic-type-value? t)
     (throw (IllegalArgumentException.
-            (format "prov/of called on non-Type value: %s at %s"
-                    (pr-str t) (caller-frame)))))
+            (format "prov/of called on non-Type value: %s; caller chain: %s"
+                    (pr-str t)
+                    (str/join " <- " (caller-frames 6))))))
   (or (:prov t)
       (throw (IllegalArgumentException.
-              (format "prov/of called on Type with nil provenance at %s"
-                      (caller-frame))))))
+              (format "prov/of called on Type with nil provenance; caller chain: %s"
+                      (str/join " <- " (caller-frames 6)))))))
 
 (defn- source-rank
   [p]

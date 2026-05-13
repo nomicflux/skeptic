@@ -82,10 +82,16 @@
 
 (s/defn annotate-node :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [ctx (assoc ctx :recurse annotate-node)]
-    (-> (annotate-dispatch ctx node)
-        (apply-type-override ctx node)
-        abr/strip-derived-types)))
+  (let [ctx (assoc ctx :recurse annotate-node)
+        result (-> (annotate-dispatch ctx node)
+                   (apply-type-override ctx node)
+                   abr/strip-derived-types)]
+    (when-not (:type result)
+      (throw (IllegalStateException.
+              (format "annotate-node produced node without :type for op %s; form: %s"
+                      (pr-str (:op node))
+                      (pr-str (:form node))))))
+    result))
 
 (s/defn annotate-ast :- aas/AnnotatedNode
   [dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]

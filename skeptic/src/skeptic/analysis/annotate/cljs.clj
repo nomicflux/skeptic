@@ -6,11 +6,13 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
+            [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]))
 
-(defn- tag-type
-  [ctx tag]
+(s/defn ^:private tag-type :- at/SemanticType
+  [ctx :- aapi/AnnotateCtx
+   tag :- s/Any]
   (if tag
     (av/cljs-tag->type (prov/with-ctx ctx) tag)
     (aapi/dyn ctx)))

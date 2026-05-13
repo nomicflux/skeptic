@@ -22,9 +22,11 @@
   in a sci-sandboxed context that exposes only `schema.core`."
   (:require [clojure.walk :as walk]
             [schema.core :as s]
+            [skeptic.analysis.annotate.schema :as aas]
             [skeptic.cljs.analyzer-driver :as ad]
             [skeptic.cljs.schema-interpreter :as si]
-            [skeptic.schema.collect :as collect]))
+            [skeptic.schema.collect :as collect]
+            [skeptic.schema.collect.schema :as scs]))
 
 (def ^:dynamic *requires*
   "Bound to the active cljs namespace's `:requires` map (alias-sym → ns-sym)
@@ -32,77 +34,86 @@
   to rewrite `s/Int` → `schema.core/Int` before JVM eval."
   nil)
 
-(defn- binding-name-str
-  [b]
+(s/defschema AdmitFormPair
+  [(s/one s/Symbol "qsym")
+   (s/one scs/SchemaAdmitOutcome "outcome")])
+
+(s/defn ^:private binding-name-str :- (s/maybe s/Str)
+  [b :- aas/AnnotatedNode]
   (some-> b :name str))
 
-(defn- top-level-let?
-  [ast]
+(s/defn ^:private top-level-let? :- s/Bool
+  [ast :- aas/AnnotatedNode]
   (= :let (:op ast)))
 
-(defn- s-def-shape?
-  [ast]
+(s/defn ^:private s-def-shape? :- s/Bool
+  [ast :- aas/AnnotatedNode]
   (let [bs (:bindings ast)]
-    (and (= 1 (count bs))
-         (some-> (first bs) binding-name-str (.startsWith "output-schema__")))))
+    (boolean
+     (and (= 1 (count bs))
+          (some-> (first bs) binding-name-str (.startsWith "output-schema__"))))))
 
-(defn- s-defn-shape?
-  [ast]
+(s/defn ^:private s-defn-shape? :- s/Bool
+  [ast :- aas/AnnotatedNode]
   (let [names (map binding-name-str (:bindings ast))]
-    (and (some #(and % (re-matches #"output-schema\d+" %)) names)
-         (some #(and % (re-matches #"input-schema\d+" %)) names))))
+    (boolean
+     (and (some #(and % (re-matches #"output-schema\d+" %)) names)
+          (some #(and % (re-matches #"input-schema\d+" %)) names)))))
 
-(defn- s-defschema-shape?
-  [ast]
-  (and (= :def (:op ast))
-       (let [init-form (some-> ast :init :form)]
-         (and (seq? init-form)
-              (= 'clojure.core/vary-meta (first init-form))))))
+(s/defn ^:private s-defschema-shape? :- s/Bool
+  [ast :- aas/AnnotatedNode]
+  (boolean
+   (and (= :def (:op ast))
+        (let [init-form (some-> ast :init :form)]
+          (and (seq? init-form)
+               (= 'clojure.core/vary-meta (first init-form)))))))
 
-(defn- find-binding-init-form
-  [bindings target-sym]
+(s/defn ^:private find-binding-init-form :- s/Any
+  [bindings   :- [aas/AnnotatedNode]
+   target-sym :- s/Symbol]
   (some (fn [b] (when (= target-sym (:name b)) (-> b :init :form)))
         bindings))
 
-(defn- bare-sym
-  [s]
+(s/defn ^:private bare-sym :- (s/maybe s/Symbol)
+  [s :- (s/maybe s/Symbol)]
   (when s (symbol (name s))))
 
-(defn- unquote-form
+(s/defn ^:private unquote-form :- s/Any
   "cljs analyzer preserves arglists meta as the quoted form `(quote ([x]))`
   rather than the evaluated value `([x])`. Unwrap one level of `quote` so
   downstream code sees the same shape as JVM `(meta v)`."
-  [form]
+  [form :- s/Any]
   (if (and (seq? form) (= 'quote (first form)))
     (second form)
     form))
 
-(defn- def-ast-meta
+(s/defn ^:private def-ast-meta :- s/Any
   "Reads Var metadata (e.g. {:schema ... :arglists ...}) from a `:def` AST
   node. cljs analyzer attaches it at `[:var :info :meta]`."
-  [def-ast]
+  [def-ast :- aas/AnnotatedNode]
   (get-in def-ast [:var :info :meta]))
 
-(defn- resolve-alias-sym
-  [sym]
+(s/defn ^:private resolve-alias-sym :- s/Symbol
+  [sym :- s/Symbol]
   (if-let [ns-part (some-> sym namespace symbol)]
     (if-let [target (get *requires* ns-part)]
       (symbol (name target) (name sym))
       sym)
     sym))
 
-(defn- resolve-aliases
-  [form]
+(s/defn ^:private resolve-aliases :- s/Any
+  [form :- s/Any]
   (walk/postwalk
    (fn [x] (if (symbol? x) (resolve-alias-sym x) x))
    form))
 
-(defn- resolve-schema-form
-  [form]
+(s/defn ^:private resolve-schema-form :- s/Any
+  [form :- s/Any]
   (si/interpret-schema-form (resolve-aliases form)))
 
-(defn- build-fn-schema
-  [ast meta-info]
+(s/defn ^:private build-fn-schema :- s/Any
+  [ast       :- aas/AnnotatedNode
+   meta-info :- s/Any]
   (let [[_ output-sym input-vec] (:schema meta-info)
         input-sym (first input-vec)
         bindings (:bindings ast)
@@ -111,28 +122,48 @@
     (s/->FnSchema (resolve-schema-form output-form)
                   [(resolve-schema-form input-form)])))
 
-(defn- defschema-form
-  [ast]
+(s/defn ^:private defschema-form :- s/Any
+  [ast :- aas/AnnotatedNode]
   (let [init-form (-> ast :init :form)
         schema-with-name-call (second init-form)]
     (second schema-with-name-call)))
 
-(defn- error-result
-  [ns-sym qualified-sym defn-sym source-file e]
+(s/defn ^:private require-def-ast :- aas/AnnotatedNode
+  [ast :- aas/AnnotatedNode]
+  (or (ad/find-by-op :def ast)
+      (throw (ex-info "expected :def AST under shape-validated form" {:ast ast}))))
+
+(s/defn ^:private require-name-sym :- s/Symbol
+  [def-ast :- aas/AnnotatedNode]
+  (or (bare-sym (:name def-ast))
+      (throw (ex-info "expected non-nil :name on :def AST" {:def-ast def-ast}))))
+
+(s/defn ^:private error-result :- scs/SchemaErrorResult
+  [ns-sym        :- s/Symbol
+   qualified-sym :- s/Symbol
+   defn-sym      :- s/Symbol
+   source-file   :- s/Any
+   e             :- Exception]
   (collect/declaration-error-result
    ns-sym qualified-sym (with-meta defn-sym {:file source-file}) e))
 
-(defn- admit-with
-  [ns-sym qualified-sym defn-sym source-file build]
+(s/defn ^:private admit-with :- scs/SchemaAdmitOutcome
+  [ns-sym        :- s/Symbol
+   qualified-sym :- s/Symbol
+   defn-sym      :- s/Symbol
+   source-file   :- s/Any
+   build]
   (try
     {:ok (build)}
     (catch Exception e
       {:err (error-result ns-sym qualified-sym defn-sym source-file e)})))
 
-(defn- admit-s-def
-  [ns-sym source-file ast]
-  (let [def-ast (ad/find-by-op :def ast)
-        defn-sym (some-> def-ast :name bare-sym)
+(s/defn ^:private admit-s-def :- AdmitFormPair
+  [ns-sym      :- s/Symbol
+   source-file :- s/Any
+   ast         :- aas/AnnotatedNode]
+  (let [def-ast (require-def-ast ast)
+        defn-sym (require-name-sym def-ast)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
         meta-info (def-ast-meta def-ast)
         schema (resolve-schema-form (:schema meta-info))]
@@ -141,8 +172,10 @@
                  #(collect/collect-schemas
                    {:schema schema :ns ns-sym :name defn-sym :arglists []}))]))
 
-(defn- admit-s-defschema
-  [ns-sym source-file ast]
+(s/defn ^:private admit-s-defschema :- AdmitFormPair
+  [ns-sym      :- s/Symbol
+   source-file :- s/Any
+   ast         :- aas/AnnotatedNode]
   (let [defn-sym (:name ast)
         qualified-sym (if (qualified-symbol? defn-sym)
                         defn-sym
@@ -154,10 +187,12 @@
                  #(collect/collect-schemas
                    {:schema schema :ns ns-sym :name bare-name :arglists []}))]))
 
-(defn- admit-s-defn
-  [ns-sym source-file ast]
-  (let [def-ast (ad/find-by-op :def ast)
-        defn-sym (some-> def-ast :name bare-sym)
+(s/defn ^:private admit-s-defn :- AdmitFormPair
+  [ns-sym      :- s/Symbol
+   source-file :- s/Any
+   ast         :- aas/AnnotatedNode]
+  (let [def-ast (require-def-ast ast)
+        defn-sym (require-name-sym def-ast)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
         meta-info (def-ast-meta def-ast)
         fn-schema (build-fn-schema ast meta-info)]
@@ -169,8 +204,10 @@
                     :name defn-sym
                     :arglists (unquote-form (:arglists meta-info))}))]))
 
-(defn- admit-form
-  [ns-sym source-file ast]
+(s/defn ^:private admit-form :- (s/maybe AdmitFormPair)
+  [ns-sym      :- s/Symbol
+   source-file :- s/Any
+   ast         :- aas/AnnotatedNode]
   (cond
     (and (top-level-let? ast) (s-defn-shape? ast))
     (admit-s-defn ns-sym source-file ast)
@@ -183,7 +220,7 @@
 
     :else nil))
 
-(defn ns-schema-results-cljs
+(s/defn ns-schema-results-cljs :- scs/SchemaAdmissionResult
   "Per-namespace Plumatic Schema admission for cljs sources.
 
   Inputs:
@@ -194,7 +231,10 @@
   - `ns-sym`: the namespace symbol.
   - `top-level-asts`: per-form analyzed ASTs for the file's top-level
     forms (from `analyzer-driver/analyze-form`)."
-  [ns-ast source-file ns-sym top-level-asts]
+  [ns-ast         :- aas/AnnotatedNode
+   source-file    :- s/Any
+   ns-sym         :- s/Symbol
+   top-level-asts :- [aas/AnnotatedNode]]
   (binding [*requires* (:requires ns-ast)]
     (reduce
      (fn [acc ast]

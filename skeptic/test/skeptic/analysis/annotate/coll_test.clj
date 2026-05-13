@@ -18,7 +18,8 @@
     (is-type= (T [(s/one s/Int 'a)]) (sut/coll-take-prefix-type vec-type 1))))
 
 (deftest collection-output-helpers-test
-  (let [args [{:type (T [s/Int])} {:type (T [s/Int])}]]
+  (let [args [{:op :const :form nil :type (T [s/Int])}
+              {:op :const :form nil :type (T [s/Int])}]]
     (is (at/seq-type? (sut/concat-output-type tp args)))
     (is (some? (sut/into-output-type args)))))
 
@@ -29,7 +30,8 @@
       (is (= tp (prov/of result)))))
   (testing "result prov source is the anchor, not derived from arg types"
     (let [other-vec (at/->VectorT other-prov [] (at/->GroundT other-prov :int 'Int))
-          args [{:type other-vec} {:type other-vec}]
+          args [{:op :const :form nil :type other-vec}
+                {:op :const :form nil :type other-vec}]
           result (some! (sut/concat-output-type tp args))
           result-prov (prov/of result)]
       (is (at/seq-type? result))
@@ -109,16 +111,16 @@
 
 (deftest concat-output-type-non-empty-threads-joined-ref-test
   (testing "all args have seqish elements: refs has 1 entry (the joined)"
-    (let [args [{:type (at/->VectorT tp [] (int-t tp))}
-                {:type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}
+                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
           result (some! (sut/concat-output-type tp args))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs))))))
 
 (deftest into-output-type-vector-target-threads-refs-test
   (testing "vector-target: refs count = 1"
-    (let [args [{:type (at/->VectorT tp [] (int-t tp))}
-                {:type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}
+                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
           result (some! (sut/into-output-type args))
           refs (:refs (prov/of result))]
       (is (at/vector-type? result))
@@ -126,8 +128,8 @@
 
 (deftest into-output-type-seq-target-threads-refs-test
   (testing "seq-target: refs count = 1"
-    (let [args [{:type (at/->SeqT tp [] (int-t tp))}
-                {:type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->SeqT tp [] (int-t tp))}
+                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
           result (some! (sut/into-output-type args))
           refs (:refs (prov/of result))]
       (is (at/seq-type? result))

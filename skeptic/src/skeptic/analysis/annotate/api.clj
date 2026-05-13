@@ -83,6 +83,27 @@
   [node :- aas/AnnotatedNode type :- at/SemanticType]
   (assoc node :type type))
 
+(def loop-id-key
+  "Skeptic-owned key stamped on annotated `:recur` nodes by `annotate-recur`,
+   identifying the `annotate-loop` / `annotate-fn-method` pass that produced
+   them. Does not depend on the analyzer's `:loop-id` field (clj-only)."
+  ::loop-id)
+
+(s/defn loop-recur-id :- s/Any
+  "Read the Skeptic-stamped loop id from a `:recur` node. Returns nil for
+   unannotated recurs (structure-shared subtrees not visited by this pass)."
+  [node :- aas/AnnotatedNode]
+  (get node loop-id-key))
+
+(s/defn with-loop-id :- aas/AnnotatedNode
+  [node :- aas/AnnotatedNode id :- s/Any]
+  (assoc node loop-id-key id))
+
+(def current-loop-id-key
+  "Skeptic-owned ctx key carrying the current enclosing loop's stamped id.
+   Producers: `annotate-loop` mints and binds; `annotate-recur` reads."
+  ::current-loop-id)
+
 (s/defn node-location :- s/Any
   [node :- aas/AnnotatedNode]
   (select-keys (meta (:form node)) [:file :line :column :end-line :end-column]))
