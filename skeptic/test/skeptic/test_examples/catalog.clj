@@ -2,6 +2,8 @@
   (:require [skeptic.test-examples.basics]
             [skeptic.test-examples.collections]
             [skeptic.test-examples.contracts-xns-schema]
+            [skeptic.test-examples.contracts-xns-consumer]
+            [skeptic.test-examples.contracts-xns-repro]
             [skeptic.test-examples.control-flow]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.fixture-flags]
@@ -21,6 +23,8 @@
    :collections
    :resolution
    :contracts-xns-schema
+   :contracts-xns-consumer
+   :contracts-xns-repro
    :contracts
    :nullability-xns-schema
    :nullability
@@ -43,6 +47,10 @@
                 :file (File. "test/skeptic/test_examples/resolution.clj")}
    :contracts-xns-schema {:ns 'skeptic.test-examples.contracts-xns-schema
                           :file (File. "test/skeptic/test_examples/contracts_xns_schema.clj")}
+   :contracts-xns-consumer {:ns 'skeptic.test-examples.contracts-xns-consumer
+                            :file (File. "test/skeptic/test_examples/contracts_xns_consumer.clj")}
+   :contracts-xns-repro {:ns 'skeptic.test-examples.contracts-xns-repro
+                         :file (File. "test/skeptic/test_examples/contracts_xns_repro.clj")}
    :contracts {:ns 'skeptic.test-examples.contracts
                :file (File. "test/skeptic/test_examples/contracts.clj")}
    :nullability-xns-schema {:ns 'skeptic.test-examples.nullability-xns-schema
@@ -139,7 +147,7 @@
   (delay
     (reduce (fn [acc category]
               (let [{ns-sym :ns source-file :file} (get fixture-envs category)
-                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym :clj source-file)]
+                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym :clj source-file nil)]
                 (merge acc entries)))
             {}
             schema-fixture-order)))

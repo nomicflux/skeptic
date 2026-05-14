@@ -800,6 +800,19 @@
           :when (var? v)]
     (.put form-refs v form)))
 
+(defn- collect-user-fn-summaries
+  "Walks an ns's discovery output for `s/defn` source forms and returns the
+  subset whose body is a recognised path-type-predicate over a destructured
+  key. Keyed by qualified-sym. Anything that doesn't fit the recognised
+  shape is silently omitted."
+  [discovery-out]
+  (into {}
+        (keep (fn [[qsym {:keys [role form]}]]
+                (when (= :s/defn role)
+                  (when-let [summary (ac/path-predicate-summary-from-form form)]
+                    [qsym summary]))))
+        (:declarations discovery-out)))
+
 (defn- ns-var-provs
   "Per-namespace pre-admission {qsym → Provenance}. Plumatic anchors :schema
   with declared Var meta; Malli anchors :malli on every Var the Malli admission
@@ -826,51 +839,42 @@
     (merge schema-provs malli-provs)))
 
 (defn- clj-namespace-dict
-  [opts ns-sym source-file var-provs project-discovery]
+  [opts ns-sym source-file var-provs form-refs]
   (require ns-sym)
-  (let [discovery-out (or (get project-discovery ns-sym)
-                          (when source-file (discovery/discover ns-sym source-file)))
-        form-refs (java.util.IdentityHashMap.)]
-    (when discovery-out
-      (populate-form-refs! form-refs ns-sym discovery-out))
-    (binding [*ns* (the-ns ns-sym)
-              ab/*form-refs* form-refs
-              ab/*var-provs* var-provs]
-      (let [schema-result (typed-decls/typed-ns-results opts ns-sym :clj source-file)
-            malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj)]
-        (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))))
+  (binding [*ns* (the-ns ns-sym)
+            ab/*var-provs* var-provs]
+    (let [schema-result (typed-decls/typed-ns-results opts ns-sym :clj source-file form-refs)
+          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj form-refs)]
+      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (defn- cljs-namespace-dict
-  [opts ns-sym source-file cljs-state var-provs]
+  [opts ns-sym source-file cljs-state var-provs form-refs]
   (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
         top-asts (or asts [])
-        form-refs (java.util.IdentityHashMap.)
         schema-result (if (:plumatic-disable opts)
-                        (typed-decls/convert-collected ns-sym :cljs {:entries {} :errors []})
-                        (binding [ab/*form-refs* form-refs
-                                  ab/*var-provs* var-provs]
+                        (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+                        (binding [ab/*var-provs* var-provs]
                           (typed-decls/convert-collected
-                           ns-sym :cljs
+                           ns-sym :cljs form-refs
                            (schema-collect-cljs/ns-schema-results-cljs
                             ns-ast source-file ns-sym top-asts))))
         malli-result (if (:malli-disable opts)
-                       (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})
-                       (binding [ab/*form-refs* form-refs
-                                 ab/*var-provs* var-provs]
+                       (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+                       (binding [ab/*var-provs* var-provs]
                          (typed-decls.malli/convert-collected
-                          ns-sym :cljs
+                          ns-sym :cljs form-refs
                           (malli-collect-cljs/ns-malli-spec-results-cljs
                            source-file ns-sym top-asts))))]
     (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))
 
 (s/defn namespace-dict :- s/Any
-  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs project-discovery]
+  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs form-refs]
   (case lang
-    :clj  (clj-namespace-dict opts ns-sym source-file var-provs project-discovery)
-    :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)
+    :clj  (clj-namespace-dict opts ns-sym source-file var-provs form-refs)
+    :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)
     :both (typed-decls/merge-type-dicts
-           [(clj-namespace-dict opts ns-sym source-file var-provs project-discovery)
-            (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs)])))
+           [(clj-namespace-dict opts ns-sym source-file var-provs form-refs)
+            (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)])))
 
 (defn project-discovery
   [nss-with-source-files]
@@ -975,12 +979,18 @@
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
         project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
         var-provs (project-var-provs opts project-disc)
+        form-refs (java.util.IdentityHashMap.)
+        _ (doseq [[ns-sym discovery-out] project-disc
+                  :when discovery-out]
+            (populate-form-refs! form-refs ns-sym discovery-out))
+        user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
+                                     {} project-disc)
         cljs-state (preload-cljs-state! (:cljs-disable opts) loaded)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs project-disc))
+                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs form-refs))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))
@@ -1015,7 +1025,7 @@
                           per-ns-admission)
         per-ns-failures (merge load-failures admission-failures accessor-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
-                           cljs-state project-disc var-provs)))
+                           cljs-state project-disc var-provs form-refs user-fn-summaries)))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]
@@ -1113,13 +1123,15 @@
         lang (lang-of-source-file form-opts source-file)
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
-        pass-results (mapv (fn [pass-lang]
-                             (let [needs-jvm? (#{:clj :both} pass-lang)]
-                               (with-jvm-ns needs-jvm? ns
-                                 #(read-pass-results dict ignore-body ns source-file
-                                                     accessor-summaries cljs-state pass-lang
-                                                     form-opts))))
-                           passes)
+        pass-results (binding [ac/*user-fn-path-predicate-summaries*
+                               (or (:user-fn-summaries project-state) {})]
+                       (mapv (fn [pass-lang]
+                               (let [needs-jvm? (#{:clj :both} pass-lang)]
+                                 (with-jvm-ns needs-jvm? ns
+                                   #(read-pass-results dict ignore-body ns source-file
+                                                       accessor-summaries cljs-state pass-lang
+                                                       form-opts))))
+                             passes))
         form-findings (vec (mapcat :results pass-results))
         deduped (if (= :both lang)
                   (dedup-cljc-findings form-findings)

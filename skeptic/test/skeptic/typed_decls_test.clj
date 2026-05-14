@@ -13,21 +13,22 @@
 (deftest desc->type-fn-schema-returns-fun-type
   (let [t (sut/desc->type tp {:name "skeptic.schema.collect/raw-symbol-fn"
              :schema (s/make-fn-schema clojure.lang.Symbol
-                                       [[(s/one java.lang.String 'f)]])})]
+                                       [[(s/one java.lang.String 'f)]])}
+            nil nil)]
     (is (at/fun-type? t))
     (is (= 1 (count (at/fun-methods t))))
     (is (= [(T s/Str)] (at/fn-method-inputs (first (at/fun-methods t)))))
     (is (= (T s/Symbol) (at/fn-method-output (first (at/fun-methods t)))))))
 
 (deftest desc->type-non-callable-returns-ground-type
-  (let [t (sut/desc->type tp {:name "foo/bar" :schema s/Keyword})]
+  (let [t (sut/desc->type tp {:name "foo/bar" :schema s/Keyword} nil nil)]
     (is (= (T s/Keyword) t))
     (is (not (at/fun-type? t)))))
 
 (deftest typed-ns-results-dict-present-unannotated-absent
   (require 'skeptic.test-examples.basics)
   (let [{:keys [dict]} (sut/typed-ns-results {} 'skeptic.test-examples.basics :clj
-                                             (java.io.File. "test/skeptic/test_examples/basics.clj"))
+                                             (java.io.File. "test/skeptic/test_examples/basics.clj") nil)
         int-add-type (get dict 'skeptic.test-examples.basics/int-add)]
     (testing "unannotated vars are absent from dict"
       (is (not (contains? dict 'skeptic.test-examples.basics/sample-unannotated-fn))))
@@ -59,7 +60,7 @@
 
 (defn- run-convert [sym]
   (let [desc (desc-for (resolve sym))
-        result (sut/convert-desc *ns* sym desc :clj)]
+        result (sut/convert-desc *ns* sym desc :clj nil)]
     (get (:provenance result) sym)))
 
 (deftest convert-desc-uses-declared-symbol-provenance

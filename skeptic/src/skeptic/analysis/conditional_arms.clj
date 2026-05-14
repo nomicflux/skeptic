@@ -32,7 +32,7 @@
   (let [p (prov/of arm-type)]
     (mapv #(exact-key-query' p %) path)))
 
-(s/defn ^:private refine-by-descriptor :- at/SemanticType
+(s/defn refine-by-descriptor :- at/SemanticType
   [arm-type   :- at/SemanticType
    descriptor :- (s/maybe {s/Keyword s/Any})]
   (cond
@@ -79,21 +79,43 @@
   [cond-type :- at/SemanticType]
   (mapv :type (effective-conditional-branches cond-type)))
 
-(defn- unwrap-exact-path
+(defn unwrap-exact-path
   "Convert path (vector of `exact-key-query` records) to the raw key vector
-   that descriptors store. Returns nil if any element is not an exact query
-   (so routing can defer to the structural fallback)."
+   that descriptors store. Returns nil if any element is not an exact query."
   [path]
   (when (every? exact-key-query?' path)
     (mapv :value path)))
 
-(defn- pred-descriptor-matches?
-  [desc raw-path pred-info]
-  (and desc
-       (= :path-type-predicate (:kind desc))
-       (= raw-path (:path desc))
-       (= (:pred pred-info) (:pred desc))
-       (= (:class pred-info) (:class desc))))
+(s/defn dispatch-incompatible-with-predicate? :- s/Bool
+  "True when arm K's runtime dispatch is ruled out by user assertion
+   `(pred-info, raw-path, polarity)` under s/conditional first-match semantics.
+
+   Path-type-predicate descriptors are positive (the arm's predicate must be
+   true for the arm to fire). The dispatch-order rule says:
+
+   - K's own descriptor matches (pred, path): K can dispatch only when the
+     user's polarity is true. polarity=false drops K.
+   - Any j < K with a matching descriptor: K can dispatch only when j's
+     predicate is false on the value, i.e., polarity=false. polarity=true
+     forces j to dispatch instead, dropping K."
+  [branches  :- [{s/Any s/Any}]
+   k         :- s/Int
+   pred-info :- {s/Keyword s/Any}
+   raw-path  :- [s/Any]
+   polarity  :- s/Bool]
+  (let [matches? (fn [d]
+                   (and d
+                        (= :path-type-predicate (:kind d))
+                        (= raw-path (:path d))
+                        (= (:pred pred-info) (:pred d))
+                        (= (:class pred-info) (:class d))))
+        own-conflict? (and (matches? (:descriptor (nth branches k)))
+                           (not polarity))
+        earlier-forces? (and polarity
+                             (boolean
+                              (some #(matches? (:descriptor (nth branches %)))
+                                    (range k))))]
+    (or own-conflict? earlier-forces?)))
 
 (defn- values-descriptor-matches?
   [desc raw-path values]
@@ -130,25 +152,16 @@
       (= 1 (count kept)) (:type (first kept))
       :else              (at/->ConditionalT prov kept))))
 
-(s/defn route-conditional-by-predicate :- (s/maybe at/SemanticType)
-  "If any arm's descriptor matches `(path, pred-info)`, return that arm's
-   effective type (polarity=true) or the ConditionalT minus that arm
-   (polarity=false). Else nil so callers can fall back to a structural walk."
-  [cond-type :- at/SemanticType
-   path      :- [s/Any]
-   pred-info :- {s/Keyword s/Any}
-   polarity  :- s/Bool]
-  (when-let [raw-path (unwrap-exact-path path)]
-    (when-let [idx (match-arm-index
-                    (:branches cond-type)
-                    #(pred-descriptor-matches? % raw-path pred-info))]
-      (if polarity
-        (effective-arm-at cond-type idx)
-        (rebuild-without-arm cond-type idx)))))
-
 (s/defn route-conditional-by-values :- (s/maybe at/SemanticType)
-  "Like `route-conditional-by-predicate`, but for descriptors of `:values`
-   shape (e.g. discriminator-keyword case)."
+  "Fast path for value-descriptor (enumerated tagged-dispatch) narrowing:
+   if an arm's values-descriptor exactly matches `(path, values)`, return
+   that arm's effective type (polarity=true) or the conditional minus that
+   arm (polarity=false). Returns nil when no descriptor matches so callers
+   fall back to structural refinement.
+
+   Sound because values-descriptors define mutually exclusive enumerated
+   sets at a single path; cf. the dropped predicate-descriptor variant,
+   which assumed mutual exclusivity it could not guarantee."
   [cond-type :- at/SemanticType
    path      :- [s/Any]
    values    :- [s/Any]

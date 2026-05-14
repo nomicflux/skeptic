@@ -19,3 +19,13 @@
 (s/defn f :- s/Int
   []
   1)
+
+(s/defschema Base {})
+
+(s/defschema Single (merge Base {:k s/Str}))
+
+(s/defschema Either
+  (s/conditional
+    #(vector? (:k %)) (merge Base {:k [s/Str]})
+    #(some? (:k %)) (merge Base {:k s/Str})
+    :else Base))

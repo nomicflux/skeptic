@@ -36,7 +36,7 @@
   (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
         result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags :clj
-                                             (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags))]
+                                             (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags) nil)]
     (is-type= (ps/T s/Int)
               (get-in result [:dict 'some.ns/some-fn]))))
 

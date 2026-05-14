@@ -12,7 +12,6 @@
            [schema.core One Recursive]))
 
 (def ^:dynamic *var-provs* nil)
-(def ^:dynamic *form-refs* nil)
 
 (def ^:private ImportResult
   {:type at/SemanticType :closed-refs #{s/Any}})
@@ -105,11 +104,12 @@
     (try (resolve form) (catch Exception _ nil))))
 
 (defn- lookup-form-ref
-  [v]
-  (when (and *form-refs* (instance? clojure.lang.Var v))
-    (some-> (.get ^java.util.IdentityHashMap *form-refs* v)
-            descriptors/raw->descriptor
-            :schema-form)))
+  [ctx v]
+  (let [form-refs (:form-refs ctx)]
+    (when (and form-refs (instance? clojure.lang.Var v))
+      (some-> (.get ^java.util.IdentityHashMap form-refs v)
+              descriptors/raw->descriptor
+              :schema-form))))
 
 (defn- inline-named-name
   [form]
@@ -162,7 +162,7 @@
   (let [v        (resolve-form-var form)
         qsym     (when (instance? clojure.lang.Var v) (sb/qualified-var-symbol v))
         active?  (and qsym (contains? (:active-refs ctx) qsym))
-        ref-form (when (and v (not active?)) (lookup-form-ref v))
+        ref-form (when (and v (not active?)) (lookup-form-ref ctx v))
         sub-ctx  (cond-> ctx
                    qsym (update :active-refs conj qsym))
         child-forms (cond
@@ -230,8 +230,8 @@
           (iterate inc start-id))))
 
 (defn- source-descriptor
-  [prov form]
-  (loop [stack   [{:op :descend :form form :ctx {:active-refs #{}} :id 0}]
+  [prov form form-refs]
+  (loop [stack   [{:op :descend :form form :ctx {:active-refs #{} :form-refs form-refs} :id 0}]
          next-id 1
          results {}]
     (if (empty? stack)
@@ -267,7 +267,7 @@
                    (assoc results id (assemble-descriptor spec resolved)))))))))
 
 (defn- descriptor-source
-  [prov descriptor]
+  [prov descriptor form-refs]
   (let [descriptor (or (when (seq? descriptor)
                          (descriptors/raw->descriptor descriptor))
                        descriptor)]
@@ -275,19 +275,19 @@
       (nil? descriptor) nil
       (and (map? descriptor) (contains? descriptor :kind))
       (case (:kind descriptor)
-        :def (source-descriptor prov (:schema-form descriptor))
-        :defschema (source-descriptor prov (:schema-form descriptor))
+        :def (source-descriptor prov (:schema-form descriptor) form-refs)
+        :defschema (source-descriptor prov (:schema-form descriptor) form-refs)
         :defn {:kind :defn
-               :output-source (source-descriptor prov (:output-form descriptor))
+               :output-source (source-descriptor prov (:output-form descriptor) form-refs)
                :arglists (into {}
                                (map (fn [[k v]]
                                       [k (assoc v
                                                 :input-sources
-                                                (mapv #(source-descriptor prov %)
+                                                (mapv #(source-descriptor prov % form-refs)
                                                       (:input-forms v)))]))
                                (:arglists descriptor))}
         nil)
-      :else (source-descriptor prov descriptor))))
+      :else (source-descriptor prov descriptor form-refs))))
 
 (defn- child-source
   [source i]
@@ -902,8 +902,13 @@
   "Input must be schema-domain (e.g. from admitted declarations)."
   ([prov   :- provs/Provenance
     schema :- s/Any]
-   (schema->type prov schema nil))
+   (schema->type prov schema nil nil))
   ([prov       :- provs/Provenance
     schema     :- s/Any
     descriptor :- s/Any]
-   (import-schema-type prov (admit-schema schema) (descriptor-source prov descriptor))))
+   (schema->type prov schema descriptor nil))
+  ([prov       :- provs/Provenance
+    schema     :- s/Any
+    descriptor :- s/Any
+    form-refs  :- s/Any]
+   (import-schema-type prov (admit-schema schema) (descriptor-source prov descriptor form-refs))))

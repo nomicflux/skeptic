@@ -1,8 +1,9 @@
 (ns skeptic.analysis.bridge.descriptors
-  "Per-form descriptor extraction for Plumatic source forms stored in
-  *form-refs*. Pipeline puts raw `(s/defn ...)` / `(s/def ...)` /
-  `(s/defschema ...)` lists into the IdentityHashMap; bridge.clj normalizes
-  them via `raw->descriptor` on demand.
+  "Per-form descriptor extraction for Plumatic source forms stored in the
+  project-wide form-refs IdentityHashMap (built once in
+  `skeptic.checking.pipeline/project-state`, threaded through bridge ctx).
+  Pipeline puts raw `(s/defn ...)` / `(s/def ...)` / `(s/defschema ...)` lists
+  into the map; bridge.clj normalizes them via `raw->descriptor` on demand.
 
   Pipeline-side filtering (only Plumatic-discovered Vars get stored) means a
   head-name match is sufficient at consumer time — alias resolution already

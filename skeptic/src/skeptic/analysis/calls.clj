@@ -229,6 +229,69 @@
 
       :else nil)))
 
+(def ^:dynamic *user-fn-path-predicate-summaries*
+  "Project-scoped registry `{qualified-sym → {:pred kw [:class C] :path [kw ...]}}`
+   recognising user-defined fns whose body reduces to a built-in path-type-predicate
+   on a destructured key of their first parameter. Bound by
+   `skeptic.checking.pipeline/check-ns` from project-state; read by
+   `skeptic.analysis.origin/test->assumption` so calls like `(b-params? params)`
+   propagate as `(vector?, [:k], _)` narrowing on `params`."
+  {})
+
+(s/defn user-fn-path-predicate-info :- (s/maybe {s/Keyword s/Any})
+  "Lookup helper for `*user-fn-path-predicate-summaries*`."
+  [sym :- (s/maybe s/Symbol)]
+  (when sym
+    (get *user-fn-path-predicate-summaries* sym)))
+
+(defn- s-defn-head?
+  [sym]
+  (contains? '#{s/defn defn schema.core/defn} sym))
+
+(defn- single-body-after-params
+  [form]
+  (when (and (seq? form) (s-defn-head? (first form)))
+    (loop [items (rest form)]
+      (when (seq items)
+        (let [head (first items)
+              tail (rest items)]
+          (if (vector? head)
+            (when (= 1 (count tail))
+              [head (first tail)])
+            (recur tail)))))))
+
+(defn- destructured-keys-from-params
+  [params]
+  (let [spec (first params)]
+    (when (and (map? spec)
+               (vector? (:keys spec))
+               (every? simple-symbol? (:keys spec)))
+      (set (:keys spec)))))
+
+(defn- builtin-pred-kw-for-source-sym
+  [pred-sym]
+  (when (symbol? pred-sym)
+    (or (get type-predicate-sym->pred pred-sym)
+        (some-> pred-sym resolve symbol type-predicate-sym->pred))))
+
+(defn path-predicate-summary-from-form
+  "Returns `{:pred kw :path [kw]}` when `form` is
+   `(s/defn name [doc?] [attr-map?] :- s/Bool [{:keys [...]} :- _] (PRED k))`
+   where PRED is a recognised built-in single-arg type predicate and `k` is one
+   of the destructured `:keys`. Returns nil otherwise.
+   Only the single-arity, single-body shape is recognised; multi-arity, attr
+   maps with metadata other than the schema marker, and predicates not in the
+   built-in registry fall through."
+  [form]
+  (when-let [[params body] (single-body-after-params form)]
+    (when-let [keys-set (destructured-keys-from-params params)]
+      (when (and (seq? body)
+                 (= 2 (count body))
+                 (symbol? (second body))
+                 (contains? keys-set (second body)))
+        (when-let [pred-kw (builtin-pred-kw-for-source-sym (first body))]
+          {:pred pred-kw :path [(keyword (second body))]})))))
+
 (s/defn type-predicate-assumption-info :- (s/maybe aos/PredInfo)
   [fn-node :- s/Any
    args :- [s/Any]]

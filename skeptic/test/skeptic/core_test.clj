@@ -5,6 +5,7 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.checking.pipeline :as checking]
+            [skeptic.config :as config]
             [skeptic.file :as file]
             [skeptic.analysis.types :as at]
             [skeptic.core :as sut]
@@ -561,7 +562,9 @@
                   (fn [_] {:files (vec (vals files)) :failures []})
                   file/ns-for-clojure-file
                   (fn [f] (some (fn [[ns f']] (when (= f f') [ns f]))
-                                files))]
+                                files))
+                  config/path-excluded?
+                  (fn [_ _ _] false)]
       (testing "full-project run reports the cross-ns output mismatch in consumer"
         (with-out-str
           (is (= 1 (sut/check-project {} "." ".")))))

@@ -109,7 +109,7 @@
 
 (deftest regex-return-declaration-and-checking
   (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics :clj
-                                                            (ps/fixture-file-for-ns 'skeptic.test-examples.basics))
+                                                            (ps/fixture-file-for-ns 'skeptic.test-examples.basics) nil)
         entries dict
         declaration-error (some #(when (= 'skeptic.test-examples.basics/regex-return-caller
                                           (:blame %))

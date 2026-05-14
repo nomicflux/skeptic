@@ -371,11 +371,11 @@
         map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
         form-refs (doto (java.util.IdentityHashMap.) (.put declared-var '{:result skeptic.test-examples.form-refs/MapBody}))
         desc {:schema {:result [s/Int]} :arglists nil}
-        result (binding [ab/*form-refs* form-refs]
-                 (td/convert-desc 'skeptic.test-examples.form-refs
-                                  'skeptic.test-examples.form-refs/fn-with-map-ann
-                                  desc
-                                  :clj))
+        result (td/convert-desc 'skeptic.test-examples.form-refs
+                                'skeptic.test-examples.form-refs/fn-with-map-ann
+                                desc
+                                :clj
+                                form-refs)
         result-type (get (:dict result) 'skeptic.test-examples.form-refs/fn-with-map-ann)
         val-type (entry-val-by-key result-type :result)]
     (is (some? val-type))
@@ -385,8 +385,7 @@
 (deftest source-descriptor-cycle-via-cond-pre-vector-terminates-test
   (let [form '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/BoundSchemaRef])
         form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
-        descriptor (binding [ab/*form-refs* form-refs]
-                     (#'ab/source-descriptor tp form))]
+        descriptor (#'ab/source-descriptor tp form form-refs)]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
 
@@ -394,8 +393,7 @@
   (let [form '(schema.core/conditional clojure.core/even? skeptic.analysis.bridge-test/BoundSchemaRef
                                        clojure.core/odd? skeptic.analysis.bridge-test/BoundSchemaRef)
         form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
-        descriptor (binding [ab/*form-refs* form-refs]
-                     (#'ab/source-descriptor tp form))]
+        descriptor (#'ab/source-descriptor tp form form-refs)]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
 
@@ -405,15 +403,14 @@
         form-refs (doto (java.util.IdentityHashMap.)
                     (.put #'BoundSchemaRef form-a)
                     (.put #'AliasedSchema form-b))
-        descriptor (binding [ab/*form-refs* form-refs]
-                     (#'ab/source-descriptor tp form-a))]
+        descriptor (#'ab/source-descriptor tp form-a form-refs)]
     (is (some? descriptor))
     (is (= form-a (:form descriptor)))))
 
 (deftest source-descriptor-deeply-nested-maybe-stack-safe-test
   (let [n 5000
         form (reduce (fn [s _] (list 's/maybe s)) 's/Int (range n))
-        descriptor (#'ab/source-descriptor tp form)]
+        descriptor (#'ab/source-descriptor tp form nil)]
     (is (some? descriptor))
     (is (= n (loop [d descriptor depth 0]
                (if-let [child (first (:children d))]
@@ -423,7 +420,7 @@
 (deftest source-descriptor-deeply-nested-vector-stack-safe-test
   (let [n 5000
         form (reduce (fn [v _] [v]) 's/Int (range n))
-        descriptor (#'ab/source-descriptor tp form)]
+        descriptor (#'ab/source-descriptor tp form nil)]
     (is (some? descriptor))
     (is (= n (loop [d descriptor depth 0]
                (if-let [child (first (:children d))]
@@ -433,7 +430,7 @@
 (deftest source-descriptor-deeply-nested-map-stack-safe-test
   (let [n 5000
         form (reduce (fn [m _] {:k m}) 's/Int (range n))
-        descriptor (#'ab/source-descriptor tp form)]
+        descriptor (#'ab/source-descriptor tp form nil)]
     (is (some? descriptor))
     (is (= n (loop [d descriptor depth 0]
                (if-let [child (get-in d [:map-entries :k :val])]
@@ -444,9 +441,8 @@
   (let [ns-sym 'skeptic.test-examples.contracts
         source-file (File. "test/skeptic/test_examples/contracts.clj")
         form-refs (form-refs-from-discovery ns-sym source-file)
-        result (binding [*ns* (the-ns ns-sym)
-                         ab/*form-refs* form-refs]
-                 (td/typed-ns-results {} ns-sym :clj source-file))
+        result (binding [*ns* (the-ns ns-sym)]
+                 (td/typed-ns-results {} ns-sym :clj source-file form-refs))
         fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
         input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
         pred-forms (mapv :pred-form (:branches input-type))]

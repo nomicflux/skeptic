@@ -571,16 +571,31 @@
     (letfn [(leaf-fn [_prov val-type]
               (an/partition-type-for-predicate val-type pred-info polarity))
             (cond-fn [cond-type cond-path]
-              (or (ca/route-conditional-by-predicate cond-type cond-path pred-info polarity)
-                  (let [anchor (prov/of cond-type)
-                        refined (keep (fn [b]
-                                        (let [r (refine-map-path (:type b) cond-path leaf-fn cond-fn presence-required?)]
-                                          (when-not (at/bottom-type? r) (assoc b :type r))))
-                                      (ca/effective-conditional-branches cond-type))]
-                    (case (count refined)
-                      0 (at/BottomType anchor)
-                      1 (:type (first refined))
-                      (at/->ConditionalT anchor (vec refined))))))]
+              (let [anchor (prov/of cond-type)
+                    branches (vec (:branches cond-type))
+                    raw-path (ca/unwrap-exact-path cond-path)
+                    live-indices (if raw-path
+                                   (vec (remove
+                                          #(ca/dispatch-incompatible-with-predicate?
+                                             branches % pred-info raw-path polarity)
+                                          (range (count branches))))
+                                   (vec (range (count branches))))
+                    live-set (set live-indices)
+                    refined (keep (fn [k]
+                                    (let [b (nth branches k)
+                                          earlier-live (filter #(and (< % k) (live-set %))
+                                                               (range k))
+                                          earlier-descs (mapv #(:descriptor (nth branches %))
+                                                              earlier-live)
+                                          eff (reduce ca/refine-by-descriptor (:type b) earlier-descs)
+                                          r (refine-map-path eff cond-path leaf-fn cond-fn
+                                                             presence-required?)]
+                                      (when-not (at/bottom-type? r) (assoc b :type r))))
+                                  live-indices)]
+                (case (count refined)
+                  0 (at/BottomType anchor)
+                  1 (:type (first refined))
+                  (at/->ConditionalT anchor (vec refined)))))]
       (refine-map-path root-type path leaf-fn cond-fn presence-required?))))
 
 (s/defn map-type-at-path :- (s/maybe at/SemanticType)

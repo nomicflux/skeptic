@@ -15,7 +15,7 @@
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (def static-call-dict
-  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file))
+  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil))
          {'user (T skeptic.static-call-examples/UserDesc)
           'counts (T skeptic.static-call-examples/MaybeCount)
           'left (T skeptic.static-call-examples/LeftFields)
@@ -130,13 +130,16 @@
 (deftest canonicalized-callable-entry-test
   (let [symbol-type (typed-decls/desc->type tp {:name "f"
                                                 :schema (s/make-fn-schema clojure.lang.Symbol
-                                                                          [[(s/one java.lang.String 'arg)]])})
+                                                                          [[(s/one java.lang.String 'arg)]])}
+                                            nil nil)
         keyword-type (typed-decls/desc->type tp {:name "f"
                                                  :schema (s/make-fn-schema clojure.lang.Keyword
-                                                                           [[(s/one s/Any 'arg)]])})
+                                                                           [[(s/one s/Any 'arg)]])}
+                                             nil nil)
         int-type (typed-decls/desc->type tp {:name "f"
                                              :schema (s/make-fn-schema java.lang.Integer
-                                                                       [[(s/one s/Any 'arg)]])})
+                                                                       [[(s/one s/Any 'arg)]])}
+                                         nil nil)
         symbol-call (atst/analyze-form {}
                                        '(f "x")
                                        {:ns 'skeptic.analysis-test
@@ -201,7 +204,7 @@
 
 (deftest resolved-static-get-feeds-parent-call-test
   (testing "resolved static get feeds final reduced field types into parent calls"
-    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file))
+    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil))
           {:keys [resolved]} (checking/analyze-source-exprs dict
                                                             'skeptic.static-call-examples
                                                             static-call-examples-file

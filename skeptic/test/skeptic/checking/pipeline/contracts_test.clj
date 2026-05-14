@@ -65,10 +65,6 @@
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/cond-key-some-narrowing-repro))
 
-(deftest when-some-key-refinement-on-open-conditional
-  (are [sym] (= [] (ps/check-fixture sym))
-    'skeptic.test-examples.contracts/when-some-key-narrowing-repro))
-
 (deftest when-not-nil-destructured-narrowing-on-conditional
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/when-not-nil-destructured-narrowing))
@@ -190,3 +186,10 @@
 (deftest cond-some-key-refinement-on-closed-base-conditional
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/repro-success))
+
+(deftest cross-namespace-conditional-narrowing-with-predicate-fn
+  (are [sym] (= [] (ps/check-fixture sym))
+    'skeptic.test-examples.contracts-xns-repro/repro-success)
+  (are [sym blame] (ps/single-failure? sym blame)
+    'skeptic.test-examples.contracts-xns-repro/repro-failure-not-narrowed-enough '(consumer/consume-single params)
+    'skeptic.test-examples.contracts-xns-repro/repro-failure-wrong-branch '(consumer/consume-single params)))

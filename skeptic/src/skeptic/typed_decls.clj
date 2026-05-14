@@ -8,9 +8,8 @@
             [skeptic.schema.collect :as collect]))
 
 (defn desc->type
-  ([prov desc] (desc->type prov desc nil))
-  ([prov {:keys [schema]} form-descriptor]
-   (ab/schema->type prov schema form-descriptor)))
+  [prov {:keys [schema]} form-descriptor form-refs]
+  (ab/schema->type prov schema form-descriptor form-refs))
 
 (s/defn ^:private desc->provenance :- provs/Provenance
   [_desc         :- s/Any
@@ -20,20 +19,20 @@
   (prov/make-provenance :schema qualified-sym ns nil [] lang))
 
 (defn convert-desc
-  [ns qualified-sym desc lang]
+  [ns qualified-sym desc lang form-refs]
   (let [declared-var (resolve qualified-sym)
         prov (desc->provenance desc ns qualified-sym lang)
-        form-descriptor (and ab/*form-refs* declared-var
-                             (.get ^java.util.IdentityHashMap ab/*form-refs* declared-var))]
-    {:dict {qualified-sym (desc->type prov desc form-descriptor)}
+        form-descriptor (and form-refs declared-var
+                             (.get ^java.util.IdentityHashMap form-refs declared-var))]
+    {:dict {qualified-sym (desc->type prov desc form-descriptor form-refs)}
      :provenance {qualified-sym prov}
      :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})
      :errors []}))
 
 (defn- safe-convert
-  [ns qualified-sym desc lang]
+  [ns qualified-sym desc lang form-refs]
   (try
-    (convert-desc ns qualified-sym desc lang)
+    (convert-desc ns qualified-sym desc lang form-refs)
     (catch Exception e
       {:dict {}
        :provenance {}
@@ -66,9 +65,9 @@
      all-syms)))
 
 (defn- convert-descs
-  [ns descs lang]
+  [ns descs lang form-refs]
   (reduce (fn [acc [qualified-sym desc]]
-            (merge-two acc (safe-convert ns qualified-sym desc lang)))
+            (merge-two acc (safe-convert ns qualified-sym desc lang form-refs)))
           (empty-result)
           descs))
 
@@ -77,15 +76,16 @@
   stamping each provenance with the given lang. Used by both the JVM admission
   path (via `typed-ns-results`) and the cljs admission path (via
   `skeptic.checking.pipeline/namespace-dict`)."
-  [ns lang {:keys [entries errors]}]
-  (-> (convert-descs ns entries lang)
+  [ns lang form-refs {:keys [entries errors]}]
+  (-> (convert-descs ns entries lang form-refs)
       (update :errors into errors)))
 
 (defn typed-ns-results
-  [opts ns lang source-file]
+  [opts ns lang source-file form-refs]
   (if (:plumatic-disable opts)
     (empty-result)
-    (let [result (convert-collected ns lang (collect/ns-schema-results opts ns source-file))
+    (let [collected (collect/ns-schema-results opts ns source-file)
+          result (convert-collected ns lang form-refs collected)
           overrides (or (:skeptic/type-overrides opts) {})]
       (reduce (fn [acc [sym v]]
                 (-> acc

@@ -10,7 +10,8 @@
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.analysis.value :as av]))
+            [skeptic.analysis.value :as av]
+            [skeptic.provenance :as prov]))
 
 (defn- normalize-if-needed
   [type]
@@ -606,6 +607,30 @@
   (when-let [origin (map-key-lookup-origin-value (node-origin target))]
     (path-type-predicate-assumption (:root origin) (:path origin) pred-info polarity)))
 
+(s/defn ^:private user-fn-summary-assumption :- (s/maybe aos/PathTypePredicateAssumption)
+  "Build a path-type-predicate assumption from a user-fn predicate summary
+   applied to a call target. The summary's `:path` is a vector of raw keywords;
+   each is wrapped into an `exact-key-query` record so it matches the shape
+   that ConditionalT-walker and map-ops descend over. Composes with any
+   key-lookup origin already on the target."
+  [ctx       :- s/Any
+   target    :- s/Any
+   summary   :- {s/Keyword s/Any}
+   polarity  :- s/Bool]
+  (let [pred-info (cond-> {:pred (:pred summary)}
+                    (:class summary) (assoc :class (:class summary)))
+        target-type (or (aapi/node-type target) (aapi/dyn ctx))
+        suffix-prov (prov/of target-type)
+        suffix-queries (mapv #(amo/exact-key-query suffix-prov %) (:path summary))]
+    (or (when-let [origin (map-key-lookup-origin-value (node-origin target))]
+          (path-type-predicate-assumption (:root origin)
+                                          (into (vec (:path origin)) suffix-queries)
+                                          pred-info
+                                          polarity))
+        (when-let [root (when (aapi/stable-identity-node? target)
+                          (local-root-origin ctx target))]
+          (path-type-predicate-assumption root suffix-queries pred-info polarity)))))
+
 (s/defn test->assumption :- (s/maybe aos/Assumption)
   [ctx :- s/Any
    test-node :- s/Any]
@@ -615,7 +640,9 @@
         invoke-args (when invoke? (:args test-node))
         invoke-sym (when invoke? (ac/resolved-call-sym invoke-fn))
         invoke-pred-info (when invoke?
-                           (ac/type-predicate-assumption-info-for-sym invoke-sym invoke-args))]
+                           (ac/type-predicate-assumption-info-for-sym invoke-sym invoke-args))
+        user-fn-summary (when (and invoke? (nil? invoke-pred-info))
+                          (ac/user-fn-path-predicate-info invoke-sym))]
     (cond
       (aapi/stable-identity-node? test-node)
       (when-let [root (local-root-origin ctx test-node)]
@@ -653,6 +680,9 @@
             (when-let [root (when (aapi/stable-identity-node? targ)
                               (local-root-origin ctx targ))]
               (type-predicate-assumption root invoke-pred-info true))))
+
+      (and user-fn-summary (= 1 (count invoke-args)))
+      (user-fn-summary-assumption ctx (first invoke-args) user-fn-summary true)
 
       (and invoke? (contains? ac/blank-call-syms invoke-sym))
       (let [targ (first invoke-args)]

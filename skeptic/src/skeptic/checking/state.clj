@@ -8,6 +8,8 @@
    per-ns-failures
    cljs-state
    project-discovery
-   var-provs])
+   var-provs
+   form-refs
+   user-fn-summaries])
 
 (s/defschema ProjectStateSchema (s/pred (partial instance? ProjectState) 'ProjectState))

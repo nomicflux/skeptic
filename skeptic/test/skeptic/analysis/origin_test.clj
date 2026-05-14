@@ -175,7 +175,7 @@
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (catalog/typed-test-example-entries)
           example-dict (:dict (typed-decls/typed-ns-results {} 'skeptic.examples :clj
-                                                            (java.io.File. "src/skeptic/examples.clj")))
+                                                            (java.io.File. "src/skeptic/examples.clj") nil))
           control-flow-res (checking/analyze-source-exprs test-dict
                                                           'skeptic.test-examples.control-flow
                                                           (atst/fixture-file-for-ns 'skeptic.test-examples.control-flow)

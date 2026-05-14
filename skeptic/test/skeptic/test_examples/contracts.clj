@@ -737,25 +737,6 @@
     (vector? (:a as)) (f (:a as))
     (some? (:a as)) (g (:a as))))
 
-(s/defschema WhenSomeKeyIntSingle (merge KeyOpenBase {:k2 s/Int}))
-
-(s/defschema WhenSomeKeyIntCond
-  (s/conditional
-    #(vector? (:k2 %)) (merge KeyOpenBase {:k2 [s/Int]})
-    #(some? (:k2 %)) (merge KeyOpenBase {:k2 s/Int})
-    :else KeyOpenBase))
-
-(s/defn consume-when-some-key-int-single
-  [_ :- WhenSomeKeyIntSingle]
-  nil)
-
-(s/defn when-some-key-narrowing-repro
-  [{:keys [k2] :as params} :- WhenSomeKeyIntCond]
-  (when (vector? k2)
-    nil)
-  (when (some? k2)
-    (consume-when-some-key-int-single params)))
-
 (s/defschema InstanceArmStr (merge KeyOpenBase {:k2 s/Str}))
 (s/defschema InstanceArmInt (merge KeyOpenBase {:k2 s/Int}))
 
