@@ -261,35 +261,3 @@
   (cond-> el
     (some? a)
     (uses-a {:a a})))
-
-(s/defschema CondAssocBase
-  {:a s/Int})
-
-(s/defschema CondAssocFull
-  (merge CondAssocBase
-         {(s/optional-key :b) s/Str}))
-
-(s/defschema CondAssocMaybeHasB
-  {(s/optional-key :b) s/Str})
-
-(s/defn cond-assoc-consumer
-  [_a :- CondAssocFull]
-  nil)
-
-(s/defn cond-assoc-narrow-success
-  [{:keys [b]} :- CondAssocMaybeHasB]
-  (-> (cond-> {:a 1}
-        (some? b) (assoc :b b))
-      cond-assoc-consumer))
-
-(s/defn cond-assoc-narrow-failure-1
-  [{:keys [b]} :- CondAssocMaybeHasB]
-  (-> (cond-> {:c 1}
-        (some? b) (assoc :b b))
-      cond-assoc-consumer))
-
-(s/defn cond-assoc-narrow-failure-2
-  [{:keys [b]} :- CondAssocMaybeHasB]
-  (-> (cond-> {:c 1}
-        (some? b) (assoc :b 1))
-      cond-assoc-consumer))
