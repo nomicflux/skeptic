@@ -335,7 +335,7 @@
                            [::explode])
                       (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
       (let [proj-state (checking/project-state {:remove-context true}
-                                                [['skeptic.check-project-best-effort-examples source-file]])
+                                                {'skeptic.check-project-best-effort-examples source-file})
             {:keys [results]} (checking/check-namespace proj-state
                                                         'skeptic.check-project-best-effort-examples
                                                         source-file
@@ -533,6 +533,42 @@
       (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.a" "skeptic.fixtures.c"]} "." ".")))
       (is (= #{'skeptic.fixtures.a 'skeptic.fixtures.c} (set @checked)))
       (is (= 2 (count @checked))))))
+
+(deftest n-flag-filters-checking-not-admission
+  ;; "-n" / :namespace is a CHECKING filter, applied to the per-ns iteration
+  ;; loop in skeptic.core/check-project. Admission must ALWAYS be over the
+  ;; full discovered namespace set; otherwise cross-namespace s/defn / m/=>
+  ;; declarations are missing from the merged dict and call sites that
+  ;; depend on them silently degrade to Dyn (producing zero findings where
+  ;; the full-project run would report a mismatch).
+  ;;
+  ;; This invariant has been broken multiple times by `select-keys` on the
+  ;; nss map BEFORE the `project-state` call. The
+  ;; `skeptic.checking.opts/DiscoveredNamespaces` schema and this test are
+  ;; the structural defenses. Two assertions:
+  ;;   1. Two-namespace fixture (xns-provider, xns-consumer) full-project:
+  ;;      consumer's `:- s/Str` body returns provider's `:- s/Int` value,
+  ;;      so check-project reports a mismatch and exits 1.
+  ;;   2. Same fixture with `:namespace ["...xns-consumer"]`: provider's
+  ;;      schema MUST still be admitted, so the same mismatch surfaces and
+  ;;      check-project STILL exits 1. Pre-fix behaviour: filtered run
+  ;;      degrades provider to Dyn and exits 0.
+  (let [provider-file (File. "test/skeptic/fixtures/xns_provider.clj")
+        consumer-file (File. "test/skeptic/fixtures/xns_consumer.clj")
+        files {'skeptic.fixtures.xns-provider provider-file
+               'skeptic.fixtures.xns-consumer consumer-file}]
+    (with-redefs [file/discover-clojure-files
+                  (fn [_] {:files (vec (vals files)) :failures []})
+                  file/ns-for-clojure-file
+                  (fn [f] (some (fn [[ns f']] (when (= f f') [ns f]))
+                                files))]
+      (testing "full-project run reports the cross-ns output mismatch in consumer"
+        (with-out-str
+          (is (= 1 (sut/check-project {} "." ".")))))
+      (testing "`-n consumer` admits provider's schema and reports the SAME mismatch"
+        (with-out-str
+          (is (= 1 (sut/check-project {:namespace ["skeptic.fixtures.xns-consumer"]}
+                                      "." "."))))))))
 
 (deftest check-project-blocks-when-any-requested-namespace-is-missing
   (let [source-file (java.io.File. "test/a.clj")

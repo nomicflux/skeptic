@@ -16,6 +16,19 @@
 
 (s/defschema CompiledTypeOverride at/SemanticType)
 
+(s/defschema DiscoveredNamespaces
+  "Every namespace discovered for the current project pass, keyed by ns
+  symbol with the source File as value. ALWAYS the full discovery —
+  never pre-filtered by `-n` / `:namespace`, which is a CHECKING-time
+  filter applied after admission. Filtering this map before handing it
+  to `skeptic.checking.pipeline/project-state` violates the
+  cross-namespace admission invariant: declarations from un-requested
+  namespaces would never reach the merged dict, and call sites
+  depending on them would silently degrade to Dyn. The filter for
+  `-n` lives in `skeptic.core/check-project` against the per-namespace
+  CHECK loop, never against admission."
+  {s/Symbol java.io.File})
+
 (s/defschema CheckProjectOpts
   {(s/optional-key :namespace) [s/Str]
    (s/optional-key :verbose) s/Bool

@@ -164,7 +164,7 @@
         nullability-ns 'skeptic.test-examples.nullability
         nullability-file (fixture-file-for-ns nullability-ns)]
     (testing "accessor summaries are emitted only for supported unary projection helpers"
-      (let [summaries (:accessor-summaries (checking/project-state {} [[contracts-ns contracts-file]]))
+      (let [summaries (:accessor-summaries (checking/project-state {} {contracts-ns contracts-file}))
             choose-summary (get summaries 'skeptic.test-examples.contracts/choose)]
         (is (= {:kind :unary-map-projection :path [{:value :k}]}
                (get summaries 'skeptic.test-examples.contracts/vtype)))
@@ -174,7 +174,7 @@
         (is (= :keyword (:result-transform choose-summary)))
         (is (= #{:a :b} (set (:values choose-summary)))))
       (is (nil? (get (:accessor-summaries (checking/project-state
-                                            {} [[nullability-ns nullability-file]]))
+                                            {} {nullability-ns nullability-file}))
                      'skeptic.test-examples.nullability/non-null-transform)))))
 
   (testing "prepass exposes helper accessor summaries to later case narrowing"
@@ -182,7 +182,7 @@
           fixture-ns 'skeptic.test-examples.contracts
           fixture-file (fixture-file-for-ns fixture-ns)
           accessor-summaries (:accessor-summaries (checking/project-state
-                                                   {} [[fixture-ns fixture-file]]))
+                                                   {} {fixture-ns fixture-file}))
           form (->> 'skeptic.test-examples.contracts/conditional-dispatch-success
                     (source/get-fn-code {})
                     read-string)
@@ -202,7 +202,7 @@
     (let [fixture-ns 'skeptic.test-examples.contracts
           fixture-file (fixture-file-for-ns fixture-ns)
           accessor-summaries (:accessor-summaries (checking/project-state
-                                                   {} [[fixture-ns fixture-file]]))
+                                                   {} {fixture-ns fixture-file}))
           {dict :dict} (test-state/admit-ns fixture-ns fixture-file)
           form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
                     (source/get-fn-code {})

@@ -5,4 +5,5 @@
                  "test/skeptic/check_project_best_effort_examples.clj"
                  "test/skeptic/local_resolution_shadow.clj"
                  "test/skeptic/local_resolution_import.clj"
-                 "test/skeptic/local_resolution_fixtures.clj"]}
+                 "test/skeptic/local_resolution_fixtures.clj"
+                 "test/skeptic/fixtures/xns_consumer.clj"]}

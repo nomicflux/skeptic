@@ -64,11 +64,11 @@
   (delay
     (sut/project-state
      {}
-     (map (juxt :ns :file) (vals catalog/fixture-envs)))))
+     (into {} (map (juxt :ns :file)) (vals catalog/fixture-envs)))))
 
 (defn project-state-for
   [ns-sym source-file]
-  (sut/project-state {} [[ns-sym source-file]]))
+  (sut/project-state {} {ns-sym source-file}))
 
 (defn check-fixture
   ([sym]

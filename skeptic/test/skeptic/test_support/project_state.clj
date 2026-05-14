@@ -14,7 +14,7 @@
   so callers see the same dict shape that downstream analysis assumes."
   [ns-sym source-file]
   (require ns-sym)
-  (let [ps (pipeline/project-state {} [[ns-sym source-file]])
+  (let [ps (pipeline/project-state {} {ns-sym source-file})
         per-ns-entry (get-in ps [:per-ns ns-sym])
         failure (get-in ps [:per-ns-failures ns-sym])]
     (when failure

@@ -20,9 +20,9 @@
 (def ^:private p5-file (File. "dev-resources/cljs-fixtures/p5.cljs"))
 
 (def ^:private fixture-nss
-  [[foo-ns foo-file]
-   [bar-ns bar-file]
-   [baz-ns baz-file]])
+  {foo-ns foo-file
+   bar-ns bar-file
+   baz-ns baz-file})
 
 (defn- input-finding
   [results]
@@ -57,7 +57,7 @@
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
 
 (deftest cljs-malli-registration-is-admitted-through-production-path
-  (let [ps (pipeline/project-state {} [['p5 p5-file]])
+  (let [ps (pipeline/project-state {} {'p5 p5-file})
         {:keys [results provenance]} (pipeline/check-namespace ps 'p5 p5-file {:remove-context true})]
     (is (empty? (read-exceptions results)))
     (is (contains? provenance 'p5/g))

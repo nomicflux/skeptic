@@ -23,7 +23,7 @@
 
 (defn- fixture-project-state
   []
-  (pipeline/project-state {} [[fixture-ns fixture-file]]))
+  (pipeline/project-state {} {fixture-ns fixture-file}))
 
 (defn- analysis-env
   []

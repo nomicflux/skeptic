@@ -84,12 +84,12 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        nss (cond-> discovered-nss
-              (seq requested-namespaces)
-              (select-keys requested-namespaces))
-        project-state (checking/project-state opts nss)
+        project-state (checking/project-state opts discovered-nss)
         per-ns-failures (:per-ns-failures project-state)
-        checkable-nss (apply dissoc nss (keys per-ns-failures))
+        nss-to-check (cond-> discovered-nss
+                       (seq requested-namespaces)
+                       (select-keys requested-namespaces))
+        checkable-nss (apply dissoc nss-to-check (keys per-ns-failures))
         printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
         report-opts {:explain-full (boolean (:explain-full opts))}
         form-opts opts
@@ -97,10 +97,10 @@
         (output/printer opts)
         totals (atom {:finding-count 0
                       :exception-count 0
-                      :namespace-count (count nss)
+                      :namespace-count (count nss-to-check)
                       :namespaces-with-findings 0
                       :per-namespace-counts {}})]
-    (run-start printer-opts nss)
+    (run-start printer-opts nss-to-check)
     (doseq [failure failures]
       (discovery-warn printer-opts (failure->info failure)))
     (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]

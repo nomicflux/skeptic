@@ -953,15 +953,23 @@
   Threaded into every per-namespace check so cross-namespace var resolution
   and conditional discriminators ride the same project pass.
 
+  `all-discovered-nss` MUST be the complete discovered namespace map for the
+  project, not a subset. Pre-filtering it by `:namespace` / `-n` silently
+  drops cross-namespace declarations: call sites in the requested namespace
+  that depend on schemas declared elsewhere would fall back to Dyn and
+  produce no finding. `-n` is a CHECKING filter and must be applied in
+  `skeptic.core/check-project` against the per-ns iteration loop, never
+  here.
+
   When `loaded` includes `.cljs` or `.cljc` source-files, each is read and
   analyzed independently via the cljs analyzer driver and the results are
   carried as a local `cljs-state` map (source-file → `{:ns-ast :entries
   :asts}`) — threaded into per-ns admission/checking and stored on the
   returned `ProjectState`. Per-ns admission/analysis dispatches on the
   per-source-file `lang` carried in each `loaded` triple."
-  [opts nss-with-source-files]
+  [opts all-discovered-nss :- copts/DiscoveredNamespaces]
   (let [{loaded :loaded load-failures :load-failures}
-        (preload-namespaces opts nss-with-source-files)
+        (preload-namespaces opts all-discovered-nss)
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
                                  {} load-failures)
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
