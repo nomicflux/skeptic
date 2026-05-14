@@ -244,3 +244,20 @@
   (condp = x
     :a "a"
     :b "b"))
+
+(s/defschema MaybeHasA
+  {(s/optional-key :items) {:a s/Int}})
+
+(s/defschema HasA
+  {:a s/Int})
+
+(s/defn uses-a
+  [el :- MaybeHasA
+   {:keys [a]} :- HasA]
+  a)
+
+(s/defn repro-success
+  [{{:keys [a]} :items :as el} :-  MaybeHasA]
+  (cond-> el
+    (some? a)
+    (uses-a {:a a})))

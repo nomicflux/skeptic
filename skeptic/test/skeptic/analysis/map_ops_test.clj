@@ -115,7 +115,11 @@
         path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]
         result (amo/refine-map-path-by-values root path ["b"] true)]
     (is (not (at/bottom-type? result)))
-    (is (at/maybe-type? result))))
+    (is (at/map-type? result))
+    (let [x-val (some! (amo/map-get-type result (amo/exact-key-query tp :x :x)))
+          k-val (amo/map-get-type x-val (amo/exact-key-query tp :k :k))]
+      (is (at/value-type? k-val))
+      (is (= "b" (:value k-val))))))
 
 (deftest refine-map-path-by-values-conditional-shape
   (let [path [(amo/exact-key-query tp :x :x) (amo/exact-key-query tp :k :k)]

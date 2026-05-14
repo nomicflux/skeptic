@@ -48,6 +48,9 @@
 (deftest cond-three-branch-join-output
   (is (= [] (ps/check-fixture 'skeptic.test-examples.control-flow/cond-three-branch-join))))
 
+(deftest cond-thread-through-narrowed-destructured-local-success
+  (is (= [] (ps/check-fixture 'skeptic.test-examples.control-flow/repro-success))))
+
 (deftest sum-type-exhaustive-branches
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.control-flow/cond-boolean-exhaustive-output-success

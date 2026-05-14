@@ -406,25 +406,34 @@
         (assoc entries opt-key narrowed)))))
 
 (defn- write-back-entries
-  [entries prov candidate key-query new-value]
-  (if (and (domain-candidate? candidate) (exact-key-query? key-query))
-    (specialize-wildcard-entry entries prov candidate key-query new-value)
-    (update-entry-by-exact-value entries (:exact-value candidate) new-value)))
+  [entries prov candidate key-query new-value presence-required?]
+  (let [entries (if (and presence-required?
+                         (exact-key-query? key-query)
+                         (= :optional-explicit (:kind candidate)))
+                  (promote-optional-entry entries (:value key-query))
+                  entries)]
+    (if (and (domain-candidate? candidate) (exact-key-query? key-query))
+      (specialize-wildcard-entry entries prov candidate key-query new-value)
+      (update-entry-by-exact-value entries (:exact-value candidate) new-value))))
 
 (defn- handle-slot-bottom
   "Slot value narrowed to BottomType is sound for required-explicit (the
    required key cannot hold any value -> map unreachable) but NOT for
    optional or wildcard slots, where it just means the key cannot be
-   present. Returns the map shape that records the narrowed slot."
-  [root-type prov candidate]
+   present. Under `presence-required?`, optional-explicit is also bottom
+   (the assumption proves the key must be present, so a bottom slot is
+   unreachable). Returns the map shape that records the narrowed slot."
+  [root-type prov candidate presence-required?]
   (case (:kind candidate)
     :required-explicit (at/BottomType prov)
-    :optional-explicit (at/->MapT prov (drop-optional-entry (:entries root-type)
-                                                            (:exact-value candidate)))
+    :optional-explicit (if presence-required?
+                         (at/BottomType prov)
+                         (at/->MapT prov (drop-optional-entry (:entries root-type)
+                                                              (:exact-value candidate))))
     (at/->MapT prov (:entries root-type))))
 
 (defn- refine-map-leaf
-  [root-type key-query leaf-fn]
+  [root-type key-query leaf-fn presence-required?]
   (let [prov (ato/derive-prov root-type)
         candidates (map-lookup-candidates (:entries root-type) key-query)
         val-type (candidate-value-type candidates)]
@@ -433,36 +442,38 @@
       (let [narrowed (leaf-fn prov val-type)
             candidate (first candidates)]
         (if (at/bottom-type? narrowed)
-          (handle-slot-bottom root-type prov candidate)
+          (handle-slot-bottom root-type prov candidate presence-required?)
           (at/->MapT prov (write-back-entries (:entries root-type) prov
-                                              candidate key-query narrowed)))))))
+                                              candidate key-query narrowed
+                                              presence-required?)))))))
 
 (defn- refine-map-inner
-  [root-type key-query rest-path leaf-fn cond-fn]
+  [root-type key-query rest-path leaf-fn cond-fn presence-required?]
   (let [candidates (map-lookup-candidates (:entries root-type) key-query)
         prov (ato/derive-prov root-type)]
     (if (empty? candidates)
       root-type
       (let [candidate (first candidates)
             inner-type (:value candidate)
-            refined-inner (refine-map-path inner-type rest-path leaf-fn cond-fn)]
+            refined-inner (refine-map-path inner-type rest-path leaf-fn cond-fn presence-required?)]
         (if (at/bottom-type? refined-inner)
-          (handle-slot-bottom root-type prov candidate)
+          (handle-slot-bottom root-type prov candidate presence-required?)
           (at/->MapT prov (write-back-entries (:entries root-type) prov
-                                              candidate key-query refined-inner)))))))
+                                              candidate key-query refined-inner
+                                              presence-required?)))))))
 
 (defn- refine-map-path-map
-  [root-type path leaf-fn cond-fn]
+  [root-type path leaf-fn cond-fn presence-required?]
   (let [key-query (first path)
         rest-path (rest path)]
     (if (seq rest-path)
-      (refine-map-inner root-type key-query rest-path leaf-fn cond-fn)
-      (refine-map-leaf root-type key-query leaf-fn))))
+      (refine-map-inner root-type key-query rest-path leaf-fn cond-fn presence-required?)
+      (refine-map-leaf root-type key-query leaf-fn presence-required?))))
 
 (defn- refine-map-path-union
-  [root-type path leaf-fn cond-fn]
+  [root-type path leaf-fn cond-fn presence-required?]
   (let [refined (keep (fn [member]
-                        (let [r (refine-map-path member path leaf-fn cond-fn)]
+                        (let [r (refine-map-path member path leaf-fn cond-fn presence-required?)]
                           (when-not (at/bottom-type? r) r)))
                       (:members root-type))]
     (if (empty? refined)
@@ -470,23 +481,26 @@
       (ato/union refined))))
 
 (defn- refine-map-path-maybe
-  [root-type path leaf-fn cond-fn]
-  (let [refined-inner (refine-map-path (:inner root-type) path leaf-fn cond-fn)]
-    (if (at/bottom-type? refined-inner)
-      (at/BottomType (ato/derive-prov root-type))
-      (at/->MaybeT (ato/derive-prov root-type) refined-inner))))
+  [root-type path leaf-fn cond-fn presence-required?]
+  (let [refined-inner (refine-map-path (:inner root-type) path leaf-fn cond-fn presence-required?)]
+    (cond
+      (at/bottom-type? refined-inner) (at/BottomType (ato/derive-prov root-type))
+      presence-required? refined-inner
+      :else (at/->MaybeT (ato/derive-prov root-type) refined-inner))))
 
 (defn- refine-map-path
   "Walk `root-type` along `path`. Apply `leaf-fn` (called as
    `(leaf-fn leaf-prov val-type)`) at the slot. ConditionalT nodes are
    handed to `cond-fn` (called as `(cond-fn cond-type path)`); pass nil to
-   leave them unchanged."
-  [root-type path leaf-fn cond-fn]
+   leave them unchanged. When `presence-required?`, optional-explicit
+   entries along `path` are promoted to required-explicit and outer
+   MaybeT wraps are dropped."
+  [root-type path leaf-fn cond-fn presence-required?]
   (let [root-type (as-type root-type)]
     (cond
-      (at/map-type? root-type)   (refine-map-path-map root-type path leaf-fn cond-fn)
-      (at/union-type? root-type) (refine-map-path-union root-type path leaf-fn cond-fn)
-      (at/maybe-type? root-type) (refine-map-path-maybe root-type path leaf-fn cond-fn)
+      (at/map-type? root-type)   (refine-map-path-map root-type path leaf-fn cond-fn presence-required?)
+      (at/union-type? root-type) (refine-map-path-union root-type path leaf-fn cond-fn presence-required?)
+      (at/maybe-type? root-type) (refine-map-path-maybe root-type path leaf-fn cond-fn presence-required?)
       (and cond-fn (at/conditional-type? root-type)) (cond-fn root-type path)
       :else root-type)))
 
@@ -503,13 +517,13 @@
           val-type)))))
 
 (defn- values-cond-fn
-  [values polarity]
+  [values polarity presence-required?]
   (fn [cond-type path]
     (or (ca/route-conditional-by-values cond-type path values polarity)
         (let [anchor (prov/of cond-type)
               leaf (values-leaf-fn values polarity)
               refined (keep (fn [b]
-                              (let [r (refine-map-path (:type b) path leaf nil)]
+                              (let [r (refine-map-path (:type b) path leaf nil presence-required?)]
                                 (when-not (at/bottom-type? r) (assoc b :type r))))
                             (ca/effective-conditional-branches cond-type))]
           (case (count refined)
@@ -517,33 +531,57 @@
             1 (:type (first refined))
             (at/->ConditionalT anchor (vec refined)))))))
 
+(defn- predicate-excludes-nil?
+  "True when applying `pred-info` at `polarity` to a nil-typed value yields
+   Bottom — i.e. the predicate rules out nil at that polarity. Used to decide
+   whether a path-narrowing assumption proves presence (which lets optional
+   keys on the path be promoted to required, and outer MaybeT wraps be
+   dropped). Reuses `partition-type-for-predicate` so any future predicate is
+   auto-classified."
+  [prov pred-info polarity]
+  (at/bottom-type?
+   (an/partition-type-for-predicate (ato/exact-value-type prov nil)
+                                    pred-info polarity)))
+
+(defn- values-exclude-nil?
+  "True when the value-equality assumption rules out nil at the path under
+   `polarity` — i.e. polarity-true and `values` contains no nil, or
+   polarity-false and `values` contains nil."
+  [values polarity]
+  (if polarity
+    (not-any? nil? values)
+    (boolean (some nil? values))))
+
 (s/defn refine-map-path-by-values :- at/SemanticType
   "Refine `root-type` by asserting that the value at the nested path `path`
    equals one of `values`. `polarity` true selects matching values; false
    selects non-matching."
   [root-type :- at/SemanticType path :- [s/Any] values :- [s/Any] polarity :- s/Bool]
-  (refine-map-path root-type path
-                   (values-leaf-fn values polarity)
-                   (values-cond-fn values polarity)))
+  (let [presence-required? (values-exclude-nil? values polarity)]
+    (refine-map-path root-type path
+                     (values-leaf-fn values polarity)
+                     (values-cond-fn values polarity presence-required?)
+                     presence-required?)))
 
 (s/defn refine-map-path-by-predicate :- at/SemanticType
   "Refine `root-type` by asserting that the value at `path` satisfies
    `pred-info` (`{:pred kw :class cls-or-nil}`) with the given `polarity`."
   [root-type :- at/SemanticType path :- [s/Any] pred-info :- {s/Keyword s/Any} polarity :- s/Bool]
-  (letfn [(leaf-fn [_prov val-type]
-            (an/partition-type-for-predicate val-type pred-info polarity))
-          (cond-fn [cond-type cond-path]
-            (or (ca/route-conditional-by-predicate cond-type cond-path pred-info polarity)
-                (let [anchor (prov/of cond-type)
-                      refined (keep (fn [b]
-                                      (let [r (refine-map-path (:type b) cond-path leaf-fn cond-fn)]
-                                        (when-not (at/bottom-type? r) (assoc b :type r))))
-                                    (ca/effective-conditional-branches cond-type))]
-                  (case (count refined)
-                    0 (at/BottomType anchor)
-                    1 (:type (first refined))
-                    (at/->ConditionalT anchor (vec refined))))))]
-    (refine-map-path root-type path leaf-fn cond-fn)))
+  (let [presence-required? (predicate-excludes-nil? (ato/derive-prov root-type) pred-info polarity)]
+    (letfn [(leaf-fn [_prov val-type]
+              (an/partition-type-for-predicate val-type pred-info polarity))
+            (cond-fn [cond-type cond-path]
+              (or (ca/route-conditional-by-predicate cond-type cond-path pred-info polarity)
+                  (let [anchor (prov/of cond-type)
+                        refined (keep (fn [b]
+                                        (let [r (refine-map-path (:type b) cond-path leaf-fn cond-fn presence-required?)]
+                                          (when-not (at/bottom-type? r) (assoc b :type r))))
+                                      (ca/effective-conditional-branches cond-type))]
+                    (case (count refined)
+                      0 (at/BottomType anchor)
+                      1 (:type (first refined))
+                      (at/->ConditionalT anchor (vec refined))))))]
+      (refine-map-path root-type path leaf-fn cond-fn presence-required?))))
 
 (s/defn map-type-at-path :- (s/maybe at/SemanticType)
   "Return the Type stored at `path` within `root-type`, descending through
