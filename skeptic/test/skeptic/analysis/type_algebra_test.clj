@@ -9,7 +9,7 @@
 
 (deftest type-substitute-vector-threads-refs-test
   (testing "vector substitute (no replacement applies): refs count = items"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp)] nil :vector)
           result (sut/type-substitute vt 'X (int-t tp))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
@@ -23,7 +23,7 @@
 
 (deftest type-substitute-seq-threads-refs-test
   (testing "seq substitute: refs count = items"
-    (let [sq (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [sq (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :sequential)
           result (sut/type-substitute sq 'X (int-t tp))
           refs (:refs (prov/of result))]
       (is (= 3 (count refs))))))

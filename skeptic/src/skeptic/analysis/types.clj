@@ -56,9 +56,6 @@
 (def map-type-tag
   :skeptic.analysis.types/map-type)
 
-(def vector-type-tag
-  :skeptic.analysis.types/vector-type)
-
 (def set-type-tag
   :skeptic.analysis.types/set-type)
 
@@ -103,7 +100,6 @@
     union-type-tag
     intersection-type-tag
     map-type-tag
-    vector-type-tag
     set-type-tag
     seq-type-tag
     var-type-tag
@@ -154,13 +150,10 @@
 (defrecord MapTRec [prov entries]
   proto/SemanticType (semantic-tag [_] map-type-tag))
 
-(defrecord VectorTRec [prov items tail]
-  proto/SemanticType (semantic-tag [_] vector-type-tag))
-
 (defrecord SetTRec [prov members homogeneous?]
   proto/SemanticType (semantic-tag [_] set-type-tag))
 
-(defrecord SeqTRec [prov items tail]
+(defrecord SeqTRec [prov items tail ordered-coll-kind]
   proto/SemanticType (semantic-tag [_] seq-type-tag))
 
 (defrecord VarTRec [prov inner]
@@ -193,7 +186,7 @@
   (s/cond-pre DynTRec BottomTRec GroundTRec NumericDynTRec
               RefinementTRec AdapterLeafTRec OptionalKeyTRec
               FnMethodTRec FunTRec MaybeTRec UnionTRec
-              IntersectionTRec MapTRec VectorTRec SetTRec
+              IntersectionTRec MapTRec SetTRec
               SeqTRec VarTRec PlaceholderTRec InfCycleTRec
               ValueTRec TypeVarTRec ForallTRec SealedDynTRec
               ConditionalTRec))
@@ -220,9 +213,11 @@
 (s/defn ->UnionT :- SemanticType [prov :- provs/Provenance members :- #{SemanticType}] (ensure-prov! "UnionT" prov) (UnionTRec. prov members))
 (s/defn ->IntersectionT :- SemanticType [prov :- provs/Provenance members :- #{SemanticType}] (ensure-prov! "IntersectionT" prov) (IntersectionTRec. prov members))
 (s/defn ->MapT :- SemanticType [prov :- provs/Provenance entries :- {SemanticType SemanticType}] (ensure-prov! "MapT" prov) (MapTRec. prov entries))
-(s/defn ->VectorT :- SemanticType [prov :- provs/Provenance items :- [SemanticType] tail] (ensure-prov! "VectorT" prov) (VectorTRec. prov items tail))
 (s/defn ->SetT :- SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetTRec. prov members homogeneous?))
-(s/defn ->SeqT :- SemanticType [prov :- provs/Provenance items :- [SemanticType] tail] (ensure-prov! "SeqT" prov) (SeqTRec. prov items tail))
+(s/defn ->SeqT :- SemanticType
+  [prov :- provs/Provenance items :- [SemanticType] tail ordered-coll-kind :- (s/enum :vector :sequential)]
+  (ensure-prov! "SeqT" prov)
+  (SeqTRec. prov items tail ordered-coll-kind))
 (s/defn ->VarT :- SemanticType [prov :- provs/Provenance inner :- SemanticType] (ensure-prov! "VarT" prov) (VarTRec. prov inner))
 (s/defn ->PlaceholderT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderTRec. prov ref))
 (s/defn ->InfCycleT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleTRec. prov ref))
@@ -268,9 +263,12 @@
 (s/defn union-type? :- s/Bool [t :- s/Any] (instance? UnionTRec t))
 (s/defn intersection-type? :- s/Bool [t :- s/Any] (instance? IntersectionTRec t))
 (s/defn map-type? :- s/Bool [t :- s/Any] (instance? MapTRec t))
-(s/defn vector-type? :- s/Bool [t :- s/Any] (instance? VectorTRec t))
 (s/defn set-type? :- s/Bool [t :- s/Any] (instance? SetTRec t))
-(s/defn seq-type? :- s/Bool [t :- s/Any] (instance? SeqTRec t))
+(s/defn seq-type? :- s/Bool
+  ;; Matches every SeqTRec regardless of :ordered-coll-kind. Callers needing
+  ;; vector-only or sequential-only behavior dispatch on (:ordered-coll-kind t).
+  [t :- s/Any]
+  (instance? SeqTRec t))
 (s/defn var-type? :- s/Bool [t :- s/Any] (instance? VarTRec t))
 (s/defn type-var-type? :- s/Bool [t :- s/Any] (instance? TypeVarTRec t))
 (s/defn forall-type? :- s/Bool [t :- s/Any] (instance? ForallTRec t))
@@ -405,18 +403,13 @@
          (map-type? a)
          (map-type=? same? (:entries a) (:entries b))
 
-         (vector-type? a)
-         (and (ordered-type=? same? (:items a) (:items b))
-              (if (nil? (:tail a))
-                (nil? (:tail b))
-                (and (some? (:tail b)) (same? (:tail a) (:tail b)))))
-
          (set-type? a)
          (and (unordered-type=? same? (:members a) (:members b))
               (= (:homogeneous? a) (:homogeneous? b)))
 
-         (seq-type? a)
-         (and (ordered-type=? same? (:items a) (:items b))
+         (instance? SeqTRec a)
+         (and (= (:ordered-coll-kind a) (:ordered-coll-kind b))
+              (ordered-type=? same? (:items a) (:items b))
               (if (nil? (:tail a))
                 (nil? (:tail b))
                 (and (some? (:tail b)) (same? (:tail a) (:tail b)))))
@@ -544,18 +537,14 @@
                   (map-type? x)
                   (combine-hash tag-hash (map-type-hash hash-type (:entries x)))
 
-                  (vector-type? x)
-                  (-> tag-hash
-                      (combine-hash (ordered-type-hash hash-type (:items x)))
-                      (combine-hash (if (:tail x) (hash-type (:tail x)) 0)))
-
                   (set-type? x)
                   (-> tag-hash
                       (combine-hash (unordered-type-hash hash-type (:members x)))
                       (combine-hash (hash (:homogeneous? x))))
 
-                  (seq-type? x)
+                  (instance? SeqTRec x)
                   (-> tag-hash
+                      (combine-hash (hash (:ordered-coll-kind x)))
                       (combine-hash (ordered-type-hash hash-type (:items x)))
                       (combine-hash (if (:tail x) (hash-type (:tail x)) 0)))
 

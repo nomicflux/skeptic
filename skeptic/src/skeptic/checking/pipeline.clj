@@ -117,7 +117,6 @@
   (cond
     (at/union-type? t)        :members
     (at/intersection-type? t) :members
-    (at/vector-type? t)       :items
     (at/seq-type? t)          :items
     (at/fun-type? t)          :methods))
 

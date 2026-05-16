@@ -274,31 +274,21 @@
       (at/map-type? type)
       (map-value-satisfies-type? value type)
 
-      (at/vector-type? type)
-      (and (vector? value)
-           (let [items (:items type)
-                 tail (:tail type)
-                 n-prefix (count items)
-                 v (vec value)
-                 n-value (count v)]
-             (and (>= n-value n-prefix)
-                  (or tail (= n-value n-prefix))
-                  (every? true? (map value-satisfies-type? (subvec v 0 n-prefix) items))
-                  (or (nil? tail)
-                      (every? #(value-satisfies-type? % tail) (subvec v n-prefix))))))
-
       (at/seq-type? type)
-      (and (sequential? value)
-           (let [items (:items type)
-                 tail (:tail type)
-                 n-prefix (count items)
-                 v (vec value)
-                 n-value (count v)]
-             (and (>= n-value n-prefix)
-                  (or tail (= n-value n-prefix))
-                  (every? true? (map value-satisfies-type? (subvec v 0 n-prefix) items))
-                  (or (nil? tail)
-                      (every? #(value-satisfies-type? % tail) (subvec v n-prefix))))))
+      (let [coll-pred (case (:ordered-coll-kind type)
+                        :vector vector?
+                        :sequential sequential?)]
+        (and (coll-pred value)
+             (let [items (:items type)
+                   tail (:tail type)
+                   n-prefix (count items)
+                   v (vec value)
+                   n-value (count v)]
+               (and (>= n-value n-prefix)
+                    (or tail (= n-value n-prefix))
+                    (every? true? (map value-satisfies-type? (subvec v 0 n-prefix) items))
+                    (or (nil? tail)
+                        (every? #(value-satisfies-type? % tail) (subvec v n-prefix)))))))
 
       (at/set-type? type)
       (set-value-satisfies-type? value (:members type))

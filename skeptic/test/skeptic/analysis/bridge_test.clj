@@ -112,7 +112,7 @@
   (is (= [(sb/placeholder-schema 'skeptic.analysis.bridge-test/RecursiveSchemaRef)]
          (abc/canonicalize-schema #'RecursiveSchemaRef)))
   (let [recursive-type (ab/schema->type tp #'RecursiveSchemaRef)]
-    (is (at/vector-type? recursive-type))
+    (is (and (at/seq-type? recursive-type) (= :vector (:ordered-coll-kind recursive-type))))
     (is (some? (:tail recursive-type)))
     (is (at/inf-cycle-type? (:tail recursive-type)))
     (is (= 'skeptic.analysis.bridge-test/RecursiveSchemaRef
@@ -128,7 +128,7 @@
         joined-set (T #'RecursiveSetRef)]
     (is-type= (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
               (T #'DirectRecursiveSchemaRef))
-    (is (at/vector-type? joined-vector))
+    (is (and (at/seq-type? joined-vector) (= :vector (:ordered-coll-kind joined-vector))))
     (is (some? (:tail joined-vector)))
     (is-type= expected-join (:tail joined-vector))
     (is (at/seq-type? joined-seq))
@@ -308,7 +308,7 @@
 (deftest source-intake-self-recursive-test
   (let [t (ab/import-schema-type tp #'skeptic.test-examples.form-refs/Tree)]
     (is-type= (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :children)
-                             (at/->VectorT tp [] (at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree))})
+                             (at/->SeqT tp [] (at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree) :vector)})
               t)))
 
 (deftest source-intake-conditional-with-recursion-test

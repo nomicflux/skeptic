@@ -97,7 +97,7 @@
       (or (at/union-type? type) (at/intersection-type? type)) (:members type)
       (at/conditional-type? type) (mapv :type (:branches type))
       (at/map-type? type) (mapcat identity (:entries type))
-      (or (at/vector-type? type) (at/seq-type? type)) (:items type)
+      (at/seq-type? type) (:items type)
       (at/set-type? type) (:members type)
       (at/var-type? type) [(:inner type)]
       (at/value-type? type) [(:inner type)]

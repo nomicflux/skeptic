@@ -109,17 +109,16 @@
                      [(render-type-form* k opts)
                       (render-type-form* v opts)]))
               (:entries type))
-        (at/vector-type? type)
-        (let [items (mapv #(render-type-form* % opts) (:items type))]
-          (if-let [tail (:tail type)]
-            (conj items '& (render-type-form* tail opts))
-            items))
         (at/set-type? type) (into #{} (map #(render-type-form* % opts)) (:members type))
         (at/seq-type? type)
         (let [items (mapv #(render-type-form* % opts) (:items type))]
-          (if-let [tail (:tail type)]
-            (doall (concat items ['& (render-type-form* tail opts)]))
-            (doall items)))
+          (case (:ordered-coll-kind type)
+            :vector     (if-let [tail (:tail type)]
+                          (conj items '& (render-type-form* tail opts))
+                          items)
+            :sequential (if-let [tail (:tail type)]
+                          (doall (concat items ['& (render-type-form* tail opts)]))
+                          (doall items))))
         (at/var-type? type) (list 'var (render-type-form* (:inner type) opts))
         (at/placeholder-type? type) (at/placeholder-display-form (:ref type))
         :else type))))
@@ -202,12 +201,11 @@
                                             {:key (type->json-data* k opts)
                                              :val (type->json-data* v opts)})
                                           (:entries type))}
-      (at/vector-type? type) (cond-> {:t "vector"
-                                      :items (mapv #(type->json-data* % opts) (:items type))}
-                               (:tail type) (assoc :tail (type->json-data* (:tail type) opts)))
       (at/set-type? type) {:t "set" :members (mapv #(type->json-data* % opts)
                                                    (sort-by pr-str (:members type)))}
-      (at/seq-type? type) (cond-> {:t "seq"
+      (at/seq-type? type) (cond-> {:t (case (:ordered-coll-kind type)
+                                        :vector "vector"
+                                        :sequential "seq")
                                    :items (mapv #(type->json-data* % opts) (:items type))}
                             (:tail type) (assoc :tail (type->json-data* (:tail type) opts)))
       (at/var-type? type) {:t "var" :inner (type->json-data* (:inner type) opts)}

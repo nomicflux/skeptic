@@ -124,7 +124,8 @@
         :unknown)
 
       (at/map-type? t) (case pred :map? :matches :nil? :does-not-match :some? :matches :does-not-match)
-      (at/vector-type? t) (case pred :vector? :matches :nil? :does-not-match :some? :matches :does-not-match)
+      (and (at/seq-type? t) (= :vector (:ordered-coll-kind t)))
+      (case pred :vector? :matches :nil? :does-not-match :some? :matches :does-not-match)
       (at/set-type? t) (case pred :set? :matches :nil? :does-not-match :some? :matches :does-not-match)
       (at/seq-type? t) (case pred :seq? :matches :nil? :does-not-match :some? :matches :does-not-match)
       (at/fun-type? t) (case pred :fn? :matches :nil? :does-not-match :some? :matches :does-not-match)

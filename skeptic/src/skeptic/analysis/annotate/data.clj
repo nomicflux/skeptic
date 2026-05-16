@@ -30,9 +30,9 @@
         item-types (mapv #(ato/normalize-type prov (or (:type %) (at/Dyn prov))) items)]
     (assoc node
            :items items
-           :type (at/->VectorT (prov/with-refs prov (mapv prov/of item-types))
+           :type (at/->SeqT (prov/with-refs prov (mapv prov/of item-types))
                                item-types
-                               nil))))
+                               nil :vector))))
 
 (s/defn annotate-set :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]

@@ -26,11 +26,11 @@
 (deftest self-recursive-ref-produces-inf-cycle-at-second-occurrence
   (is (= (at/->MaybeT
           tp
-          (at/->VectorT
+          (at/->SeqT
            tp
            [(at/->GroundT tp :int 'Int)
             (at/->InfCycleT tp ::node)]
-           nil))
+           nil :vector))
          (sut/malli-spec->type
           tp
           [:schema {:registry {::node [:maybe [:tuple :int [:ref ::node]]]}}
@@ -39,17 +39,17 @@
 (deftest mutual-recursion-bottoms-out-at-first-repeated-ref
   (is (= (at/->MaybeT
           tp
-          (at/->VectorT
+          (at/->SeqT
            tp
            [(ato/exact-value-type tp "ping")
             (at/->MaybeT
              tp
-             (at/->VectorT
+             (at/->SeqT
               tp
               [(ato/exact-value-type tp "pong")
                (at/->InfCycleT tp ::ping)]
-              nil))]
-           nil))
+              nil :vector))]
+           nil :vector))
          (sut/malli-spec->type
           tp
           [:schema {:registry {::ping [:maybe [:tuple [:= "ping"] [:ref ::pong]]]

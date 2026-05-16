@@ -50,10 +50,6 @@
               #{}
               (:entries type))
 
-      (at/vector-type? type)
-      (into #{} (mapcat type-free-vars (cond-> (vec (:items type))
-                                         (:tail type) (conj (:tail type)))))
-
       (at/set-type? type)
       (into #{} (mapcat type-free-vars (:members type)))
 
@@ -141,12 +137,6 @@
             refs (into [] (mapcat (fn [[k v]] [(prov/of k) (prov/of v)])) entries')]
         (at/->MapT (prov/with-refs prov refs) entries'))
 
-      (at/vector-type? type)
-      (let [items' (mapv #(type-substitute % binder replacement) (:items type))
-            tail'  (some-> (:tail type) (type-substitute binder replacement))
-            refs   (cond-> (mapv prov/of items') tail' (conj (prov/of tail')))]
-        (at/->VectorT (prov/with-refs prov refs) items' tail'))
-
       (at/set-type? type)
       (let [members' (set (map #(type-substitute % binder replacement) (:members type)))]
         (at/->SetT (prov/with-refs prov (mapv prov/of members'))
@@ -157,7 +147,7 @@
       (let [items' (mapv #(type-substitute % binder replacement) (:items type))
             tail'  (some-> (:tail type) (type-substitute binder replacement))
             refs   (cond-> (mapv prov/of items') tail' (conj (prov/of tail')))]
-        (at/->SeqT (prov/with-refs prov refs) items' tail'))
+        (at/->SeqT (prov/with-refs prov refs) items' tail' (:ordered-coll-kind type)))
 
       (at/var-type? type)
       (at/->VarT prov (type-substitute (:inner type) binder replacement))

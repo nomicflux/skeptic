@@ -85,49 +85,29 @@
     (or (some #(when (:ok? %) %) results)
         (set-member-failure source-member target-members (:polarity opts)))))
 
-(s/defn check-vector-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
-  (prefix-tail-collection-result run-child
-                                 source-type
-                                 target-type
-                                 opts
-                                 :vector-index
-                                 :vector
-                                 :vector-element-failed
-                                 :vector-arity-mismatch))
+(defn- ordered-coll-tags
+  [source-kind target-kind]
+  (case [source-kind target-kind]
+    [:vector :vector]         {:kind :vector-index :rule :vector
+                               :item-failure :vector-element-failed
+                               :arity-failure :vector-arity-mismatch}
+    [:sequential :sequential] {:kind :seq-index :rule :seq
+                               :item-failure :seq-element-failed
+                               :arity-failure :seq-arity-mismatch}
+    [:sequential :vector]     {:kind :vector-index :rule :seq-to-vector
+                               :item-failure :seq-to-vector-element-failed
+                               :arity-failure :seq-to-vector-arity-mismatch}
+    [:vector :sequential]     {:kind :seq-index :rule :vector-to-seq
+                               :item-failure :vector-to-seq-element-failed
+                               :arity-failure :vector-to-seq-arity-mismatch}))
 
-(s/defn check-seq-cast :- csch/CastResult
+(s/defn check-ordered-coll-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
-  (prefix-tail-collection-result run-child
-                                 source-type
-                                 target-type
-                                 opts
-                                 :seq-index
-                                 :seq
-                                 :seq-element-failed
-                                 :seq-arity-mismatch))
-
-(s/defn check-seq-to-vector-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
-  (prefix-tail-collection-result run-child
-                                 source-type
-                                 target-type
-                                 opts
-                                 :vector-index
-                                 :seq-to-vector
-                                 :seq-to-vector-element-failed
-                                 :seq-to-vector-arity-mismatch))
-
-(s/defn check-vector-to-seq-cast :- csch/CastResult
-  [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]
-  (prefix-tail-collection-result run-child
-                                 source-type
-                                 target-type
-                                 opts
-                                 :seq-index
-                                 :vector-to-seq
-                                 :vector-to-seq-element-failed
-                                 :vector-to-seq-arity-mismatch))
+  (let [{:keys [kind rule item-failure arity-failure]}
+        (ordered-coll-tags (:ordered-coll-kind source-type)
+                           (:ordered-coll-kind target-type))]
+    (prefix-tail-collection-result run-child source-type target-type opts
+                                   kind rule item-failure arity-failure)))
 
 (s/defn check-set-cast :- csch/CastResult
   [run-child :- (s/pred fn?) source-type :- at/SemanticType target-type :- at/SemanticType opts :- s/Any]

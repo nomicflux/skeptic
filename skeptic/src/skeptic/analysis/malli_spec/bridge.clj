@@ -263,7 +263,7 @@
 
       (vector-shape? form)
       (let [r (form->type ctx (coll-child-form form))]
-        (import-result (at/->VectorT prov [] (:type r)) (:closed-refs r)))
+        (import-result (at/->SeqT prov [] (:type r) :vector) (:closed-refs r)))
 
       (set-shape? form)
       (let [r (form->type ctx (coll-child-form form))]
@@ -271,7 +271,7 @@
 
       (sequential-shape? form)
       (let [r (form->type ctx (coll-child-form form))]
-        (import-result (at/->SeqT prov [] (:type r)) (:closed-refs r)))
+        (import-result (at/->SeqT prov [] (:type r) :sequential) (:closed-refs r)))
 
       (maybe-shape? form)
       (let [r (form->type ctx (second form))]
@@ -289,7 +289,7 @@
 
       (tuple-shape? form)
       (let [rs (mapv #(form->type ctx %) (rest form))]
-        (import-result (at/->VectorT prov (mapv :type rs) nil)
+        (import-result (at/->SeqT prov (mapv :type rs) nil :vector)
                        (merge-closed-refs rs)))
 
       (map-shape? form)

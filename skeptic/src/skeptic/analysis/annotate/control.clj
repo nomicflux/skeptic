@@ -229,9 +229,8 @@
   (let [type (ato/normalize type)]
     (cond
       (at/map-type? type) :map
-      (at/vector-type? type) :vector
       (at/set-type? type) :set
-      (at/seq-type? type) :seq)))
+      (at/seq-type? type) (:ordered-coll-kind type))))
 
 (defn- empty-collection-type?
   [type]
@@ -240,7 +239,7 @@
       :map (empty? (:entries type))
       :vector (empty? (:items type))
       :set (empty? (:members type))
-      :seq (empty? (:items type))
+      :sequential (empty? (:items type))
       false)))
 
 (defn- widenable-empty-target?

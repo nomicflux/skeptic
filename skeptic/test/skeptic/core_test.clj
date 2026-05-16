@@ -224,9 +224,9 @@
                   :focuses ['[g r b]]
                   :cast-summary {:rule :vector
                                 :actual-type (ab/schema->type tp [s/Any])
-                                :expected-type (at/->VectorT tp []
-                                                              (at/->SetT tp #{(at/->VectorT tp [placeholder placeholder placeholder] nil)}
-                                                                         false))}
+                                :expected-type (at/->SeqT tp []
+                                                              (at/->SetT tp #{(at/->SeqT tp [placeholder placeholder placeholder] nil :vector)}
+                                                                         false) :vector)}
                   :cast-diagnostics [{:reason :leaf-mismatch
                                   :rule :leaf-overlap
                                   :actual-type (ab/schema->type tp s/Any)

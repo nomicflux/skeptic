@@ -29,7 +29,7 @@
       (is (at/seq-type? result))
       (is (= tp (prov/of result)))))
   (testing "result prov source is the anchor, not derived from arg types"
-    (let [other-vec (at/->VectorT other-prov [] (at/->GroundT other-prov :int 'Int))
+    (let [other-vec (at/->SeqT other-prov [] (at/->GroundT other-prov :int 'Int) :vector)
           args [{:op :const :form nil :type other-vec}
                 {:op :const :form nil :type other-vec}]
           result (some! (sut/concat-output-type tp args))
@@ -40,10 +40,10 @@
 
 (deftest seqish-element-type-empty-closed-collections-return-nil-test
   (testing "empty closed vector has no elements; seqish-element-type is nil"
-    (let [empty-vec (at/->VectorT tp [] nil)]
+    (let [empty-vec (at/->SeqT tp [] nil :vector)]
       (is (nil? (sut/seqish-element-type empty-vec)))))
   (testing "empty closed seq has no elements; seqish-element-type is nil"
-    (let [empty-seq (at/->SeqT tp [] nil)]
+    (let [empty-seq (at/->SeqT tp [] nil :sequential)]
       (is (nil? (sut/seqish-element-type empty-seq))))))
 
 (defn- int-t
@@ -52,53 +52,53 @@
 
 (deftest coll-rest-output-type-vector-threads-refs-test
   (testing "closed vector ≥2 items: rest is homogeneous; refs has 1 entry"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/coll-rest-output-type vt))
           refs (:refs (prov/of result))]
       (is (at/seq-type? result))
       (is (= 1 (count refs)))))
   (testing "homogeneous vector → seq fallback: refs has 1 entry"
-    (let [vt (at/->VectorT tp [] (int-t tp))
+    (let [vt (at/->SeqT tp [] (int-t tp) :vector)
           result (some! (sut/coll-rest-output-type vt))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs))))))
 
 (deftest coll-butlast-output-type-threads-refs-test
   (testing "3-item vector: refs count = 2"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/coll-butlast-output-type vt))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
 
 (deftest coll-drop-last-output-type-threads-refs-test
   (testing "drop-last 1 from 3-item vector: refs count = 2"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/coll-drop-last-output-type vt 1))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
 
 (deftest coll-take-prefix-type-threads-refs-test
   (testing "take 2 from 3-item vector: refs count = 2"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/coll-take-prefix-type vt 2))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
 
 (deftest coll-drop-prefix-type-threads-refs-test
   (testing "drop 2 from homogeneous vector: tail still present, refs count = 1"
-    (let [vt (at/->VectorT tp [] (int-t tp))
+    (let [vt (at/->SeqT tp [] (int-t tp) :vector)
           result (some! (sut/coll-drop-prefix-type vt 2))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs)))))
   (testing "drop 1 from 3-item closed vector: refs count = 2"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/coll-drop-prefix-type vt 1))
           refs (:refs (prov/of result))]
       (is (= 2 (count refs))))))
 
 (deftest coll-same-element-seq-type-threads-refs-test
   (testing "homogeneous vector input: refs has 1 entry (the element)"
-    (let [vt (at/->VectorT tp [] (int-t tp))
+    (let [vt (at/->SeqT tp [] (int-t tp) :vector)
           result (some! (sut/coll-same-element-seq-type vt))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs))))))
@@ -111,25 +111,25 @@
 
 (deftest concat-output-type-non-empty-threads-joined-ref-test
   (testing "all args have seqish elements: refs has 1 entry (the joined)"
-    (let [args [{:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}
-                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :vector)}
+                {:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :vector)}]
           result (some! (sut/concat-output-type tp args))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs))))))
 
 (deftest into-output-type-vector-target-threads-refs-test
   (testing "vector-target: refs count = 1"
-    (let [args [{:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}
-                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :vector)}
+                {:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :vector)}]
           result (some! (sut/into-output-type args))
           refs (:refs (prov/of result))]
-      (is (at/vector-type? result))
+      (is (and (at/seq-type? result) (= :vector (:ordered-coll-kind result))))
       (is (= 1 (count refs))))))
 
 (deftest into-output-type-seq-target-threads-refs-test
   (testing "seq-target: refs count = 1"
-    (let [args [{:op :const :form nil :type (at/->SeqT tp [] (int-t tp))}
-                {:op :const :form nil :type (at/->VectorT tp [] (int-t tp))}]
+    (let [args [{:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :sequential)}
+                {:op :const :form nil :type (at/->SeqT tp [] (int-t tp) :vector)}]
           result (some! (sut/into-output-type args))
           refs (:refs (prov/of result))]
       (is (at/seq-type? result))
@@ -137,7 +137,7 @@
 
 (deftest vector-to-homogeneous-seq-type-threads-refs-test
   (testing "closed multi-item vector: refs has 1 entry"
-    (let [vt (at/->VectorT tp [(int-t tp) (int-t tp)] nil)
+    (let [vt (at/->SeqT tp [(int-t tp) (int-t tp)] nil :vector)
           result (some! (sut/vector-to-homogeneous-seq-type vt))
           refs (:refs (prov/of result))]
       (is (= 1 (count refs))))))

@@ -4,3 +4,6 @@
 
 (s/defschema SemanticType
   (s/protocol proto/SemanticType))
+
+(s/defschema OrderedCollKind
+  (s/enum :vector :sequential))

@@ -27,7 +27,7 @@
   Returns nil for an empty closed coll."
   [type :- at/SemanticType]
   (when-some [type (some-> type ato/normalize)]
-    (when (or (at/vector-type? type) (at/seq-type? type))
+    (when (at/seq-type? type)
       (let [items (vec (:items type))
             tail  (:tail type)
             all   (cond-> items tail (conj tail))]
@@ -36,15 +36,17 @@
 
 (s/defn vector-to-homogeneous-seq-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
-  (when (at/vector-type? (ato/normalize type))
-    (let [type (ato/normalize type)]
+  (let [type (ato/normalize type)]
+    (when (and (at/seq-type? type) (= :vector (:ordered-coll-kind type)))
       (when-let [elem (seqish-element-type type)]
         (let [elem (ato/normalize elem)]
-          (at/->SeqT (prov/with-refs (ato/derive-prov type) [(prov/of elem)]) [] elem))))))
+          (at/->SeqT (prov/with-refs (ato/derive-prov type) [(prov/of elem)]) [] elem :sequential))))))
 
 (s/defn vector-slot-type :- (s/maybe at/SemanticType)
   [vector-type :- at/SemanticType, idx :- s/Int]
-  (when (and (at/vector-type? vector-type) (integer? idx) (<= 0 idx))
+  (when (and (at/seq-type? vector-type)
+             (= :vector (:ordered-coll-kind vector-type))
+             (integer? idx) (<= 0 idx))
     (let [items (:items vector-type)
           tail  (:tail vector-type)]
       (cond
@@ -56,35 +58,33 @@
   [coll-type :- at/SemanticType, idx-node :- aas/AnnotatedNode]
   (let [coll-type (ato/normalize coll-type)
         literal (const-long-value idx-node)]
-    (cond
-      (at/vector-type? coll-type)
-      (or (when literal (vector-slot-type coll-type literal))
-          (seqish-element-type coll-type))
-
-      (at/seq-type? coll-type)
-      (when (or (nil? literal) (and (nat-int? literal) (some? (:tail coll-type))))
-        (seqish-element-type coll-type))
-
-      :else nil)))
+    (when (at/seq-type? coll-type)
+      (case (:ordered-coll-kind coll-type)
+        :vector
+        (or (when literal (vector-slot-type coll-type literal))
+            (seqish-element-type coll-type))
+        :sequential
+        (when (or (nil? literal) (and (nat-int? literal) (some? (:tail coll-type))))
+          (seqish-element-type coll-type))))))
 
 (s/defn coll-first-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
   (when-some [type (some-> type ato/normalize)]
-    (when (or (at/vector-type? type) (at/seq-type? type))
+    (when (at/seq-type? type)
       (or (some-> (first (:items type)) ato/normalize)
           (some-> (:tail type) ato/normalize)))))
 
 (s/defn coll-second-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
   (when-some [type (some-> type ato/normalize)]
-    (when (or (at/vector-type? type) (at/seq-type? type))
+    (when (at/seq-type? type)
       (or (some-> (second (:items type)) ato/normalize)
           (some-> (:tail type) ato/normalize)))))
 
 (s/defn coll-last-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
   (when-some [type (some-> type ato/normalize)]
-    (when (or (at/vector-type? type) (at/seq-type? type))
+    (when (at/seq-type? type)
       (let [items (vec (:items type))
             tail  (:tail type)]
         (cond
@@ -97,67 +97,69 @@
   [type :- at/SemanticType]
   (let [type (ato/normalize type)
         prov (ato/derive-prov type)]
-    (when (or (at/vector-type? type) (at/seq-type? type))
+    (when (at/seq-type? type)
       (when-let [elem (seqish-element-type type)]
         (let [elem (ato/normalize elem)]
-          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem))))))
+          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem :sequential))))))
 
 (s/defn coll-butlast-output-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
   (let [type (ato/normalize type)]
-    (when (and (at/vector-type? type)
+    (when (and (at/seq-type? type)
+               (= :vector (:ordered-coll-kind type))
                (nil? (:tail type))
                (> (count (:items type)) 0))
       (let [items (mapv ato/normalize (pop (vec (:items type))))]
-        (at/->VectorT (prov/with-refs (ato/derive-prov type) (mapv prov/of items)) items nil)))))
+        (at/->SeqT (prov/with-refs (ato/derive-prov type) (mapv prov/of items)) items nil :vector)))))
 
 (s/defn coll-drop-last-output-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType, n :- s/Int]
   (let [type (ato/normalize type)]
     (when (and (pos-int? n)
-               (at/vector-type? type)
+               (at/seq-type? type)
+               (= :vector (:ordered-coll-kind type))
                (nil? (:tail type)))
       (let [items (vec (:items type))
             count-items (count items)
             kept (mapv ato/normalize (subvec items 0 (- count-items (min n count-items))))]
-        (at/->VectorT (prov/with-refs (ato/derive-prov type) (mapv prov/of kept)) kept nil)))))
+        (at/->SeqT (prov/with-refs (ato/derive-prov type) (mapv prov/of kept)) kept nil :vector)))))
 
 (s/defn coll-take-prefix-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType, n :- s/Int]
   (let [type (ato/normalize type)]
-    (when (and (nat-int? n) (at/vector-type? type))
+    (when (and (nat-int? n) (at/seq-type? type) (= :vector (:ordered-coll-kind type)))
       (let [items (vec (:items type))
             n-items (count items)
             kept (mapv ato/normalize (subvec items 0 (min n n-items)))
             tail' (when (and (:tail type) (> n n-items)) (:tail type))
             refs (cond-> (mapv prov/of kept) tail' (conj (prov/of tail')))]
-        (at/->VectorT (prov/with-refs (ato/derive-prov type) refs) kept tail')))))
+        (at/->SeqT (prov/with-refs (ato/derive-prov type) refs) kept tail' :vector)))))
 
 (s/defn coll-drop-prefix-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType, n :- s/Int]
   (let [type (ato/normalize type)]
-    (when (and (nat-int? n) (at/vector-type? type))
+    (when (and (nat-int? n) (at/seq-type? type) (= :vector (:ordered-coll-kind type)))
       (let [items (vec (:items type))
             tail' (:tail type)
             kept (mapv ato/normalize (subvec items (min n (count items)) (count items)))
             refs (cond-> (mapv prov/of kept) tail' (conj (prov/of tail')))
             prov (ato/derive-prov type)]
-        (at/->VectorT (prov/with-refs prov refs) kept tail')))))
+        (at/->SeqT (prov/with-refs prov refs) kept tail' :vector)))))
 
 (s/defn coll-same-element-seq-type :- (s/maybe at/SemanticType)
   [type :- at/SemanticType]
   (when-let [elem (seqish-element-type type)]
-    (at/->SeqT (prov/with-refs (ato/derive-prov elem) [(prov/of elem)]) [] elem)))
+    (at/->SeqT (prov/with-refs (ato/derive-prov elem) [(prov/of elem)]) [] elem :sequential)))
 
 (s/defn concat-output-type :- (s/maybe at/SemanticType)
   [anchor-prov :- provs/Provenance, args :- [TypedNode]]
   (let [arg-types (map :type args)
         elems (keep seqish-element-type arg-types)]
     (cond
-      (empty? args) (at/->SeqT (prov/with-refs anchor-prov []) [] (at/Dyn anchor-prov))
+      (empty? args) (at/->SeqT (prov/with-refs anchor-prov []) [] (at/Dyn anchor-prov) :sequential)
       (= (count elems) (count args))
       (let [joined (av/join anchor-prov elems)]
-        (at/->SeqT (prov/with-refs anchor-prov [(prov/of joined)]) [] joined))
+        (at/->SeqT (prov/with-refs anchor-prov [(prov/of joined)]) [] joined :sequential))
       :else nil)))
 
 (s/defn into-output-type :- (s/maybe at/SemanticType)
@@ -174,9 +176,9 @@
                  to-elem to-elem
                  :else nil)]
       (when elem
-        (if (at/vector-type? to-type)
-          (at/->VectorT (prov/with-refs prov [(prov/of elem)]) [] elem)
-          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem))))))
+        (if (and (at/seq-type? to-type) (= :vector (:ordered-coll-kind to-type)))
+          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem :vector)
+          (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem :sequential))))))
 
 (s/defn invoke-nth-output-type :- (s/maybe at/SemanticType)
   [args :- [TypedNode]]
@@ -218,4 +220,4 @@
                     (at/Dyn prov))
                 body-type))
             (at/Dyn prov))]
-      (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem))))
+      (at/->SeqT (prov/with-refs prov [(prov/of elem)]) [] elem :sequential))))

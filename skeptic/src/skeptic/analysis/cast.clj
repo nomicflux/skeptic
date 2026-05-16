@@ -76,17 +76,8 @@
       (and (at/map-type? source-type) (at/map-type? target-type))
       (cmap/check-map-cast child-run source-type target-type opts)
 
-      (and (at/vector-type? source-type) (at/vector-type? target-type))
-      (coll/check-vector-cast child-run source-type target-type opts)
-
       (and (at/seq-type? source-type) (at/seq-type? target-type))
-      (coll/check-seq-cast child-run source-type target-type opts)
-
-      (and (at/seq-type? source-type) (at/vector-type? target-type))
-      (coll/check-seq-to-vector-cast child-run source-type target-type opts)
-
-      (and (at/vector-type? source-type) (at/seq-type? target-type))
-      (coll/check-vector-to-seq-cast child-run source-type target-type opts)
+      (coll/check-ordered-coll-cast child-run source-type target-type opts)
 
       (and (at/set-type? source-type) (at/set-type? target-type))
       (coll/check-set-cast child-run source-type target-type opts)

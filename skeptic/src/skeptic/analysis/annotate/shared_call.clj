@@ -29,10 +29,10 @@
 (defn- shared-seq-output-type
   [args]
   (let [type (:type (first args))]
-    (or (cond
-          (at/seq-type? type) type
-          (at/vector-type? type) (coll/vector-to-homogeneous-seq-type type)
-          :else nil)
+    (or (when (at/seq-type? type)
+          (case (:ordered-coll-kind type)
+            :vector (coll/vector-to-homogeneous-seq-type type)
+            :sequential type))
         (at/Dyn (ato/derive-prov type)))))
 
 (s/defn shared-call-output-type :- at/SemanticType
