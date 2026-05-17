@@ -31,8 +31,8 @@
     (assoc node
            :items items
            :type (at/->SeqT (prov/with-refs prov (mapv prov/of item-types))
-                               item-types
-                               nil :vector))))
+                            (at/pattern-from-prefix-tail item-types nil)
+                            :vector))))
 
 (s/defn annotate-set :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]

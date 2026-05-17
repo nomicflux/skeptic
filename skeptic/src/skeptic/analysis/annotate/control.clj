@@ -237,9 +237,9 @@
   (let [type (ato/normalize type)]
     (case (collection-kind type)
       :map (empty? (:entries type))
-      :vector (empty? (:items type))
+      :vector (empty? (at/pattern-prefix (:pattern type)))
       :set (empty? (:members type))
-      :sequential (empty? (:items type))
+      :sequential (empty? (at/pattern-prefix (:pattern type)))
       false)))
 
 (defn- widenable-empty-target?

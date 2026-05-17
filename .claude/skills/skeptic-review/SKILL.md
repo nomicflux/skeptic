@@ -119,13 +119,13 @@ Produce a single report. No edits, no commits.
 <1-3 sentences: does this merit landing as-is, landing with fixes, or reworking?>
 
 ## Blockers
-- <file:line> — <what and why>
+- <file:line> — <what change must be made and why>
 
 ## Should-fix
-- <file:line> — <what and why>
+- <file:line> — <what change must be made and why>
 
 ## Nits
-- <file:line> — <what and why>
+- <file:line> — <what change should be made and why>
 
 ## Docs audit
 - <which docs were / were not updated, and whether the audience is right>
@@ -136,8 +136,23 @@ Produce a single report. No edits, no commits.
 
 If there are no items in a section, write `- none` rather than deleting the section.
 
+### What counts as a finding
+
+**Every Blocker and Should-fix MUST be a real problem with a concrete code or §6-enumerated-doc change.** If you cannot name the specific edit — the file, the line, the before/after — you do not have a finding. Drop it.
+
+Forbidden, never legitimate at any severity:
+
+- "Worth a sentence in the commit message" — commit messages are NEVER in scope. Reviewers do not edit them, code is not gated on them, no future reader is helped by them. Findings whose remediation is commit-message prose are NEVER findings. File this exactly zero times.
+- "Mention it somewhere," "note for future readers," "explain it in a comment so people don't get confused" — narration, not a finding. Drop it.
+- "I noticed X but didn't determine if it breaks Y" — that is an unfinished investigation, not a finding. Grep the callers, read them, decide. Either escalate with the broken caller named, or drop it. No middle ground at Should-fix or Blocker. (Nit is also not a parking lot for this; drop it.)
+- A "finding" whose entire content is "this might matter" / "worth flagging" / "in case it's relevant" — drop it.
+
+If after the checklist you have zero Blockers and zero Should-fixes, that is the correct output. Padding the section with prose-flavored non-findings to look diligent is worse than an empty section. Empty sections are read as "the reviewer found nothing material"; padded sections train future reviewers that filler is acceptable.
+
 ## Do not
 
 - Do not edit files.
 - Do not re-run `git diff` / `git log` after the initial collection — work from what you already have.
 - Do not use memory of `AGENTS.md` or `blame-for-all.md`; re-read them each run.
+- Do not file findings whose remediation is commit-message text, comment-only prose, "make sure future readers know," or any other action that changes no code and updates no §6-enumerated doc. These are never findings.
+- Do not file partial observations as findings. If you noticed something and have not determined the consequence, your job is to determine it or omit it — not to ship the observation with hedging.

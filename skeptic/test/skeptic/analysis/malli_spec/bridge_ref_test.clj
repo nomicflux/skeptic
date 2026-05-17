@@ -28,9 +28,11 @@
           tp
           (at/->SeqT
            tp
-           [(at/->GroundT tp :int 'Int)
-            (at/->InfCycleT tp ::node)]
-           nil :vector))
+           (at/pattern-from-prefix-tail
+            [(at/->GroundT tp :int 'Int)
+             (at/->InfCycleT tp ::node)]
+            nil)
+           :vector))
          (sut/malli-spec->type
           tp
           [:schema {:registry {::node [:maybe [:tuple :int [:ref ::node]]]}}
@@ -41,15 +43,19 @@
           tp
           (at/->SeqT
            tp
-           [(ato/exact-value-type tp "ping")
-            (at/->MaybeT
-             tp
-             (at/->SeqT
+           (at/pattern-from-prefix-tail
+            [(ato/exact-value-type tp "ping")
+             (at/->MaybeT
               tp
-              [(ato/exact-value-type tp "pong")
-               (at/->InfCycleT tp ::ping)]
-              nil :vector))]
-           nil :vector))
+              (at/->SeqT
+               tp
+               (at/pattern-from-prefix-tail
+                [(ato/exact-value-type tp "pong")
+                 (at/->InfCycleT tp ::ping)]
+                nil)
+               :vector))]
+            nil)
+           :vector))
          (sut/malli-spec->type
           tp
           [:schema {:registry {::ping [:maybe [:tuple [:= "ping"] [:ref ::pong]]]

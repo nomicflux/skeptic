@@ -153,7 +153,7 @@
 (defrecord SetTRec [prov members homogeneous?]
   proto/SemanticType (semantic-tag [_] set-type-tag))
 
-(defrecord SeqTRec [prov items tail ordered-coll-kind]
+(defrecord SeqTRec [prov pattern ordered-coll-kind]
   proto/SemanticType (semantic-tag [_] seq-type-tag))
 
 (defrecord VarTRec [prov inner]
@@ -215,9 +215,33 @@
 (s/defn ->MapT :- SemanticType [prov :- provs/Provenance entries :- {SemanticType SemanticType}] (ensure-prov! "MapT" prov) (MapTRec. prov entries))
 (s/defn ->SetT :- SemanticType [prov :- provs/Provenance members homogeneous?] (ensure-prov! "SetT" prov) (SetTRec. prov members homogeneous?))
 (s/defn ->SeqT :- SemanticType
-  [prov :- provs/Provenance items :- [SemanticType] tail ordered-coll-kind :- (s/enum :vector :sequential)]
+  [prov :- provs/Provenance pattern ordered-coll-kind :- (s/enum :vector :sequential)]
   (ensure-prov! "SeqT" prov)
-  (SeqTRec. prov items tail ordered-coll-kind))
+  (SeqTRec. prov pattern ordered-coll-kind))
+
+(defn one-atom [type] {:kind :one :type type})
+(defn star-atom [type] {:kind :star :type type})
+(defn one-atom? [a] (and (map? a) (= :one (:kind a))))
+(defn star-atom? [a] (and (map? a) (= :star (:kind a))))
+(defn atom-type [a] (:type a))
+
+(defn pattern-prefix
+  "Return a vector of the leading :one atoms' types. Equivalent to the old SeqT :items."
+  [pattern]
+  (mapv :type (take-while one-atom? pattern)))
+
+(defn pattern-tail
+  "Return the trailing :star atom's type, or nil. Equivalent to the old SeqT :tail."
+  [pattern]
+  (when-let [last-atom (last pattern)]
+    (when (star-atom? last-atom)
+      (:type last-atom))))
+
+(defn pattern-from-prefix-tail
+  "Build a pattern from a closed prefix of types plus an optional homogeneous tail."
+  [prefix tail]
+  (cond-> (mapv one-atom prefix)
+    tail (conj (star-atom tail))))
 (s/defn ->VarT :- SemanticType [prov :- provs/Provenance inner :- SemanticType] (ensure-prov! "VarT" prov) (VarTRec. prov inner))
 (s/defn ->PlaceholderT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderTRec. prov ref))
 (s/defn ->InfCycleT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleTRec. prov ref))
@@ -408,11 +432,14 @@
               (= (:homogeneous? a) (:homogeneous? b)))
 
          (instance? SeqTRec a)
-         (and (= (:ordered-coll-kind a) (:ordered-coll-kind b))
-              (ordered-type=? same? (:items a) (:items b))
-              (if (nil? (:tail a))
-                (nil? (:tail b))
-                (and (some? (:tail b)) (same? (:tail a) (:tail b)))))
+         (let [pa (:pattern a) pb (:pattern b)]
+           (and (= (:ordered-coll-kind a) (:ordered-coll-kind b))
+                (= (count pa) (count pb))
+                (every? true?
+                        (map (fn [aa ba]
+                               (and (= (:kind aa) (:kind ba))
+                                    (same? (:type aa) (:type ba))))
+                             pa pb))))
 
          (var-type? a)
          (same? (:inner a) (:inner b))
@@ -545,8 +572,12 @@
                   (instance? SeqTRec x)
                   (-> tag-hash
                       (combine-hash (hash (:ordered-coll-kind x)))
-                      (combine-hash (ordered-type-hash hash-type (:items x)))
-                      (combine-hash (if (:tail x) (hash-type (:tail x)) 0)))
+                      (combine-hash (reduce (fn [acc a]
+                                              (-> acc
+                                                  (combine-hash (hash (:kind a)))
+                                                  (combine-hash (hash-type (:type a)))))
+                                            1
+                                            (:pattern x))))
 
                   (var-type? x)
                   (combine-hash tag-hash (hash-type (:inner x)))

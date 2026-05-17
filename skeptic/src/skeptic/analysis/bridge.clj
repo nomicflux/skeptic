@@ -688,7 +688,7 @@
 
       (vector? schema)
       (prefix-tail-import-type run ctx schema source
-                               (fn [p items tail] (at/->SeqT p items tail :vector)))
+                               (fn [p items tail] (at/->SeqT p (at/pattern-from-prefix-tail items tail) :vector)))
 
       (set? schema)
       (collection-import-type run ctx (vec schema) source
@@ -697,7 +697,7 @@
 
       (seq? schema)
       (prefix-tail-import-type run ctx (vec schema) source
-                               (fn [p items tail] (at/->SeqT p items tail :sequential)))
+                               (fn [p items tail] (at/->SeqT p (at/pattern-from-prefix-tail items tail) :sequential)))
 
       (sb/pred? schema)
       (let [pred-sym (sb/de-pred schema)

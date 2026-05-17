@@ -14,7 +14,7 @@
            [(incm/mismatched-output-schema-msg
              {:expr 'abcde-maps-bad
               :arg '(let [base {:a 1}] [(assoc base :b 2 :c 3 :d 4 :e "oops")])}
-             (at/->SeqT ps/tp [(ps/T {:a s/Int :b s/Int :c s/Int :d s/Int :e s/Str})] nil :vector)
+             (at/->SeqT ps/tp (at/pattern-from-prefix-tail [(ps/T {:a s/Int :b s/Int :c s/Int :d s/Int :e s/Str})] nil) :vector)
              (ps/T [{:a s/Int :b s/Int :c s/Int :d s/Int :e s/Int}]))]]
          (ps/result-errors (ps/check-fixture 'skeptic.test-examples.collections/abcde-maps-bad)))))
 

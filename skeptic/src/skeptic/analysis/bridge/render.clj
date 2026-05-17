@@ -111,12 +111,13 @@
               (:entries type))
         (at/set-type? type) (into #{} (map #(render-type-form* % opts)) (:members type))
         (at/seq-type? type)
-        (let [items (mapv #(render-type-form* % opts) (:items type))]
+        (let [items (mapv #(render-type-form* % opts) (at/pattern-prefix (:pattern type)))
+              tail  (at/pattern-tail (:pattern type))]
           (case (:ordered-coll-kind type)
-            :vector     (if-let [tail (:tail type)]
+            :vector     (if tail
                           (conj items '& (render-type-form* tail opts))
                           items)
-            :sequential (if-let [tail (:tail type)]
+            :sequential (if tail
                           (doall (concat items ['& (render-type-form* tail opts)]))
                           (doall items))))
         (at/var-type? type) (list 'var (render-type-form* (:inner type) opts))
@@ -203,11 +204,13 @@
                                           (:entries type))}
       (at/set-type? type) {:t "set" :members (mapv #(type->json-data* % opts)
                                                    (sort-by pr-str (:members type)))}
-      (at/seq-type? type) (cond-> {:t (case (:ordered-coll-kind type)
-                                        :vector "vector"
-                                        :sequential "seq")
-                                   :items (mapv #(type->json-data* % opts) (:items type))}
-                            (:tail type) (assoc :tail (type->json-data* (:tail type) opts)))
+      (at/seq-type? type) (let [tail (at/pattern-tail (:pattern type))]
+                            (cond-> {:t (case (:ordered-coll-kind type)
+                                          :vector "vector"
+                                          :sequential "seq")
+                                     :items (mapv #(type->json-data* % opts)
+                                                  (at/pattern-prefix (:pattern type)))}
+                              tail (assoc :tail (type->json-data* tail opts))))
       (at/var-type? type) {:t "var" :inner (type->json-data* (:inner type) opts)}
       (at/placeholder-type? type) {:t "placeholder"
                                    :name (pr-str (at/placeholder-display-form (:ref type)))}

@@ -116,9 +116,9 @@
                                  [(normalize-type prov k)
                                   (normalize-type prov v)]))
                           value))
-    (vector? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) nil :vector)
+    (vector? value) (at/->SeqT prov (at/pattern-from-prefix-tail (mapv #(normalize-type prov %) value) nil) :vector)
     (set? value) (at/->SetT prov (into #{} (map #(normalize-type prov %)) value) (= 1 (count value)))
-    (seq? value) (at/->SeqT prov (mapv #(normalize-type prov %) value) nil :sequential)
+    (seq? value) (at/->SeqT prov (at/pattern-from-prefix-tail (mapv #(normalize-type prov %) value) nil) :sequential)
     :else (invalid-normalize-type-input value)))
 
 (s/defn normalize-intersection-members :- #{at/SemanticType}

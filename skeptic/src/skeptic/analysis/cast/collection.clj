@@ -14,10 +14,10 @@
   A purely homogeneous source (items=[] tail=T) has unknown runtime count and
   never arity-fails — it is element-checked against the target's slots."
   [source-type target-type]
-  (let [n-source (count (:items source-type))
-        n-target (count (:items target-type))
-        s-tail (:tail source-type)
-        t-tail (:tail target-type)]
+  (let [n-source (count (at/pattern-prefix (:pattern source-type)))
+        n-target (count (at/pattern-prefix (:pattern target-type)))
+        s-tail (at/pattern-tail (:pattern source-type))
+        t-tail (at/pattern-tail (:pattern target-type))]
     (cond
       (and (zero? n-source) (some? s-tail)) false
       (and (nil? t-tail) (some? s-tail)) true
@@ -27,12 +27,12 @@
 
 (defn- prefix-tail-children
   [run-child kind source-type target-type opts]
-  (let [source-items (:items source-type)
-        target-items (:items target-type)
+  (let [source-items (at/pattern-prefix (:pattern source-type))
+        target-items (at/pattern-prefix (:pattern target-type))
         n-source (count source-items)
         n-target (count target-items)
-        s-tail (:tail source-type)
-        t-tail (:tail target-type)]
+        s-tail (at/pattern-tail (:pattern source-type))
+        t-tail (at/pattern-tail (:pattern target-type))]
     (if (and (zero? n-source) (some? s-tail))
       (let [item-children (mapv
                            (fn [idx target-item]

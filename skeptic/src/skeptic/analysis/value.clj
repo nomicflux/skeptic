@@ -102,11 +102,10 @@
         (boolean? value)) (class->type prov (class value))
     (vector? value) (let [item-types (mapv #(type-of-value prov %) value)]
                       (at/->SeqT (prov/with-refs prov (mapv prov/of item-types))
-                                 item-types
-                                 nil
+                                 (at/pattern-from-prefix-tail item-types nil)
                                  :vector))
     (or (list? value) (seq? value)) (closed-seq-type prov
-                                                     (fn [p items tail] (at/->SeqT p items tail :sequential))
+                                                     (fn [p items tail] (at/->SeqT p (at/pattern-from-prefix-tail items tail) :sequential))
                                                      value)
     (set? value) (let [element (collection-element-type prov value)]
                    (at/->SetT (prov/with-refs prov [(prov/of element)]) #{element} true))

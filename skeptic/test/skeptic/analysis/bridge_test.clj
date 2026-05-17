@@ -111,12 +111,13 @@
                 :ref))))
   (is (= [(sb/placeholder-schema 'skeptic.analysis.bridge-test/RecursiveSchemaRef)]
          (abc/canonicalize-schema #'RecursiveSchemaRef)))
-  (let [recursive-type (ab/schema->type tp #'RecursiveSchemaRef)]
+  (let [recursive-type (ab/schema->type tp #'RecursiveSchemaRef)
+        recursive-tail (at/pattern-tail (:pattern recursive-type))]
     (is (and (at/seq-type? recursive-type) (= :vector (:ordered-coll-kind recursive-type))))
-    (is (some? (:tail recursive-type)))
-    (is (at/inf-cycle-type? (:tail recursive-type)))
+    (is (some? recursive-tail))
+    (is (at/inf-cycle-type? recursive-tail))
     (is (= 'skeptic.analysis.bridge-test/RecursiveSchemaRef
-           (-> recursive-type :tail :ref)))))
+           (:ref recursive-tail)))))
 
 (deftest recursive-collections-reduce-by-construction-test
   (let [ref 'skeptic.analysis.bridge-test/JoinedRecursiveSchemaRef
@@ -129,14 +130,14 @@
     (is-type= (at/->InfCycleT tp 'skeptic.analysis.bridge-test/DirectRecursiveSchemaRef)
               (T #'DirectRecursiveSchemaRef))
     (is (and (at/seq-type? joined-vector) (= :vector (:ordered-coll-kind joined-vector))))
-    (is (some? (:tail joined-vector)))
-    (is-type= expected-join (:tail joined-vector))
+    (is (some? (at/pattern-tail (:pattern joined-vector))))
+    (is-type= expected-join (at/pattern-tail (:pattern joined-vector)))
     (is (at/seq-type? joined-seq))
-    (is (some? (:tail joined-seq)))
+    (is (some? (at/pattern-tail (:pattern joined-seq))))
     (is-type= (ato/union-type tp [(T s/Int)
                                   (at/->InfCycleT tp 'skeptic.analysis.bridge-test/RecursiveSeqRef)
                                   (T s/Str)])
-              (:tail joined-seq))
+              (at/pattern-tail (:pattern joined-seq)))
     (is (at/set-type? joined-set))
     (is (:homogeneous? joined-set))
     (is-type= (ato/union-type tp [(T s/Int)
@@ -246,7 +247,7 @@
         result (binding [ab/*var-provs* var-provs]
                  (ab/schema->type tp #'RecR))
         r-qsym (sb/qualified-var-symbol #'RecR)
-        body-type (:tail result)]
+        body-type (at/pattern-tail (:pattern result))]
     (is (= r-qsym (:qualified-sym (prov/of result))))
     (is (= :schema (prov/source (prov/of body-type))))
     (is (nil? (:qualified-sym (prov/of body-type))))))
@@ -287,7 +288,7 @@
   (let [vec-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/VecBody)
         result (ab/schema->type tp [s/Int]
                                 '[skeptic.test-examples.form-refs/VecBody])
-        child-type (:tail result)]
+        child-type (at/pattern-tail (:pattern result))]
     (is (some? child-type))
     (is (= :schema (prov/source (prov/of child-type))))
     (is (= vec-body-qsym (:qualified-sym (prov/of child-type))))))
@@ -308,7 +309,7 @@
 (deftest source-intake-self-recursive-test
   (let [t (ab/import-schema-type tp #'skeptic.test-examples.form-refs/Tree)]
     (is-type= (at/->MapT tp {(at/->ValueT tp (at/->GroundT tp :keyword 'Keyword) :children)
-                             (at/->SeqT tp [] (at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree) :vector)})
+                             (at/->SeqT tp (at/pattern-from-prefix-tail [] (at/->InfCycleT tp 'skeptic.test-examples.form-refs/Tree)) :vector)})
               t)))
 
 (deftest source-intake-conditional-with-recursion-test

@@ -401,7 +401,7 @@
 (deftest report-summary-honours-fold-options
   (let [schema-prov (prov/make-provenance :schema 'foo/NamedVec 'foo.ns nil [] :clj)
         inferred-prov (prov/make-provenance :inferred 'foo.caller/f 'foo.caller nil [] :clj)
-        named-vec (at/->SeqT schema-prov [(at/->GroundT schema-prov :int 'Int)] nil :vector)
+        named-vec (at/->SeqT schema-prov (at/pattern-from-prefix-tail [(at/->GroundT schema-prov :int 'Int)] nil) :vector)
         kw-key (at/->ValueT inferred-prov (at/->GroundT inferred-prov :keyword 'Keyword) :result)
         outer-map (at/->MapT inferred-prov {kw-key named-vec})
         actual-type (at/->GroundT inferred-prov :keyword 'Keyword)

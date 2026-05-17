@@ -71,7 +71,7 @@
   (is-type= (ato/intersection-type tp [Int Str]) (desc->type [:and :int :string])))
 
 (deftest desc->type-tuple
-  (is-type= (at/->SeqT tp [Int Str] nil :vector) (desc->type [:tuple :int :string])))
+  (is-type= (at/->SeqT tp (at/pattern-from-prefix-tail [Int Str] nil) :vector) (desc->type [:tuple :int :string])))
 
 (deftest desc->type-eq-form
   (is-type= (ato/exact-value-type tp :hello) (desc->type [:= :hello])))
@@ -125,7 +125,7 @@
     (is (= [1 2] (mapv #(count (at/fn-method-inputs %)) (at/fun-methods t))))))
 
 (deftest desc->type-vector
-  (is-type= (at/->SeqT tp [] Int :vector) (desc->type [:vector :int])))
+  (is-type= (at/->SeqT tp (at/pattern-from-prefix-tail [] Int) :vector) (desc->type [:vector :int])))
 
 (deftest desc->type-sequential
   (let [t (desc->type [:sequential :int])]

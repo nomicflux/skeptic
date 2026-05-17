@@ -1,6 +1,8 @@
 (ns skeptic.analysis.types-test
   (:require [clojure.test :refer [deftest is testing]]
+            [schema.core :as s]
             [skeptic.analysis.types :as sut]
+            [skeptic.analysis.types.schema :as types-schema]
             [skeptic.provenance :as prov]))
 
 (def ^:private p-schema
@@ -24,9 +26,9 @@
     (is (= p-schema (prov/of (sut/->UnionT p-schema #{}))))
     (is (= p-schema (prov/of (sut/->IntersectionT p-schema #{}))))
     (is (= p-schema (prov/of (sut/->MapT p-schema {}))))
-    (is (= p-schema (prov/of (sut/->SeqT p-schema [] nil :vector))))
+    (is (= p-schema (prov/of (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [] nil) :vector))))
     (is (= p-schema (prov/of (sut/->SetT p-schema #{} true))))
-    (is (= p-schema (prov/of (sut/->SeqT p-schema [] nil :sequential))))
+    (is (= p-schema (prov/of (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [] nil) :sequential))))
     (is (= p-schema (prov/of (sut/->VarT p-schema (sut/Dyn p-schema)))))
     (is (= p-schema (prov/of (sut/->PlaceholderT p-schema 'foo))))
     (is (= p-schema (prov/of (sut/->InfCycleT p-schema 'foo))))
@@ -66,8 +68,8 @@
     (testing "semantic containers recurse through their fields"
       (is (sut/type=? (sut/->MapT p-schema {(sut/->ValueT p-schema schema-str :a) schema-int})
                       (sut/->MapT p-native {(sut/->ValueT p-native native-str :a) native-int})))
-      (is (sut/type=? (sut/->SeqT p-schema [schema-int schema-str] nil :vector)
-                      (sut/->SeqT p-native [native-int native-str] nil :vector)))
+      (is (sut/type=? (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [schema-int schema-str] nil) :vector)
+                      (sut/->SeqT p-native (sut/pattern-from-prefix-tail [native-int native-str] nil) :vector)))
       (is (sut/type=? (sut/->SetT p-schema #{schema-int schema-str} false)
                       (sut/->SetT p-native #{native-str native-int} false)))
       (is (sut/type=? (sut/->UnionT p-schema #{schema-int schema-str})
@@ -84,8 +86,8 @@
                       (sut/->ConditionalT p-native [(sut/->ConditionalBranch :truthy native-int nil nil)
                                                     (sut/->ConditionalBranch :else native-str nil nil)]))))
     (testing "non-provenance differences still matter"
-      (is (not (sut/type=? (sut/->SeqT p-schema [] schema-int :vector)
-                           (sut/->SeqT p-native [native-int] nil :vector))))
+      (is (not (sut/type=? (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [] schema-int) :vector)
+                           (sut/->SeqT p-native (sut/pattern-from-prefix-tail [native-int] nil) :vector))))
       (is (not (sut/type=? (sut/->ValueT p-schema schema-str :a)
                            (sut/->ValueT p-native native-str :b)))))))
 
@@ -120,4 +122,63 @@
   (is (sut/ground-type? (sut/->GroundT p-schema :int 'Int)))
   (is (sut/fun-type? (sut/->FunT p-schema [])))
   (is (sut/maybe-type? (sut/->MaybeT p-schema (sut/Dyn p-schema)))))
+
+(deftest regex-atom-helpers
+  (let [int-t (sut/->GroundT p-schema :int 'Int)
+        str-t (sut/->GroundT p-schema :str 'Str)]
+    (testing "one-atom and star-atom build the documented tagged-map shape"
+      (is (= {:kind :one :type int-t} (sut/one-atom int-t)))
+      (is (= {:kind :star :type str-t} (sut/star-atom str-t))))
+    (testing "predicates and accessor"
+      (is (sut/one-atom? (sut/one-atom int-t)))
+      (is (sut/star-atom? (sut/star-atom int-t)))
+      (is (not (sut/one-atom? (sut/star-atom int-t))))
+      (is (not (sut/star-atom? (sut/one-atom int-t))))
+      (is (= int-t (sut/atom-type (sut/one-atom int-t))))
+      (is (= str-t (sut/atom-type (sut/star-atom str-t)))))))
+
+(deftest pattern-prefix-and-pattern-tail-roundtrip
+  (let [int-t (sut/->GroundT p-schema :int 'Int)
+        str-t (sut/->GroundT p-schema :str 'Str)]
+    (testing "empty pattern: prefix=[] tail=nil"
+      (let [p (sut/pattern-from-prefix-tail [] nil)]
+        (is (= [] (sut/pattern-prefix p)))
+        (is (nil? (sut/pattern-tail p)))))
+    (testing "closed prefix only: items=[Int Str] tail=nil"
+      (let [p (sut/pattern-from-prefix-tail [int-t str-t] nil)]
+        (is (= [int-t str-t] (sut/pattern-prefix p)))
+        (is (nil? (sut/pattern-tail p)))))
+    (testing "homogeneous only: items=[] tail=Int"
+      (let [p (sut/pattern-from-prefix-tail [] int-t)]
+        (is (= [] (sut/pattern-prefix p)))
+        (is (= int-t (sut/pattern-tail p)))))
+    (testing "prefix plus tail: items=[Int Str] tail=Int"
+      (let [p (sut/pattern-from-prefix-tail [int-t str-t] int-t)]
+        (is (= [int-t str-t] (sut/pattern-prefix p)))
+        (is (= int-t (sut/pattern-tail p)))))))
+
+(deftest pattern-schema-accepts-valid-shapes
+  (let [int-t (sut/->GroundT p-schema :int 'Int)]
+    (is (nil? (s/check types-schema/Pattern [])))
+    (is (nil? (s/check types-schema/Pattern [(sut/one-atom int-t)])))
+    (is (nil? (s/check types-schema/Pattern [(sut/one-atom int-t) (sut/star-atom int-t)])))
+    (is (nil? (s/check types-schema/Pattern [(sut/star-atom int-t)])))))
+
+(deftest pattern-schema-rejects-star-not-last
+  (let [int-t (sut/->GroundT p-schema :int 'Int)]
+    (is (some? (s/check types-schema/Pattern [(sut/star-atom int-t) (sut/one-atom int-t)])))
+    (is (some? (s/check types-schema/Pattern [(sut/star-atom int-t) (sut/star-atom int-t)])))))
+
+(deftest seqt-type=-uses-pattern-shape
+  (let [schema-int (sut/->GroundT p-schema :int 'Int)
+        native-int (sut/->GroundT p-native :int 'Int)]
+    (testing "two SeqTs with same pattern shape compare equal regardless of prov"
+      (is (sut/type=? (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [schema-int] schema-int) :vector)
+                      (sut/->SeqT p-native (sut/pattern-from-prefix-tail [native-int] native-int) :vector))))
+    (testing "different atom kinds compare unequal"
+      (is (not (sut/type=? (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [schema-int] nil) :vector)
+                           (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [] schema-int) :vector)))))
+    (testing "different ordered-coll-kind compare unequal"
+      (is (not (sut/type=? (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [schema-int] nil) :vector)
+                           (sut/->SeqT p-schema (sut/pattern-from-prefix-tail [schema-int] nil) :sequential)))))))
 

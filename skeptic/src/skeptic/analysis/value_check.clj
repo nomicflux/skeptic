@@ -279,8 +279,8 @@
                         :vector vector?
                         :sequential sequential?)]
         (and (coll-pred value)
-             (let [items (:items type)
-                   tail (:tail type)
+             (let [items (at/pattern-prefix (:pattern type))
+                   tail  (at/pattern-tail (:pattern type))
                    n-prefix (count items)
                    v (vec value)
                    n-value (count v)]

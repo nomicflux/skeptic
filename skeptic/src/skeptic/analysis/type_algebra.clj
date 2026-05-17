@@ -54,8 +54,7 @@
       (into #{} (mapcat type-free-vars (:members type)))
 
       (at/seq-type? type)
-      (into #{} (mapcat type-free-vars (cond-> (vec (:items type))
-                                         (:tail type) (conj (:tail type)))))
+      (into #{} (mapcat type-free-vars (map :type (:pattern type))))
 
       (at/var-type? type)
       (type-free-vars (:inner type))
@@ -144,10 +143,11 @@
                    (:homogeneous? type)))
 
       (at/seq-type? type)
-      (let [items' (mapv #(type-substitute % binder replacement) (:items type))
-            tail'  (some-> (:tail type) (type-substitute binder replacement))
-            refs   (cond-> (mapv prov/of items') tail' (conj (prov/of tail')))]
-        (at/->SeqT (prov/with-refs prov refs) items' tail' (:ordered-coll-kind type)))
+      (let [pattern' (mapv (fn [a]
+                             (assoc a :type (type-substitute (:type a) binder replacement)))
+                           (:pattern type))
+            refs (mapv (comp prov/of :type) pattern')]
+        (at/->SeqT (prov/with-refs prov refs) pattern' (:ordered-coll-kind type)))
 
       (at/var-type? type)
       (at/->VarT prov (type-substitute (:inner type) binder replacement))

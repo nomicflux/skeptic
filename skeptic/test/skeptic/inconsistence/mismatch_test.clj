@@ -30,9 +30,12 @@
         message (sut/mismatched-output-schema-msg
                  {:expr 'for-birthday
                   :arg '[g r b]}
-                 (at/->SeqT tp []
-                               (at/->SetT tp #{(at/->SeqT tp [placeholder placeholder placeholder] nil :vector)}
-                                          false) :vector)
+                 (at/->SeqT tp
+                            (at/pattern-from-prefix-tail
+                             []
+                             (at/->SetT tp #{(at/->SeqT tp (at/pattern-from-prefix-tail [placeholder placeholder placeholder] nil) :vector)}
+                                        false))
+                            :vector)
                  [s/Any])]
     (is (str/includes? message "Threal"))
     (assert-no-ui-internals message)))
