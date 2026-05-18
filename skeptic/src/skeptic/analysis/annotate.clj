@@ -20,11 +20,13 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
-(s/defn ^:private annotate-generic :- aas/AnnotatedNode
+(s/defn ^:private annotate-generic :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (assoc (base/annotate-children ctx node) :type (at/Dyn (prov/with-ctx ctx))))
+  (runner/call base/annotate-children ctx node
+               (fn [annotated]
+                 (runner/done (assoc annotated :type (at/Dyn (prov/with-ctx ctx)))))))
 
-(s/defn ^:private annotate-dispatch :- aas/AnnotatedNode
+(s/defn ^:private annotate-dispatch :- (s/cond-pre runner/Step aas/AnnotatedNode)
   [ctx :- s/Any node :- aas/AnnotatedNode]
   (case (aapi/node-op node)
     :binding (base/annotate-binding ctx node)
@@ -82,8 +84,8 @@
     (aapi/with-type annotated override)
     annotated))
 
-(defn- annotate-step
-  [ctx node]
+(s/defn ^:private annotate-step :- runner/Step
+  [ctx :- s/Any node :- aas/AnnotatedNode]
   (runner/call annotate-dispatch ctx node
                (fn [annotated]
                  (let [result (-> annotated

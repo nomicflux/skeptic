@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.base
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
@@ -8,19 +9,23 @@
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]))
 
-(defn- annotate-child
-  [ctx value]
-  (cond
-    (vector? value) (mapv #((:recurse ctx) ctx %) value)
-    (map? value) ((:recurse ctx) ctx value)
-    :else value))
-
-(s/defn annotate-children :- aas/AnnotatedNode
+(s/defn annotate-children :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (reduce (fn [acc key]
-            (assoc acc key (annotate-child ctx (get acc key))))
-          node
-          (:children node)))
+  (letfn [(walk [cur-node remaining]
+            (if (empty? remaining)
+              (runner/done cur-node)
+              (let [k (first remaining)
+                    v (get cur-node k)]
+                (cond
+                  (vector? v)
+                  (runner/sequence-children ctx v
+                    (fn [vs] (walk (assoc cur-node k vs) (rest remaining))))
+                  (map? v)
+                  (runner/call (:recurse-step ctx) ctx v
+                    (fn [v'] (walk (assoc cur-node k v') (rest remaining))))
+                  :else
+                  (walk cur-node (rest remaining))))))]
+    (walk node (:children node))))
 
 (s/defn annotate-const :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]

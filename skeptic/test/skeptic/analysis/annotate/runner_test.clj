@@ -2,44 +2,61 @@
   (:require [clojure.test :refer [deftest is]]
             [skeptic.analysis.annotate.runner :as runner]))
 
+(defn- nd
+  ([op] {:op op :form op})
+  ([op extra] (merge {:op op :form op} extra)))
+
 (defn- identity-helper [_ctx node] (runner/done node))
 
-(deftest run-done-returns-value
-  (is (= :leaf (runner/run identity-helper {} :leaf))))
+(deftest run-done-returns-node
+  (is (= (nd :leaf)
+         (runner/run identity-helper {} (nd :leaf)))))
 
 (deftest run-call-step-then-done
   (let [helper (fn [_ctx node]
                  (runner/call identity-helper {} node
-                              (fn [v] (runner/done [:wrapped v]))))]
-    (is (= [:wrapped 42] (runner/run helper {} 42)))))
+                              (fn [v] (runner/done (assoc v :wrapped true)))))]
+    (is (true? (:wrapped (runner/run helper {} (nd :x)))))))
 
 (deftest run-nested-calls
-  (let [inner (fn [_ctx node] (runner/done (inc node)))
+  (let [bump (fn [_ctx node]
+               (runner/done (update node :count (fnil inc 0))))
         outer (fn [_ctx node]
-                (runner/call inner {} node
+                (runner/call bump {} node
                              (fn [a]
-                               (runner/call inner {} a
+                               (runner/call bump {} a
                                             (fn [b] (runner/done b))))))]
-    (is (= 3 (runner/run outer {} 1)))))
+    (is (= 2 (:count (runner/run outer {} (nd :n)))))))
 
-(deftest run-auto-wraps-non-step-values
-  (let [legacy (fn [_ctx node] (inc node))]
-    (is (= 5 (runner/run legacy {} 4)))))
+(deftest run-auto-wraps-non-step-helper-returns
+  ;; Migration-window behavior. Phase 7 contracts the runner — every
+  ;; helper returns Step there, and this test goes away with the auto-wrap.
+  (let [legacy (fn [_ctx node] (assoc node :touched true))]
+    (is (true? (:touched (runner/run legacy {} (nd :v)))))))
 
 (deftest sequence-children-collects-in-order
-  (let [recurse-step (fn [_ctx n] (runner/done (* n 10)))
-        ctx {:recurse-step recurse-step}
-        entry (fn [_ctx _node]
-                (runner/sequence-children ctx [1 2 3] runner/done))]
-    (is (= [10 20 30] (runner/run entry ctx nil)))))
+  (let [recurse-step (fn [_ctx n] (runner/done (assoc n :marked true)))
+        children [(nd :c1) (nd :c2) (nd :c3)]
+        entry (fn [_ctx node]
+                (runner/sequence-children
+                 {:recurse-step recurse-step}
+                 children
+                 (fn [annotated]
+                   (runner/done (assoc node :items annotated)))))
+        result (runner/run entry {:recurse-step recurse-step} (nd :parent))]
+    (is (= 3 (count (:items result))))
+    (is (every? :marked (:items result)))))
 
 (deftest reduce-children-threads-state-and-ctx
   (let [recurse-step (fn [_ctx n] (runner/done n))
-        ctx {:recurse-step recurse-step}
-        step-fn (fn [state _ctx _child annotated]
-                  [(+ state annotated) ctx])
-        entry (fn [_ctx _node]
-                (runner/reduce-children ctx 0 [1 2 3 4] step-fn
-                                        (fn [final-state acc]
-                                          (runner/done {:sum final-state :seq acc}))))]
-    (is (= {:sum 10 :seq [1 2 3 4]} (runner/run entry ctx nil)))))
+        children [(nd :c1) (nd :c2) (nd :c3) (nd :c4)]
+        step-fn  (fn [state ctx _child _annotated] [(inc state) ctx])
+        entry (fn [_ctx node]
+                (runner/reduce-children
+                 {:recurse-step recurse-step}
+                 0 children step-fn
+                 (fn [final-state acc]
+                   (runner/done (assoc node :count final-state :items acc)))))
+        result (runner/run entry {:recurse-step recurse-step} (nd :root))]
+    (is (= 4 (:count result)))
+    (is (= 4 (count (:items result))))))
