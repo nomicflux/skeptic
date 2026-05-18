@@ -748,10 +748,7 @@
    accessor-summaries :- AccessorSummaries
    cljs-state         :- {s/Any s/Any}
    form-opts          :- {s/Keyword s/Any}]
-  (let [entries (some-> cljs-state (get source-file) :entries)
-        _ (when-not (some? entries)
-            (throw (ex-info "cljs read-pass-results requires cached cljs :entries for source-file"
-                            {:ns ns :source-file (some-> source-file str)})))]
+  (if-let [entries (some-> cljs-state (get source-file) :entries)]
     (reduce
      (fn [acc entry]
        (let [{form-results :results form-prov :provenance}
@@ -761,7 +758,12 @@
              (update :results into form-results)
              (update :provenance merge form-prov))))
      {:results [] :provenance {}}
-     entries)))
+     entries)
+    {:results [(read-exception-result
+                source-file
+                (ex-info "cljs admission failed for this source-file"
+                         {:ns ns :source-file (some-> source-file str)}))]
+     :provenance {}}))
 
 (s/defn check-ns-form :- s/Any
   [dict ignore-body :- #{s/Symbol} ns :- s/Symbol source-file source-form
@@ -853,23 +855,27 @@
 
 (defn- cljs-namespace-dict
   [opts ns-sym source-file cljs-state var-provs form-refs]
-  (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
-        top-asts (filterv :op (or asts []))
-        schema-result (if (:plumatic-disable opts)
-                        (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
-                        (binding [ab/*var-provs* var-provs]
-                          (typed-decls/convert-collected
-                           ns-sym :cljs form-refs
-                           (schema-collect-cljs/ns-schema-results-cljs
-                            ns-ast source-file ns-sym top-asts))))
-        malli-result (if (:malli-disable opts)
-                       (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
-                       (binding [ab/*var-provs* var-provs]
-                         (typed-decls.malli/convert-collected
-                          ns-sym :cljs form-refs
-                          (malli-collect-cljs/ns-malli-spec-results-cljs
-                           source-file ns-sym top-asts))))]
-    (typed-decls/merge-type-dicts [schema-result malli-result (native-result)])))
+  (if-not (contains? cljs-state source-file)
+    (let [schema-result (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+          malli-result  (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})]
+      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))
+    (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
+          top-asts (filterv :op (or asts []))
+          schema-result (if (:plumatic-disable opts)
+                          (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+                          (binding [ab/*var-provs* var-provs]
+                            (typed-decls/convert-collected
+                             ns-sym :cljs form-refs
+                             (schema-collect-cljs/ns-schema-results-cljs
+                              ns-ast source-file ns-sym top-asts))))
+          malli-result (if (:malli-disable opts)
+                         (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+                         (binding [ab/*var-provs* var-provs]
+                           (typed-decls.malli/convert-collected
+                            ns-sym :cljs form-refs
+                            (malli-collect-cljs/ns-malli-spec-results-cljs
+                             source-file ns-sym top-asts))))]
+      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (s/defn namespace-dict :- s/Any
   [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs form-refs]
@@ -925,13 +931,17 @@
   already present when later files' macros introspect it at expansion
   time (e.g. cljs.test/run-tests calling ana-api/find-ns). Cycles fall
   back to the topo tiebreaker (see `skeptic.cljs.topo`).
-  Returns `{File → {:ns-ast ns-ast :entries [{:source-form :ast}]
-  :asts [ast …]}}` — empty when `cljs-disable?` is truthy or `loaded`
-  contains no cljs/cljc sources. The shared state is created here and
-  discarded on return; downstream phases consume only cached entries."
+  Returns `{:cljs-state {File → {:ns-ast :entries :asts}}
+            :cljs-load-failures {File → {:exception Throwable}}}` —
+  files whose cljs analyzer-driver pass throws (e.g. malformed ns form,
+  parse-ns failure) are recorded in `:cljs-load-failures` rather than
+  aborting the preload. Both maps are empty when `cljs-disable?` is
+  truthy or `loaded` contains no cljs/cljc sources. The shared state
+  is created here and discarded on return; downstream phases consume
+  only cached entries."
   [cljs-disable? loaded]
   (if cljs-disable?
-    {}
+    {:cljs-state {} :cljs-load-failures {}}
     (let [ns-sym->file (into {}
                              (comp (filter (fn [[_ _ lang]]
                                              (#{:cljs :both} lang)))
@@ -939,9 +949,12 @@
                              loaded)
           ordered      (topo/topo-sort-files ns-sym->file)
           state        (cljs-driver/empty-state)]
-      (reduce (fn [m f]
-                (assoc m f (cljs-driver/analyze-source-file state f)))
-              {}
+      (reduce (fn [acc f]
+                (try
+                  (update acc :cljs-state assoc f (cljs-driver/analyze-source-file state f))
+                  (catch Throwable e
+                    (update acc :cljs-load-failures assoc f {:exception e}))))
+              {:cljs-state {} :cljs-load-failures {}}
               ordered))))
 
 (defn project-var-provs
@@ -995,7 +1008,11 @@
             (populate-form-refs! form-refs ns-sym discovery-out))
         user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
                                      {} project-disc)
-        cljs-state (preload-cljs-state! (:cljs-disable opts) loaded)
+        {cljs-state         :cljs-state
+         cljs-load-failures :cljs-load-failures}
+        (preload-cljs-state! (:cljs-disable opts) loaded)
+        cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
+                                      {} cljs-load-failures)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
@@ -1033,7 +1050,7 @@
                             (assoc m k (select-keys v [:ignore-body :errors :provenance])))
                           {}
                           per-ns-admission)
-        per-ns-failures (merge load-failures admission-failures accessor-failures)]
+        per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
                            cljs-state project-disc var-provs form-refs user-fn-summaries)))
 
