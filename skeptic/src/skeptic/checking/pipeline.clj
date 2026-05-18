@@ -720,9 +720,12 @@
    {:keys [source-form ast exception]} :- CljsCachedFormEntry
    accessor-summaries :- AccessorSummaries
    form-opts          :- {s/Keyword s/Any}]
-  (if exception
+  (cond
+    exception
     {:results [(expression-exception-result ns source-file source-form exception :cljs)]
      :provenance {}}
+
+    ast
     (try
       (let [analyzed (aa/annotate-ast dict ast {:ns ns
                                                :accessor-summaries accessor-summaries
@@ -738,7 +741,11 @@
          :provenance (resolved-defs-provenance resolved-defs)})
       (catch Exception e
         {:results [(expression-exception-result ns source-file source-form e :cljs)]
-         :provenance {}}))))
+         :provenance {}}))
+
+    :else
+    (throw (ex-info "cljs cached entry has neither :ast nor :exception (Phase 1 invariant violated)"
+                    {:ns ns :source-file (some-> source-file str) :source-form source-form}))))
 
 (s/defn ^:private cljs-read-pass-results :- CljsPassResults
   [dict               :- {s/Symbol at/SemanticType}
