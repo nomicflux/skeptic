@@ -13,6 +13,7 @@
             [skeptic.analysis.annotate.invoke :as invoke]
             [skeptic.analysis.annotate.jvm :as jvm]
             [skeptic.analysis.annotate.match :as match]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.render :as abr]
@@ -81,18 +82,27 @@
     (aapi/with-type annotated override)
     annotated))
 
+(defn- annotate-step
+  [ctx node]
+  (runner/call annotate-dispatch ctx node
+               (fn [annotated]
+                 (let [result (-> annotated
+                                  (apply-type-override ctx node)
+                                  abr/strip-derived-types)]
+                   (when-not (:type result)
+                     (throw (IllegalStateException.
+                             (format "annotate-node produced node without :type for op %s; form: %s"
+                                     (pr-str (:op node))
+                                     (pr-str (:form node))))))
+                   (runner/done result)))))
+
 (s/defn annotate-node :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [ctx (assoc ctx :recurse annotate-node)
-        result (-> (annotate-dispatch ctx node)
-                   (apply-type-override ctx node)
-                   abr/strip-derived-types)]
-    (when-not (:type result)
-      (throw (IllegalStateException.
-              (format "annotate-node produced node without :type for op %s; form: %s"
-                      (pr-str (:op node))
-                      (pr-str (:form node))))))
-    result))
+  (runner/run annotate-step
+              (assoc ctx
+                     :recurse annotate-node
+                     :recurse-step annotate-step)
+              node))
 
 (s/defn annotate-ast :- aas/AnnotatedNode
   [dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]

@@ -1,6 +1,7 @@
 (ns skeptic.cljs.analyzer-driver-test
   (:require [clojure.test :refer [deftest is]]
-            [skeptic.cljs.analyzer-driver :as sut]))
+            [skeptic.cljs.analyzer-driver :as sut]
+            [cljs.analyzer.api :as ana-api]))
 
 (deftest analyze-form-handles-aliased-schema-defn
   (require 'schema.core)
@@ -44,3 +45,18 @@
               source-forms))
     (is (contains? names 'p5/default-key))
     (is (contains? names 'p5/js-value))))
+
+(deftest analyze-source-file-arity-2-shares-state-across-calls
+  ;; Regression: analyzing p6.tests then p6.core into a SHARED state lets
+  ;; (run-tests 'p6.tests) in p6.core macroexpand successfully — the
+  ;; cljs.test assertion (ana-api/find-ns 'p6.tests) finds the entry the
+  ;; first call wrote at [::namespaces 'p6.tests].
+  (require 'cljs.test)
+  (let [state (ana-api/empty-state)
+        _      (sut/analyze-source-file state
+                                        "dev-resources/cljs-fixtures/p6-cross-require/src/p6/tests.cljs")
+        result (sut/analyze-source-file state
+                                        "dev-resources/cljs-fixtures/p6-cross-require/src/p6/core.cljs")]
+    (is (= 'p6.core (get-in result [:ns-ast :name])))
+    (is (= 'p6.tests
+           (get-in @state [:cljs.analyzer/namespaces 'p6.tests :name])))))
