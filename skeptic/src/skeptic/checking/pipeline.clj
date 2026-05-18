@@ -17,6 +17,7 @@
             [skeptic.checking.state :as cstate]
             [skeptic.cljs.analyzer-driver :as cljs-driver]
             [skeptic.cljs.analyzer-driver.schema :as ads]
+            [skeptic.cljs.topo :as topo]
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
@@ -695,7 +696,8 @@
 (s/defschema CljsCachedFormEntry
   "Shape of a single cached CLJS form entry under `cljs-state[source-file] :entries`."
   {(s/required-key :source-form) s/Any
-   (s/required-key :ast)         aas/AnnotatedNode})
+   (s/required-key :ast)         (s/maybe aas/AnnotatedNode)
+   (s/optional-key :exception)   Throwable})
 
 (s/defschema CljsPassResults
   {(s/required-key :results)    [s/Any]
@@ -715,25 +717,28 @@
    ignore-body        :- #{s/Symbol}
    ns                 :- s/Symbol
    source-file        :- (s/maybe (s/cond-pre File s/Str))
-   {:keys [source-form ast]} :- CljsCachedFormEntry
+   {:keys [source-form ast exception]} :- CljsCachedFormEntry
    accessor-summaries :- AccessorSummaries
    form-opts          :- {s/Keyword s/Any}]
-  (try
-    (let [analyzed (aa/annotate-ast dict ast {:ns ns
-                                             :accessor-summaries accessor-summaries
-                                             :lang :cljs})
-          resolved-defs (resolved-defs-for-analyzed dict ns analyzed)]
-      {:results (vec (check-resolved-form dict
-                                          ignore-body
-                                          ns
-                                          source-file
-                                          source-form
-                                          analyzed
-                                          (select-keys form-opts [:keep-empty :remove-context :debug])))
-       :provenance (resolved-defs-provenance resolved-defs)})
-    (catch Exception e
-      {:results [(expression-exception-result ns source-file source-form e :cljs)]
-       :provenance {}})))
+  (if exception
+    {:results [(expression-exception-result ns source-file source-form exception :cljs)]
+     :provenance {}}
+    (try
+      (let [analyzed (aa/annotate-ast dict ast {:ns ns
+                                               :accessor-summaries accessor-summaries
+                                               :lang :cljs})
+            resolved-defs (resolved-defs-for-analyzed dict ns analyzed)]
+        {:results (vec (check-resolved-form dict
+                                            ignore-body
+                                            ns
+                                            source-file
+                                            source-form
+                                            analyzed
+                                            (select-keys form-opts [:keep-empty :remove-context :debug])))
+         :provenance (resolved-defs-provenance resolved-defs)})
+      (catch Exception e
+        {:results [(expression-exception-result ns source-file source-form e :cljs)]
+         :provenance {}}))))
 
 (s/defn ^:private cljs-read-pass-results :- CljsPassResults
   [dict               :- {s/Symbol at/SemanticType}
@@ -849,7 +854,7 @@
 (defn- cljs-namespace-dict
   [opts ns-sym source-file cljs-state var-provs form-refs]
   (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
-        top-asts (or asts [])
+        top-asts (filterv :op (or asts []))
         schema-result (if (:plumatic-disable opts)
                         (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
                         (binding [ab/*var-provs* var-provs]
@@ -915,23 +920,29 @@
 
 (defn preload-cljs-state!
   "Parse and analyze every source-file requiring cljs analysis (.cljs or
-  .cljc). Each file is read and analyzed once through a file-local cljs
-  analyzer state so the cljs reader sees analyzer aliases and cljs data
-  readers. Returns `{File → {:ns-ast ns-ast :entries [{:source-form :ast}]
+  .cljc). Files are analyzed in dependency order against a single shared
+  cljs compiler state, so each file's `[::namespaces <name>]` entry is
+  already present when later files' macros introspect it at expansion
+  time (e.g. cljs.test/run-tests calling ana-api/find-ns). Cycles fall
+  back to the topo tiebreaker (see `skeptic.cljs.topo`).
+  Returns `{File → {:ns-ast ns-ast :entries [{:source-form :ast}]
   :asts [ast …]}}` — empty when `cljs-disable?` is truthy or `loaded`
-  contains no cljs/cljc sources. The compiler state does not escape the
-  analyzer driver; downstream phases consume only cached entries."
+  contains no cljs/cljc sources. The shared state is created here and
+  discarded on return; downstream phases consume only cached entries."
   [cljs-disable? loaded]
   (if cljs-disable?
     {}
-    (let [cljs-files (->> loaded
-                          (keep second)
-                          (filter #(#{:cljs :both} (lang-of-source-file %)))
-                          distinct
-                          vec)]
-      (reduce (fn [m f] (assoc m f (cljs-driver/analyze-source-file f)))
+    (let [ns-sym->file (into {}
+                             (comp (filter (fn [[_ _ lang]]
+                                             (#{:cljs :both} lang)))
+                                   (map (fn [[ns-sym sf _]] [ns-sym sf])))
+                             loaded)
+          ordered      (topo/topo-sort-files ns-sym->file)
+          state        (cljs-driver/empty-state)]
+      (reduce (fn [m f]
+                (assoc m f (cljs-driver/analyze-source-file state f)))
               {}
-              cljs-files))))
+              ordered))))
 
 (defn project-var-provs
   [opts project-disc]
