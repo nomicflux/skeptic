@@ -1,2 +1,3 @@
 {:output {:exclude-files [".*examples.*\\.(clj|cljs|cljc)$"
-                          ".*research/.*\\.(clj|cljs|cljc)$"]}}
+                          ".*research/.*\\.(clj|cljs|cljc)$"
+                          ".*p8[-_]crash[-_]robustness/.*\\.(clj|cljs|cljc)$"]}}
