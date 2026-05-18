@@ -28,6 +28,21 @@
       (assoc n :form (:name n))
       n)))
 
+(defn empty-state
+  "Empty cljs compiler state with `:spec-skip-macros true`. Skeptic
+   does not validate cljs macro-syntax specs
+   (e.g. `:cljs.core.specs.alpha/ns-form`); those specs bind Skeptic to
+   whichever `cljs.core.specs.alpha` shipped with the bundled cljs
+   version, breaking on projects that use ns-clauses (`:refer-global`,
+   etc.) newer than the bundled spec knows. The analyzer's own 'ns
+   parser handles these clauses via `ns-spec-cases`; only the spec
+   validator was out-of-date. `do-macroexpand-check`
+   (`analyzer.cljc:4252`) honors this option."
+  []
+  (let [state (ana-api/empty-state)]
+    (swap! state assoc-in [:options :spec-skip-macros] true)
+    state))
+
 (s/defn ^:private walk-ast :- ads/RawCljsAst
   "Directed AST walker: applies f to the node, then recurses only through
   the keys named in `:children`. Avoids `:env`, `:info`, `:meta`, and other
@@ -79,11 +94,13 @@
   loading of any `:require-macros` namespaces and returns the analyzed ns
   AST: a map with `:name`, `:requires`, `:require-macros`, `:uses`, etc.
   Suitable for use as the `:ns` slot of an analysis env passed to
-  `analyze-form`. Discards the ephemeral compiler state parse-ns auto-
-  creates internally; the JVM-loaded macro namespaces persist."
+  `analyze-form`. Wraps the call in a Skeptic-configured empty state so
+  cljs macro-syntax spec validation is skipped; the state is discarded
+  on return, while JVM-loaded macro namespaces persist."
   [source-file :- s/Any]
-  (:ast (ana-api/parse-ns source-file
-                          {:load-macros true :analyze-deps false})))
+  (ana-api/with-state (empty-state)
+    (:ast (ana-api/parse-ns source-file
+                            {:load-macros true :analyze-deps false}))))
 
 (s/defn analyze-form :- aas/AnnotatedNode
   "Analyze an already-read cljs form using the supplied ns AST. Real source
@@ -113,32 +130,44 @@
   analyzer's reader loop. Returns `{:ns-ast ns-ast
   :entries [{:source-form form :ast ast} ...] :asts [ast ...]}`. `:entries`
   preserves the source-form/AST pairing needed by checker reporting; `:asts`
-  remains for collector compatibility."
-  [source-file :- s/Any]
-  (let [state (ana-api/empty-state)
-        path  (str source-file)]
-    (ana-api/with-state state
-      (binding [ana/*file-defs* (atom #{})
-                ana/*unchecked-if* false
-                ana/*unchecked-arrays* false
-                ana/*analyze-deps* false
-                ana/*load-macros* true
-                ana/*cljs-ns* 'cljs.user
-                ana/*cljs-file* path]
-        (with-open [r (io/reader source-file)]
-          (let [base-env (assoc (ana-api/empty-env) :build-options {})]
-            (loop [forms (ana-api/forms-seq r path)
-                   ns-ast nil
-                   entries []]
-              (if-let [s (seq forms)]
-                (let [source-form (first s)
-                      ast (analyze-source-entry state base-env source-form)]
-                  (if (= :ns (:op ast))
-                    (recur (next s) ast entries)
-                    (recur (next s) ns-ast (conj entries {:source-form source-form
-                                                          :ast ast}))))
-                {:ns-ast (or ns-ast
-                             (throw (ex-info "cljs source has no (ns ...) form"
-                                             {:source-file path})))
-                 :entries entries
-                 :asts (mapv :ast entries)}))))))))
+  remains for collector compatibility.
+
+  Arity-1 creates a fresh, file-local compiler state — analyses are
+  isolated. Arity-2 takes a caller-supplied state so callers driving a
+  multi-file pass can share `[::namespaces]` across analyses; macros that
+  introspect earlier-parsed nss at expansion time then find them."
+  ([source-file :- s/Any]
+   (analyze-source-file (empty-state) source-file))
+  ([state       :- s/Any
+    source-file :- s/Any]
+   (let [path (str source-file)]
+     (ana-api/with-state state
+       (binding [ana/*file-defs* (atom #{})
+                 ana/*unchecked-if* false
+                 ana/*unchecked-arrays* false
+                 ana/*analyze-deps* false
+                 ana/*load-macros* true
+                 ana/*cljs-ns* 'cljs.user
+                 ana/*cljs-file* path]
+         (with-open [r (io/reader source-file)]
+           (let [base-env (assoc (ana-api/empty-env) :build-options {})]
+             (loop [forms (ana-api/forms-seq r path)
+                    ns-ast nil
+                    entries []]
+               (if-let [s (seq forms)]
+                 (let [source-form (first s)
+                       result      (try
+                                     {:ast (analyze-source-entry state base-env source-form)}
+                                     (catch Throwable e
+                                       {:ast nil :exception e}))
+                       ast         (:ast result)]
+                   (if (and ast (= :ns (:op ast)))
+                     (recur (next s) ast entries)
+                     (recur (next s)
+                            ns-ast
+                            (conj entries (merge {:source-form source-form} result)))))
+                 {:ns-ast (or ns-ast
+                              (throw (ex-info "cljs source has no (ns ...) form"
+                                              {:source-file path})))
+                  :entries entries
+                  :asts (filterv some? (mapv :ast entries))})))))))))

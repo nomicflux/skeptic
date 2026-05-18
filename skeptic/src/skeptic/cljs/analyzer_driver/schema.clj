@@ -10,8 +10,9 @@
    s/Keyword s/Any})
 
 (s/defschema SourceFormEntry
-  {:source-form s/Any
-   :ast         aas/AnnotatedNode})
+  {:source-form              s/Any
+   :ast                      (s/maybe aas/AnnotatedNode)
+   (s/optional-key :exception) Throwable})
 
 (s/defschema SourceFileAnalysis
   {:ns-ast  aas/AnnotatedNode
