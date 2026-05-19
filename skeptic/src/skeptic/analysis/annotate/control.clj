@@ -289,7 +289,7 @@
 (defn- annotate-loop-body-with-recur-target-widening-step
   [ctx node final-locals recur-targets loop-id targets-v0 body-v1 k]
   (let [targets-v1 (widen-loop-recur-targets ctx targets-v0 body-v1 loop-id)]
-    (if (= targets-v1 targets-v0)
+    (if (at/type=? targets-v1 targets-v0)
       (k body-v1)
       (runner/call (:recurse-step ctx)
                    (assoc ctx
