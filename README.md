@@ -55,7 +55,7 @@ Add the plugin to the `:plugins` vector in your `project.clj`:
 Or for the snapshot version:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc1"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc2"]]
 ```
 
 ### deps.edn / Clojure CLI
