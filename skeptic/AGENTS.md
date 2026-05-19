@@ -15,6 +15,14 @@ Examples:
 - **Navigation / “where in UI”:** If the request is how to reach a page in GitHub or another product, the answer is an **ordered list of exact UI labels** for every hop (e.g. Settings → Security → …). Omitting a parent step produces a **wrong** path, not a summary.
 - **If the real answer is “I cannot without X”** (missing access, ambiguous scope), say so or ask—**do not** ship a different-shaped answer and imply it satisfies the ask.
 
+## PSP Completion Gates
+
+When `/psp` is used in this repo, each phase's completion gate requires **all three** of the following to pass before the phase can be marked complete:
+
+1. `lein test` — full test suite, zero failures.
+2. `clj-kondo --lint src test` — zero warnings.
+3. **Skeptic on self** — `lein with-profile +skeptic-plugin skeptic -p` (after `../script/install-local.sh`) produces zero findings.
+
 ## Project Setup
 
 1. This is `leiningen` project for a Clojure app
