@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.fn
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.types :as at]
@@ -58,28 +59,31 @@
         (map (fn [param] [(:form param) (or (:type param) (aapi/dyn ctx))]))
         annotated-params))
 
-(s/defn annotate-fn-method :- aas/AnnotatedNode
-  [{:keys [locals dict name ns recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode & [param-type-overrides]]
-  (let [param-type-overrides (or param-type-overrides {})
+(s/defn annotate-fn-method :- runner/Step
+  [{:keys [locals dict name ns recur-targets param-type-overrides] :as ctx} :- s/Any
+   node :- aas/AnnotatedNode]
+  (let [overrides (or param-type-overrides {})
         param-specs (fn-method-param-specs-with-overrides
-                     ctx dict ns name (:params node) param-type-overrides)
+                     ctx dict ns name (:params node) overrides)
         annotated-params (fn-method-merge-param-nodes (:params node) param-specs)
         recur-targets (cond-> (or recur-targets {})
                         (:loop-id node)
                         (assoc (:loop-id node) (mapv :type annotated-params)))
-        body ((:recurse ctx)
-              (assoc ctx
-                     :locals (param-locals ctx locals annotated-params)
-                     :recur-targets recur-targets
-                     :name nil)
-              (:body node))]
-    (assoc node
-           :params annotated-params
-           :body body
-           :type (:type body)
-           :output-type (:type body)
-           :arglist (mapv :name param-specs)
-           :param-specs param-specs)))
+        body-ctx (assoc ctx
+                        :locals (param-locals ctx locals annotated-params)
+                        :recur-targets recur-targets
+                        :name nil
+                        :param-type-overrides nil)]
+    (runner/call (:recurse-step ctx) body-ctx (:body node)
+     (fn [body]
+       (runner/done
+        (assoc node
+               :params annotated-params
+               :body body
+               :type (:type body)
+               :output-type (:type body)
+               :arglist (mapv :name param-specs)
+               :param-specs param-specs))))))
 
 (s/defn method->arglist-entry :- s/Any
   [method]
@@ -98,15 +102,17 @@
                   (boolean (:variadic? method))
                   (mapv :name (:param-specs method))))
 
-(s/defn annotate-fn :- aas/AnnotatedNode
-  [ctx :- s/Any node :- aas/AnnotatedNode & [opts]]
-  (let [overrides (:param-type-overrides opts {})
-        methods (mapv #(annotate-fn-method ctx % overrides) (:methods node))
-        arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)
-        output-type (av/type-join* (prov/with-ctx ctx) (map :output-type methods))
-        fn-type (at/->FunT (prov/with-ctx ctx) (mapv #(method-fn-type ctx %) methods))]
-    (assoc node
-           :methods methods
-           :output-type output-type
-           :arglists arglists
-           :type fn-type)))
+(s/defn annotate-fn :- runner/Step
+  [ctx :- s/Any node :- aas/AnnotatedNode]
+  (let [child-ctx (assoc ctx :param-type-overrides (or (:param-type-overrides ctx) {}))]
+    (runner/sequence-children child-ctx (:methods node)
+     (fn [methods]
+       (let [arglists (into {} (map (juxt #(count (:param-specs %)) method->arglist-entry)) methods)
+             output-type (av/type-join* (prov/with-ctx ctx) (map :output-type methods))
+             fn-type (at/->FunT (prov/with-ctx ctx) (mapv #(method-fn-type ctx %) methods))]
+         (runner/done
+          (assoc node
+                 :methods methods
+                 :output-type output-type
+                 :arglists arglists
+                 :type fn-type)))))))
