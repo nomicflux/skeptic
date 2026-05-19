@@ -32,12 +32,14 @@
   (let [prov (prov/with-ctx ctx)]
     (assoc node :type (av/type-of-value prov (:val node)))))
 
-(s/defn annotate-binding :- aas/AnnotatedNode
+(s/defn annotate-binding :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
   (if-let [init (:init node)]
-    (let [annotated-init ((:recurse ctx) ctx init)]
-      (merge node {:init annotated-init} (ac/node-info annotated-init)))
-    (assoc node :type (aapi/dyn ctx))))
+    (runner/call (:recurse-step ctx) ctx init
+                 (fn [annotated-init]
+                   (runner/done
+                    (merge node {:init annotated-init} (ac/node-info annotated-init)))))
+    (runner/done (assoc node :type (aapi/dyn ctx)))))
 
 (defn- local-origin-for-entry
   [ctx sym entry t]

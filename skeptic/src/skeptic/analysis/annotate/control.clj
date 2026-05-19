@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.base :as base]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
@@ -74,27 +75,27 @@
       (when (= test-root-sym source-root-sym)
         source-root-sym))))
 
-(s/defn annotate-do :- aas/AnnotatedNode
+(s/defn annotate-do :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [[statements final-ctx]
-        (reduce (fn [[acc inner-ctx] stmt]
-                  (let [annotated ((:recurse inner-ctx) inner-ctx stmt)
-                        guard (ao/guard-assumption annotated)
-                        contracts (ao/call-arg-contract-assumptions annotated)
-                        contract-assumption (case (count contracts)
-                                              0 nil
-                                              1 (first contracts)
-                                              (ao/conjunction-assumption contracts))
-                        next-ctx (cond-> inner-ctx
-                                   guard (ao/apply-guard-assumption guard)
-                                   contract-assumption (ao/apply-guard-assumption contract-assumption))]
-                    [(conj acc annotated) next-ctx]))
-                [[] ctx]
-                (:statements node))
-        ret ((:recurse final-ctx) final-ctx (:ret node))
-        origin (aapi/node-origin ret)]
-    (cond-> (assoc node :statements statements :ret ret :type (:type ret))
-      origin (assoc :origin origin))))
+  (runner/reduce-children ctx ctx (:statements node)
+   (fn [_state inner-ctx _stmt annotated]
+     (let [guard (ao/guard-assumption annotated)
+           contracts (ao/call-arg-contract-assumptions annotated)
+           contract-assumption (case (count contracts)
+                                 0 nil
+                                 1 (first contracts)
+                                 (ao/conjunction-assumption contracts))
+           next-ctx (cond-> inner-ctx
+                      guard (ao/apply-guard-assumption guard)
+                      contract-assumption (ao/apply-guard-assumption contract-assumption))]
+       [next-ctx next-ctx]))
+   (fn [final-ctx statements]
+     (runner/call (:recurse-step ctx) final-ctx (:ret node)
+      (fn [ret]
+        (let [origin (aapi/node-origin ret)]
+          (runner/done
+           (cond-> (assoc node :statements statements :ret ret :type (:type ret))
+             origin (assoc :origin origin)))))))))
 
 (s/defn binding-recur-target-types :- [at/SemanticType]
   [ctx :- s/Any bindings :- s/Any]
@@ -155,49 +156,52 @@
       (some? init)
       (assoc :binding-init init))))
 
-(defn- annotate-let-binding
-  [ctx env binding]
-  (let [annotated (base/annotate-binding (assoc ctx :locals env) binding)
-        init (:init annotated)
-        base-entry (binding-base-entry ctx annotated)
-        base-origin (:origin base-entry)
-        preserve-structured-origin? (and base-origin (not= :root (:kind base-origin)))
-        branch-test-sym (get-in base-origin [:test :root :sym])
-        binding-sym (:form binding)
-        narrowing-alias-sym (narrowing-alias-root-sym ctx init base-origin)
-        self-origin (when (and (not preserve-structured-origin?)
-                               (or (nil? branch-test-sym)
-                                   (= branch-test-sym binding-sym)
-                                   (if-init-nil-check-binds-same-name? init binding-sym)
-                                   (some? narrowing-alias-sym)))
-                      (ao/root-origin binding-sym (:type base-entry)))
-        binding-origin (cond-> (or self-origin base-origin)
-                         (and preserve-structured-origin? (symbol? binding-sym))
-                         (assoc :binding-sym binding-sym))]
-    [annotated
-     (assoc env binding-sym
-            (binding-env-entry env annotated
-                               {:base-entry base-entry
-                                :fallback-origin binding-origin
-                                :track-fn-binding? true}))]))
+(defn- annotate-let-binding-step
+  [ctx env binding k]
+  (runner/call base/annotate-binding (assoc ctx :locals env) binding
+   (fn [annotated]
+     (let [init (:init annotated)
+           base-entry (binding-base-entry ctx annotated)
+           base-origin (:origin base-entry)
+           preserve-structured-origin? (and base-origin (not= :root (:kind base-origin)))
+           branch-test-sym (get-in base-origin [:test :root :sym])
+           binding-sym (:form binding)
+           narrowing-alias-sym (narrowing-alias-root-sym ctx init base-origin)
+           self-origin (when (and (not preserve-structured-origin?)
+                                  (or (nil? branch-test-sym)
+                                      (= branch-test-sym binding-sym)
+                                      (if-init-nil-check-binds-same-name? init binding-sym)
+                                      (some? narrowing-alias-sym)))
+                         (ao/root-origin binding-sym (:type base-entry)))
+           binding-origin (cond-> (or self-origin base-origin)
+                            (and preserve-structured-origin? (symbol? binding-sym))
+                            (assoc :binding-sym binding-sym))
+           next-env (assoc env binding-sym
+                           (binding-env-entry env annotated
+                                              {:base-entry base-entry
+                                               :fallback-origin binding-origin
+                                               :track-fn-binding? true}))]
+       (k annotated next-env)))))
 
-(s/defn annotate-let :- aas/AnnotatedNode
+(s/defn annotate-let :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [[bindings final-ctx]
-        (reduce (fn [[acc inner-ctx] binding]
-                  (let [[annotated next-locals] (annotate-let-binding inner-ctx (:locals inner-ctx) binding)
-                        contracts (ao/call-arg-contract-assumptions (:init annotated))
-                        contract-assumption (case (count contracts)
-                                              0 nil
-                                              1 (first contracts)
-                                              (ao/conjunction-assumption contracts))
-                        next-ctx (cond-> (assoc inner-ctx :locals next-locals)
-                                   contract-assumption (ao/apply-guard-assumption contract-assumption))]
-                    [(conj acc annotated) next-ctx]))
-                [[] ctx]
-                (:bindings node))
-        body ((:recurse final-ctx) final-ctx (:body node))]
-    (assoc node :bindings bindings :body body :type (:type body))))
+  (letfn [(walk-bindings [inner-ctx acc remaining]
+            (if (empty? remaining)
+              (runner/call (:recurse-step ctx) inner-ctx (:body node)
+               (fn [body]
+                 (runner/done
+                  (assoc node :bindings acc :body body :type (:type body)))))
+              (annotate-let-binding-step inner-ctx (:locals inner-ctx) (first remaining)
+               (fn [annotated next-locals]
+                 (let [contracts (ao/call-arg-contract-assumptions (:init annotated))
+                       contract-assumption (case (count contracts)
+                                             0 nil
+                                             1 (first contracts)
+                                             (ao/conjunction-assumption contracts))
+                       next-ctx (cond-> (assoc inner-ctx :locals next-locals)
+                                  contract-assumption (ao/apply-guard-assumption contract-assumption))]
+                   (walk-bindings next-ctx (conj acc annotated) (rest remaining)))))))]
+    (walk-bindings ctx [] (:bindings node))))
 
 (defn- loop-recur-nodes
   [body loop-id]
@@ -271,59 +275,67 @@
   (let [targets (widen-int-loop-counter-recur-targets ctx targets body loop-id)]
     (widen-empty-collection-recur-targets targets body loop-id)))
 
-(defn loop-one-binding
-  [ctx env binding]
-  (let [annotated (base/annotate-binding (assoc ctx :locals env) binding)
-        base-entry (binding-base-entry ctx annotated)]
-    [annotated
-     (assoc env (:form binding)
-            (binding-env-entry env annotated
-                               {:base-entry base-entry
-                                :fallback-origin (:origin base-entry)}))]))
+(defn- loop-one-binding-step
+  [ctx env binding k]
+  (runner/call base/annotate-binding (assoc ctx :locals env) binding
+   (fn [annotated]
+     (let [base-entry (binding-base-entry ctx annotated)
+           next-env (assoc env (:form binding)
+                           (binding-env-entry env annotated
+                                              {:base-entry base-entry
+                                               :fallback-origin (:origin base-entry)}))]
+       (k annotated next-env)))))
 
-(defn annotate-loop-body-with-recur-target-widening
-  [ctx node final-locals recur-targets loop-id targets-v0 body-v1]
+(defn- annotate-loop-body-with-recur-target-widening-step
+  [ctx node final-locals recur-targets loop-id targets-v0 body-v1 k]
   (let [targets-v1 (widen-loop-recur-targets ctx targets-v0 body-v1 loop-id)]
     (if (= targets-v1 targets-v0)
-      body-v1
-      ((:recurse ctx)
-       (assoc ctx
-              :locals final-locals
-              :recur-targets (assoc recur-targets loop-id targets-v1)
-              aapi/current-loop-id-key loop-id)
-       (:body node)))))
+      (k body-v1)
+      (runner/call (:recurse-step ctx)
+                   (assoc ctx
+                          :locals final-locals
+                          :recur-targets (assoc recur-targets loop-id targets-v1)
+                          aapi/current-loop-id-key loop-id)
+                   (:body node)
+                   k))))
 
-(s/defn annotate-loop :- aas/AnnotatedNode
+(s/defn annotate-loop :- runner/Step
   [{:keys [locals recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (let [loop-id (gensym "skeptic-loop-")
-        recur-targets (or recur-targets {})
-        [bindings final-locals]
-        (reduce (fn [[acc env] binding]
-                  (let [[annotated next-env] (loop-one-binding ctx env binding)]
-                    [(conj acc annotated) next-env]))
-                [[] locals]
-                (:bindings node))
-        targets-v0 (binding-recur-target-types ctx bindings)
-        recur-ctx (assoc ctx
-                         :locals final-locals
-                         :recur-targets (assoc recur-targets loop-id targets-v0)
-                         aapi/current-loop-id-key loop-id)
-        body-v1 ((:recurse recur-ctx) recur-ctx (:body node))
-        body-final (annotate-loop-body-with-recur-target-widening
-                    ctx node final-locals recur-targets loop-id targets-v0 body-v1)]
-    (assoc node :bindings bindings :body body-final :type (:type body-final))))
+        recur-targets (or recur-targets {})]
+    (letfn [(walk-bindings [env acc remaining]
+              (if (empty? remaining)
+                (let [final-locals env
+                      targets-v0 (binding-recur-target-types ctx acc)
+                      recur-ctx (assoc ctx
+                                       :locals final-locals
+                                       :recur-targets (assoc recur-targets loop-id targets-v0)
+                                       aapi/current-loop-id-key loop-id)]
+                  (runner/call (:recurse-step ctx) recur-ctx (:body node)
+                   (fn [body-v1]
+                     (annotate-loop-body-with-recur-target-widening-step
+                      ctx node final-locals recur-targets loop-id targets-v0 body-v1
+                      (fn [body-final]
+                        (runner/done
+                         (assoc node :bindings acc :body body-final :type (:type body-final))))))))
+                (loop-one-binding-step ctx env (first remaining)
+                 (fn [annotated next-env]
+                   (walk-bindings next-env (conj acc annotated) (rest remaining))))))]
+      (walk-bindings locals [] (:bindings node)))))
 
-(s/defn annotate-recur :- aas/AnnotatedNode
+(s/defn annotate-recur :- runner/Step
   [{:keys [recur-targets] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [exprs (mapv #((:recurse ctx) ctx %) (:exprs node))
-        current-loop-id (get ctx aapi/current-loop-id-key)
-        targets (some-> current-loop-id recur-targets)
-        actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
-    (cond-> (aapi/with-loop-id (assoc node :exprs exprs :type (aapi/bottom ctx))
-                               current-loop-id)
-      (and (seq targets) (= (count targets) (count exprs)))
-      (assoc :expected-argtypes (mapv #(aapi/normalize-type ctx %) targets)
-             :actual-argtypes actual-argtypes))))
+  (runner/sequence-children ctx (:exprs node)
+   (fn [exprs]
+     (let [current-loop-id (get ctx aapi/current-loop-id-key)
+           targets (some-> current-loop-id recur-targets)
+           actual-argtypes (mapv #(aapi/normalize-type ctx (:type %)) exprs)]
+       (runner/done
+        (cond-> (aapi/with-loop-id (assoc node :exprs exprs :type (aapi/bottom ctx))
+                                   current-loop-id)
+          (and (seq targets) (= (count targets) (count exprs)))
+          (assoc :expected-argtypes (mapv #(aapi/normalize-type ctx %) targets)
+                 :actual-argtypes actual-argtypes)))))))
 
 (defn- truthy-literal?
   [test-node]
@@ -369,31 +381,37 @@
     :false (:type else-node)
     (av/type-join* (prov/with-ctx ctx) [(:type then-node) (:type else-node)])))
 
-(s/defn annotate-if :- aas/AnnotatedNode
+(s/defn annotate-if :- runner/Step
   [{:keys [locals assumptions] :as ctx} :- s/Any node :- aas/AnnotatedNode]
-  (let [test-node ((:recurse ctx) ctx (:test node))
-        regions (ao/if-test-conjuncts ctx test-node locals)
-        then-conjuncts (:then-conjuncts regions)
-        envs (ao/branch-local-envs ctx locals assumptions regions)
-        then-node ((:recurse ctx) (assoc ctx
-                                         :locals (:then-locals envs)
-                                         :assumptions (:then-assumptions envs))
-                   (:then node))
-        else-node ((:recurse ctx) (assoc ctx
-                                         :locals (:else-locals envs)
-                                         :assumptions (:else-assumptions envs))
-                   (:else node))
-        narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
-        truth (branch-truth then-conjuncts assumptions)
-        joined-type (if narrow?
-                      (:type then-node)
-                      (joined-branch-type ctx truth then-node else-node))
-        origin (if narrow?
-                 (ao/node-origin then-node)
-                 (branch-origin then-conjuncts then-node else-node joined-type))]
-    (assoc node
-           :test test-node
-           :then then-node
-           :else else-node
-           :type joined-type
-           :origin origin)))
+  (runner/call (:recurse-step ctx) ctx (:test node)
+   (fn [test-node]
+     (let [regions (ao/if-test-conjuncts ctx test-node locals)
+           then-conjuncts (:then-conjuncts regions)
+           envs (ao/branch-local-envs ctx locals assumptions regions)]
+       (runner/call (:recurse-step ctx)
+                    (assoc ctx
+                           :locals (:then-locals envs)
+                           :assumptions (:then-assumptions envs))
+                    (:then node)
+        (fn [then-node]
+          (runner/call (:recurse-step ctx)
+                       (assoc ctx
+                              :locals (:else-locals envs)
+                              :assumptions (:else-assumptions envs))
+                       (:else node)
+           (fn [else-node]
+             (let [narrow? (and (statically-truthy? test-node) (nil-const-node? else-node))
+                   truth (branch-truth then-conjuncts assumptions)
+                   joined-type (if narrow?
+                                 (:type then-node)
+                                 (joined-branch-type ctx truth then-node else-node))
+                   origin (if narrow?
+                            (ao/node-origin then-node)
+                            (branch-origin then-conjuncts then-node else-node joined-type))]
+               (runner/done
+                (assoc node
+                       :test test-node
+                       :then then-node
+                       :else else-node
+                       :type joined-type
+                       :origin origin)))))))))))
