@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.match
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
@@ -255,21 +256,22 @@
 
       :else nil)))
 
-(s/defn annotate-case-one-then :- s/Any
-  [anchor-prov :- provs/Provenance, ctx :- s/Any, locals :- s/Any, assumptions :- s/Any, i :- s/Int, tests :- [s/Any], thens :- [s/Any], discriminator :- s/Any, use-conditional? :- s/Any, cond-branches :- s/Any]
+(defn- annotate-case-one-then-step
+  [anchor-prov ctx locals assumptions i tests thens discriminator use-conditional? cond-branches k]
   (let [lits (vec (distinct (case-test-literals (nth tests i))))
         assumption (case-then-assumption anchor-prov discriminator
                                          use-conditional? cond-branches lits)
         envs (ao/branch-local-envs ctx locals assumptions
                                     (if assumption
                                       {:then-conjuncts [assumption] :else-conjuncts []}
-                                      {:then-conjuncts [] :else-conjuncts []}))
-        annotated ((:recurse ctx)
-                   (assoc ctx
-                          :locals (:then-locals envs)
-                          :assumptions (:then-assumptions envs))
-                   (:then (nth thens i)))]
-    (assoc (nth thens i) :then annotated)))
+                                      {:then-conjuncts [] :else-conjuncts []}))]
+    (runner/call (:recurse-step ctx)
+                 (assoc ctx
+                        :locals (:then-locals envs)
+                        :assumptions (:then-assumptions envs))
+                 (:then (nth thens i))
+                 (fn [annotated]
+                   (k (assoc (nth thens i) :then annotated))))))
 
 (s/defn ^:private default-assumption :- (s/maybe aos/Assumption)
   [anchor-prov :- provs/Provenance, use-conditional? :- s/Any, discriminator :- s/Any, cond-branches :- s/Any, all-values :- s/Any]
@@ -315,42 +317,50 @@
      :cond-branches cond-branches
      :use-conditional? (boolean (seq cond-branches))}))
 
-(s/defn ^:private annotate-case-default :- s/Any
-  [ctx :- s/Any, anchor-prov :- provs/Provenance, locals :- s/Any, assumptions :- s/Any,
-   default-form :- s/Any, discriminator :- s/Any, use-conditional? :- s/Any,
-   cond-branches :- s/Any, all-values :- s/Any]
+(defn- annotate-case-default-step
+  [ctx anchor-prov locals assumptions default-form discriminator use-conditional? cond-branches all-values k]
   (let [assumption (default-assumption anchor-prov use-conditional?
                                        discriminator cond-branches all-values)
         envs (ao/branch-local-envs ctx locals assumptions
                                     (if assumption
                                       {:then-conjuncts [assumption] :else-conjuncts []}
                                       {:then-conjuncts [] :else-conjuncts []}))]
-    ((:recurse ctx)
-     (assoc ctx
-            :locals (:then-locals envs)
-            :assumptions (:then-assumptions envs))
-     default-form)))
+    (runner/call (:recurse-step ctx)
+                 (assoc ctx
+                        :locals (:then-locals envs)
+                        :assumptions (:then-assumptions envs))
+                 default-form
+                 k)))
 
-(s/defn annotate-case :- aas/AnnotatedNode
+(s/defn annotate-case :- runner/Step
   [{:keys [locals assumptions] :as ctx} :- s/Any, node :- aas/CaseNode]
-  (let [anchor-prov (prov/with-ctx ctx)
-        test-node ((:recurse ctx) ctx (:test node))
-        discriminant-expr (case-discriminant-expr-node test-node)
-        tests (:tests node)
-        thens (:thens node)
-        n (min (count tests) (count thens))
-        {:keys [discriminator cond-branches use-conditional?]}
-        (case-discriminator-and-cond-branches ctx discriminant-expr)
-        all-values (into [] (distinct (mapcat case-test-literals (take n tests))))
-        annotated-thens (mapv #(annotate-case-one-then anchor-prov ctx locals assumptions
-                                                       % tests thens discriminator
-                                                       use-conditional? cond-branches)
-                              (range n))
-        default-node (annotate-case-default ctx anchor-prov locals assumptions
-                                            (:default node) discriminator
-                                            use-conditional? cond-branches all-values)
-        branch-types (mapv (comp :type :then) annotated-thens)
-        joined (case-joined-type anchor-prov branch-types default-node
-                                 (exhaustive-values? (:type test-node) all-values))]
-    (assoc node :test test-node :tests (vec (take n tests)) :thens annotated-thens
-           :default default-node :type joined :origin (ao/opaque-origin joined))))
+  (let [anchor-prov (prov/with-ctx ctx)]
+    (runner/call (:recurse-step ctx) ctx (:test node)
+     (fn [test-node]
+       (let [discriminant-expr (case-discriminant-expr-node test-node)
+             tests (:tests node)
+             thens (:thens node)
+             n (min (count tests) (count thens))
+             {:keys [discriminator cond-branches use-conditional?]}
+             (case-discriminator-and-cond-branches ctx discriminant-expr)
+             all-values (into [] (distinct (mapcat case-test-literals (take n tests))))]
+         (letfn [(walk-thens [i acc]
+                   (if (>= i n)
+                     (annotate-case-default-step
+                      ctx anchor-prov locals assumptions
+                      (:default node) discriminator
+                      use-conditional? cond-branches all-values
+                      (fn [default-node]
+                        (let [branch-types (mapv (comp :type :then) acc)
+                              joined (case-joined-type anchor-prov branch-types default-node
+                                                       (exhaustive-values? (:type test-node) all-values))]
+                          (runner/done
+                           (assoc node :test test-node :tests (vec (take n tests)) :thens acc
+                                  :default default-node :type joined :origin (ao/opaque-origin joined))))))
+                     (annotate-case-one-then-step
+                      anchor-prov ctx locals assumptions
+                      i tests thens discriminator
+                      use-conditional? cond-branches
+                      (fn [annotated-then]
+                        (walk-thens (inc i) (conj acc annotated-then))))))]
+           (walk-thens 0 [])))))))

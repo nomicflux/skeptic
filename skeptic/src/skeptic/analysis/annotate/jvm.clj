@@ -3,6 +3,7 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.map-projection :as map-projection]
+            [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.annotate.shared-call :as shared-call]
             [skeptic.analysis.annotate.numeric :as numeric]
@@ -11,13 +12,16 @@
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]))
 
-(s/defn annotate-instance-call :- aas/AnnotatedNode
+(s/defn annotate-instance-call :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [instance ((:recurse ctx) ctx (:instance node))
-        args (mapv #((:recurse ctx) ctx %) (:args node))
-        type (when (= 'nth (:method node))
-               (coll/instance-nth-element-type (:type instance) (first args)))]
-    (assoc node :instance instance :args args :type (or type (aapi/dyn ctx)))))
+  (runner/call (:recurse-step ctx) ctx (:instance node)
+   (fn [instance]
+     (runner/sequence-children ctx (:args node)
+      (fn [args]
+        (let [type (when (= 'nth (:method node))
+                     (coll/instance-nth-element-type (:type instance) (first args)))]
+          (runner/done
+           (assoc node :instance instance :args args :type (or type (aapi/dyn ctx))))))))))
 
 (defn- shared-static-output-type
   [ctx node args default-output-type]
@@ -42,28 +46,30 @@
                                           node args actual-argtypes native-info)
     (aapi/dyn ctx)))
 
-(s/defn annotate-static-call :- aas/AnnotatedNode
+(s/defn annotate-static-call :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (let [args (mapv #((:recurse ctx) ctx %) (:args node))
-        actual-argtypes (mapv :type args)
-        native-info (native-fns/static-call-native-info (:class node) (:method node) (count args))
-        default-output-type (or (some-> native-info :output-type)
-                                (some-> args first :type)
-                                (aapi/dyn ctx))
-        expected-argtypes (or (:expected-argtypes native-info)
-                              (vec (repeat (count args) (aapi/dyn ctx))))
-        type (or (shared-static-output-type ctx node args default-output-type)
-                 (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
-        origin (when (and (ac/static-get-call? node)
-                          (<= 2 (count args) 3))
-                 (map-projection/map-key-lookup-origin
-                  ctx (first args)
-                  (ac/get-key-query ctx (second args))
-                  (if (= 3 (count args)) (:type (nth args 2)) amo/no-default)))]
-    (cond-> (assoc node
-                   :args args
-                   :actual-argtypes actual-argtypes
-                   :expected-argtypes expected-argtypes
-                   :type type)
-      origin
-      (assoc :origin origin))))
+  (runner/sequence-children ctx (:args node)
+   (fn [args]
+     (let [actual-argtypes (mapv :type args)
+           native-info (native-fns/static-call-native-info (:class node) (:method node) (count args))
+           default-output-type (or (some-> native-info :output-type)
+                                   (some-> args first :type)
+                                   (aapi/dyn ctx))
+           expected-argtypes (or (:expected-argtypes native-info)
+                                 (vec (repeat (count args) (aapi/dyn ctx))))
+           type (or (shared-static-output-type ctx node args default-output-type)
+                    (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
+           origin (when (and (ac/static-get-call? node)
+                             (<= 2 (count args) 3))
+                    (map-projection/map-key-lookup-origin
+                     ctx (first args)
+                     (ac/get-key-query ctx (second args))
+                     (if (= 3 (count args)) (:type (nth args 2)) amo/no-default)))]
+       (runner/done
+        (cond-> (assoc node
+                       :args args
+                       :actual-argtypes actual-argtypes
+                       :expected-argtypes expected-argtypes
+                       :type type)
+          origin
+          (assoc :origin origin)))))))
