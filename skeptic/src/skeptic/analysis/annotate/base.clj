@@ -1,6 +1,7 @@
 (ns skeptic.analysis.annotate.base
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.prune :as prune]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
@@ -37,8 +38,9 @@
   (if-let [init (:init node)]
     (runner/call (:recurse-step ctx) ctx init
                  (fn [annotated-init]
-                   (runner/done
-                    (merge node {:init annotated-init} (ac/node-info annotated-init)))))
+                   (let [pruned (prune/project-node annotated-init)]
+                     (runner/done
+                      (merge node {:init pruned} (ac/node-info pruned))))))
     (runner/done (assoc node :type (aapi/dyn ctx)))))
 
 (defn- local-origin-for-entry

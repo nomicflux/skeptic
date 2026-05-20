@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.coll :as coll]
+            [skeptic.analysis.annotate.prune :as prune]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
@@ -18,8 +19,8 @@
         inner (or (:type init-node) (at/Dyn prov))]
     (runner/done
      (cond-> (assoc node :type (at/->VarT prov inner))
-       meta-node (assoc :meta meta-node)
-       init-node (assoc :init init-node)))))
+       meta-node (assoc :meta (prune/project-node meta-node))
+       init-node (assoc :init (prune/project-node init-node))))))
 
 (s/defn annotate-def :- runner/Step
   [{:keys [locals] :as ctx} :- s/Any node :- aas/AnnotatedNode]
@@ -102,7 +103,9 @@
        (runner/call recurse-step ctx (:expr node)
         (fn [expr-node]
           (runner/done
-           (merge node {:meta meta-node :expr expr-node} (ac/node-info expr-node)))))))))
+           (merge node
+                  {:meta (prune/project-node meta-node) :expr expr-node}
+                  (ac/node-info expr-node)))))))))
 
 (s/defn annotate-throw :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]

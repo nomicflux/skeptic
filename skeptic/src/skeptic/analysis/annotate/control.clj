@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.base :as base]
+            [skeptic.analysis.annotate.prune :as prune]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
@@ -145,16 +146,17 @@
 (defn binding-env-entry
   [env annotated {:keys [base-entry fallback-origin track-fn-binding?]}]
   (let [init (:init annotated)
+        pruned-init (some-> init prune/project-node)
         origin (or (binding-alias-origin init)
                    (when (destructure-shim? annotated) (shim-prior-origin env annotated))
                    fallback-origin
                    (:origin base-entry))]
     (cond-> (assoc base-entry :origin origin)
       (and track-fn-binding? init (aapi/fn-node? init))
-      (assoc :fn-binding-node init)
+      (assoc :fn-binding-node pruned-init)
 
       (some? init)
-      (assoc :binding-init init))))
+      (assoc :binding-init pruned-init))))
 
 (defn- annotate-let-binding-step
   [ctx env binding k]

@@ -23,7 +23,11 @@
 
 (s/defn ^:private normalize-cljs-node :- ads/RawCljsAst
   [n :- ads/RawCljsAst]
-  (let [n (dissoc n :type)]
+  (let [n (dissoc n :type :env)
+        n (cond
+            (not (contains? n :info)) n
+            (= :var (:op n))          (update n :info select-keys [:name :meta])
+            :else                     (dissoc n :info))]
     (if (and (= :binding (:op n)) (not (contains? n :form)))
       (assoc n :form (:name n))
       n)))
