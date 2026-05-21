@@ -28,6 +28,46 @@
                                             (fn [b] (runner/done b))))))]
     (is (= 2 (:count (runner/run outer {} (nd :n)))))))
 
+(deftest run-with-finalizer-finalizes-root
+  (let [result (runner/run-with-finalizer
+                identity-helper {:phase :root} (nd :leaf)
+                (fn [helper-fn ctx node value]
+                  (assoc value
+                         :helper? (identical? helper-fn identity-helper)
+                         :ctx-phase (:phase ctx)
+                         :node-op (:op node))))]
+    (is (= (assoc (nd :leaf)
+                  :helper? true
+                  :ctx-phase :root
+                  :node-op :leaf)
+           result))))
+
+(deftest run-with-finalizer-finalizes-nested-helper-before-parent-k
+  (let [target-helper (fn [_ctx node]
+                        (runner/done (assoc node :target true)))
+        passthrough-helper (fn [_ctx node]
+                             (runner/done (assoc node :passthrough true)))
+        outer (fn [_ctx node]
+                (runner/call passthrough-helper {} (nd :direct)
+                             (fn [direct]
+                               (runner/call target-helper {:phase :child} (nd :child)
+                                            (fn [child]
+                                              (runner/done
+                                               (assoc node
+                                                      :direct direct
+                                                      :child child)))))))
+        result (runner/run-with-finalizer
+                outer {} (nd :parent)
+                (fn [helper-fn ctx _node value]
+                  (if (identical? helper-fn target-helper)
+                    (assoc value :finalized (:phase ctx))
+                    value)))]
+    (is (= (assoc (nd :direct) :passthrough true)
+           (:direct result)))
+    (is (= (assoc (nd :child) :target true :finalized :child)
+           (:child result)))
+    (is (nil? (:finalized result)))))
+
 (deftest run-auto-wraps-non-step-helper-returns
   ;; Migration-window behavior. Phase 7 contracts the runner — every
   ;; helper returns Step there, and this test goes away with the auto-wrap.

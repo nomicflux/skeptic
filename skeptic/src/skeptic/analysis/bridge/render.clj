@@ -50,6 +50,8 @@
   [method :- at/SemanticType]
   (render-fn-input-form* method default-render-opts))
 
+(declare type-sort-key)
+
 (s/defn ^:private conditional-branch-types :- [s/Any]
   [type :- at/SemanticType
    opts :- s/Any]
@@ -94,6 +96,8 @@
         (if-let [ref (:ref type)]
           (list 'InfCycle (at/ref-display-form ref))
           'InfCycle)
+        (at/specialization-ref-type? type)
+        (list 'SpecializationRef (at/ref-display-form (:ref type)))
         (at/fn-method-type? type) (list* '=> (render-type-form* (:output type) opts) (render-fn-input-form* type opts))
         (at/fun-type? type)
         (if (= 1 (count (:methods type)))
@@ -101,15 +105,15 @@
           (list* '=>* (map #(render-type-form* % opts) (:methods type))))
         (at/maybe-type? type) (list 'maybe (render-type-form* (:inner type) opts))
         (at/conditional-type? type) (list* 'conditional (conditional-branch-types type opts))
-        (at/union-type? type) (list* 'union (map #(render-type-form* % opts) (sort-by pr-str (:members type))))
-        (at/intersection-type? type) (list* 'intersection (map #(render-type-form* % opts) (sort-by pr-str (:members type))))
+        (at/union-type? type) (list* 'union (map #(render-type-form* % opts) (sort-by #(type-sort-key % opts) (:members type))))
+        (at/intersection-type? type) (list* 'intersection (map #(render-type-form* % opts) (sort-by #(type-sort-key % opts) (:members type))))
         (at/map-type? type)
         (into {}
               (map (fn [[k v]]
                      [(render-type-form* k opts)
                       (render-type-form* v opts)]))
               (:entries type))
-        (at/set-type? type) (into #{} (map #(render-type-form* % opts)) (:members type))
+        (at/set-type? type) (into #{} (map #(render-type-form* % opts)) (sort-by #(type-sort-key % opts) (:members type)))
         (at/seq-type? type)
         (let [items (mapv #(render-type-form* % opts) (at/pattern-prefix (:pattern type)))
               tail  (at/pattern-tail (:pattern type))]
@@ -123,6 +127,11 @@
         (at/var-type? type) (list 'var (render-type-form* (:inner type) opts))
         (at/placeholder-type? type) (at/placeholder-display-form (:ref type))
         :else type))))
+
+(s/defn ^:private type-sort-key :- s/Str
+  [type :- at/SemanticType
+   opts :- s/Any]
+  (pr-str (render-type-form* type opts)))
 
 (s/defn render-type-form :- s/Any
   [type :- (s/maybe at/SemanticType)]
@@ -186,6 +195,8 @@
       (at/sealed-dyn-type? type) {:t "sealed" :ground (type->json-data* (:ground type) opts)}
       (at/inf-cycle-type? type) (cond-> {:t "inf-cycle"}
                                   (:ref type) (assoc :ref (pr-str (at/ref-display-form (:ref type)))))
+      (at/specialization-ref-type? type) {:t "specialization-ref"
+                                          :ref (pr-str (at/ref-display-form (:ref type)))}
       (at/fn-method-type? type) (fn-method->json-data* type opts)
       (at/fun-type? type) {:t "fun" :methods (mapv #(fn-method->json-data* % opts) (:methods type))}
       (at/maybe-type? type) {:t "maybe" :inner (type->json-data* (:inner type) opts)}
@@ -193,17 +204,17 @@
                                    :branches (mapv (comp #(type->json-data* % opts) :type) (:branches type))}
       (at/union-type? type) {:t "union"
                              :members (mapv #(type->json-data* % opts)
-                                            (sort-by pr-str (:members type)))}
+                                            (sort-by #(type-sort-key % opts) (:members type)))}
       (at/intersection-type? type) {:t "intersection"
                                     :members (mapv #(type->json-data* % opts)
-                                                   (sort-by pr-str (:members type)))}
+                                                   (sort-by #(type-sort-key % opts) (:members type)))}
       (at/map-type? type) {:t "map"
                            :entries (mapv (fn [[k v]]
                                             {:key (type->json-data* k opts)
                                              :val (type->json-data* v opts)})
                                           (:entries type))}
       (at/set-type? type) {:t "set" :members (mapv #(type->json-data* % opts)
-                                                   (sort-by pr-str (:members type)))}
+                                                   (sort-by #(type-sort-key % opts) (:members type)))}
       (at/seq-type? type) (let [tail (at/pattern-tail (:pattern type))]
                             (cond-> {:t (case (:ordered-coll-kind type)
                                           :vector "vector"

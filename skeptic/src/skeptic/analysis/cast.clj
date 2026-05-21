@@ -48,6 +48,20 @@
       (or (at/conditional-type? target-type) (at/conditional-type? source-type))
       (branch/check-conditional-cast child-run source-type target-type opts)
 
+      (at/specialization-ref-type? target-type)
+      (let [resolved (resolve/resolve-specialization target-type)]
+        (if (= resolve/recursive-specialization resolved)
+          (ascs/cast-ok source-type target-type :recursive-specialization)
+          (resolve/with-specialization-active (:ref target-type)
+            #(run-cast source-type resolved opts))))
+
+      (at/specialization-ref-type? source-type)
+      (let [resolved (resolve/resolve-specialization source-type)]
+        (if (= resolve/recursive-specialization resolved)
+          (ascs/cast-ok source-type target-type :recursive-specialization)
+          (resolve/with-specialization-active (:ref source-type)
+            #(run-cast resolved target-type opts))))
+
       (or (at/placeholder-type? target-type) (at/inf-cycle-type? target-type))
       (if-let [resolved (resolve/resolve-named target-type)]
         (resolve/with-active (:ref target-type) #(run-cast source-type resolved opts))

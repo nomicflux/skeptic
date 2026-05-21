@@ -60,6 +60,8 @@
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
+                            (aapi/node-name node)
+                            (qualify-symbol ns-sym (aapi/node-name node))
                             (var->sym (aapi/node-var node))
                             (aapi/node-info-name node)])]
     (some dict candidates)))

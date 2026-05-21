@@ -1,12 +1,12 @@
 (ns skeptic.analysis.annotate.invoke
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
-            [skeptic.analysis.annotate.fn :as fn-annotate]
             [skeptic.analysis.annotate.map-projection :as map-projection]
             [skeptic.analysis.annotate.invoke-output :as invoke-output]
             [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
+            [skeptic.analysis.annotate.specialize :as specialize]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]))
@@ -59,8 +59,8 @@
   (runner/sequence-children ctx (:args node)
    (fn [args]
      (if-let [hint (resolve-unary-fn-arg-type-hint ctx (:fn node) args)]
-       (runner/call fn-annotate/annotate-fn
-                    (assoc ctx :param-type-overrides (:overrides hint))
+       (runner/call specialize/specialize-local-fn
+                    (assoc ctx :fn-specialization-overrides (:overrides hint))
                     (:source-fn hint)
                     (fn [fn-node] (finish-invoke ctx node args fn-node)))
        (runner/call (:recurse-step ctx) ctx (:fn node)

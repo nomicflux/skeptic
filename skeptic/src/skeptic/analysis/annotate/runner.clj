@@ -40,6 +40,8 @@
    #(and (vector? %) (= :done (first %))) DoneStep
    #(and (vector? %) (= :call (first %))) CallStep))
 
+(deftype ContinuationFrame [helper ctx node k])
+
 (s/defn done :- Step
   [node :- aas/AnnotatedNode]
   [:done node])
@@ -64,23 +66,43 @@
   (if (step? v) v [:done v]))
 ;; ---- end migration-window scaffolding ----
 
+(s/defn run-with-finalizer :- aas/AnnotatedNode
+  "Run helper-fn through the trampoline, applying finalize-fn when each helper
+  invocation completes. finalize-fn receives the helper function, ctx, node, and
+  completed value for that invocation."
+  [helper-fn   :- (s/pred fn?)
+   ctx         :- s/Any
+   node        :- aas/AnnotatedNode
+   finalize-fn :- (s/pred fn?)]
+  (loop [step (normalize (helper-fn ctx node))
+         current-helper helper-fn
+         current-ctx ctx
+         current-node node
+         stack []]
+    (case (first step)
+      :done
+      (let [v (finalize-fn current-helper current-ctx current-node (second step))]
+        (if (zero? (count stack))
+          v
+          (let [^ContinuationFrame frame (peek stack)]
+            (recur (normalize ((.-k frame) v))
+                   (.-helper frame)
+                   (.-ctx frame)
+                   (.-node frame)
+                   (pop stack)))))
+      :call
+      (let [[_ next-fn next-ctx next-node k] step]
+        (recur (normalize (next-fn next-ctx next-node))
+               next-fn
+               next-ctx
+               next-node
+               (conj stack (ContinuationFrame. current-helper current-ctx current-node k)))))))
+
 (s/defn run :- aas/AnnotatedNode
   [helper-fn :- (s/pred fn?)
    ctx       :- s/Any
    node      :- aas/AnnotatedNode]
-  (loop [step (normalize (helper-fn ctx node))
-         stack []]
-    (case (first step)
-      :done
-      (let [v (second step)]
-        (if (zero? (count stack))
-          v
-          (recur (normalize ((peek stack) v))
-                 (pop stack))))
-      :call
-      (let [[_ next-fn next-ctx next-node k] step]
-        (recur (normalize (next-fn next-ctx next-node))
-               (conj stack k))))))
+  (run-with-finalizer helper-fn ctx node (fn [_helper-fn _ctx _node v] v)))
 
 (s/defn sequence-children :- Step
   [ctx      :- s/Any

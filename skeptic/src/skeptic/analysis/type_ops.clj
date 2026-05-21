@@ -185,6 +185,7 @@
      (at/dyn-type? t) true
      (at/placeholder-type? t) true
      (at/inf-cycle-type? t) true
+     (at/specialization-ref-type? t) true
      (at/maybe-type? t) (uninformative-for-narrowing? (:inner t))
      (at/union-type? t) (some uninformative-for-narrowing? (:members t))
      (at/conditional-type? t) (some uninformative-for-narrowing? (ca/effective-conditional-arms t))

@@ -2,7 +2,9 @@
   "Phase 7 smoke gate: a mixed .clj / .cljs / .cljc project produces findings
   whose `:lang` attribution matches the source language. .cljc files run
   both passes and dedup identical findings to `:lang #{:clj :cljs}`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [skeptic.analysis.annotate.fn :as fn-annotate]
             [skeptic.checking.pipeline :as pipeline])
   (:import [java.io File]))
 
@@ -87,6 +89,11 @@
   (File. "dev-resources/cljs-fixtures/p8-crash-robustness/bad_top_form.cljs"))
 (def ^:private p8-bad-top-form-ns 'p8-crash.bad-top-form)
 
+(def ^:private p9-recursive-specialization-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p9_recursive_specialization/core.cljs"))
+(def ^:private p9-recursive-specialization-ns
+  'skeptic.cljs-fixtures.p9-recursive-specialization.core)
+
 (defn- cljs-expression-exceptions
   [results]
   (filter #(and (= :exception (:report-kind %))
@@ -119,3 +126,34 @@
                                                     {:remove-context true})]
     (is (seq (cljs-expression-exceptions results))
         "pure .cljs analyzer crash should produce an :expression :exception :lang :cljs finding")))
+
+(deftest recursive-local-fn-specialization-is-finite-through-cljs-production-path
+  (let [step-annotations (atom {})
+        original-annotate-fn fn-annotate/annotate-fn
+        ps (pipeline/project-state {} {p9-recursive-specialization-ns p9-recursive-specialization-file})
+        result (with-redefs [fn-annotate/annotate-fn
+                             (fn [ctx node]
+                               (when (= 'step (:name node))
+                                 (let [form-str (pr-str (:form node))
+                                       step-kind (if (str/includes? form-str "lazy-seq")
+                                                   :map-shaped
+                                                   :bad-output)]
+                                   (swap! step-annotations update step-kind (fnil inc 0))))
+                               (original-annotate-fn ctx node))]
+                 (pipeline/check-namespace ps p9-recursive-specialization-ns p9-recursive-specialization-file
+                                           {:remove-context true}))]
+    (is (empty? (read-exceptions (:results result))))
+    (is (<= (get @step-annotations :map-shaped 0) 3)
+        "the cljs.core/map-shaped recursive local `step` specialization must be shared instead of expanded repeatedly")
+    (is (<= (get @step-annotations :bad-output 0) 3)
+        "the bad-output recursive local `step` specialization must be shared instead of expanded repeatedly")))
+
+(deftest recursive-local-fn-specialization-preserves-output-checking
+  (let [ps (pipeline/project-state {} {p9-recursive-specialization-ns p9-recursive-specialization-file})
+        {:keys [results]} (pipeline/check-namespace ps p9-recursive-specialization-ns p9-recursive-specialization-file
+                                                    {:remove-context true})
+        output-findings (filter #(= :output (:report-kind %)) results)]
+    (is (empty? (read-exceptions results)))
+    (is (= 1 (count output-findings)))
+    (is (= :source-union (:rule (first output-findings)))
+        "a recursive specialization reference must still resolve far enough to reject incompatible declared output")))

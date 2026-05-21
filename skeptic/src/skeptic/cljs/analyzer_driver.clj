@@ -27,7 +27,10 @@
         n (cond
             (not (contains? n :info)) n
             (= :var (:op n))          (update n :info select-keys [:name :meta])
-            :else                     (dissoc n :info))]
+            :else                     (dissoc n :info))
+        n (if (and (= :fn (:op n)) (map? (:name n)))
+            (assoc n :name (or (:form (:name n)) (:name (:name n))))
+            n)]
     (if (and (= :binding (:op n)) (not (contains? n :form)))
       (assoc n :form (:name n))
       n)))

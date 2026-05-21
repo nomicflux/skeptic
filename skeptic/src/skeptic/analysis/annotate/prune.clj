@@ -20,7 +20,10 @@
 
 (defn- prune-fields
   [n]
-  (let [n (dissoc n :env)]
+  (let [n (dissoc n :env)
+        n (if (and (= :fn (:op n)) (map? (:name n)))
+            (assoc n :name (or (:form (:name n)) (:name (:name n))))
+            n)]
     (cond
       (not (contains? n :info)) n
       (= :var (:op n))          (update n :info select-keys [:name :meta])

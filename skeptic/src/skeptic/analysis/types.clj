@@ -71,6 +71,9 @@
 (def inf-cycle-type-tag
   :skeptic.analysis.types/inf-cycle-type)
 
+(def specialization-ref-type-tag
+  :skeptic.analysis.types/specialization-ref-type)
+
 (def value-type-tag
   :skeptic.analysis.types/value-type)
 
@@ -105,6 +108,7 @@
     var-type-tag
     placeholder-type-tag
     inf-cycle-type-tag
+    specialization-ref-type-tag
     value-type-tag
     type-var-type-tag
     forall-type-tag
@@ -165,6 +169,9 @@
 (defrecord InfCycleTRec [prov ref]
   proto/SemanticType (semantic-tag [_] inf-cycle-type-tag))
 
+(defrecord SpecializationRefTRec [prov ref resolver]
+  proto/SemanticType (semantic-tag [_] specialization-ref-type-tag))
+
 (defrecord ValueTRec [prov inner value]
   proto/SemanticType (semantic-tag [_] value-type-tag))
 
@@ -187,7 +194,7 @@
               RefinementTRec AdapterLeafTRec OptionalKeyTRec
               FnMethodTRec FunTRec MaybeTRec UnionTRec
               IntersectionTRec MapTRec SetTRec
-              SeqTRec VarTRec PlaceholderTRec InfCycleTRec
+              SeqTRec VarTRec PlaceholderTRec InfCycleTRec SpecializationRefTRec
               ValueTRec TypeVarTRec ForallTRec SealedDynTRec
               ConditionalTRec))
 
@@ -245,6 +252,7 @@
 (s/defn ->VarT :- SemanticType [prov :- provs/Provenance inner :- SemanticType] (ensure-prov! "VarT" prov) (VarTRec. prov inner))
 (s/defn ->PlaceholderT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "PlaceholderT" prov) (PlaceholderTRec. prov ref))
 (s/defn ->InfCycleT :- SemanticType [prov :- provs/Provenance ref] (ensure-prov! "InfCycleT" prov) (InfCycleTRec. prov ref))
+(s/defn ->SpecializationRefT :- SemanticType [prov :- provs/Provenance ref resolver] (ensure-prov! "SpecializationRefT" prov) (SpecializationRefTRec. prov ref resolver))
 (s/defn ->ValueT :- SemanticType [prov :- provs/Provenance inner value] (ensure-prov! "ValueT" prov) (ValueTRec. prov inner value))
 (s/defn ->TypeVarT :- SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarTRec. prov name))
 (s/defn ->ForallT :- SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallTRec. prov binder body))
@@ -301,7 +309,18 @@
 (s/defn conditional-branch? :- s/Bool [b :- s/Any] (instance? ConditionalBranchRec b))
 (s/defn placeholder-type? :- s/Bool [t :- s/Any] (instance? PlaceholderTRec t))
 (s/defn inf-cycle-type? :- s/Bool [t :- s/Any] (instance? InfCycleTRec t))
+(s/defn specialization-ref-type? :- s/Bool [t :- s/Any] (instance? SpecializationRefTRec t))
 (s/defn value-type? :- s/Bool [t :- s/Any] (instance? ValueTRec t))
+
+(s/defn specialization-ref-resolved :- (s/maybe SemanticType)
+  [t :- SemanticType]
+  (when (specialization-ref-type? t)
+    (let [resolver (:resolver t)]
+      (cond
+        (nil? resolver) nil
+        (instance? clojure.lang.IDeref resolver) (get @resolver (:ref t))
+        (map? resolver) (get resolver (:ref t))
+        :else nil))))
 
 (s/defn fun-methods :- [FnMethodTRec]
   [fun-t :- FunTRec]
@@ -450,6 +469,9 @@
          (inf-cycle-type? a)
          (= (:ref a) (:ref b))
 
+         (specialization-ref-type? a)
+         (= (:ref a) (:ref b))
+
          (value-type? a)
          (and (same? (:inner a) (:inner b))
               (= (:value a) (:value b)))
@@ -588,6 +610,9 @@
                   (inf-cycle-type? x)
                   (combine-hash tag-hash (hash (:ref x)))
 
+                  (specialization-ref-type? x)
+                  (combine-hash tag-hash (hash (:ref x)))
+
                   (value-type? x)
                   (-> tag-hash
                       (combine-hash (hash-type (:inner x)))
@@ -643,6 +668,7 @@
 (s/defn ref-display-form :- s/Symbol
   [ref :- s/Any]
   (cond
+    (and (map? ref) (symbol? (:name ref))) (:name ref)
     (symbol? ref) ref
     (and (vector? ref)
          (seq (filter symbol? ref)))

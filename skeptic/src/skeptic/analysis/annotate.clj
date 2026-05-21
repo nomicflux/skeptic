@@ -15,6 +15,7 @@
             [skeptic.analysis.annotate.match :as match]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
+            [skeptic.analysis.annotate.specialize :as specialize]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.types :as at]
@@ -84,27 +85,34 @@
     (aapi/with-type annotated override)
     annotated))
 
-(s/defn ^:private annotate-step :- runner/Step
-  [ctx :- s/Any node :- aas/AnnotatedNode]
-  (runner/call annotate-dispatch ctx node
-               (fn [annotated]
-                 (let [result (-> annotated
-                                  (apply-type-override ctx node)
-                                  abr/strip-derived-types)]
-                   (when-not (:type result)
-                     (throw (IllegalStateException.
-                             (format "annotate-node produced node without :type for op %s; form: %s"
-                                     (pr-str (:op node))
-                                     (pr-str (:form node))))))
-                   (runner/done result)))))
+(s/defn ^:private finalize-annotated :- aas/AnnotatedNode
+  [ctx       :- s/Any
+   node      :- aas/AnnotatedNode
+   annotated :- aas/AnnotatedNode]
+  (let [result (-> annotated
+                   (apply-type-override ctx node)
+                   abr/strip-derived-types)]
+    (when-not (:type result)
+      (throw (IllegalStateException.
+              (format "annotate-node produced node without :type for op %s; form: %s"
+                      (pr-str (:op node))
+                      (pr-str (:form node))))))
+    result))
+
+(defn- annotate-finalizer
+  [helper-fn ctx node annotated]
+  (if (identical? helper-fn annotate-dispatch)
+    (finalize-annotated ctx node annotated)
+    annotated))
 
 (s/defn annotate-node :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
-  (runner/run annotate-step
-              (assoc ctx
-                     :recurse annotate-node
-                     :recurse-step annotate-step)
-              node))
+  (runner/run-with-finalizer annotate-dispatch
+                             (assoc ctx
+                                    :recurse annotate-node
+                                    :recurse-step annotate-dispatch)
+                             node
+                             annotate-finalizer))
 
 (s/defn annotate-ast :- aas/AnnotatedNode
   [dict :- s/Any ast :- aas/AnnotatedNode {:keys [locals name ns assumptions accessor-summaries lang]} :- s/Any]
@@ -112,6 +120,7 @@
                                 :locals (or locals {})
                                 :assumptions (vec assumptions)
                                 :recur-targets {}
+                                :fn-specialization-state (specialize/initial-state)
                                 :name name
                                 :ns ns
                                 :accessor-summaries (or accessor-summaries {})}
