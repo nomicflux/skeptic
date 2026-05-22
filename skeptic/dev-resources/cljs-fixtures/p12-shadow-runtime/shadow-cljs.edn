@@ -1,0 +1,2 @@
+{:source-paths ["src"]
+ :deps {:aliases [:shadow :sci :cherry]}}

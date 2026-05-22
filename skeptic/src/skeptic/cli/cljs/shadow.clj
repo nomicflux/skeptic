@@ -19,6 +19,20 @@
   (with-open [r (PushbackReader. (io/reader f))]
     (edn/read r)))
 
+(defn deps-aliases
+  [root]
+  (let [^File f (io/file root "shadow-cljs.edn")]
+    (if-not (.exists f)
+      []
+      (let [aliases (get-in (read-shadow-edn f) [:deps :aliases])]
+        (->> (cond
+               (keyword? aliases) [aliases]
+               (sequential? aliases) aliases
+               :else [])
+             (filter keyword?)
+             distinct
+             vec)))))
+
 (s/defn discover-sources :- discover/DiscoverySources
   [root]
   (let [config (read-shadow-edn (shadow-edn-file root))

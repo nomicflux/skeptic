@@ -1024,7 +1024,8 @@
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang cljs-state var-provs form-refs))
+                              (namespace-dict opts ns-sym source-file lang
+                                              cljs-state var-provs form-refs))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))

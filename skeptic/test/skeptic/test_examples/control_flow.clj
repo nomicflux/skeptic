@@ -151,6 +151,92 @@
               :b (conj (:b m) 2)}
              (clojure.core/dec n)))))
 
+(s/defn loop-recur-builds-require-spec-options :- [s/Any]
+  [lib :- s/Symbol
+   filters :- [s/Any]]
+  (loop [fs (seq filters) ret [lib] err false]
+    (cond
+      (true? err) ret
+
+      (some? fs)
+      (let [kw (first fs)
+            only? (= kw :only)]
+        (if (or only? (= kw :rename))
+          (let [refs (second fs)]
+            (if-not (or (and only? (sequential? refs) (every? symbol? refs))
+                        (and (= kw :rename) (map? refs) (every? #(every? symbol? %) refs)))
+              (recur fs ret true)
+              (recur (nnext fs) (into ret [(if only? :refer kw) refs]) false)))
+          (recur fs ret true)))
+
+      :else ret)))
+
+(s/defn consume-keyword-vector :- s/Any
+  [xs :- [s/Keyword]]
+  xs)
+
+(s/defn loop-recur-require-spec-options-map-accumulator-failure :- [s/Any]
+  [lib :- s/Symbol
+   filters :- [s/Any]]
+  (let [result (loop [fs (seq filters) ret [lib] err false]
+                 (cond
+                   (true? err) ret
+
+                   (some? fs)
+                   (let [kw (first fs)
+                         only? (= kw :only)]
+                     (if (or only? (= kw :rename))
+                       (let [refs (second fs)]
+                         (if-not (or (and only? (sequential? refs) (every? symbol? refs))
+                                     (and (= kw :rename) (map? refs) (every? #(every? symbol? %) refs)))
+                           (recur fs ret true)
+                           (recur (nnext fs) {:require refs} false)))
+                       (recur fs ret true)))
+
+                   :else ret))]
+    result))
+
+(s/defn loop-recur-require-spec-options-set-accumulator-failure :- [s/Any]
+  [lib :- s/Symbol
+   filters :- [s/Any]]
+  (let [result (loop [fs (seq filters) ret [lib] err false]
+                 (cond
+                   (true? err) ret
+
+                   (some? fs)
+                   (let [kw (first fs)
+                         only? (= kw :only)]
+                     (if (or only? (= kw :rename))
+                       (let [refs (second fs)]
+                         (if-not (or (and only? (sequential? refs) (every? symbol? refs))
+                                     (and (= kw :rename) (map? refs) (every? #(every? symbol? %) refs)))
+                           (recur fs ret true)
+                           (recur (nnext fs) (into #{} [(if only? :refer kw) refs]) false)))
+                       (recur fs ret true)))
+
+                   :else ret))]
+    result))
+
+(s/defn loop-recur-require-spec-options-not-keyword-vector :- s/Any
+  []
+  (let [result (loop [fs (seq [:rename {'old 'new}]) ret ['cljs.core] err false]
+                 (cond
+                   (true? err) ret
+
+                   (some? fs)
+                   (let [kw (first fs)
+                         only? (= kw :only)]
+                     (if (or only? (= kw :rename))
+                       (let [refs (second fs)]
+                         (if-not (or (and only? (sequential? refs) (every? symbol? refs))
+                                     (and (= kw :rename) (map? refs) (every? #(every? symbol? %) refs)))
+                           (recur fs ret true)
+                           (recur (nnext fs) (into ret [(if only? :refer kw) refs]) false)))
+                       (recur fs ret true)))
+
+                   :else ret))]
+    (consume-keyword-vector result)))
+
 (s/defn for-first-int-success :- s/Int
   []
   (int-add (first (for [x [1 2 3]] (int-add x 0))) 0))

@@ -43,6 +43,17 @@
     (let [m (meta var)]
       (symbol (str (ns-name (:ns m)) "/" (:name m))))))
 
+(defn- cljs-var-node-sym
+  [node]
+  (when (map? node)
+    (or (aapi/node-info-name node)
+        (aapi/node-name node))))
+
+(defn- node-var-sym
+  [node]
+  (or (var->sym (aapi/node-var node))
+      (cljs-var-node-sym (aapi/node-var node))))
+
 (s/defn qualify-symbol :- s/Any
   [ns-sym :- s/Any
    sym :- s/Any]
@@ -62,7 +73,7 @@
                             (qualify-symbol ns-sym (aapi/node-form node))
                             (aapi/node-name node)
                             (qualify-symbol ns-sym (aapi/node-name node))
-                            (var->sym (aapi/node-var node))
+                            (node-var-sym node)
                             (aapi/node-info-name node)])]
     (some dict candidates)))
 
@@ -73,7 +84,7 @@
   (let [candidates (remove nil?
                            [(aapi/node-form node)
                             (qualify-symbol ns-sym (aapi/node-form node))
-                            (var->sym (aapi/node-var node))
+                            (node-var-sym node)
                             (aapi/node-info-name node)])]
     (some accessor-summaries candidates)))
 
@@ -175,7 +186,7 @@
 
 (s/defn resolved-call-sym :- (s/maybe s/Symbol)
   [fn-node :- s/Any]
-  (or (var->sym (aapi/node-var fn-node))
+  (or (node-var-sym fn-node)
       (some-> (aapi/binding-init fn-node) resolved-call-sym)
       (let [form (aapi/node-form fn-node)]
         (when (symbol? form) form))))

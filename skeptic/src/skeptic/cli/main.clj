@@ -10,6 +10,7 @@
             [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.options :as opts]
             [skeptic.cli.paths :as paths]
+            [skeptic.cli.project-classpath :as project-classpath]
             [skeptic.core :as core]
             [skeptic.profiling :as profiling])
   (:import [java.io File]))
@@ -75,12 +76,14 @@
     (cond
       help   (do (println summary) 0)
       errors (do (doseq [e errors] (println e)) (println summary) 1)
-      :else  (let [root  (System/getProperty "user.dir")
-                   paths (resolve-paths options root)
-                   result (atom 0)]
-               (with-output-redirect output
-                 #(reset! result (run-checker options root paths)))
-               @result))))
+      :else  (let [root (System/getProperty "user.dir")]
+               (if-let [command (project-classpath/project-classpath-command root options args)]
+                 (project-classpath/run-child! command)
+                 (let [paths (resolve-paths options root)
+                       result (atom 0)]
+                   (with-output-redirect output
+                     #(reset! result (run-checker options root paths)))
+                   @result))))))
 
 (defn -main
   [& args]

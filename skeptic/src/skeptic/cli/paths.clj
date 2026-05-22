@@ -14,11 +14,20 @@
                       {:root root})))
     f))
 
-(defn discover-paths
+(defn create-basis
   [root aliases]
   (let [f (deps-edn-file root)
         basis (deps/create-basis {:project (.getAbsolutePath f)
                                   :aliases (or aliases [])})]
+    basis))
+
+(defn classpath-entries
+  [root aliases]
+  (keys (:classpath (create-basis root aliases))))
+
+(defn discover-paths
+  [root aliases]
+  (let [basis (create-basis root aliases)]
     (->> (:classpath basis)
          (remove (fn [[_ entry]] (contains? entry :lib-name)))
          (mapv key))))

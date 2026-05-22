@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.base :as base]
+            [skeptic.analysis.annotate.coll :as coll]
             [skeptic.analysis.annotate.prune :as prune]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
@@ -262,12 +263,48 @@
       (av/join (ato/derive-prov current actual) [current actual]))
     current))
 
-(s/defn widen-empty-collection-recur-targets :- [at/SemanticType]
+(defn- open-seq-target?
+  [type]
+  (let [type (ato/normalize type)]
+    (and (at/seq-type? type)
+         (some? (at/pattern-tail (:pattern type))))))
+
+(defn- widenable-open-seq-target?
+  [current actual]
+  (and (at/seq-type? (ato/normalize current))
+       (open-seq-target? actual)
+       (= (collection-kind current) (collection-kind actual))))
+
+(defn- widen-open-seq-target
+  [current actual]
+  (if (widenable-open-seq-target? current actual)
+    (let [current (ato/normalize current)
+          actual (ato/normalize actual)
+          prov (ato/derive-prov current actual)
+          current-elem (coll/seqish-element-type current)
+          actual-elem (coll/seqish-element-type actual)
+          elem (cond
+                 (and current-elem actual-elem) (av/join prov [current-elem actual-elem])
+                 actual-elem actual-elem
+                 current-elem current-elem)]
+      (if elem
+        (at/->SeqT (prov/with-refs prov [(prov/of elem)])
+                   (at/pattern-from-prefix-tail [] elem)
+                   (:ordered-coll-kind actual))
+        current))
+    current))
+
+(defn- widen-collection-target
+  [original current actual]
+  (let [current (widen-empty-target original current actual)]
+    (widen-open-seq-target current actual)))
+
+(s/defn widen-collection-recur-targets :- [at/SemanticType]
   [targets :- [at/SemanticType] body :- s/Any loop-id :- s/Any]
   (reduce (fn [acc recur-node]
             (let [exprs (:exprs recur-node)]
               (if (= (count acc) (count exprs))
-                (mapv widen-empty-target targets acc (mapv :type exprs))
+                (mapv widen-collection-target targets acc (mapv :type exprs))
                 acc)))
           targets
           (loop-recur-nodes body loop-id)))
@@ -275,7 +312,7 @@
 (s/defn widen-loop-recur-targets :- [at/SemanticType]
   [ctx :- s/Any targets :- [at/SemanticType] body :- s/Any loop-id :- s/Any]
   (let [targets (widen-int-loop-counter-recur-targets ctx targets body loop-id)]
-    (widen-empty-collection-recur-targets targets body loop-id)))
+    (widen-collection-recur-targets targets body loop-id)))
 
 (defn- loop-one-binding-step
   [ctx env binding k]

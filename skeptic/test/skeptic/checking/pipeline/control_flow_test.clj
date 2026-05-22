@@ -9,7 +9,8 @@
     'skeptic.test-examples.control-flow/loop-returns-int-vec-literal
     'skeptic.test-examples.control-flow/loop-returns-nested-schema-map
     'skeptic.test-examples.control-flow/loop-recur-accumulates-int-vec
-    'skeptic.test-examples.control-flow/loop-recur-nested-schema-map))
+    'skeptic.test-examples.control-flow/loop-recur-nested-schema-map
+    'skeptic.test-examples.control-flow/loop-recur-builds-require-spec-options))
 
 (deftest for-declared-int-seq-output-must-type-check
   (let [results (ps/check-fixture 'skeptic.test-examples.control-flow/for-declared-int-seq-output)]
@@ -125,6 +126,30 @@
     (is (seq diags))
     (is (every? #(not= :seq-to-vector-arity-mismatch (:reason %)) diags))
     (is (every? #(= :seq-to-vector-element-failed (:reason %)) diags))))
+
+(deftest loop-recur-require-spec-options-still-rejects-incompatible-shapes
+  (doseq [[sym blame rule reason]
+          [['skeptic.test-examples.control-flow/loop-recur-require-spec-options-map-accumulator-failure
+            '(recur (nnext fs) {:require refs} false)
+            :mismatch
+            :mismatch]
+           ['skeptic.test-examples.control-flow/loop-recur-require-spec-options-set-accumulator-failure
+            '(recur (nnext fs) (into #{} [(if only? :refer kw) refs]) false)
+            :seq-to-vector
+            :seq-to-vector-element-failed]
+           ['skeptic.test-examples.control-flow/loop-recur-require-spec-options-not-keyword-vector
+            '(consume-keyword-vector result)
+            :leaf-overlap
+            :leaf-mismatch]]]
+    (let [results (ps/check-fixture sym {:remove-context true})
+          result (first results)
+          diags (:cast-diagnostics result)
+          summary (mapv #(select-keys % [:blame :rule :cast-diagnostics]) results)]
+      (is (= 1 (count results)) (pr-str summary))
+      (is (= blame (:blame result)) (pr-str summary))
+      (is (= rule (:rule result)) (pr-str summary))
+      (is (seq diags) (pr-str summary))
+      (is (some #(= reason (:reason %)) diags) (pr-str summary)))))
 
 (deftest call-mismatch-reports-affected-input-and-location
   (let [results (ps/check-fixture-ns 'skeptic.test-examples.control-flow

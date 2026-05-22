@@ -60,3 +60,37 @@
     (is (= 'p6.core (get-in result [:ns-ast :name])))
     (is (= 'p6.tests
            (get-in @state [:cljs.analyzer/namespaces 'p6.tests :name])))))
+
+(defn- ast-nodes
+  [ast]
+  (tree-seq #(and (map? %) (seq (:children %)))
+            (fn [node]
+              (mapcat (fn [k]
+                        (let [v (get node k)]
+                          (cond
+                            (and (map? v) (:op v)) [v]
+                            (vector? v) (filter #(and (map? %) (:op %)) v)
+                            :else [])))
+                      (:children node)))
+            ast))
+
+(deftest analyze-source-file-seeds-explicit-var-quote-without-analyzing-deps
+  (let [{:keys [entries]} (sut/analyze-source-file "dev-resources/cljs-fixtures/p10_var_quote.cljs")
+        entry (first (filter #(= 'read-inst (second (:source-form %))) entries))
+        invoke-node (first (filter #(= '((var reader/read-date) form) (:form %))
+                                   (ast-nodes (:ast entry))))
+        fn-node (:fn invoke-node)]
+    (is (nil? (:exception entry)))
+    (is (= :the-var (:op fn-node)))
+    (is (= 'cljs.reader/read-date (get-in fn-node [:var :info :name])))))
+
+(deftest analyze-source-file-loads-macro-requested-analyzer-namespace
+  (let [{:keys [entries]} (sut/analyze-source-file
+                           "dev-resources/skeptic/cljs_fixtures/p13_macro_publics/core.cljs")
+        entry (first entries)]
+    (is (nil? (:exception entry)))
+    (is (= '(def string-public-count
+              (macros/public-count (quote clojure.string)))
+           (:source-form entry)))
+    (is (= 'skeptic.cljs-fixtures.p13-macro-publics.core/string-public-count
+           (get-in entry [:ast :name])))))

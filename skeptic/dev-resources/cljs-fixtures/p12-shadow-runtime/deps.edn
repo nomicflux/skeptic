@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :aliases {:shadow {:extra-paths ["shadow-src"]}
+           :sci {}
+           :cherry {}}}

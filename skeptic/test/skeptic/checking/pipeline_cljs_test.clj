@@ -94,6 +94,20 @@
 (def ^:private p9-recursive-specialization-ns
   'skeptic.cljs-fixtures.p9-recursive-specialization.core)
 
+(def ^:private p10-var-quote-dep-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p10_var_quote/dep.cljs"))
+(def ^:private p10-var-quote-core-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p10_var_quote/core.cljs"))
+(def ^:private p10-var-quote-dep-ns
+  'skeptic.cljs-fixtures.p10-var-quote.dep)
+(def ^:private p10-var-quote-core-ns
+  'skeptic.cljs-fixtures.p10-var-quote.core)
+
+(def ^:private p13-macro-publics-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p13_macro_publics/core.cljs"))
+(def ^:private p13-macro-publics-ns
+  'skeptic.cljs-fixtures.p13-macro-publics.core)
+
 (defn- cljs-expression-exceptions
   [results]
   (filter #(and (= :exception (:report-kind %))
@@ -126,6 +140,25 @@
                                                     {:remove-context true})]
     (is (seq (cljs-expression-exceptions results))
         "pure .cljs analyzer crash should produce an :expression :exception :lang :cljs finding")))
+
+(deftest cljs-var-quote-analysis-preserves-callee-identity-through-production-path
+  (let [ps (pipeline/project-state {} {p10-var-quote-dep-ns p10-var-quote-dep-file
+                                       p10-var-quote-core-ns p10-var-quote-core-file})
+        {:keys [results]} (pipeline/check-namespace ps p10-var-quote-core-ns p10-var-quote-core-file
+                                                      {:remove-context true})
+        input-findings (filter #(= :input (:report-kind %)) results)]
+    (is (empty? (read-exceptions results)))
+    (is (empty? (cljs-expression-exceptions results)))
+    (is (seq input-findings)
+        "Calling a schema-typed function through #'alias/name should still report the input mismatch.")))
+
+(deftest macro-requested-analyzer-namespace-loads-through-production-path
+  (let [ps (pipeline/project-state {} {p13-macro-publics-ns p13-macro-publics-file})
+        {:keys [results]} (pipeline/check-namespace ps p13-macro-publics-ns p13-macro-publics-file
+                                                    {:remove-context true})]
+    (is (contains? (:cljs-state ps) p13-macro-publics-file))
+    (is (empty? (read-exceptions results)))
+    (is (empty? (cljs-expression-exceptions results)))))
 
 (deftest recursive-local-fn-specialization-is-finite-through-cljs-production-path
   (let [step-annotations (atom {})
