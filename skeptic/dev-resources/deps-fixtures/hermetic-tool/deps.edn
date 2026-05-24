@@ -1,0 +1,5 @@
+{:paths ["src"]
+ :deps {adversarial/schema        {:local/root "deps/schema"}
+        adversarial/malli         {:local/root "deps/malli"}
+        adversarial/skeptic       {:local/root "deps/skeptic"}
+        adversarial/cljs-analyzer {:local/root "deps/cljs-analyzer"}}}

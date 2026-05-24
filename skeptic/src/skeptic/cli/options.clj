@@ -1,6 +1,9 @@
 (ns skeptic.cli.options
-  "Shared CLI option vector and parser for both the Leiningen plugin
-  (leiningen.skeptic) and the deps.edn entrypoint (skeptic.cli.main).
+  "Shared CLI option vector and parser for the Leiningen plugin
+  (leiningen.skeptic) and the legacy deps.edn -M entrypoint.
+
+  Hermetic deps.edn execution uses the Clojure CLI tool API
+  (`skeptic.tool/check`) with an EDN arg map instead of argv parsing.
   Keys produced here land directly in the opts map consumed by
   skeptic.core/check-project."
   (:require [clojure.tools.cli :as cli]))

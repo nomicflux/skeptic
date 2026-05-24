@@ -10,4 +10,5 @@
         org.clojure/tools.cli          {:mvn/version "1.0.214"}
         org.clojure/tools.deps         {:mvn/version "0.29.1598"}
         org.babashka/sci               {:mvn/version "0.12.51"}
-        commons-io/commons-io          {:mvn/version "2.11.0"}}}
+        commons-io/commons-io          {:mvn/version "2.11.0"}}
+ :tools/usage {:ns-default skeptic.tool}}

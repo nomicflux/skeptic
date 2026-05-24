@@ -1,20 +1,21 @@
 (ns skeptic.cli.main-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [skeptic.cli.main :as main]))
 
-(deftest help-flag-returns-zero-and-prints-summary
-  (let [out (with-out-str
-              (let [code (main/run-cli ["--help"])]
-                (is (zero? code))))]
-    (is (re-find #"--verbose" out)
-        "the help summary should mention at least one core flag")))
+(deftest legacy-m-entrypoint-is-rejected
+  (let [err (with-out-str
+              (binding [*err* *out*]
+                (is (= 1 (main/run-cli ["--help"])))))]
+    (is (str/includes? err "clojure -M:skeptic is unsupported"))
+    (is (str/includes? err "clj -T:skeptic check"))))
 
-(deftest unrecognized-flag-returns-one
-  (let [out (with-out-str
-              (let [code (main/run-cli ["--bogus-flag-xyz"])]
-                (is (= 1 code))))]
-    (is (re-find #"Unknown option|--bogus-flag-xyz" out)
-        "errors should be printed when parsing fails")))
+(deftest legacy-m-entrypoint-does-not-parse-project-options
+  (let [err (with-out-str
+              (binding [*err* *out*]
+                (is (= 1 (main/run-cli ["--bogus-flag-xyz"])))))]
+    (is (not (str/includes? err "Unknown option")))
+    (is (str/includes? err "deps.edn tool alias"))))
 
 (deftest deps-cli-options-present
   (testing "the deps.edn-side options are exposed as a vector for reuse"

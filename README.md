@@ -60,36 +60,26 @@ Or for the snapshot version:
 
 ### deps.edn / Clojure CLI
 
-Add an alias to your `deps.edn`:
+Add a tool alias to your `deps.edn`:
 
 ```clojure
 {:aliases
  {:skeptic
-  {:extra-deps
-   {org.clojars.nomicflux/skeptic  {:mvn/version "0.8.2-SNAPSHOT"
-                                    :exclusions [org.clojure/tools.deps]}
-    ;; Runtime deps Skeptic was built against, forced at depth 1 in the
-    ;; consumer's resolution so transitive nearest-wins cannot drop or
-    ;; downgrade them. Mirrors lein-skeptic's `skeptic-profile`, which
-    ;; also excludes `org.clojure/tools.deps` from skeptic and re-adds
-    ;; it at depth 1 here.
-    org.clojure/clojurescript      {:mvn/version "1.11.132"}
-    org.clojure/data.json          {:mvn/version "2.5.1"}
-    org.clojure/tools.analyzer     {:mvn/version "1.2.2"}
-    org.clojure/tools.analyzer.jvm {:mvn/version "1.4.0-beta1"}
-    org.clojure/tools.cli          {:mvn/version "1.0.214"}
-    org.clojure/tools.deps         {:mvn/version "0.29.1598"}
-    org.babashka/sci               {:mvn/version "0.12.51"}
-    prismatic/schema               {:mvn/version "1.4.1"}
-    prismatic/plumbing             {:mvn/version "0.6.0"}
-    metosin/malli                  {:mvn/version "0.20.1"}
-    commons-io/commons-io          {:mvn/version "2.11.0"}}
-   :main-opts ["-m" "skeptic.cli.main"]}}}
+  {:deps {org.clojars.nomicflux/skeptic {:mvn/version "0.9.0-rc4"}}
+   :ns-default skeptic.tool}}}
 ```
 
-`clj -T` (tool installation) is **not** supported: Skeptic's analyzer
-must load the project's namespaces, and `-T` strips the project's
-`:deps` and `:paths` from the classpath.
+Then run it from the project you want to check:
+
+```sh
+clj -T:skeptic check
+```
+
+`clojure -M:skeptic` is not supported for hermetic deps.edn execution. `-M`
+starts Skeptic on the client project's classpath, which lets client
+dependencies become Skeptic implementation dependencies. The `-T:skeptic`
+tool-alias entry runs Skeptic on the alias tool stack and reads the client
+project as analysis input.
 
 ## Running it
 
@@ -104,7 +94,7 @@ lein skeptic
 With the Clojure CLI:
 
 ```sh
-clojure -M:skeptic
+clj -T:skeptic check
 ```
 
 Both invocations exit with status `0` when no inconsistencies are
@@ -136,10 +126,10 @@ Options:
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
   stdout, so lein/JVM messages stay on stdout. Works with text and `-p` JSONL
   output.
-- `--paths PATHS` (deps.edn only): comma-separated source paths to check,
-  overriding the paths discovered from `deps.edn`.
-- `--alias ALIAS` (deps.edn only): a `deps.edn` alias to merge when
-  discovering source paths (repeatable; e.g. `--alias :test`).
+- `:paths PATHS` (deps.edn tool only): string or vector of source paths to
+  check, overriding the paths discovered from `deps.edn`.
+- `:alias ALIAS` (deps.edn tool only): keyword, string, or vector of aliases
+  to merge when discovering source paths (for example, `:alias :test`).
 
 ### Disabling an intake stream
 
