@@ -9,7 +9,7 @@
   (:import [java.io File]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
-                                     ['org.clojars.nomicflux/skeptic "0.9.0-rc4"
+                                     ['org.clojars.nomicflux/skeptic "0.9.0-rc5"
                                       :exclusions ['org.clojure/tools.deps]]
                                      ['prismatic/schema "1.4.1"]]})
 
