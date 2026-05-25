@@ -65,6 +65,24 @@
      :classpath-entries source-paths
      :loader loader}))
 
+(defn runtime-from-classpath
+  "Build a runtime from an already-resolved project classpath.
+
+  This is used by callers such as the Leiningen plugin, where Leiningen owns
+  dependency resolution and can pass Skeptic the complete project classpath
+  without making Skeptic depend on Leiningen APIs."
+  [root source-paths classpath-entries]
+  (let [root-file (.getCanonicalFile ^File (io/file root))
+        source-paths (vec (or source-paths []))
+        classpath-entries (vec (or classpath-entries source-paths))
+        loader (URLClassLoader. (into-array URL (map entry-url classpath-entries))
+                                (implementation-loader))]
+    {:root (.getPath root-file)
+     :aliases []
+     :source-paths source-paths
+     :classpath-entries classpath-entries
+     :loader loader}))
+
 (defn with-project-runtime
   [runtime f]
   (let [loader (or (:loader runtime) (implementation-loader))

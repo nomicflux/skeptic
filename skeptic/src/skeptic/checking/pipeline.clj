@@ -925,7 +925,14 @@
                 :else
                 (try
                   (require ns-sym)
-                  (update acc :loaded conj [ns-sym source-file lang])
+                  (if (find-ns ns-sym)
+                    (update acc :loaded conj [ns-sym source-file lang])
+                    (if (= :both lang)
+                      (update acc :loaded conj [ns-sym source-file :cljs])
+                      (assoc-in acc [:load-failures ns-sym]
+                                {:source-file source-file
+                                 :exception (ex-info "require returned without creating namespace"
+                                                     {:ns ns-sym})})))
                   (catch Throwable e
                     (if (= :both lang)
                       (update acc :loaded conj [ns-sym source-file :cljs])

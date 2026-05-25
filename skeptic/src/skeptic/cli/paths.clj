@@ -3,8 +3,7 @@
   deps.edn through the official tools.deps API and returns the merged
   :paths vector for the given alias selection. The Leiningen plugin does
   not use this; it gets paths from the lein project map."
-  (:require [clojure.java.io :as io]
-            [clojure.tools.deps :as deps]))
+  (:require [clojure.java.io :as io]))
 
 (defn- deps-edn-file
   [root]
@@ -17,8 +16,9 @@
 (defn create-basis
   [root aliases]
   (let [f (deps-edn-file root)
-        basis (deps/create-basis {:project (.getAbsolutePath f)
-                                  :aliases (or aliases [])})]
+        create-basis-fn (requiring-resolve 'clojure.tools.deps/create-basis)
+        basis (create-basis-fn {:project (.getAbsolutePath f)
+                                :aliases (or aliases [])})]
     basis))
 
 (defn classpath-entries

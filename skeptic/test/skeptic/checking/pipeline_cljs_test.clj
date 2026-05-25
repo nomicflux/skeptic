@@ -108,6 +108,23 @@
 (def ^:private p13-macro-publics-ns
   'skeptic.cljs-fixtures.p13-macro-publics.core)
 
+(def ^:private p16-reitit-like-dep-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p16_reitit_like/dep_test.cljs"))
+(def ^:private p16-reitit-like-core-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p16_reitit_like/core.cljs"))
+(def ^:private p16-reitit-like-runner-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p16_reitit_like/runner.cljs"))
+(def ^:private p16-reitit-like-spec-file
+  (File. "dev-resources/skeptic/cljs_fixtures/p16_reitit_like/spec_test.cljc"))
+(def ^:private p16-reitit-like-dep-ns
+  'skeptic.cljs-fixtures.p16-reitit-like.dep-test)
+(def ^:private p16-reitit-like-core-ns
+  'skeptic.cljs-fixtures.p16-reitit-like.core)
+(def ^:private p16-reitit-like-runner-ns
+  'skeptic.cljs-fixtures.p16-reitit-like.runner)
+(def ^:private p16-reitit-like-spec-ns
+  'skeptic.cljs-fixtures.p16-reitit-like.spec-test)
+
 (defn- cljs-expression-exceptions
   [results]
   (filter #(and (= :exception (:report-kind %))
@@ -159,6 +176,31 @@
     (is (contains? (:cljs-state ps) p13-macro-publics-file))
     (is (empty? (read-exceptions results)))
     (is (empty? (cljs-expression-exceptions results)))))
+
+(deftest reitit-like-cljs-test-forms-analyze-through-production-path
+  (let [ps (pipeline/project-state {} {p16-reitit-like-dep-ns p16-reitit-like-dep-file
+                                       p16-reitit-like-core-ns p16-reitit-like-core-file
+                                       p16-reitit-like-runner-ns p16-reitit-like-runner-file
+                                       p16-reitit-like-spec-ns p16-reitit-like-spec-file})
+        {:keys [results]} (pipeline/check-namespace ps p16-reitit-like-core-ns
+                                                    p16-reitit-like-core-file
+                                                    {:remove-context true})
+        runner-result (pipeline/check-namespace ps p16-reitit-like-runner-ns
+                                                p16-reitit-like-runner-file
+                                                {:remove-context true})
+        spec-result (pipeline/check-namespace ps p16-reitit-like-spec-ns
+                                              p16-reitit-like-spec-file
+                                              {:remove-context true})]
+    (is (contains? (:cljs-state ps) p16-reitit-like-dep-file))
+    (is (contains? (:cljs-state ps) p16-reitit-like-core-file))
+    (is (contains? (:cljs-state ps) p16-reitit-like-runner-file))
+    (is (contains? (:cljs-state ps) p16-reitit-like-spec-file))
+    (is (empty? (read-exceptions results)))
+    (is (empty? (cljs-expression-exceptions results)))
+    (is (empty? (read-exceptions (:results runner-result))))
+    (is (empty? (cljs-expression-exceptions (:results runner-result))))
+    (is (empty? (read-exceptions (:results spec-result))))
+    (is (empty? (cljs-expression-exceptions (:results spec-result))))))
 
 (deftest recursive-local-fn-specialization-is-finite-through-cljs-production-path
   (let [step-annotations (atom {})

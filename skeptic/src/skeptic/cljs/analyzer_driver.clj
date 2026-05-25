@@ -160,27 +160,38 @@
     (coll? form) (seq form)
     :else nil))
 
-(defn- explicit-qualified-var-symbol
+(defn- explicit-var-symbol
   [form]
   (when (and (seq? form)
              (= 'var (first form))
              (nil? (nnext form)))
     (let [sym (second form)]
-      (when (and (symbol? sym) (namespace sym))
-        sym))))
+      (when (symbol? sym) sym))))
 
-(defn- explicit-qualified-var-symbols
+(defn- explicit-var-symbols
   [source-form]
-  (keep explicit-qualified-var-symbol
+  (keep explicit-var-symbol
         (tree-seq coll? form-children source-form)))
+
+(def ^:private cljs-core-explicit-var-refs
+  '#{identity})
+
+(defn- required-namespace
+  [ns-ast qualifier]
+  (or (get (:requires ns-ast) qualifier)
+      (get (:require-macros ns-ast) qualifier)
+      (when (= 'cljs.core qualifier) 'cljs.core)
+      (when (some #{qualifier} (concat (vals (:requires ns-ast))
+                                       (vals (:require-macros ns-ast))))
+        qualifier)))
 
 (defn- required-var-symbol
   [ns-ast var-sym]
-  (when-let [qualifier (some-> var-sym namespace symbol)]
-    (when-let [ns-sym (or (get (:requires ns-ast) qualifier)
-                          (get (:require-macros ns-ast) qualifier)
-                          (when (= 'cljs.core qualifier) 'cljs.core))]
-      (symbol (str ns-sym) (name var-sym)))))
+  (if-let [qualifier (some-> var-sym namespace symbol)]
+    (when-let [ns-sym (required-namespace ns-ast qualifier)]
+      (symbol (str ns-sym) (name var-sym)))
+    (when (contains? cljs-core-explicit-var-refs var-sym)
+      (symbol "cljs.core" (name var-sym)))))
 
 (defn- seed-cljs-var-def!
   [state qualified-var-sym]
@@ -207,6 +218,74 @@
   [qualified-var-sym]
   (symbol (name synthetic-external-ns) (name qualified-var-sym)))
 
+(def ^:private known-harness-vars
+  '#{cljs.spec.test.alpha/instrument
+     cljs.spec.test.alpha/unstrument
+     doo.runner/doo-tests})
+
+(defn- referred-macro-symbol
+  [ns-ast source-sym]
+  (when-let [target (or (get (:use-macros ns-ast) source-sym)
+                        (get (:uses-macros ns-ast) source-sym))]
+    (if (namespace target)
+      target
+      (symbol (str target) (name source-sym)))))
+
+(defn- ns-ast-requires-namespace?
+  [ns-ast ns-sym]
+  (letfn [(contains-ns? [x]
+            (cond
+              (= x ns-sym) true
+              (map? x) (or (some contains-ns? (keys x))
+                           (some contains-ns? (vals x)))
+              (coll? x) (some contains-ns? x)
+              :else false))]
+    (boolean
+     (some contains-ns?
+           (vals (select-keys ns-ast [:requires :require-macros :uses
+                                      :use-macros :uses-macros]))))))
+
+(def ^:private known-harness-vars-by-name
+  (group-by (comp symbol name) known-harness-vars))
+
+(defn- required-known-harness-symbol
+  [ns-ast source-sym]
+  (some (fn [qualified-sym]
+          (when (ns-ast-requires-namespace? ns-ast (symbol (namespace qualified-sym)))
+            qualified-sym))
+        (get known-harness-vars-by-name (symbol (name source-sym)))))
+
+(defn- qualified-source-symbol
+  [ns-ast source-sym]
+  (when (symbol? source-sym)
+    (or (when (namespace source-sym)
+          (required-var-symbol ns-ast source-sym))
+        (referred-macro-symbol ns-ast source-sym)
+        (required-known-harness-symbol ns-ast source-sym))))
+
+(defn- known-harness-symbol
+  [ns-ast source-sym]
+  (let [qualified-sym (qualified-source-symbol ns-ast source-sym)]
+    (when (contains? known-harness-vars qualified-sym)
+      qualified-sym)))
+
+(defn- rewrite-known-harness-forms
+  [state ns-ast source-form]
+  (let [rewrote? (atom false)
+        repaired (walk/postwalk
+                  (fn [form]
+                    (if (seq? form)
+                      (if-let [qualified-sym (known-harness-symbol ns-ast (first form))]
+                        (let [replacement-sym (synthetic-external-var-symbol qualified-sym)]
+                          (reset! rewrote? true)
+                          (seed-cljs-var-def! state replacement-sym)
+                          (with-meta (cons replacement-sym (rest form)) (meta form)))
+                        form)
+                      form))
+                  source-form)]
+    (when @rewrote?
+      repaired)))
+
 (defn- seed-explicit-var-refs!
   [state ns-ast source-form]
   (reduce (fn [seeded? source-var-sym]
@@ -216,7 +295,7 @@
                                   (seed-cljs-var-def! state qualified-var-sym)))]
               (or seeded? inserted?)))
           false
-          (explicit-qualified-var-symbols source-form)))
+          (explicit-var-symbols source-form)))
 
 (defn- throwable-chain
   [e]
@@ -231,6 +310,18 @@
              (and (= :cljs/analysis-error (:tag data))
                   (str/includes? (or message "") "Unable to resolve var: "))))
          (throwable-chain e))))
+
+(defn- unresolved-var-symbol
+  [e]
+  (some (fn [t]
+          (let [data (ex-data t)
+                message (.getMessage ^Throwable t)]
+            (when (= :cljs/analysis-error (:tag data))
+              (or (:var data)
+                  (some->> (re-find #"Unable to resolve var: ([^\s]+)" (or message ""))
+                           second
+                           symbol)))))
+        (throwable-chain e)))
 
 (defn- macroexpansion-qualified-var-symbol
   [e]
@@ -279,10 +370,17 @@
               ns-sym)))
         (throwable-chain e)))
 
+(defn- ns-resource-path
+  [ns-sym suffix]
+  (str (-> (str ns-sym)
+           (str/replace "." "/")
+           (str/replace "-" "_"))
+       suffix))
+
 (defn- source-for-ns
   [ns-sym]
-  (or (io/resource (str (str/replace (str ns-sym) "." "/") ".cljs"))
-      (io/resource (str (str/replace (str ns-sym) "." "/") ".cljc"))))
+  (or (io/resource (ns-resource-path ns-sym ".cljs"))
+      (io/resource (ns-resource-path ns-sym ".cljc"))))
 
 (defn- analyze-missing-namespace!
   [state ns-sym]
@@ -295,13 +393,52 @@
                                              :spec-skip-macros true})))
       true)))
 
+(defn- quoted-symbol
+  [form]
+  (when (and (seq? form)
+             (= 'quote (first form))
+             (nil? (nnext form))
+             (symbol? (second form)))
+    (second form)))
+
+(defn- doo-tests-form?
+  [ns-ast form]
+  (and (seq? form)
+       (= 'doo.runner/doo-tests (known-harness-symbol ns-ast (first form)))))
+
+(defn- seed-doo-test-namespaces!
+  [state ns-ast source-form]
+  (reduce
+   (fn [loaded? form]
+     (if (doo-tests-form? ns-ast form)
+       (reduce (fn [inner-loaded? ns-sym]
+                 (or (analyze-missing-namespace! state ns-sym)
+                     inner-loaded?))
+               loaded?
+               (keep quoted-symbol (rest form)))
+       loaded?))
+   false
+   (filter seq? (tree-seq coll? form-children source-form))))
+
+(defn- prepare-known-harness-analysis!
+  [state ns-ast source-form]
+  (seed-doo-test-namespaces! state ns-ast source-form))
+
+(defn- repair-unresolved-required-var!
+  [state ns-ast e]
+  (when-let [source-var-sym (unresolved-var-symbol e)]
+    (when-let [qualified-var-sym (required-var-symbol ns-ast source-var-sym)]
+      (or (analyze-missing-namespace! state (symbol (namespace qualified-var-sym)))
+          (seed-cljs-var-def! state qualified-var-sym)))))
+
 (defn- repair-analysis-error!
   [state ns-ast source-form e]
   (or (when-let [ns-sym (missing-analyzer-ns e)]
         (analyze-missing-namespace! state ns-sym))
       (and ns-ast
            (unresolved-var-analysis-error? e)
-           (seed-explicit-var-refs! state ns-ast source-form))))
+           (or (repair-unresolved-required-var! state ns-ast e)
+               (seed-explicit-var-refs! state ns-ast source-form)))))
 
 (s/defn ^:private analyze-source-entry-result :- s/Any
   [state       :- s/Any
@@ -311,6 +448,8 @@
   (loop [remaining-repairs 8
          analysis-form source-form]
     (let [result (try
+                   (when ns-ast
+                     (prepare-known-harness-analysis! state ns-ast analysis-form))
                    {:ast (analyze-source-entry state base-env analysis-form)}
                    (catch Throwable e
                      {:ast nil :exception e}))]
@@ -318,9 +457,12 @@
         (if (pos? remaining-repairs)
           (if-let [repaired-form (repair-macroexpansion-source-form! state analysis-form e)]
             (recur (dec remaining-repairs) repaired-form)
-            (if (repair-analysis-error! state ns-ast analysis-form e)
-              (recur (dec remaining-repairs) analysis-form)
-              result))
+            (if-let [repaired-form (and ns-ast
+                                        (rewrite-known-harness-forms state ns-ast analysis-form))]
+              (recur (dec remaining-repairs) repaired-form)
+              (if (repair-analysis-error! state ns-ast analysis-form e)
+                (recur (dec remaining-repairs) analysis-form)
+                result)))
           result)
         result))))
 

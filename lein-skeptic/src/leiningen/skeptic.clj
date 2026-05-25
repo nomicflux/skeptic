@@ -1,16 +1,70 @@
 (ns leiningen.skeptic
-  (:require [leiningen.core.main]
-            [leiningen.core.eval]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [leiningen.core.main]
+            [leiningen.core.classpath]
             [leiningen.core.project]
-            [schema.core]
             [skeptic.cli.cljs.lein :as cljs-lein]
-            [skeptic.cli.options :as cli-opts]
-            [skeptic.core]))
+            [skeptic.cli.options :as cli-opts])
+  (:import [java.io File]))
 
 (def skeptic-profile {:dependencies [['org.clojure/clojure  "1.11.1"]
                                      ['org.clojars.nomicflux/skeptic "0.9.0-rc4"
                                       :exclusions ['org.clojure/tools.deps]]
                                      ['prismatic/schema "1.4.1"]]})
+
+(defn- implementation-project
+  [project profile]
+  (-> project
+      (assoc :dependencies (:dependencies profile)
+             :source-paths []
+             :test-paths []
+             :resource-paths []
+             :java-source-paths []
+             :prep-tasks [])))
+
+(defn- checker-form
+  [options root paths project-classpath-entries]
+  `(do
+     (require 'clojure.java.io)
+     (require 'schema.core)
+     (require 'skeptic.core)
+     (require 'skeptic.profiling)
+     (require 'skeptic.project-runtime)
+     (let [runtime# (skeptic.project-runtime/runtime-from-classpath
+                     ~root ~(vec paths) ~(vec project-classpath-entries))
+           options# (assoc '~options :skeptic/project-runtime runtime#)
+           output-path# (:output options#)
+           writer# (when output-path# (clojure.java.io/writer output-path#))
+           exit-code# (try
+                        (binding [*out* (or writer# *out*)]
+                          (schema.core/without-fn-validation
+                            (skeptic.profiling/run options# ~(str root "/target")
+                              (fn []
+                                (apply skeptic.core/check-project
+                                       options#
+                                       ~root
+                                       '~(vec paths))))))
+                        (finally
+                          (when writer#
+                            (.flush writer#)
+                            (.close writer#))))]
+       (System/exit exit-code#))))
+
+(defn- java-command
+  [implementation-classpath form]
+  ["java"
+   "-cp" (str/join File/pathSeparator implementation-classpath)
+   "clojure.main"
+   "-e" (pr-str form)])
+
+(defn- run-checker-subprocess!
+  [root implementation-classpath form]
+  (let [process (-> (ProcessBuilder. (into-array String (java-command implementation-classpath form)))
+                    (doto (.directory (io/file root))
+                          (.inheritIO))
+                    (.start))]
+    (.waitFor process)))
 
 (defn skeptic
   {:doc (str "Run skeptic on this project's source- and test-paths.\n\n"
@@ -27,16 +81,10 @@
                           (leiningen.core.main/warn summary)
                           (leiningen.core.main/abort))
       :else
-      (leiningen.core.eval/eval-in-project
-       (leiningen.core.project/merge-profiles project [profile])
-       `(let [output-path# ~(:output options)
-              writer# (when output-path# (clojure.java.io/writer output-path#))
-              exit-code# (try
-                           (binding [*out* (or writer# *out*)]
-                             (schema.core/without-fn-validation
-                               (skeptic.profiling/run ~options ~(str (:root project) "/target")
-                                 (fn [] (skeptic.core/check-project ~options ~(:root project) ~@paths)))))
-                           (finally
-                             (when writer# (.flush writer#) (.close writer#))))]
-          (System/exit exit-code#))
-       '(do (require 'skeptic.core) (require 'schema.core) (require 'skeptic.profiling) (require 'clojure.java.io))))))
+      (let [project-classpath (vec (leiningen.core.classpath/get-classpath project))
+            impl-project (implementation-project project profile)
+            implementation-classpath (vec (leiningen.core.classpath/get-classpath impl-project))
+            form (checker-form options (:root project) paths project-classpath)]
+        (System/exit (run-checker-subprocess! (:root project)
+                                              implementation-classpath
+                                              form))))))
