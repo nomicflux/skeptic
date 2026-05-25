@@ -1,8 +1,10 @@
 (ns skeptic.malli-spec.collect.cljs-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [skeptic.analysis.malli-spec.bridge :as amb]
+            [skeptic.analysis.types :as at]
             [skeptic.cljs.analyzer-driver :as driver]
-            [skeptic.malli-spec.collect.cljs :as sut]))
+            [skeptic.malli-spec.collect.cljs :as sut]
+            [skeptic.typed-decls.malli :as typed-malli]))
 
 (def ^:private fixture-path "dev-resources/cljs-fixtures/p5.cljs")
 
@@ -28,3 +30,15 @@
   (let [expected (amb/admit-malli-spec [:=> [:cat :int] :int])]
     (is (= expected (-> *result* :entries (get 'p5/g) :malli-spec)))
     (is (= expected (-> *result* :entries (get 'p5/h) :malli-spec)))))
+
+(deftest unsupported-cljs-spec-preserves-raw-spec-and-converts-to-dyn-at-consumer
+  (let [marker (sut/unsupported-cljs-spec :any (IllegalArgumentException. "not admitted"))
+        result (typed-malli/convert-collected
+                'p5
+                :cljs
+                nil
+                {:entries {'p5/unknown {:name "p5/unknown" :malli-spec marker}}
+                 :errors []})]
+    (is (= :any (get marker sut/unsupported-cljs-spec-key)))
+    (is (empty? (:errors result)))
+    (is (at/dyn-type? (get-in result [:dict 'p5/unknown])))))

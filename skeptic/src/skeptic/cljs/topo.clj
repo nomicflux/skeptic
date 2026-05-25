@@ -10,7 +10,7 @@
 (s/defn ^:private file-head
   [project-nss :- #{s/Symbol}
    source-file :- s/Any]
-  (let [ns-ast       (driver/parse-source-ns source-file)
+  (let [ns-ast       (driver/parse-source-ns-head source-file)
         all-reqs     (set (vals (:requires ns-ast)))
         project-reqs (into #{} (filter project-nss) all-reqs)]
     {:ns               (:name ns-ast)

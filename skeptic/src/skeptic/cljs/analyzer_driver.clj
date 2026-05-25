@@ -20,7 +20,8 @@
             [cljs.analyzer.api :as ana-api]
             [cljs.compiler]
             [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]))
 
 (s/defn ^:private normalize-cljs-node :- ads/RawCljsAst
   [n :- ads/RawCljsAst]
@@ -97,6 +98,19 @@
    ast :- aas/AnnotatedNode]
   (find-by-op* op ast))
 
+(s/defn ^:private parse-source-ns* :- aas/AnnotatedNode
+  [source-file :- s/Any
+   load-macros? :- s/Bool]
+  (let [path (str source-file)]
+    (ana-api/with-state (empty-state)
+      (binding [ana/*analyze-deps* false
+                ana/*load-macros* load-macros?
+                ana/*cljs-ns* 'cljs.user
+                ana/*cljs-file* path]
+        (:ast (ana-api/parse-ns source-file
+                                {:load-macros load-macros?
+                                 :analyze-deps false}))))))
+
 (s/defn parse-source-ns :- aas/AnnotatedNode
   "Parse a `.cljs` / `.cljc` source file's `(ns ...)` form. Triggers JVM
   loading of any `:require-macros` namespaces and returns the analyzed ns
@@ -106,9 +120,15 @@
   cljs macro-syntax spec validation is skipped; the state is discarded
   on return, while JVM-loaded macro namespaces persist."
   [source-file :- s/Any]
-  (ana-api/with-state (empty-state)
-    (:ast (ana-api/parse-ns source-file
-                            {:load-macros true :analyze-deps false}))))
+  (parse-source-ns* source-file true))
+
+(s/defn parse-source-ns-head :- aas/AnnotatedNode
+  "Parse the `(ns ...)` form for dependency ordering. This uses the cljs
+  analyzer's namespace parser and cljs reader context, but does not load
+  macros because topo sorting needs only `:requires` / `:require-macros`
+  metadata. Full source-file analysis still loads macros through the analyzer."
+  [source-file :- s/Any]
+  (parse-source-ns* source-file false))
 
 (s/defn analyze-form :- aas/AnnotatedNode
   "Analyze an already-read cljs form using the supplied ns AST. Real source
@@ -180,6 +200,13 @@
                               :meta {:skeptic.synthetic/external-var true}}))))))
     @inserted?))
 
+(def ^:private synthetic-external-ns
+  'skeptic.synthetic.cljs)
+
+(defn- synthetic-external-var-symbol
+  [qualified-var-sym]
+  (symbol (name synthetic-external-ns) (name qualified-var-sym)))
+
 (defn- seed-explicit-var-refs!
   [state ns-ast source-form]
   (reduce (fn [seeded? source-var-sym]
@@ -204,6 +231,42 @@
              (and (= :cljs/analysis-error (:tag data))
                   (str/includes? (or message "") "Unable to resolve var: "))))
          (throwable-chain e))))
+
+(defn- macroexpansion-qualified-var-symbol
+  [e]
+  (some (fn [t]
+          (let [data (ex-data t)
+                phase (or (:phase data) (:clojure.error/phase data))
+                sym (or (:symbol data) (:clojure.error/symbol data))]
+            (when (and (= :macroexpansion phase)
+                       (qualified-symbol? sym))
+              sym)))
+        (throwable-chain e)))
+
+(defn- matching-macro-operator?
+  [op qualified-var-sym]
+  (and (symbol? op)
+       (or (= op qualified-var-sym)
+           (= (name op) (name qualified-var-sym)))))
+
+(defn- rewrite-macro-operator
+  [source-form qualified-var-sym replacement-sym]
+  (walk/postwalk
+   (fn [form]
+     (if (and (seq? form)
+              (matching-macro-operator? (first form) qualified-var-sym))
+       (with-meta (cons replacement-sym (rest form)) (meta form))
+       form))
+   source-form))
+
+(defn- repair-macroexpansion-source-form!
+  [state source-form e]
+  (when-let [qualified-var-sym (macroexpansion-qualified-var-symbol e)]
+    (let [replacement-sym (synthetic-external-var-symbol qualified-var-sym)
+          repaired-form (rewrite-macro-operator source-form qualified-var-sym replacement-sym)]
+      (when-not (= repaired-form source-form)
+        (seed-cljs-var-def! state replacement-sym)
+        repaired-form))))
 
 (defn- missing-analyzer-ns
   [e]
@@ -245,17 +308,31 @@
    base-env    :- s/Any
    ns-ast      :- (s/maybe aas/AnnotatedNode)
    source-form :- s/Any]
-  (loop [remaining-repairs 8]
+  (loop [remaining-repairs 8
+         analysis-form source-form]
     (let [result (try
-                   {:ast (analyze-source-entry state base-env source-form)}
+                   {:ast (analyze-source-entry state base-env analysis-form)}
                    (catch Throwable e
                      {:ast nil :exception e}))]
       (if-let [e (:exception result)]
-        (if (and (pos? remaining-repairs)
-                 (repair-analysis-error! state ns-ast source-form e))
-          (recur (dec remaining-repairs))
+        (if (pos? remaining-repairs)
+          (if-let [repaired-form (repair-macroexpansion-source-form! state analysis-form e)]
+            (recur (dec remaining-repairs) repaired-form)
+            (if (repair-analysis-error! state ns-ast analysis-form e)
+              (recur (dec remaining-repairs) analysis-form)
+              result))
           result)
         result))))
+
+(s/defn ^:private analyze-ns-source-entry :- aas/AnnotatedNode
+  [state       :- s/Any
+   base-env    :- s/Any
+   source-form :- s/Any]
+  (try
+    (analyze-source-entry state base-env source-form)
+    (catch Throwable _e
+      (binding [ana/*load-macros* false]
+        (analyze-source-entry state base-env source-form)))))
 
 (s/defn analyze-source-file :- ads/SourceFileAnalysis
   "Analyze every top-level form of a cljs/cljc source file using the cljs
@@ -290,7 +367,7 @@
                  (let [source-form (first s)
                        ns-form?    (and (seq? source-form) (= 'ns (first source-form)))]
                    (if ns-form?
-                     (let [ns-ast (analyze-source-entry state base-env source-form)]
+                     (let [ns-ast (analyze-ns-source-entry state base-env source-form)]
                        (recur (next s) ns-ast entries))
                      (let [result (analyze-source-entry-result state
                                                                (assoc base-env :ns ns-ast)

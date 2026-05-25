@@ -10,6 +10,7 @@
    project-discovery
    var-provs
    form-refs
-   user-fn-summaries])
+   user-fn-summaries
+   project-runtime])
 
 (s/defschema ProjectStateSchema (s/pred (partial instance? ProjectState) 'ProjectState))

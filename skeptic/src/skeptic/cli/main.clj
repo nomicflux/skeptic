@@ -10,6 +10,7 @@
             [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.paths :as paths]
             [skeptic.core :as core]
+            [skeptic.project-runtime :as pruntime]
             [skeptic.profiling :as profiling])
   (:import [java.io File]))
 
@@ -88,12 +89,12 @@
 (defn- resolve-paths
   "Both deps.edn and shadow-cljs.edn may be present and contribute paths.
   --paths overrides everything; --alias only affects deps.edn discovery."
-  [{:keys [paths alias]} root]
+  [{:keys [paths]} root aliases]
   (cond
     (string? paths)     (mapv (partial root-relative-path root)
                               (split-paths-arg paths))
     (sequential? paths) (mapv (partial root-relative-path root) paths)
-    :else               (vec (distinct (concat (deps-source-paths root (basis-aliases root alias))
+    :else               (vec (distinct (concat (deps-source-paths root aliases)
                                                (map (partial root-relative-path root)
                                                     (shadow-source-paths root)))))))
 
@@ -124,7 +125,10 @@
                                       (System/getProperty "user.dir"))))
         root (.getPath root-file)
         opts (dissoc opts :project-dir :root)
-        paths (resolve-paths opts root)
+        aliases (basis-aliases root (:alias opts))
+        paths (resolve-paths opts root aliases)
+        runtime (pruntime/build-runtime root aliases paths)
+        opts (assoc opts :skeptic/project-runtime runtime)
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths)))

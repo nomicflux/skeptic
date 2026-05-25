@@ -49,6 +49,13 @@
       (is (= before-cp (:classpath @captured)))
       (is (not (str/includes? (:classpath @captured) (.getPath dir))))
       (is (= (.getPath root) (:root @captured)))
+      (is (= (.getPath root) (get-in @captured [:opts :skeptic/project-runtime :root])))
+      (is (= [(str (io/file root "src"))
+              (str (io/file root "test"))]
+             (get-in @captured [:opts :skeptic/project-runtime :source-paths])))
+      (is (= [(str (io/file root "src"))
+              (str (io/file root "test"))]
+             (get-in @captured [:opts :skeptic/project-runtime :classpath-entries])))
       (is (= [(str (io/file root "src"))
               (str (io/file root "test"))]
              (:source-paths @captured)))
@@ -68,11 +75,16 @@
                                            (reset! aliases {:root root :aliases basis-aliases})
                                            [(str (io/file root "src"))
                                             (str (io/file root "shadow-dep-src"))])
+                    paths/classpath-entries (fn [_root basis-aliases]
+                                              [(str (io/file root (str "basis-" (name (first basis-aliases)))))
+                                               (str (io/file root (str "basis-" (name (second basis-aliases)))))])
                     shadow/deps-aliases (fn [_root] [:shadow :dev])
                     shadow/discover-sources (fn [_root] {:source-paths ["shadow-src"]})
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
-                    core/check-project (fn [_opts _root & source-paths]
-                                         (reset! captured-paths source-paths)
+                    core/check-project (fn [opts _root & source-paths]
+                                         (reset! captured-paths
+                                                 {:source-paths source-paths
+                                                  :runtime (:skeptic/project-runtime opts)})
                                          0)]
         (is (= 0 (main/check-project {:project-dir (.getPath dir)
                                       :alias ":dev"}))))
@@ -81,6 +93,10 @@
       (is (= [(str (io/file root "src"))
               (str (io/file root "shadow-dep-src"))
               (str (io/file root "shadow-src"))]
-             @captured-paths))
+             (:source-paths @captured-paths)))
+      (is (= [:dev :shadow] (get-in @captured-paths [:runtime :aliases])))
+      (is (= [(str (io/file root "basis-dev"))
+              (str (io/file root "basis-shadow"))]
+             (get-in @captured-paths [:runtime :classpath-entries])))
       (finally
         (delete-recursively! dir)))))

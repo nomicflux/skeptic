@@ -1,5 +1,6 @@
 (ns skeptic.cljs.topo-test
   (:require [clojure.test :refer [deftest is]]
+            [skeptic.cljs.analyzer-driver :as driver]
             [skeptic.cljs.topo :as sut]))
 
 (defn- head [requires macro-free? requires-count]
@@ -45,3 +46,16 @@
                'b {:project-requires #{'a} :macro-free? true  :requires-count 1}
                'c {:project-requires #{'a} :macro-free? true  :requires-count 1}}]
     (is (= '[b a c] (sut/topo-sort-heads heads)))))
+
+(deftest namespace-head-uses-cljs-reader-conditionals-without-loading-macros
+  (let [core "dev-resources/skeptic/cljs_fixtures/p15_reader_conditional_ns/core.cljc"
+        dep  "dev-resources/skeptic/cljs_fixtures/p15_reader_conditional_ns/dep.cljs"
+        ns-ast (driver/parse-source-ns-head core)]
+    (is (= 'skeptic.cljs-fixtures.p15-reader-conditional-ns.dep
+           (get (:requires ns-ast) 'dep)))
+    (is (contains? (:require-macros ns-ast)
+                   'skeptic.cljs-fixtures.p15-reader-conditional-ns.missing-macros))
+    (is (= [dep core]
+           (sut/topo-sort-files
+            {'skeptic.cljs-fixtures.p15-reader-conditional-ns.core core
+             'skeptic.cljs-fixtures.p15-reader-conditional-ns.dep dep})))))

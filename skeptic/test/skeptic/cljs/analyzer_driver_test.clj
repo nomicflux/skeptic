@@ -94,3 +94,26 @@
            (:source-form entry)))
     (is (= 'skeptic.cljs-fixtures.p13-macro-publics.core/string-public-count
            (get-in entry [:ast :name])))))
+
+(deftest analyze-source-file-seeds-unresolved-qualified-core-var
+  (let [{:keys [entries]} (sut/analyze-source-file
+                           "dev-resources/skeptic/cljs_fixtures/p14_unresolved_core_var/core.cljc")
+        entry (first entries)
+        invoke-node (first (filter #(= 'skeptic.synthetic.cljs/ns-interns
+                                       (get-in % [:fn :info :name]))
+                                   (ast-nodes (:ast entry))))
+        fn-node (:fn invoke-node)]
+    (is (nil? (:exception entry)))
+    (is (= :var (:op fn-node)))
+    (is (= 'skeptic.synthetic.cljs/ns-interns (get-in fn-node [:info :name])))
+    (is (true? (get-in fn-node [:info :meta :skeptic.synthetic/external-var])))))
+
+(deftest analyze-source-file-does-not-eagerly-load-unused-require-macros
+  (let [state (sut/empty-state)
+        dep   "dev-resources/skeptic/cljs_fixtures/p15_reader_conditional_ns/dep.cljs"
+        core  "dev-resources/skeptic/cljs_fixtures/p15_reader_conditional_ns/core.cljc"
+        _     (sut/analyze-source-file state dep)
+        {:keys [entries]} (sut/analyze-source-file state core)
+        entry (first entries)]
+    (is (nil? (:exception entry)))
+    (is (= '(def x dep/value) (:source-form entry)))))

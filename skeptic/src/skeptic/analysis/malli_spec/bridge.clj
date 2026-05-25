@@ -6,6 +6,26 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance.schema :as provs]))
 
+(def ^:private implementation-schema (deref #'m/schema))
+(def ^:private implementation-form (deref #'m/form))
+(def ^:private implementation-malli-roots
+  (into {}
+        (map (fn [[_ v]] [v (var-get v)]))
+        (ns-interns 'malli.core)))
+
+(defn- call-with-implementation-malli
+  [f]
+  (let [previous-roots (into {}
+                             (map (fn [v] [v (var-get v)]))
+                             (keys implementation-malli-roots))]
+    (try
+      (doseq [[v root] implementation-malli-roots]
+        (alter-var-root v (constantly root)))
+      (f)
+      (finally
+        (doseq [[v root] previous-roots]
+          (alter-var-root v (constantly root)))))))
+
 (defn- invalid-malli-spec-input
   [value e]
   (throw (IllegalArgumentException.
@@ -16,7 +36,8 @@
   "Validate a value as a Malli spec and return its canonical form."
   [value]
   (try
-    (m/form (m/schema value))
+    (call-with-implementation-malli
+     #(implementation-form (implementation-schema value)))
     (catch Exception e
       (invalid-malli-spec-input value e))))
 

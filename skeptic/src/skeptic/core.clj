@@ -7,7 +7,8 @@
             [skeptic.config :as config]
             [skeptic.file :as file]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.output :as output]))
+            [skeptic.output :as output]
+            [skeptic.project-runtime :as pruntime]))
 
 (defn- discover-project-files
   [_root paths]
@@ -53,9 +54,18 @@
   (let [raw-namespaces (:namespace opts)
         requested-namespaces (when (seq raw-namespaces)
                                (expand-namespace-args raw-namespaces))
-        raw-config (config/load-raw-config root)
-        type-overrides (config/compile-overrides (:type-overrides raw-config))
-        opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
+        project-runtime (or (:skeptic/project-runtime opts)
+                            (pruntime/current-runtime root paths))
+        raw-config (pruntime/with-project-runtime
+                     project-runtime
+                     #(config/load-raw-config root))
+        type-overrides (pruntime/with-project-runtime
+                         project-runtime
+                         #(config/compile-overrides (:type-overrides raw-config)))
+        opts (assoc opts
+                    :skeptic/config raw-config
+                    :skeptic/type-overrides type-overrides
+                    :skeptic/project-runtime project-runtime)
         {:keys [files failures]} (discover-project-files root paths)
         files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
         files (if (:cljs-disable opts)
@@ -84,7 +94,9 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        project-state (checking/project-state opts discovered-nss)
+        project-state (pruntime/with-project-runtime
+                       project-runtime
+                       #(checking/project-state opts discovered-nss))
         per-ns-failures (:per-ns-failures project-state)
         nss-to-check (cond-> discovered-nss
                        (seq requested-namespaces)

@@ -23,6 +23,7 @@
             [skeptic.inconsistence.report :as inrep]
             [skeptic.malli-spec.collect :as malli-collect]
             [skeptic.malli-spec.collect.cljs :as malli-collect-cljs]
+            [skeptic.project-runtime :as pruntime]
             [skeptic.provenance :as prov]
             [skeptic.schema.collect.cljs :as schema-collect-cljs]
             [skeptic.schema.discovery :as discovery]
@@ -926,8 +927,10 @@
                   (require ns-sym)
                   (update acc :loaded conj [ns-sym source-file lang])
                   (catch Throwable e
-                    (assoc-in acc [:load-failures ns-sym]
-                              {:source-file source-file :exception e}))))))
+                    (if (= :both lang)
+                      (update acc :loaded conj [ns-sym source-file :cljs])
+                      (assoc-in acc [:load-failures ns-sym]
+                                {:source-file source-file :exception e})))))))
           {:loaded [] :load-failures {}}
           nss-with-source-files))
 
@@ -978,7 +981,7 @@
                (merge native-fns/native-fn-provenance type-override-provs)
                project-disc)))
 
-(s/defn project-state :- s/Any
+(s/defn ^:private build-project-state :- s/Any
   "Source-of-truth for the project pass: per-ns admission once, dicts merged
   into a project-wide dict; accessor summaries collected per-ns against the
   merged dict; conditional descriptors enriched once on the merged dict.
@@ -1024,8 +1027,9 @@
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang
-                                              cljs-state var-provs form-refs))
+                              (assoc (namespace-dict opts ns-sym source-file lang
+                                                     cljs-state var-provs form-refs)
+                                     :lang lang))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))
@@ -1055,12 +1059,18 @@
          loaded)
         enriched-dict (enrich-conditional-descriptors merged-dict accessor-summaries)
         per-ns (reduce-kv (fn [m k v]
-                            (assoc m k (select-keys v [:ignore-body :errors :provenance])))
+                            (assoc m k (select-keys v [:ignore-body :errors :provenance :lang])))
                           {}
                           per-ns-admission)
         per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
-                           cljs-state project-disc var-provs form-refs user-fn-summaries)))
+                           cljs-state project-disc var-provs form-refs user-fn-summaries
+                           (:skeptic/project-runtime opts))))
+
+(s/defn project-state :- s/Any
+  [opts all-discovered-nss :- copts/DiscoveredNamespaces]
+  (pruntime/with-project-runtime (:skeptic/project-runtime opts)
+    #(build-project-state opts all-discovered-nss)))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]
@@ -1069,12 +1079,13 @@
       (throw (ex-info "prepare-namespace requires project-state with per-ns entry (intake invariant)"
                       {:ns ns-sym :have-project-state? (some? project-state)})))
     (let [{:keys [dict accessor-summaries]} project-state
-          {:keys [ignore-body errors provenance]} per-ns-entry]
+          {:keys [ignore-body errors provenance lang]} per-ns-entry]
       {:dict dict
        :ignore-body ignore-body
        :accessor-summaries accessor-summaries
        :errors errors
-       :provenance provenance})))
+       :provenance provenance
+       :lang lang})))
 
 (defmacro block-in-ns
   [_ns ^File file & body]
@@ -1151,11 +1162,12 @@
                :read-error (recur (update acc :results conj
                                           (read-exception-result source-file exception))))))))))
 
-(s/defn check-ns :- s/Any
+(s/defn ^:private check-ns* :- s/Any
   [project-state ns :- s/Symbol source-file form-opts]
   (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
         (prepare-namespace project-state ns source-file)
-        lang (lang-of-source-file form-opts source-file)
+        lang (or (:lang (get-in project-state [:per-ns ns]))
+                 (lang-of-source-file form-opts source-file))
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
         pass-results (binding [ac/*user-fn-path-predicate-summaries*
@@ -1177,6 +1189,11 @@
                         (merge (or provenance {})))]
     {:results (vec (concat (vec errors) deduped))
      :provenance merged-prov}))
+
+(s/defn check-ns :- s/Any
+  [project-state ns :- s/Symbol source-file form-opts]
+  (pruntime/with-project-runtime (:project-runtime project-state)
+    #(check-ns* project-state ns source-file form-opts)))
 
 (s/defn load-exception-result :- s/Any
   [ns-sym :- s/Symbol e :- Throwable]

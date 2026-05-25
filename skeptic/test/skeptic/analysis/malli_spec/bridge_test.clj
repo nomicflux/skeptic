@@ -1,5 +1,6 @@
 (ns skeptic.analysis.malli-spec.bridge-test
   (:require [clojure.test :refer [deftest is]]
+            [malli.core :as m]
             [skeptic.analysis.malli-spec.bridge :as sut]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.test-helpers :refer [is-type= tp]]
@@ -12,6 +13,10 @@
   (is (thrown-with-msg? IllegalArgumentException
                         #"Expected Malli spec value"
                         (sut/admit-malli-spec (at/->GroundT tp :int 'Int)))))
+
+(deftest admit-malli-spec-keeps-implementation-malli-functions-pinned
+  (with-redefs [m/schema (fn [& _] (throw (ex-info "project malli should not be used" {})))]
+    (is (= :any (sut/admit-malli-spec :any)))))
 
 (deftest malli-spec->type-converts-=>-with-primitive-leaves
   (is-type= (at/->FunT tp [(at/->FnMethodT tp [(at/->GroundT tp :int 'Int)]

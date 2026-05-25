@@ -1,14 +1,23 @@
 (ns skeptic.typed-decls.malli
   (:require [schema.core :as s]
             [skeptic.analysis.malli-spec.bridge :as amb]
+            [skeptic.analysis.types :as at]
             [skeptic.malli-spec.collect :as mcollect]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]
             [skeptic.schema.collect :as scollect]))
 
+(def ^:private unsupported-cljs-spec-key :skeptic.malli-spec/unsupported-cljs-spec)
+
+(defn- unsupported-cljs-spec?
+  [value]
+  (and (map? value) (contains? value unsupported-cljs-spec-key)))
+
 (defn desc->type
   [prov {:keys [malli-spec]}]
-  (amb/malli-spec->type prov malli-spec))
+  (if (unsupported-cljs-spec? malli-spec)
+    (at/Dyn prov)
+    (amb/malli-spec->type prov malli-spec)))
 
 (s/defn ^:private desc->provenance :- provs/Provenance
   [_desc         :- s/Any

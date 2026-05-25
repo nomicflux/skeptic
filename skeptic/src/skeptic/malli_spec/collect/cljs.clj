@@ -28,6 +28,16 @@
   [(s/one s/Symbol "fn-sym")
    (s/one s/Any "spec")])
 
+(def unsupported-cljs-spec-key :skeptic.malli-spec/unsupported-cljs-spec)
+(def unsupported-cljs-spec-error-key :skeptic.malli-spec/unsupported-cljs-spec-error)
+
+(defn unsupported-cljs-spec
+  [spec ^Throwable e]
+  {unsupported-cljs-spec-key spec
+   unsupported-cljs-spec-error-key {:class (symbol (.getName (class e)))
+                                    :message (or (.getMessage e) (str e))
+                                    :data (ex-data e)}})
+
 (s/defn ^:private bare-sym :- (s/maybe s/Symbol)
   [s :- (s/maybe s/Symbol)]
   (when s (symbol (name s))))
@@ -74,6 +84,11 @@
                        {:name (str qualified-sym)
                         :malli-spec (amb/admit-malli-spec spec)})
        :errors errors}
+      (catch IllegalArgumentException _e
+        {:entries (assoc entries qualified-sym
+                         {:name (str qualified-sym)
+                          :malli-spec (unsupported-cljs-spec spec _e)})
+         :errors errors})
       (catch Exception e
         {:entries entries
          :errors (conj errors (collect/malli-declaration-error-result
