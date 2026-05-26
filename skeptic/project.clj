@@ -1,4 +1,4 @@
-(defproject org.clojars.nomicflux/skeptic "0.9.0-rc4"
+(defproject org.clojars.nomicflux/skeptic "0.9.0-rc6"
   :description "Static type checking for Clojure projects that use Plumatic Schema"
   :url "https://github.com/nomicflux/skeptic"
   :license {:name "MIT License"
@@ -24,4 +24,4 @@
                  [commons-io                 "2.11.0"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}
-             :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc4"]]}})
+             :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc6"]]}})
