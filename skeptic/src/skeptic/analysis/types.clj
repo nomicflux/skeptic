@@ -18,13 +18,11 @@
     (.get field value)))
 
 (defn ground-class
-  "Resolve a ground/pred-info :class field to a live java.lang.Class, accepting either a live Class
-   (legacy, pre-Phase-2) or a class-name string (post-Phase-2). nil -> nil. Host-only resolution via
-   Class/forName (single-JVM: identical Class per probe F1)."
+  "Resolve a ground/pred-info :class field (a class-name string) to a live java.lang.Class.
+   nil -> nil. Host-only resolution via Class/forName (single-JVM: identical Class per probe F1)."
   [v]
   (cond
     (nil? v) nil
-    (class? v) v
     (string? v) (try (Class/forName v) (catch ClassNotFoundException _ nil))
     :else nil))
 
