@@ -36,7 +36,7 @@
     (is-type= expected (at/fn-method-output (first (at/fun-methods t))))))
 
 (deftest typed-ns-malli-results-entries
-  (let [{:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli :clj nil)]
+  (let [{:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli :clj)]
     (is (empty? errors))
     (is (contains? dict 'skeptic.test-examples.malli/demo-fn))
     (let [t (get dict 'skeptic.test-examples.malli/demo-fn)]

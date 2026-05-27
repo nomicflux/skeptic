@@ -856,14 +856,14 @@
   (binding [*ns* (the-ns ns-sym)
             ab/*var-provs* var-provs]
     (let [schema-result (typed-decls/typed-ns-results opts ns-sym :clj source-file form-refs)
-          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj form-refs)]
+          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj)]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (defn- cljs-namespace-dict
   [opts ns-sym source-file cljs-state var-provs form-refs]
   (if-not (contains? cljs-state source-file)
     (let [schema-result (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
-          malli-result  (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})]
+          malli-result  (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))
     (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
           top-asts (filterv :op (or asts []))
@@ -875,10 +875,10 @@
                              (schema-collect-cljs/ns-schema-results-cljs
                               ns-ast source-file ns-sym top-asts))))
           malli-result (if (:malli-disable opts)
-                         (typed-decls.malli/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
+                         (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})
                          (binding [ab/*var-provs* var-provs]
                            (typed-decls.malli/convert-collected
-                            ns-sym :cljs form-refs
+                            ns-sym :cljs
                             (malli-collect-cljs/ns-malli-spec-results-cljs
                              source-file ns-sym top-asts))))]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))

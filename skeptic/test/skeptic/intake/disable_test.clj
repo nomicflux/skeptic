@@ -36,14 +36,14 @@
       (is (= #{} (:ignore-body res))))
     (testing "Malli stream still works under the same flag"
       (let [malli-res (typed-decls.malli/typed-ns-malli-results
-                       {:plumatic-disable true} fixture-ns :clj nil)]
+                       {:plumatic-disable true} fixture-ns :clj)]
         (is (seq (:dict malli-res)))
         (is (contains? (:dict malli-res) (qsym "malli-arrow")))))))
 
 (deftest malli-disable-empties-malli-stream
   (require fixture-ns)
   (let [res (typed-decls.malli/typed-ns-malli-results
-             {:malli-disable true} fixture-ns :clj nil)]
+             {:malli-disable true} fixture-ns :clj)]
     (testing "Malli stream produces no dict / provenance / errors"
       (is (= {} (:dict res)))
       (is (= {} (:provenance res)))

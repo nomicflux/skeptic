@@ -54,16 +54,16 @@
   type-dict shape, stamping each provenance with the given lang. Used by
   both the JVM admission path (via `typed-ns-malli-results`) and the cljs
   admission path (via `skeptic.checking.pipeline/namespace-dict`).
-  `form-refs` is accepted for signature parity with the Plumatic path and
-  ignored — Malli admits via `m/form` and has no var→source-form oracle."
-  [ns lang _form-refs {:keys [entries errors]}]
+  Malli admits via `m/form` and has no var→source-form oracle, so unlike the
+  Plumatic path it needs no form-refs."
+  [ns lang {:keys [entries errors]}]
   (reduce (fn [acc [qualified-sym desc]]
             (merge-two acc (safe-convert ns qualified-sym desc lang)))
           (-> (empty-result) (update :errors into errors))
           entries))
 
 (defn typed-ns-malli-results
-  [opts ns lang form-refs]
+  [opts ns lang]
   (if (:malli-disable opts)
     (empty-result)
-    (convert-collected ns lang form-refs (mcollect/ns-malli-spec-results opts ns))))
+    (convert-collected ns lang (mcollect/ns-malli-spec-results opts ns))))
