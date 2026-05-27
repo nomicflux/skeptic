@@ -63,7 +63,7 @@
                                                          [{:op :const :val String :form String}
                                                           {:op :local :form 'x}])]
     (is (= {:pred :some?} (s/validate aos/PredInfo some-info)))
-    (is (= {:pred :instance? :class String}
+    (is (= {:pred :instance? :class "java.lang.String"}
            (s/validate aos/PredInfo instance-info)))))
 
 (deftest call-arg-contract-assumptions-test

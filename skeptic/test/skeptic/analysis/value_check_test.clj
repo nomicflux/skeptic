@@ -77,8 +77,8 @@
 (deftest leaf-overlap-double-test
   (let [d (at/->GroundT tp :double 'Double)
         i (at/->GroundT tp :int 'Int)
-        num-class (at/->GroundT tp {:class Number} 'Number)
-        obj-class (at/->GroundT tp {:class Object} 'Object)]
+        num-class (at/->GroundT tp {:class "java.lang.Number"} 'Number)
+        obj-class (at/->GroundT tp {:class "java.lang.Object"} 'Object)]
     (testing ":double overlaps with :double"
       (is (true? (avc/leaf-overlap? d d))))
     (testing ":double overlaps with Number-class target"
@@ -102,8 +102,8 @@
   (let [f (at/->GroundT tp :float 'Float)
         d (at/->GroundT tp :double 'Double)
         i (at/->GroundT tp :int 'Int)
-        num-class (at/->GroundT tp {:class Number} 'Number)
-        obj-class (at/->GroundT tp {:class Object} 'Object)]
+        num-class (at/->GroundT tp {:class "java.lang.Number"} 'Number)
+        obj-class (at/->GroundT tp {:class "java.lang.Object"} 'Object)]
     (testing ":float overlaps with :float"
       (is (true? (avc/leaf-overlap? f f))))
     (testing ":float overlaps with Number-class target"

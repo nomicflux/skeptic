@@ -37,8 +37,8 @@
         bad-set (at/->SetT tp #{(T s/Int)} false)
         int-g (at/->GroundT tp :int 'Int)
         numeric-dyn (at/NumericDyn tp)
-        double-g (at/->GroundT tp {:class java.lang.Double} 'Double)
-        maybe-obj (at/->MaybeT tp (at/->GroundT tp {:class java.lang.Object} 'Object))]
+        double-g (at/->GroundT tp {:class "java.lang.Double"} 'Double)
+        maybe-obj (at/->MaybeT tp (at/->GroundT tp {:class "java.lang.Object"} 'Object))]
     (is (= :set (:rule (sut/check-cast source-set target-set))))
     (is (= :set-cardinality-mismatch
            (:reason (sut/check-cast source-set bad-set))))

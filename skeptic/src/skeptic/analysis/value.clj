@@ -57,7 +57,7 @@
            (not (or (= klass s/Any)
                     (= klass Object)
                     (= klass java.lang.Object))))
-      (at/->GroundT prov {:class klass} (abc/schema-explain klass))
+      (at/->GroundT prov {:class (.getName ^Class klass)} (abc/schema-explain klass))
       (symbol? klass) (cljs-tag->type prov klass)
       (set? klass) (cljs-tag->type prov klass)
       :else (at/Dyn prov))))

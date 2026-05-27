@@ -159,8 +159,8 @@
     :symbol?  (at/->GroundT prov :symbol 'Symbol)
     :nil?     (ato/exact-value-type prov nil)
     :number?  (at/->NumericDynT prov)
-    :instance? (when-let [^Class c (:class pred-info)]
-                 (at/->GroundT prov {:class c} (symbol (.getName c))))
+    :instance? (when-let [c (:class pred-info)]
+                 (at/->GroundT prov {:class c} (symbol c)))
     nil))
 
 (defn- dyn-narrow-negative

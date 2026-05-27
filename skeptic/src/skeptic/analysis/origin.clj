@@ -652,10 +652,10 @@
       (let [target (aapi/node-instance-target test-node)
             cls (aapi/node-class test-node)]
         (when (class? cls)
-          (or (map-key-lookup-path-assumption target {:pred :instance? :class cls} true)
+          (or (map-key-lookup-path-assumption target {:pred :instance? :class (.getName ^Class cls)} true)
               (when-let [root (when (aapi/stable-identity-node? target)
                                 (local-root-origin ctx target))]
-                (type-predicate-assumption root {:pred :instance? :class cls} true)))))
+                (type-predicate-assumption root {:pred :instance? :class (.getName ^Class cls)} true)))))
 
       (and invoke? (contains? ac/not-call-syms invoke-sym))
       (when (= 1 (count invoke-args))

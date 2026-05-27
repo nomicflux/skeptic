@@ -234,7 +234,7 @@
       (when (and (>= n 2)
                  (class-literal-node? (first args)))
         {:pred :instance?
-         :class (aapi/node-value (first args))})
+         :class (.getName ^Class (aapi/node-value (first args)))})
 
       (contains? type-predicate-sym->pred sym)
       (when (= n 1)

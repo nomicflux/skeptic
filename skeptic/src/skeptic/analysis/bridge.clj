@@ -54,7 +54,7 @@
       (= schema s/Bool) (at/->GroundT prov :bool 'Bool)
       (and (class? schema)
            (not (broad-dynamic-schema? schema)))
-      (at/->GroundT prov {:class schema} (abc/schema-explain schema)))))
+      (at/->GroundT prov {:class (.getName ^Class schema)} (abc/schema-explain schema)))))
 
 (defn- invalid-schema-input
   [value]

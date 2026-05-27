@@ -32,10 +32,10 @@
           float-type (av/type-of-value tp (float 3.5))
           bigdec-type (av/type-of-value tp 3.5M)
           ratio-type (av/type-of-value tp 7/2)]
-      (is (= {:class java.lang.Double} (:ground double-type)))
-      (is (= {:class java.lang.Float} (:ground float-type)))
-      (is (= {:class java.math.BigDecimal} (:ground bigdec-type)))
-      (is (= {:class clojure.lang.Ratio} (:ground ratio-type)))
+      (is (= {:class "java.lang.Double"} (:ground double-type)))
+      (is (= {:class "java.lang.Float"} (:ground float-type)))
+      (is (= {:class "java.math.BigDecimal"} (:ground bigdec-type)))
+      (is (= {:class "clojure.lang.Ratio"} (:ground ratio-type)))
       (is (not= (:ground bigdec-type) (:ground float-type))))))
 
 (deftest type-of-value-collections-test

@@ -138,7 +138,7 @@
              (symbol? (second form)))
         (when-let [cls (resolve-class (second form))]
           (when-let [path (accessor-path (nth form 2) param)]
-            {:pred :instance? :path path :class cls}))
+            {:pred :instance? :path path :class (.getName ^Class cls)}))
 
         :else
         (when-let [pred-kw (ac/type-predicate-sym->pred head)]

@@ -98,7 +98,7 @@
     (is (= :path-type-predicate (:kind d)))
     (is (= [:k] (:path d)))
     (is (= :instance? (:pred d)))
-    (is (= java.lang.String (:class d)))))
+    (is (= "java.lang.String" (:class d)))))
 
 (deftest path-type-predicate-rejects-non-accessor
   (is (nil? (pd/predicate-form->descriptor
