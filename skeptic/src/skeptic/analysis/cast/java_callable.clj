@@ -6,21 +6,21 @@
             [skeptic.provenance :as prov]))
 
 (def ^:private sam-spec
-  {java.lang.Runnable                {:arity 0 :return-builder #(at/Dyn %)}
-   java.util.concurrent.Callable     {:arity 0 :return-builder #(at/Dyn %)}
-   java.util.Comparator              {:arity 2 :return-builder #(at/->GroundT % :int 'Int)}
-   java.util.function.Function       {:arity 1 :return-builder #(at/Dyn %)}
-   java.util.function.Supplier       {:arity 0 :return-builder #(at/Dyn %)}
-   java.util.function.Consumer       {:arity 1 :return-builder #(at/Dyn %)}
-   java.util.function.Predicate      {:arity 1 :return-builder #(at/->GroundT % :bool 'Bool)}
-   java.util.function.BiFunction     {:arity 2 :return-builder #(at/Dyn %)}
-   java.util.function.BiPredicate    {:arity 2 :return-builder #(at/->GroundT % :bool 'Bool)}
-   java.util.function.BiConsumer     {:arity 2 :return-builder #(at/Dyn %)}
-   java.util.function.UnaryOperator  {:arity 1 :return-builder #(at/Dyn %)}
-   java.util.function.BinaryOperator {:arity 2 :return-builder #(at/Dyn %)}})
+  {"java.lang.Runnable"                {:arity 0 :return-builder #(at/Dyn %)}
+   "java.util.concurrent.Callable"     {:arity 0 :return-builder #(at/Dyn %)}
+   "java.util.Comparator"              {:arity 2 :return-builder #(at/->GroundT % :int 'Int)}
+   "java.util.function.Function"       {:arity 1 :return-builder #(at/Dyn %)}
+   "java.util.function.Supplier"       {:arity 0 :return-builder #(at/Dyn %)}
+   "java.util.function.Consumer"       {:arity 1 :return-builder #(at/Dyn %)}
+   "java.util.function.Predicate"      {:arity 1 :return-builder #(at/->GroundT % :bool 'Bool)}
+   "java.util.function.BiFunction"     {:arity 2 :return-builder #(at/Dyn %)}
+   "java.util.function.BiPredicate"    {:arity 2 :return-builder #(at/->GroundT % :bool 'Bool)}
+   "java.util.function.BiConsumer"     {:arity 2 :return-builder #(at/Dyn %)}
+   "java.util.function.UnaryOperator"  {:arity 1 :return-builder #(at/Dyn %)}
+   "java.util.function.BinaryOperator" {:arity 2 :return-builder #(at/Dyn %)}})
 
 (defn- target-class [target-type]
-  (-> target-type :ground :class))
+  (some-> (-> target-type :ground :class) at/ground-class .getName))
 
 (s/defn java-callable-target? :- s/Bool
   [t :- s/Any]

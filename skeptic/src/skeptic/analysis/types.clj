@@ -17,6 +17,25 @@
     (.setAccessible field true)
     (.get field value)))
 
+(defn ground-class
+  "Resolve a ground/pred-info :class field to a live java.lang.Class, accepting either a live Class
+   (legacy, pre-Phase-2) or a class-name string (post-Phase-2). nil -> nil. Host-only resolution via
+   Class/forName (single-JVM: identical Class per probe F1)."
+  [v]
+  (cond
+    (nil? v) nil
+    (class? v) v
+    (string? v) (try (Class/forName v) (catch ClassNotFoundException _ nil))
+    :else nil))
+
+(def integral-class-names
+  #{"java.lang.Long" "java.lang.Integer" "java.lang.Short" "java.lang.Byte"
+    "java.math.BigInteger" "clojure.lang.BigInt"})
+
+(defn integral-class?
+  [v]
+  (boolean (contains? integral-class-names (some-> (ground-class v) .getName))))
+
 (def dyn-type-tag
   :skeptic.analysis.types/dyn-type)
 

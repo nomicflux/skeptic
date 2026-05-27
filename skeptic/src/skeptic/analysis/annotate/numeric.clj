@@ -10,14 +10,11 @@
   [prov :- provs/Provenance]
   (at/->GroundT prov :bool 'Bool))
 
-(def integral-arg-classes
-  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
-
 (defn- numeric-ground-class
   [type]
   (let [ground (:ground (ato/normalize type))]
     (when (and (map? ground) (:class ground))
-      (:class ground))))
+      (at/ground-class (:class ground)))))
 
 (s/defn integral-type? :- s/Bool
   [type :- at/SemanticType]
@@ -25,7 +22,7 @@
     (cond
       (and (at/ground-type? type) (= :int (:ground type))) true
       (and (at/ground-type? type) (map? (:ground type)) (:class (:ground type)))
-      (contains? integral-arg-classes (:class (:ground type)))
+      (at/integral-class? (:class (:ground type)))
       (and (at/value-type? type) (integer? (:value type))) true
       (at/refinement-type? type) (integral-type? (:base type))
       (at/intersection-type? type) (every? integral-type? (:members type))
@@ -62,7 +59,7 @@
       true
 
       (and (at/ground-type? type) klass)
-      (not (contains? integral-arg-classes klass))
+      (not (at/integral-class? klass))
 
       (at/refinement-type? type)
       (non-int-numeric-type? (:base type))

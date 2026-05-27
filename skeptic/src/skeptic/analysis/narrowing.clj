@@ -7,16 +7,13 @@
 
 (declare partition-type-for-predicate*)
 
-(def integral-ground-classes
-  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
-
 (defn- numeric-ground?
   [g]
   (or (= :int g)
       (= :double g)
       (= :float g)
       (and (map? g) (:class g)
-           (let [^Class c (:class g)]
+           (let [^Class c (at/ground-class (:class g))]
              (and (class? c)
                   (or (isa? c Number)
                       (= c Number)
@@ -29,10 +26,11 @@
       (or (= :int g) (numeric-ground? g)))))
 
 (defn- instance-ground-assignable?
-  [ground ^Class pred-class]
+  [ground pred-class]
   (when (and (map? ground) (:class ground))
-    (let [^Class c (:class ground)]
-      (and (class? c) (.isAssignableFrom pred-class c)))))
+    (let [^Class c (at/ground-class (:class ground))
+          ^Class pc (at/ground-class pred-class)]
+      (and (class? c) (class? pc) (.isAssignableFrom pc c)))))
 
 (defn- numeric-dyn-instance-classification
   [pred-class]
@@ -77,7 +75,7 @@
           :seq? (if (seq? v) :matches :does-not-match)
           :fn? (if (fn? v) :matches :does-not-match)
           :instance?
-          (if-let [^Class pc (:class pred-info)]
+          (if-let [pc (at/ground-class (:class pred-info))]
             (if (instance? pc v) :matches :does-not-match)
             :unknown)
           :unknown))
@@ -99,7 +97,7 @@
           :seq? :does-not-match
           :fn? :does-not-match
           :instance?
-          (if-let [^Class pc (:class pred-info)]
+          (if-let [pc (at/ground-class (:class pred-info))]
             (if (instance-ground-assignable? g pc) :matches :does-not-match)
             :unknown)
           :unknown))
@@ -120,7 +118,7 @@
         :seq? :does-not-match
         :fn? :does-not-match
         :instance?
-        (numeric-dyn-instance-classification (:class pred-info))
+        (numeric-dyn-instance-classification (at/ground-class (:class pred-info)))
         :unknown)
 
       (at/map-type? t) (case pred :map? :matches :nil? :does-not-match :some? :matches :does-not-match)

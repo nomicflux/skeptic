@@ -82,14 +82,11 @@
       :else
       :unknown)))
 
-(def integral-ground-classes
-  #{Long Integer Short Byte java.math.BigInteger clojure.lang.BigInt})
-
 (defn- numeric-ground-class
   [type]
   (let [ground (:ground (as-type type))]
     (when (and (map? ground) (:class ground))
-      (:class ground))))
+      (at/ground-class (:class ground)))))
 
 (s/defn numeric-ground-type? :- s/Bool
   [type :- s/Any]
@@ -112,7 +109,7 @@
     (and (numeric-ground-type? type)
          (not= :int (:ground (as-type type)))
          (or (nil? klass)
-             (not (contains? integral-ground-classes klass))))))
+             (not (at/integral-class? klass))))))
 
 (s/defn numeric-leaf-type? :- s/Bool
   [type :- s/Any]
@@ -132,7 +129,7 @@
       (= ground :bool) (boolean? value)
       (= ground :double) (double? value)
       (= ground :float) (instance? Float value)
-      (and (map? ground) (:class ground)) (instance? (:class ground) value)
+      (and (map? ground) (:class ground)) (instance? (at/ground-class (:class ground)) value)
       :else false)))
 
 (s/defn leaf-overlap? :- s/Bool
@@ -162,19 +159,19 @@
             (= s t) true
             (and (or (= s :int) (= s :double) (= s :float))
                  (map? t)
-                 (= Number (:class t)))
+                 (= Number (at/ground-class (:class t))))
             true
             (and (map? s)
-                 (= Number (:class s))
+                 (= Number (at/ground-class (:class s)))
                  (= t :int))
             false
             (and (#{:int :str :keyword :symbol :bool :double :float} s)
                  (map? t)
-                 (= Object (:class t)))
+                 (= Object (at/ground-class (:class t))))
             true
             (and (map? s) (:class s) (map? t) (:class t))
-            (or (.isAssignableFrom ^Class (:class s) ^Class (:class t))
-                (.isAssignableFrom ^Class (:class t) ^Class (:class s)))
+            (or (.isAssignableFrom ^Class (at/ground-class (:class s)) ^Class (at/ground-class (:class t)))
+                (.isAssignableFrom ^Class (at/ground-class (:class t)) ^Class (at/ground-class (:class s))))
             :else false))
 
         (at/refinement-type? target-type)

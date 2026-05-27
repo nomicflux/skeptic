@@ -108,7 +108,7 @@
                         (= :path-type-predicate (:kind d))
                         (= raw-path (:path d))
                         (= (:pred pred-info) (:pred d))
-                        (= (:class pred-info) (:class d))))
+                        (= (some-> (:class pred-info) at/ground-class) (some-> (:class d) at/ground-class))))
         own-conflict? (and (matches? (:descriptor (nth branches k)))
                            (not polarity))
         earlier-forces? (and polarity

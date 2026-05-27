@@ -11,6 +11,13 @@
 (def ^:private p-native
   (prov/make-provenance :native 'x/y 'x nil [] :clj))
 
+(deftest ground-class-test
+  (is (= Long (sut/ground-class Long)))
+  (is (= Long (sut/ground-class "java.lang.Long")))
+  (is (nil? (sut/ground-class nil)))
+  (is (true? (sut/integral-class? Long)))
+  (is (false? (sut/integral-class? String))))
+
 (deftest constructors-attach-provenance
   (testing "every constructor attaches its prov arg"
     (is (= p-schema (prov/of (sut/->DynT p-schema))))
