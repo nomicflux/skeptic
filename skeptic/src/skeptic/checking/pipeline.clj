@@ -1058,7 +1058,7 @@
                           per-ns-admission)
         per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
-                           cljs-state project-disc var-provs form-refs user-fn-summaries)))
+                           cljs-state project-disc var-provs user-fn-summaries)))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]
