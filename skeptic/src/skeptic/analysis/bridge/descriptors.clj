@@ -1,6 +1,6 @@
 (ns skeptic.analysis.bridge.descriptors
   "Per-form descriptor extraction for Plumatic source forms stored in the
-  project-wide form-refs IdentityHashMap (built once in
+  project-wide form-refs map, keyed by qualified symbol (built once in
   `skeptic.checking.pipeline/project-state`, threaded through bridge ctx).
   Pipeline puts raw `(s/defn ...)` / `(s/def ...)` / `(s/defschema ...)` lists
   into the map; bridge.clj normalizes them via `raw->descriptor` on demand.

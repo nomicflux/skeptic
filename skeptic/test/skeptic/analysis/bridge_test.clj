@@ -37,14 +37,10 @@
 
 (defn- form-refs-from-discovery
   [ns-sym source-file]
-  (let [discovery-out (discovery/discover ns-sym source-file)
-        acc (java.util.IdentityHashMap.)]
-    (doseq [[_ {:keys [role form declared-sym]}] (:declarations discovery-out)
-            :when (#{:s/defn :s/def :s/defschema} role)
-            :let [v (ns-resolve (the-ns ns-sym) declared-sym)]
-            :when (var? v)]
-      (.put acc v form))
-    acc))
+  (into {}
+        (for [[qsym {:keys [role form]}] (:declarations (discovery/discover ns-sym source-file))
+              :when (#{:s/defn :s/def :s/defschema} role)]
+          [qsym form])))
 
 (declare UnboundSchemaRef
          DirectRecursiveSchemaRef
@@ -368,9 +364,9 @@
     (is (= tp (prov/of result)))))
 
 (deftest source-intake-convert-desc-end-to-end-test
-  (let [declared-var #'skeptic.test-examples.form-refs/fn-with-map-ann
-        map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
-        form-refs (doto (java.util.IdentityHashMap.) (.put declared-var '{:result skeptic.test-examples.form-refs/MapBody}))
+  (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        form-refs {'skeptic.test-examples.form-refs/fn-with-map-ann
+                   '{:result skeptic.test-examples.form-refs/MapBody}}
         desc {:schema {:result [s/Int]} :arglists nil}
         result (td/convert-desc 'skeptic.test-examples.form-refs
                                 'skeptic.test-examples.form-refs/fn-with-map-ann
@@ -385,7 +381,7 @@
 
 (deftest source-descriptor-cycle-via-cond-pre-vector-terminates-test
   (let [form '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/BoundSchemaRef])
-        form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
+        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form}
         descriptor (#'ab/source-descriptor tp form form-refs)]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
@@ -393,7 +389,7 @@
 (deftest source-descriptor-cycle-via-conditional-self-terminates-test
   (let [form '(schema.core/conditional clojure.core/even? skeptic.analysis.bridge-test/BoundSchemaRef
                                        clojure.core/odd? skeptic.analysis.bridge-test/BoundSchemaRef)
-        form-refs (doto (java.util.IdentityHashMap.) (.put #'BoundSchemaRef form))
+        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form}
         descriptor (#'ab/source-descriptor tp form form-refs)]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
@@ -401,9 +397,8 @@
 (deftest source-descriptor-cycle-via-mutual-vars-terminates-test
   (let [form-a '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/AliasedSchema])
         form-b '(schema.core/cond-pre schema.core/Str [skeptic.analysis.bridge-test/BoundSchemaRef])
-        form-refs (doto (java.util.IdentityHashMap.)
-                    (.put #'BoundSchemaRef form-a)
-                    (.put #'AliasedSchema form-b))
+        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form-a
+                   (sb/qualified-var-symbol #'AliasedSchema) form-b}
         descriptor (#'ab/source-descriptor tp form-a form-refs)]
     (is (some? descriptor))
     (is (= form-a (:form descriptor)))))

@@ -805,13 +805,12 @@
   for var-provs but their parent forms produce no useful form-ref descriptor."
   #{:s/defn :s/def :s/defschema})
 
-(defn- populate-form-refs!
-  [^java.util.IdentityHashMap form-refs ns-sym discovery-out]
-  (doseq [[_qsym {:keys [role form declared-sym]}] (:declarations discovery-out)
-          :when (form-ref-roles role)
-          :let [v (ns-resolve (the-ns ns-sym) declared-sym)]
-          :when (var? v)]
-    (.put form-refs v form)))
+(defn- form-refs-for-ns
+  [discovery-out]
+  (into {}
+        (for [[qsym {:keys [role form]}] (:declarations discovery-out)
+              :when (form-ref-roles role)]
+          [qsym form])))
 
 (defn- collect-user-fn-summaries
   "Walks an ns's discovery output for `s/defn` source forms and returns the
@@ -1009,10 +1008,9 @@
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
         project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
         var-provs (project-var-provs opts project-disc)
-        form-refs (java.util.IdentityHashMap.)
-        _ (doseq [[ns-sym discovery-out] project-disc
-                  :when discovery-out]
-            (populate-form-refs! form-refs ns-sym discovery-out))
+        form-refs (reduce (fn [m [_ns-sym d]]
+                            (cond-> m d (merge (form-refs-for-ns d))))
+                          {} project-disc)
         user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
                                      {} project-disc)
         {cljs-state         :cljs-state

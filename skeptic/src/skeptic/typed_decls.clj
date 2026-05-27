@@ -20,10 +20,8 @@
 
 (defn convert-desc
   [ns qualified-sym desc lang form-refs]
-  (let [declared-var (resolve qualified-sym)
-        prov (desc->provenance desc ns qualified-sym lang)
-        form-descriptor (and form-refs declared-var
-                             (.get ^java.util.IdentityHashMap form-refs declared-var))]
+  (let [prov (desc->provenance desc ns qualified-sym lang)
+        form-descriptor (and form-refs (get form-refs qualified-sym))]
     {:dict {qualified-sym (desc->type prov desc form-descriptor form-refs)}
      :provenance {qualified-sym prov}
      :ignore-body (if (:skeptic/ignore-body? desc) #{qualified-sym} #{})

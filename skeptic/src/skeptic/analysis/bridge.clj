@@ -104,10 +104,10 @@
     (try (resolve form) (catch Exception _ nil))))
 
 (defn- lookup-form-ref
-  [ctx v]
+  [ctx qsym]
   (let [form-refs (:form-refs ctx)]
-    (when (and form-refs (instance? clojure.lang.Var v))
-      (some-> (.get ^java.util.IdentityHashMap form-refs v)
+    (when (and form-refs qsym)
+      (some-> (get form-refs qsym)
               descriptors/raw->descriptor
               :schema-form))))
 
@@ -162,7 +162,7 @@
   (let [v        (resolve-form-var form)
         qsym     (when (instance? clojure.lang.Var v) (sb/qualified-var-symbol v))
         active?  (and qsym (contains? (:active-refs ctx) qsym))
-        ref-form (when (and v (not active?)) (lookup-form-ref ctx v))
+        ref-form (when (and qsym (not active?)) (lookup-form-ref ctx qsym))
         sub-ctx  (cond-> ctx
                    qsym (update :active-refs conj qsym))
         child-forms (cond
