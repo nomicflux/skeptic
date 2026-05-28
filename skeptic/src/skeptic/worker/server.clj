@@ -19,7 +19,8 @@
             [clojure.walk :as walk]
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
-            [skeptic.worker.discovery :as wdisc]))
+            [skeptic.worker.discovery :as wdisc]
+            [skeptic.worker.wire :as wire]))
 
 (defonce ^:private handle-state
   (atom {:next-id 0 :id->class {} :class->id {}}))
@@ -146,7 +147,7 @@
     (coll? v) (every? edn-safe? v)
     :else (try (= (pr-str v) (pr-str (edn/read-string (pr-str v)))) (catch Exception _ false))))
 
-(defn- nonedn-sentinel [v] {::nonedn true ::class (intern-class! (class v) :uuid)})
+(defn- nonedn-sentinel [v] (wire/nonedn-sentinel (intern-class! (class v) :uuid)))
 
 (defn- project-val-form
   "For :val/:form slots: Class→handle path already handled by project-class-slots.
