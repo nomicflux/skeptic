@@ -64,3 +64,35 @@
             (is (oracle/handle? h))))
         (testing "NoSuchClassZZZ resolves to nil"
           (is (nil? (oracle/resolve-class-sym 'clojure.core 'NoSuchClassZZZ))))))))
+
+(deftest analyze-form-clj-round-trip
+  (with-worker
+    (fn [conn]
+      (oracle/intern-host-classes! conn)
+      (let [{:keys [ast]} (wc/ask conn {:op "analyze-form-clj"
+                                        :ns "clojure.core"
+                                        :source-file "REPL"
+                                        :form (pr-str '(+ 1 2))
+                                        :locals (pr-str {})})]
+        (testing "ast is :static-call against clojure.lang.Numbers"
+          (is (map? ast))
+          (is (= :static-call (:op ast)))
+          (is (= "clojure.lang.Numbers" (:class-display-name ast))))
+        (testing ":class slot is a handle, not a Class"
+          (is (oracle/handle? (:class ast))))))))
+
+(deftest discover-ns-round-trip
+  (with-worker
+    (fn [conn]
+      (require 'skeptic.research.intake-combined-fixture)
+      (let [reply (wc/ask conn {:op "discover-ns"
+                                :ns "skeptic.research.intake-combined-fixture"
+                                :source-file "test/skeptic/research/intake_combined_fixture.clj"})
+            result (:result reply)]
+        (testing "result is EDN-readable"
+          (is (map? result)))
+        (testing ":declarations contains an expected qsym"
+          (is (contains? (:declarations result)
+                         'skeptic.research.intake-combined-fixture/aliased-defn)))
+        (testing ":source-forms is dropped from the reply"
+          (is (not (contains? result :source-forms))))))))

@@ -96,7 +96,7 @@
                    (pr-str slot)
                    (pr-str value))
            {:declaration-slot slot
-            :rejected-schema value}
+            :rejected-schema (pr-str value)}
            e))
 
 (defn- schema-slots
@@ -191,9 +191,11 @@
            :exception-class (symbol (.getName (class e)))
            :exception-message (or (.getMessage e)
                                   (str e))
-           :exception-data (ex-data e)}
-          (select-keys (or (ex-data e) {})
-                       [:declaration-slot :rejected-schema]))))
+           :exception-data (pr-str (ex-data e))}
+          (-> (select-keys (or (ex-data e) {})
+                           [:declaration-slot :rejected-schema])
+              (update :declaration-slot #(some-> % pr-str))
+              (update :rejected-schema #(some-> % pr-str))))))
 
 (def ^:private admission-roles
   "Discovery roles that produce a typed dict entry. :s/defschema and
