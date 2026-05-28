@@ -3,7 +3,8 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [skeptic.core :as core]))
+            [skeptic.core :as core]
+            [skeptic.test-support.worker-opts :refer [with-worker-cp]]))
 
 (defn- strip-ansi [s]
   (str/replace (str s) #"\u001B\[[0-9;]*m" ""))
@@ -14,9 +15,10 @@
   (strip-ansi
    (with-out-str
      (core/check-project
-      {:verbose true
-       :show-context true
-       :namespace [(str namespace-sym)]}
+      (with-worker-cp
+        {:verbose true
+         :show-context true
+         :namespace [(str namespace-sym)]})
       (io/file ".")
       fixture-relative-path))))
 

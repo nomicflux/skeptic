@@ -11,7 +11,8 @@
             [skeptic.core :as sut]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.output.text :as text]
-            [skeptic.provenance :as prov])
+            [skeptic.provenance :as prov]
+            [skeptic.test-support.worker-opts :refer [with-worker-cp]])
   (:import [java.io File]
            [java.nio.file Files]))
 
@@ -373,7 +374,7 @@
                   (fn [_project-state ns _source-file _form-opts]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
-      (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.example-ns"]} "." ".")))
+      (is (= 0 (sut/check-project (with-worker-cp {:namespace ["skeptic.fixtures.example-ns"]}) "." ".")))
       (is (= ['skeptic.fixtures.example-ns] @checked)))))
 
 (deftest check-project-blocks-when-discovery-failure-prevents-requested-coverage
@@ -425,7 +426,7 @@
                   (fn [file] ['skeptic.fixtures.example-ns file])
                   checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
-                  (is (= 0 (sut/check-project {:porcelain true} "." "."))))
+                  (is (= 0 (sut/check-project (with-worker-cp {:porcelain true}) "." "."))))
             lines (parse-jsonl out)]
         (is (= 2 (count lines)) "namespace-error-summary then run-summary on clean run")
         (is (= "namespace-error-summary" (:kind (first lines))))
@@ -458,7 +459,7 @@
                                          (reset! summary-opts opts)
                                          r)]
       (let [out (with-out-str
-                  (is (= 1 (sut/check-project {:porcelain true} "." "."))))
+                  (is (= 1 (sut/check-project (with-worker-cp {:porcelain true}) "." "."))))
             lines (parse-jsonl out)]
         (is (= 3 (count lines)) "one finding, one namespace-error-summary, one run-summary")
         (testing "finding record"
@@ -494,7 +495,7 @@
                   (fn [file] ['skeptic.fixtures.example-ns file])
                   checking/check-namespace (fn [& _] {:results [] :provenance {}})]
       (let [out (with-out-str
-                  (sut/check-project {:porcelain true :namespace ["skeptic.fixtures.example-ns"]}
+                  (sut/check-project (with-worker-cp {:porcelain true :namespace ["skeptic.fixtures.example-ns"]})
                                      "." "."))
             lines (parse-jsonl out)]
         (is (= 3 (count lines)))
@@ -533,7 +534,7 @@
                   (fn [_project-state ns _source-file _form-opts]
                     (swap! checked conj ns)
                     {:results [] :provenance {}})]
-      (is (= 0 (sut/check-project {:namespace ["skeptic.fixtures.a" "skeptic.fixtures.c"]} "." ".")))
+      (is (= 0 (sut/check-project (with-worker-cp {:namespace ["skeptic.fixtures.a" "skeptic.fixtures.c"]}) "." ".")))
       (is (= #{'skeptic.fixtures.a 'skeptic.fixtures.c} (set @checked)))
       (is (= 2 (count @checked))))))
 
@@ -569,10 +570,10 @@
                   (fn [_ _ _] false)]
       (testing "full-project run reports the cross-ns output mismatch in consumer"
         (with-out-str
-          (is (= 1 (sut/check-project {} "." ".")))))
+          (is (= 1 (sut/check-project (with-worker-cp {}) "." ".")))))
       (testing "`-n consumer` admits provider's schema and reports the SAME mismatch"
         (with-out-str
-          (is (= 1 (sut/check-project {:namespace ["skeptic.fixtures.xns-consumer"]}
+          (is (= 1 (sut/check-project (with-worker-cp {:namespace ["skeptic.fixtures.xns-consumer"]})
                                       "." "."))))))))
 
 (deftest check-project-blocks-when-any-requested-namespace-is-missing
@@ -617,7 +618,7 @@
                     (fn [_project-state ns _f _form-opts]
                       (swap! checked conj ns)
                       {:results [] :provenance {}})]
-        (sut/check-project {} (.getCanonicalPath tmp) "."))
+        (sut/check-project (with-worker-cp {}) (.getCanonicalPath tmp) "."))
       (is (= 1 (count @checked)))
       (is (= 'skeptic.fixtures.kept (first @checked)))
       (finally

@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [is]]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.best-effort-examples]
             [skeptic.checking.pipeline :as sut]
             [skeptic.examples]
@@ -10,6 +11,16 @@
             [skeptic.static-call-examples]
             [skeptic.test-examples.catalog :as catalog])
   (:import [java.io File]))
+
+(defn with-no-worker-fixture
+  "`:once` fixture for tests that build project-state directly and exercise
+   `check-ns` / class-rel call sites without spawning a worker. Binds both
+   class-oracle dyn vars to inert defaults so the dyn-var reads in the
+   instrumented sites don't blow up."
+  [f]
+  (binding [class-oracle/*worker-conn* nil
+            class-oracle/*host-class-handles* {}]
+    (f)))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 

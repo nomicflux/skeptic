@@ -5,6 +5,7 @@
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -1058,7 +1059,8 @@
                           per-ns-admission)
         per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
-                           cljs-state project-disc var-provs user-fn-summaries)))
+                           cljs-state project-disc var-provs user-fn-summaries
+                           (:worker-conn opts))))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]
@@ -1066,13 +1068,14 @@
     (when-not (and project-state per-ns-entry)
       (throw (ex-info "prepare-namespace requires project-state with per-ns entry (intake invariant)"
                       {:ns ns-sym :have-project-state? (some? project-state)})))
-    (let [{:keys [dict accessor-summaries]} project-state
+    (let [{:keys [dict accessor-summaries worker-conn]} project-state
           {:keys [ignore-body errors provenance]} per-ns-entry]
       {:dict dict
        :ignore-body ignore-body
        :accessor-summaries accessor-summaries
        :errors errors
-       :provenance provenance})))
+       :provenance provenance
+       :worker-conn worker-conn})))
 
 (defmacro block-in-ns
   [_ns ^File file & body]
@@ -1193,8 +1196,9 @@
   (typed declarations and form checking). Returns
   {:results [...] :provenance {sym → Provenance}}."
   [project-state ns-sym :- s/Symbol source-file form-opts]
-  (try
-    (check-ns project-state ns-sym source-file form-opts)
-    (catch Exception e
-      {:results [(load-exception-result ns-sym e)]
-       :provenance {}})))
+  (binding [class-oracle/*worker-conn* (:worker-conn project-state)]
+    (try
+      (check-ns project-state ns-sym source-file form-opts)
+      (catch Exception e
+        {:results [(load-exception-result ns-sym e)]
+         :provenance {}}))))

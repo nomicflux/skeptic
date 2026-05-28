@@ -7,7 +7,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [skeptic.core :as sut]
-            [skeptic.cli.options :as opts]))
+            [skeptic.cli.options :as opts]
+            [skeptic.test-support.worker-opts :refer [with-worker-cp]]))
 
 (def ^:private fixture-path "dev-resources/skeptic/cljs_fixtures/p7")
 
@@ -36,7 +37,7 @@
 (deftest check-project-end-to-end-with-cljs-and-cljc
   (testing "default run picks up .clj, .cljs, and .cljc and tags each finding"
     (let [out (with-out-str
-                (sut/check-project {:porcelain true} "." fixture-path))
+                (sut/check-project (with-worker-cp {:porcelain true}) "." fixture-path))
           fs (findings (parse-jsonl out))
           clj-finding (finding-for-basename fs "/foo.clj")
           cljs-finding (finding-for-basename fs "/bar.cljs")
@@ -52,7 +53,7 @@
 (deftest cljs-disable-skips-cljs-files-and-collapses-cljc
   (testing "--cljs-disable drops .cljs files and runs .cljc as :clj only"
     (let [out (with-out-str
-                (sut/check-project {:porcelain true :cljs-disable true} "." fixture-path))
+                (sut/check-project (with-worker-cp {:porcelain true :cljs-disable true}) "." fixture-path))
           fs (findings (parse-jsonl out))
           clj-finding (finding-for-basename fs "/foo.clj")
           cljs-finding (finding-for-basename fs "/bar.cljs")

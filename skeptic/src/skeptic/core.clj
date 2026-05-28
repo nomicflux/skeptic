@@ -2,12 +2,15 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [schema.core :as s]
+            [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.checking.opts :as copts]
             [skeptic.checking.pipeline :as checking]
             [skeptic.config :as config]
             [skeptic.file :as file]
             [skeptic.inconsistence.report :as inrep]
-            [skeptic.output :as output]))
+            [skeptic.output :as output]
+            [skeptic.worker.client :as wc]
+            [skeptic.worker.process :as wproc]))
 
 (defn- discover-project-files
   [_root paths]
@@ -84,52 +87,62 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        project-state (checking/project-state opts discovered-nss)
-        per-ns-failures (:per-ns-failures project-state)
-        nss-to-check (cond-> discovered-nss
-                       (seq requested-namespaces)
-                       (select-keys requested-namespaces))
-        checkable-nss (apply dissoc nss-to-check (keys per-ns-failures))
-        printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
-        report-opts {:explain-full (boolean (:explain-full opts))}
-        form-opts opts
-        {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
-        (output/printer opts)
-        totals (atom {:finding-count 0
-                      :exception-count 0
-                      :namespace-count (count nss-to-check)
-                      :namespaces-with-findings 0
-                      :per-namespace-counts {}})]
-    (run-start printer-opts nss-to-check)
-    (doseq [failure failures]
-      (discovery-warn printer-opts (failure->info failure)))
-    (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
-      (discovery-warn printer-opts
-                      {:path (str source-file)
-                       :message (str "Skeptic skipped namespace " ns-sym
-                                     " (phase " (name phase) "): "
-                                     (.getName (class exception))
-                                     ": "
-                                     (or (.getMessage exception) (str exception)))}))
-    (let [errored (atom false)]
-      (doseq [[ns source-file] checkable-nss]
-        (ns-start ns source-file printer-opts)
-        (let [ns-findings (atom 0)
-              {:keys [results]} (checking/check-namespace project-state ns source-file form-opts)]
-          (doseq [result results]
-            (if (= :debug-form (:report-kind result))
-              (form-debug ns result printer-opts)
-              (let [summary (inrep/report-summary result report-opts)
-                    exception? (= :exception (:report-kind summary))]
-                (finding ns result summary printer-opts)
-                (reset! errored true)
-                (swap! ns-findings inc)
-                (swap! totals update
-                       (if exception? :exception-count :finding-count)
-                       inc))))
-          (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
-          (when (pos? @ns-findings)
-            (swap! totals update :namespaces-with-findings inc))
-          (ns-end ns @ns-findings printer-opts)))
-      (run-end @errored @totals printer-opts)
-      (if @errored 1 0))))
+        worker (wproc/spawn! (wproc/worker-classpath
+                              (str/join java.io.File/pathSeparator
+                                        (:worker-classpath opts))))
+        conn (wc/connect (:port worker))]
+    (try
+      (let [host-handles (class-oracle/intern-host-classes! conn)]
+        (binding [class-oracle/*worker-conn* conn
+                  class-oracle/*host-class-handles* host-handles]
+          (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-nss)
+                per-ns-failures (:per-ns-failures project-state)
+                nss-to-check (cond-> discovered-nss
+                               (seq requested-namespaces)
+                               (select-keys requested-namespaces))
+                checkable-nss (apply dissoc nss-to-check (keys per-ns-failures))
+                printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
+                report-opts {:explain-full (boolean (:explain-full opts))}
+                form-opts opts
+                {:keys [run-start discovery-warn ns-start finding ns-end run-end form-debug]}
+                (output/printer opts)
+                totals (atom {:finding-count 0
+                              :exception-count 0
+                              :namespace-count (count nss-to-check)
+                              :namespaces-with-findings 0
+                              :per-namespace-counts {}})]
+            (run-start printer-opts nss-to-check)
+            (doseq [failure failures]
+              (discovery-warn printer-opts (failure->info failure)))
+            (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
+              (discovery-warn printer-opts
+                              {:path (str source-file)
+                               :message (str "Skeptic skipped namespace " ns-sym
+                                             " (phase " (name phase) "): "
+                                             (.getName (class exception))
+                                             ": "
+                                             (or (.getMessage exception) (str exception)))}))
+            (let [errored (atom false)]
+              (doseq [[ns source-file] checkable-nss]
+                (ns-start ns source-file printer-opts)
+                (let [ns-findings (atom 0)
+                      {:keys [results]} (checking/check-namespace project-state ns source-file form-opts)]
+                  (doseq [result results]
+                    (if (= :debug-form (:report-kind result))
+                      (form-debug ns result printer-opts)
+                      (let [summary (inrep/report-summary result report-opts)
+                            exception? (= :exception (:report-kind summary))]
+                        (finding ns result summary printer-opts)
+                        (reset! errored true)
+                        (swap! ns-findings inc)
+                        (swap! totals update
+                               (if exception? :exception-count :finding-count)
+                               inc))))
+                  (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
+                  (when (pos? @ns-findings)
+                    (swap! totals update :namespaces-with-findings inc))
+                  (ns-end ns @ns-findings printer-opts)))
+              (run-end @errored @totals printer-opts)
+              (if @errored 1 0)))))
+      (finally
+        (wproc/stop! worker)))))

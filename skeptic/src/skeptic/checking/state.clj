@@ -9,6 +9,7 @@
    cljs-state
    project-discovery
    var-provs
-   user-fn-summaries])
+   user-fn-summaries
+   worker-conn])
 
 (s/defschema ProjectStateSchema (s/pred (partial instance? ProjectState) 'ProjectState))
