@@ -16,9 +16,9 @@
             [nrepl.middleware :as mw]
             [nrepl.misc :refer [response-for]]
             [clojure.edn :as edn]
+            [clojure.walk :as walk]
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
-            [skeptic.worker.analyzer-cljs :as wacljs]
             [skeptic.worker.discovery :as wdisc]))
 
 (defonce ^:private handle-state
@@ -123,6 +123,48 @@
 (mw/set-descriptor! #'wrap-resolve-class-sym
                     {:requires #{} :expects #{} :handles {"resolve-class-sym" {}}})
 
+(defn- ast-node? [v] (and (map? v) (contains? v :op)))
+
+(defn- strip-host-unread
+  "Remove non-EDN host slots. Strips :atom :env :o-tag :return-tag.
+   Strips :info but retains [:info :name]. Strips :meta only when it is
+   raw var-metadata (no :op key)."
+  [n]
+  (let [info-name (get-in n [:info :name])
+        n' (dissoc n :atom :env :o-tag :return-tag :info)
+        n' (if info-name (assoc-in n' [:info :name] info-name) n')
+        meta-val (:meta n')]
+    (if (and (some? meta-val) (not (ast-node? meta-val)))
+      (dissoc n' :meta)
+      n')))
+
+(defn- edn-safe?
+  [v]
+  (cond
+    (or (nil? v) (boolean? v) (number? v) (string? v) (keyword? v) (symbol? v)) true
+    (map? v) (every? (fn [[k mv]] (and (edn-safe? k) (edn-safe? mv))) v)
+    (coll? v) (every? edn-safe? v)
+    :else (try (= (pr-str v) (pr-str (edn/read-string (pr-str v)))) (catch Exception _ false))))
+
+(defn- nonedn-sentinel [v] {::nonedn true ::class (intern-class! (class v) :uuid)})
+
+(defn- project-val-form
+  "For :val/:form slots: Class→handle path already handled by project-class-slots.
+   Non-EDN non-Class value → sentinel (preserving form metadata)."
+  [v]
+  (if (edn-safe? v)
+    v
+    (let [s (nonedn-sentinel v)
+          m (meta v)]
+      (if m (with-meta s m) s))))
+
+(defn- project-raw-forms
+  "Deep-walk a :raw-forms structure (raw pre-macroexpansion source forms),
+   sentinelling non-EDN leaves (e.g. regex Patterns) while preserving the
+   surrounding structure the host's unanalyze/raw-form-value walk over."
+  [raw-forms]
+  (walk/postwalk (fn [x] (if (coll? x) x (project-val-form x))) raw-forms))
+
 (defn- project-class-slot
   "If `v` is a ^Class, replace it with a UUID handle (bootstrap classes
    short-circuit through the integer cache) and return [handle display-name].
@@ -139,35 +181,53 @@
 
 (defn- project-class-slots
   "Replace any ^Class in `:class`/`:tag`/`:val` of `n` with a handle and
-   populate the sibling display-name field."
+   populate the sibling display-name field. For :val/:form, apply sentinel
+   to non-EDN non-Class values."
   [n]
-  (reduce-kv (fn [acc k disp-k]
-               (if (contains? acc k)
-                 (let [[h disp] (project-class-slot (get acc k))]
-                   (cond-> (assoc acc k h)
-                     disp (assoc disp-k disp)))
-                 acc))
-             n
-             class-slot-keys))
+  (let [n' (reduce-kv (fn [acc k disp-k]
+                        (if (contains? acc k)
+                          (let [[h disp] (project-class-slot (get acc k))]
+                            (cond-> (assoc acc k h)
+                              disp (assoc disp-k disp)))
+                          acc))
+                      n
+                      class-slot-keys)]
+    (cond-> n'
+      (contains? n' :form) (update :form project-val-form)
+      (and (contains? n' :val) (not (class? (:val n)))) (update :val project-val-form)
+      (contains? n' :raw-forms) (update :raw-forms project-raw-forms))))
+
+(defn- project-var-slot
+  "Replace a clojure.lang.Var in :var with the qualified symbol ns/name."
+  [n]
+  (let [v (:var n)]
+    (if (instance? clojure.lang.Var v)
+      (assoc n :var (symbol (str (ns-name (.ns ^clojure.lang.Var v)))
+                            (name (.sym ^clojure.lang.Var v))))
+      n)))
+
+(defn- project-child
+  "Apply the runner `f` to a child slot: a single AST node, a vector of AST
+   nodes, or pass the value through unchanged."
+  [f v]
+  (cond
+    (ast-node? v) (f v)
+    (and (vector? v) (seq v) (every? ast-node? v)) (mapv f v)
+    :else v))
 
 (defn- handle-project-node
-  "Recursively projects every Class in `n` to a handle. Descends only via
-   `:children` (mirrors `walk-ast` / `find-by-op*` pruning) so non-AST slots
-   such as `:env`, `:info`, `:meta` are never followed."
+  "Full projection runner. Strips host-unread slots, projects Class handles,
+   sentinels non-EDN :val/:form, replaces :var with a qualified symbol, then
+   recurses into all child AST nodes (the :children keys plus :meta when it is
+   an AST child). Sole locus of recursion; project-child is non-recursive."
   [n]
-  (if-not (and (map? n) (contains? n :op))
+  (if-not (ast-node? n)
     n
-    (let [n' (project-class-slots n)]
-      (reduce (fn [a k]
-                (let [v (get a k)]
-                  (cond
-                    (and (map? v) (contains? v :op))
-                    (assoc a k (handle-project-node v))
-                    (and (vector? v) (seq v) (every? #(and (map? %) (contains? % :op)) v))
-                    (assoc a k (mapv handle-project-node v))
-                    :else a)))
-              n'
-              (:children n')))))
+    (let [n' (-> n strip-host-unread project-class-slots project-var-slot)
+          child-keys (into (vec (:children n'))
+                           (when (ast-node? (:meta n')) [:meta]))
+          descend (fn [a k] (assoc a k (project-child handle-project-node (get a k))))]
+      (reduce descend n' child-keys))))
 
 (defn wrap-discover-ns
   [h]
@@ -182,43 +242,17 @@
 (mw/set-descriptor! #'wrap-discover-ns
                     {:requires #{} :expects #{} :handles {"discover-ns" {}}})
 
-(defn wrap-analyze-form-clj
+(defn wrap-analyze-namespace
   [h]
-  (fn [{:keys [op transport ns source-file form locals] :as msg}]
-    (if (= op "analyze-form-clj")
-      (let [form-val (edn/read-string form)
-            opts {:locals (edn/read-string locals)
-                  :ns (symbol ns)
-                  :source-file source-file}
-            ast (handle-project-node (wac/analyze form-val opts))]
-        (t/send transport (response-for msg :ast ast :status #{:done})))
+  (fn [{:keys [op transport ns source-file] :as msg}]
+    (if (= op "analyze-namespace")
+      (let [{:keys [asts]} (wac/analyze-source-file (symbol ns) (io/file source-file))
+            projected (mapv handle-project-node asts)]
+        (t/send transport (response-for msg :asts projected :status #{:done})))
       (h msg))))
 
-(mw/set-descriptor! #'wrap-analyze-form-clj
-                    {:requires #{} :expects #{} :handles {"analyze-form-clj" {}}})
-
-(defn wrap-parse-cljs-ns
-  [h]
-  (fn [{:keys [op transport source-file] :as msg}]
-    (if (= op "parse-cljs-ns")
-      (let [ns-key (wacljs/parse-ns (io/file source-file))]
-        (t/send transport (response-for msg :ns-key ns-key :status #{:done})))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-parse-cljs-ns
-                    {:requires #{} :expects #{} :handles {"parse-cljs-ns" {}}})
-
-(defn wrap-analyze-form-cljs
-  [h]
-  (fn [{:keys [op transport ns-key form] :as msg}]
-    (if (= op "analyze-form-cljs")
-      (let [form-val (edn/read-string form)
-            ast (handle-project-node (wacljs/analyze-form-by-ns-key ns-key form-val))]
-        (t/send transport (response-for msg :ast ast :status #{:done})))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-analyze-form-cljs
-                    {:requires #{} :expects #{} :handles {"analyze-form-cljs" {}}})
+(mw/set-descriptor! #'wrap-analyze-namespace
+                    {:requires #{} :expects #{} :handles {"analyze-namespace" {}}})
 
 (defn start!
   []
@@ -229,9 +263,7 @@
                                                   #'wrap-class-rel
                                                   #'wrap-resolve-class-sym
                                                   #'wrap-discover-ns
-                                                  #'wrap-analyze-form-clj
-                                                  #'wrap-parse-cljs-ns
-                                                  #'wrap-analyze-form-cljs)))
+                                                  #'wrap-analyze-namespace)))
 
 (defn -main
   [& _args]

@@ -1,13 +1,15 @@
 (ns skeptic.worker.analyzer-clj
   "Worker-side clj analyzer execution. Mirrors the env-construction and
    `analyze-form` body that live in `skeptic.analysis.annotate`, with no
-   Skeptic / Schema / Malli dependency. The host-side wrapper in
-   `skeptic.analysis.annotate/analyze-form` is rewired in Phase 8 to issue
-   an `analyze-form-clj` RPC instead of calling the analyzer locally."
-  (:require [clojure.tools.analyzer :as ta]
+   Skeptic / Schema / Malli dependency. The worker reads the project's own
+   source files with the real Clojure reader and analyzes them in bulk; no
+   form ever crosses host->worker (the host sends only a source-file path)."
+  (:require [clojure.java.io :as io]
+            [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.tools.analyzer.env :as ana.env]
-            [clojure.tools.analyzer.jvm :as ana.jvm]))
+            [clojure.tools.analyzer.jvm :as ana.jvm])
+  (:import [java.io PushbackReader]))
 
 (def ^:private skeptic-passes-opts
   (assoc ana.jvm/default-passes-opts
@@ -68,3 +70,24 @@
         (binding [*ns* tn]
           (normalize-raw-ast
            (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts})))))))
+
+(defn- read-top-forms
+  "Read every top-level form of `source-file` with the real Clojure reader
+   (reader conditionals on the :clj branch). Regex/fn/quote literals read
+   natively here, unlike clojure.edn."
+  [source-file]
+  (with-open [reader (PushbackReader. (io/reader source-file))]
+    (->> (repeatedly #(read {:read-cond :allow :features #{:clj} :eof ::eof} reader))
+         (take-while #(not= ::eof %))
+         doall)))
+
+(defn analyze-source-file
+  "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
+   the namespace first so its refers/aliases/imports resolve (matching the host
+   pipeline's require-before-analyze contract). The worker reads its own source;
+   no form crosses the wire. Returns `{:asts [...]}` of raw tools.analyzer.jvm
+   ASTs (`:const` `:type` stripped)."
+  [ns-sym source-file]
+  (require ns-sym)
+  (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
+    {:asts (mapv #(analyze % opts) (read-top-forms source-file))}))
