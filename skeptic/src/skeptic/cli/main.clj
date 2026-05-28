@@ -98,10 +98,10 @@
                                                     (shadow-source-paths root)))))))
 
 (defn- run-checker
-  [opts root paths]
+  [opts root paths cp]
   (s/without-fn-validation
    (profiling/run opts (str root "/target")
-                  (fn [] (apply core/check-project opts root paths)))))
+                  (fn [] (apply core/check-project (assoc opts :worker-classpath cp) root paths)))))
 
 (defn- with-output-redirect
   [output-path f]
@@ -125,9 +125,11 @@
         root (.getPath root-file)
         opts (dissoc opts :project-dir :root)
         paths (resolve-paths opts root)
+        cp (when (has-file? root "deps.edn")
+             (vec (paths/classpath-entries root (or (:alias opts) []))))
         result (atom 0)]
     (with-output-redirect (:output opts)
-      #(reset! result (run-checker opts root paths)))
+      #(reset! result (run-checker opts root paths cp)))
     @result))
 
 (defn run-cli

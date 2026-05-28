@@ -1,5 +1,6 @@
 (ns leiningen.skeptic
-  (:require [leiningen.core.main]
+  (:require [leiningen.core.classpath]
+            [leiningen.core.main]
             [leiningen.core.eval]
             [leiningen.core.project]
             [schema.core]
@@ -20,6 +21,7 @@
   [project & args]
   (let [profile (or (:skeptic (:profiles project)) skeptic-profile)
         paths (:source-paths (cljs-lein/discover-sources project))
+        cp (vec (leiningen.core.classpath/get-classpath project))
         {:keys [options summary errors]} (cli-opts/parse args)]
     (cond
       (:help options) (println summary)
@@ -35,7 +37,7 @@
                            (binding [*out* (or writer# *out*)]
                              (schema.core/without-fn-validation
                                (skeptic.profiling/run ~options ~(str (:root project) "/target")
-                                 (fn [] (skeptic.core/check-project ~options ~(:root project) ~@paths)))))
+                                 (fn [] (skeptic.core/check-project (assoc ~options :worker-classpath ~cp) ~(:root project) ~@paths)))))
                            (finally
                              (when writer# (.flush writer#) (.close writer#))))]
           (System/exit exit-code#))

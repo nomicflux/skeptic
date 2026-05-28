@@ -47,7 +47,8 @@
    (s/optional-key :paths) [s/Str]
    (s/optional-key :alias) [s/Keyword]
    (s/optional-key :skeptic/config) (s/maybe SkepticConfig)
-   (s/optional-key :skeptic/type-overrides) {s/Symbol CompiledTypeOverride}})
+   (s/optional-key :skeptic/type-overrides) {s/Symbol CompiledTypeOverride}
+   (s/optional-key :worker-classpath) (s/maybe [s/Str])})
 
 (s/defschema Lang (s/enum :clj :cljs :both))
 
