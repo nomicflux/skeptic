@@ -63,7 +63,7 @@
         asts (aat/analyze-ns-file (catalog/typed-test-example-entries) sc-ns
                                   (atst/fixture-file-for-ns sc-ns) {})
         def-node (atst/ast-by-name asts 'sc-let-x)
-        ast (aapi/method-body (first (aapi/function-methods (aapi/def-init-node def-node))))
+        ast (aapi/method-body (first (aapi/def-fn-methods def-node)))
         ctx (ca/local-vars-context ast)]
     (is (contains? ctx 'x))
     (is (= 'x (:form (get ctx 'x))))

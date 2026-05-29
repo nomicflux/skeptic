@@ -47,7 +47,9 @@
    "int"
    "long"
    "short"
-   "byte"])
+   "byte"
+   "double"
+   "float"])
 
 (def ^:private host-class-imports
   "Map from host-imported ^Class to its canonical name. Used to join the
@@ -78,7 +80,9 @@
    Integer/TYPE "int"
    Long/TYPE "long"
    Short/TYPE "short"
-   Byte/TYPE "byte"})
+   Byte/TYPE "byte"
+   Double/TYPE "double"
+   Float/TYPE "float"})
 
 (def ^:dynamic *host-class-handles*
   "Bound by `check-project` after the bootstrap RPC. Map from host-imported

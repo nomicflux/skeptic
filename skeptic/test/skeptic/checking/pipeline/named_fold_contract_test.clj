@@ -48,8 +48,7 @@
                                        (let [[sym _] entry]
                                          (when (= sym target-sym) n)))))
                                  analyzed))
-        init-node (aapi/unwrap-with-meta (some! (aapi/def-init-node target-form)))
-        method (first (aapi/function-methods init-node))]
+        method (first (aapi/def-fn-methods (some! target-form)))]
     (-> method aapi/method-result-type :output-type ato/normalize)))
 
 (defn- rendered-actual

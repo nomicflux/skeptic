@@ -40,7 +40,9 @@
 
 (s/defn var->sym :- (s/maybe s/Symbol)
   [var :- s/Any]
-  (when (instance? clojure.lang.Var var)
+  (cond
+    (qualified-symbol? var) var
+    (instance? clojure.lang.Var var)
     (let [m (meta var)]
       (symbol (str (ns-name (:ns m)) "/" (:name m))))))
 

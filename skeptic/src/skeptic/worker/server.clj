@@ -175,6 +175,10 @@
   [v]
   (cond
     (or (nil? v) (boolean? v) (number? v) (string? v) (keyword? v) (symbol? v)) true
+    ;; A defrecord (e.g. clojure.reflect.Method) is a map? but pr-str emits a
+    ;; `#fqcn{...}` tagged literal the host's edn/read cannot read regardless of
+    ;; field contents — never EDN-safe via the map branch.
+    (instance? clojure.lang.IRecord v) false
     (map? v) (every? (fn [[k mv]] (and (edn-safe? k) (edn-safe? mv))) v)
     (coll? v) (every? edn-safe? v)
     :else (try (= (pr-str v) (pr-str (edn/read-string (pr-str v)))) (catch Exception _ false))))
@@ -194,9 +198,15 @@
 (defn- project-raw-forms
   "Deep-walk a :raw-forms structure (raw pre-macroexpansion source forms),
    sentinelling non-EDN leaves (e.g. regex Patterns) while preserving the
-   surrounding structure the host's unanalyze/raw-form-value walk over."
+   surrounding structure the host's unanalyze/raw-form-value walks over. A
+   defrecord (e.g. clojure.reflect.Method) prints as a tagged literal, so it is
+   sentinelled as a leaf rather than descended into as a plain collection."
   [raw-forms]
-  (walk/postwalk (fn [x] (if (coll? x) x (project-val-form x))) raw-forms))
+  (walk/postwalk (fn [x]
+                   (if (and (coll? x) (not (instance? clojure.lang.IRecord x)))
+                     x
+                     (project-val-form x)))
+                 raw-forms))
 
 (defn- project-class-slot
   "If `v` is a ^Class, replace it with a UUID handle (bootstrap classes
@@ -239,6 +249,36 @@
                             (name (.sym ^clojure.lang.Var v))))
       n)))
 
+(def ^:private explicitly-projected-slots
+  "Slots handled by a dedicated projection step: class/value slots projected by
+   project-class-slots, :var by project-var-slot, :meta and every :children slot
+   by handle-project-node's recursion."
+  #{:class :class-display-name :tag :tag-display-name
+    :val :val-display-name :form :raw-forms :var :meta :children})
+
+(defn- project-incidental-slot
+  "Make one non-child, non-explicitly-projected slot value EDN-safe. These are
+   analyzer-internal slots the host never reads (e.g. the reflected :methods /
+   :bridges members tools.analyzer.jvm attaches to :static-call / :instance-call
+   / :reify / :deftype / :method nodes, holding clojure.reflect.* records). EDN
+   leaves pass through; non-EDN leaves (reflect records, etc.) become sentinels,
+   so no analyzer slot can ride the wire raw and break the host's edn/read."
+  [v]
+  (if (edn-safe? v) v (project-raw-forms v)))
+
+(defn- project-incidental-slots
+  "Sentinel non-EDN leaves in every slot that is neither a child nor an
+   explicitly-projected slot. Closes the projection's unsound default of
+   shipping unrecognized slots raw."
+  [n]
+  (let [handled (into explicitly-projected-slots (:children n))]
+    (reduce-kv (fn [acc k v]
+                 (if (contains? handled k)
+                   acc
+                   (assoc acc k (project-incidental-slot v))))
+               n
+               n)))
+
 (defn- project-child
   "Apply the runner `f` to a child slot: a single AST node, a vector of AST
    nodes, or pass the value through unchanged."
@@ -250,13 +290,16 @@
 
 (defn- handle-project-node
   "Full projection runner. Strips host-unread slots, projects Class handles,
-   sentinels non-EDN :val/:form, replaces :var with a qualified symbol, then
-   recurses into all child AST nodes (the :children keys plus :meta when it is
-   an AST child). Sole locus of recursion; project-child is non-recursive."
+   sentinels non-EDN :val/:form, replaces :var with a qualified symbol, makes
+   every remaining incidental (non-child, non-explicitly-projected) slot
+   EDN-safe, then recurses into all child AST nodes (the :children keys plus
+   :meta when it is an AST child). Sole locus of recursion; project-child is
+   non-recursive."
   [n]
   (if-not (ast-node? n)
     n
-    (let [n' (-> n strip-host-unread project-class-slots project-var-slot)
+    (let [n' (-> n strip-host-unread project-class-slots project-var-slot
+                 project-incidental-slots)
           child-keys (into (vec (:children n'))
                            (when (ast-node? (:meta n')) [:meta]))
           descend (fn [a k] (assoc a k (project-child handle-project-node (get a k))))]

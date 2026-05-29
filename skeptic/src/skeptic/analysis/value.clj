@@ -51,6 +51,8 @@
    java.math.BigInteger [:int 'Int]
    Long/TYPE [:int 'Int]          Integer/TYPE [:int 'Int]
    Short/TYPE [:int 'Int]         Byte/TYPE [:int 'Int]
+   java.lang.Double [:double 'Double]  java.lang.Float [:float 'Float]
+   Double/TYPE [:double 'Double]       Float/TYPE [:float 'Float]
    java.lang.String [:str 'Str]   java.lang.Boolean [:bool 'Bool]
    Boolean/TYPE [:bool 'Bool]
    clojure.lang.Keyword [:keyword 'Keyword]  clojure.lang.Symbol [:symbol 'Symbol]

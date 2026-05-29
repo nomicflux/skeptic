@@ -86,15 +86,69 @@
            (take-while #(not= ::eof %))
            doall))))
 
+(defn- with-form-meta
+  [original rewritten]
+  (if (instance? clojure.lang.IObj rewritten)
+    (with-meta rewritten (meta original))
+    rewritten))
+
+(defn- schema-defn-symbol?
+  [sym]
+  (and (symbol? sym)
+       (= "defn" (name sym))
+       (#{"s" "schema.core"} (namespace sym))))
+
+(defn- strip-schema-argvec
+  [argvec]
+  (with-form-meta
+    argvec
+    (loop [[x & more] argvec acc []]
+      (cond
+        (nil? x)  (vec acc)
+        (= x ':-) (recur (next more) acc)
+        :else     (recur more (conj acc x))))))
+
+(defn- strip-schema-method
+  [decl]
+  (let [[args & body] decl]
+    (with-form-meta decl (list* (strip-schema-argvec args) body))))
+
+(defn- strip-schema-defn
+  [form]
+  (let [[_defn-sym name & more] form
+        more (if (= ':- (first more)) (nnext more) more)
+        [docstring more] (if (string? (first more)) [(first more) (next more)] [nil more])
+        [attr-map more] (if (map? (first more)) [(first more) (next more)] [nil more])
+        decls (if (vector? (first more))
+                [(with-form-meta (first more) (list* (strip-schema-argvec (first more)) (next more)))]
+                (map strip-schema-method more))]
+    (with-form-meta form
+      (list* 'defn name (concat (when docstring [docstring]) (when attr-map [attr-map]) decls)))))
+
+(defn- normalize-check-form
+  "Rewrite an `s/defn` / `schema.core/defn` form into a plain `defn` by stripping
+   `:- T` schema annotations from the head, return position, and arg vectors, so
+   `ana.jvm/analyze` produces a root `:def` node (matching the in-process
+   pre-cutover analysis contract). Non-`s/defn` forms pass through unchanged.
+   Pure symbol/list surgery: no schema.core dependency, worker-safe."
+  [form]
+  (if (and (seq? form) (schema-defn-symbol? (first form)))
+    (strip-schema-defn form)
+    form))
+
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
    the namespace first so its refers/aliases/imports resolve (matching the host
-   pipeline's require-before-analyze contract). The worker reads its own source;
-   no form crosses the wire. Returns `{:entries [{:source-form form :ast ast}
-   ...]}` pairing each read top-level form with its raw tools.analyzer.jvm AST
-   (`:const` `:type` stripped); the host projects each entry for the wire."
+   pipeline's require-before-analyze contract). Each form is normalized
+   (`s/defn` -> plain `defn`) before analysis so the AST root is the `:def`
+   node def-discovery expects; the raw read form is kept as `:source-form` for
+   host-side blame/location. The worker reads its own source; no form crosses
+   the wire. Returns `{:entries [{:source-form form :ast ast} ...]}` pairing
+   each raw top-level form with its tools.analyzer.jvm AST (`:const` `:type`
+   stripped); the host projects each entry for the wire."
   [ns-sym source-file]
   (require ns-sym)
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
-    {:entries (mapv (fn [form] {:source-form form :ast (analyze form opts)})
+    {:entries (mapv (fn [form] {:source-form form
+                                :ast (analyze (normalize-check-form form) opts)})
                     (read-top-forms (target-ns ns-sym) source-file))}))

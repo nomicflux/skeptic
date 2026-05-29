@@ -3,10 +3,18 @@
   whose `:lang` attribution matches the source language. .cljc files run
   both passes and dedup identical findings to `:lang #{:clj :cljs}`."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [skeptic.analysis.annotate.fn :as fn-annotate]
-            [skeptic.checking.pipeline :as pipeline])
+            [skeptic.checking.pipeline :as pipeline]
+            [skeptic.checking.pipeline.support :as psup])
   (:import [java.io File]))
+
+;; Bind a real worker for the whole namespace: project-state's cljs preload
+;; issues the analyze-cljs-namespace op over class-oracle/*worker-conn*, so
+;; without a live worker cljs-state stays empty and every fixture reports
+;; "cljs admission failed". Route project-state through ps/project-state-for-nses
+;; so :worker-conn rides along, exactly as the clj pipeline tests do.
+(use-fixtures :once psup/with-worker)
 
 (def ^:private fixture-dir
   (File. "dev-resources/skeptic/cljs_fixtures/p7"))
@@ -37,7 +45,7 @@
           results))
 
 (deftest mixed-language-project-attributes-lang-correctly
-  (let [ps (pipeline/project-state {} fixture-nss)
+  (let [ps (psup/project-state-for-nses fixture-nss)
         form-opts {:remove-context true}]
     (testing "foo.clj produces a finding tagged :clj"
       (let [{:keys [results]} (pipeline/check-namespace ps foo-ns foo-file form-opts)
@@ -59,7 +67,7 @@
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
 
 (deftest cljs-malli-registration-is-admitted-through-production-path
-  (let [ps (pipeline/project-state {} {'p5 p5-file})
+  (let [ps (psup/project-state-for-nses {'p5 p5-file})
         {:keys [results provenance]} (pipeline/check-namespace ps 'p5 p5-file {:remove-context true})]
     (is (empty? (read-exceptions results)))
     (is (contains? provenance 'p5/g))
@@ -76,7 +84,7 @@
   ;; previously failed because each cljs file used an isolated empty-state.
   ;; The shared cljs compiler state plus dependency-ordered analysis
   ;; populates [::namespaces 'p6.tests] before p6.core is analyzed.
-  (let [ps (pipeline/project-state {} {'p6.tests p6-tests-file
+  (let [ps (psup/project-state-for-nses {'p6.tests p6-tests-file
                                        'p6.core  p6-core-file})]
     (is (contains? (:cljs-state ps) p6-tests-file))
     (is (contains? (:cljs-state ps) p6-core-file))))
@@ -124,7 +132,7 @@
   ;; :expression-phase exception finding rather than aborting the run.
   ;; Fixture is .cljc with a reader-conditional :cljs branch so the clj
   ;; require during preload-namespaces stays clean.
-  (let [ps (pipeline/project-state {} {p8-unresolvable-ns p8-unresolvable-file})
+  (let [ps (psup/project-state-for-nses {p8-unresolvable-ns p8-unresolvable-file})
         {:keys [results]} (pipeline/check-namespace ps p8-unresolvable-ns p8-unresolvable-file
                                                     {:remove-context true})]
     (is (seq (cljs-expression-exceptions results))
@@ -135,14 +143,14 @@
   ;; (no clj branch, no reader conditional). The form `(if)` is rejected
   ;; by the cljs analyzer's parse-if; Phase 1 isolates the throw and the
   ;; expression-phase exception finding is emitted with :lang :cljs.
-  (let [ps (pipeline/project-state {} {p8-bad-top-form-ns p8-bad-top-form-file})
+  (let [ps (psup/project-state-for-nses {p8-bad-top-form-ns p8-bad-top-form-file})
         {:keys [results]} (pipeline/check-namespace ps p8-bad-top-form-ns p8-bad-top-form-file
                                                     {:remove-context true})]
     (is (seq (cljs-expression-exceptions results))
         "pure .cljs analyzer crash should produce an :expression :exception :lang :cljs finding")))
 
 (deftest cljs-var-quote-analysis-preserves-callee-identity-through-production-path
-  (let [ps (pipeline/project-state {} {p10-var-quote-dep-ns p10-var-quote-dep-file
+  (let [ps (psup/project-state-for-nses {p10-var-quote-dep-ns p10-var-quote-dep-file
                                        p10-var-quote-core-ns p10-var-quote-core-file})
         {:keys [results]} (pipeline/check-namespace ps p10-var-quote-core-ns p10-var-quote-core-file
                                                       {:remove-context true})
@@ -153,7 +161,7 @@
         "Calling a schema-typed function through #'alias/name should still report the input mismatch.")))
 
 (deftest macro-requested-analyzer-namespace-loads-through-production-path
-  (let [ps (pipeline/project-state {} {p13-macro-publics-ns p13-macro-publics-file})
+  (let [ps (psup/project-state-for-nses {p13-macro-publics-ns p13-macro-publics-file})
         {:keys [results]} (pipeline/check-namespace ps p13-macro-publics-ns p13-macro-publics-file
                                                     {:remove-context true})]
     (is (contains? (:cljs-state ps) p13-macro-publics-file))
@@ -163,7 +171,7 @@
 (deftest recursive-local-fn-specialization-is-finite-through-cljs-production-path
   (let [step-annotations (atom {})
         original-annotate-fn fn-annotate/annotate-fn
-        ps (pipeline/project-state {} {p9-recursive-specialization-ns p9-recursive-specialization-file})
+        ps (psup/project-state-for-nses {p9-recursive-specialization-ns p9-recursive-specialization-file})
         result (with-redefs [fn-annotate/annotate-fn
                              (fn [ctx node]
                                (when (= 'step (:name node))
@@ -182,7 +190,7 @@
         "the bad-output recursive local `step` specialization must be shared instead of expanded repeatedly")))
 
 (deftest recursive-local-fn-specialization-preserves-output-checking
-  (let [ps (pipeline/project-state {} {p9-recursive-specialization-ns p9-recursive-specialization-file})
+  (let [ps (psup/project-state-for-nses {p9-recursive-specialization-ns p9-recursive-specialization-file})
         {:keys [results]} (pipeline/check-namespace ps p9-recursive-specialization-ns p9-recursive-specialization-file
                                                     {:remove-context true})
         output-findings (filter #(= :output (:report-kind %)) results)]

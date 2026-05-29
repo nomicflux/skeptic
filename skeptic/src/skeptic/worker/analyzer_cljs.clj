@@ -45,7 +45,14 @@
             :else                     (dissoc n :info))
         n (if (and (= :fn (:op n)) (map? (:name n)))
             (assoc n :name (or (:form (:name n)) (:name (:name n))))
-            n)]
+            n)
+        ;; A :local node is the local-binding map + :op, so it carries the
+        ;; binding's :init (a full AST node with its own :env) on a slot that is
+        ;; NOT in (:children :local). walk-ast descends only :children, so this
+        ;; :init's :env is never stripped and any plain-graph reader (edn-safe?,
+        ;; pr-str) runs away into the analyzer environment. The init is already a
+        ;; structural child at the :let/:loop binding site; drop the back-ref.
+        n (if (= :local (:op n)) (dissoc n :init) n)]
     (if (and (= :binding (:op n)) (not (contains? n :form)))
       (assoc n :form (:name n))
       n)))

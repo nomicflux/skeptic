@@ -17,7 +17,7 @@
 (defn- sc-body [name]
   (let [asts (aat/analyze-ns-file sc-dict sc-ns (atst/fixture-file-for-ns sc-ns) {})
         def-node (atst/ast-by-name asts name)]
-    (aapi/method-body (first (aapi/function-methods (aapi/def-init-node def-node))))))
+    (aapi/method-body (first (aapi/def-fn-methods def-node)))))
 
 (deftest annotate-form-loop-integration-test
   (testing "annotation stays first-order and keeps typed call metadata"

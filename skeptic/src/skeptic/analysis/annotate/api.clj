@@ -314,6 +314,18 @@
     (let [init-node (some-> node def-init-node unwrap-with-meta)]
       (or (some-> init-node :expr unwrap-with-meta) init-node))))
 
+(s/defn def-fn-methods :- [aas/AnnotatedNode]
+  "The fn-method nodes of a def whose value is a function: unwrap the def's
+   `:with-meta`-wrapped init to its `:fn` node and return its `:methods`. Empty
+   when the def's value is not a `:fn`. This is the canonical def->methods walk;
+   `def-output-results` and the accessor-summary path go through it, as do the
+   analyzer structural tests that inspect a method body."
+  [node :- aas/AnnotatedNode]
+  (let [fn-node (def-value-node node)]
+    (if (and fn-node (= :fn (:op fn-node)))
+      (function-methods fn-node)
+      [])))
+
 (s/defschema AnalyzedDefEntry
   "Strict shape of the data side of `analyzed-def-entry`'s tuple. `:type` is
   mandatory: a def's value-node MUST carry a `:type` after the annotator

@@ -1,15 +1,12 @@
 (ns skeptic.checking.pipeline.basics-test
   (:require [clojure.test :refer [are deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.annotate.api :as aapi]
-            [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.test-examples.basics :as basics]
-            [skeptic.test-examples.catalog :as catalog]
             [skeptic.typed-decls :as typed-decls]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
@@ -19,20 +16,6 @@
   (ab/schema->type (prov/make-provenance :schema sym 'skeptic.test nil [] :clj) schema))
 
 (clojure.test/use-fixtures :once ps/with-worker)
-
-(deftest zzz-probe-inc-int
-  (let [asts (aat/analyze-ns-file
-              (catalog/typed-test-example-entries)
-              'skeptic.test-examples.basics
-              (java.io.File. "test/skeptic/test_examples/basics.clj")
-              {})]
-    ;; find the def node for inc-int-success wherever it is nested
-    (let [def-node (some #(aapi/find-node % (fn [n] (and (= :def (:op n))
-                                                         (= 'inc-int-success (some-> (:name n) name symbol)))))
-                         asts)]
-      (println "PROBE all def-entry syms:"
-               (pr-str (mapv (fn [a] (some-> (aapi/analyzed-def-entry 'skeptic.test-examples.basics a) first)) asts))))
-    (is true)))
 
 (deftest annotated-input-ground-type-mismatch
   (are [sym errors] (= (set (partition 2 errors))

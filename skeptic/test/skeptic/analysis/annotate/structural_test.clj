@@ -18,7 +18,7 @@
   [name]
   (let [asts (aat/analyze-ns-file sc-dict sc-ns (atst/fixture-file-for-ns sc-ns) {})
         def-node (atst/ast-by-name asts name)]
-    (aapi/method-body (first (aapi/function-methods (aapi/def-init-node def-node))))))
+    (aapi/method-body (first (aapi/def-fn-methods def-node)))))
 
 (deftest structural-throw-try-and-loop-test
   (testing "throw stays bottom typed"
@@ -37,10 +37,10 @@
       (is (= 1 (count (aapi/recur-args recur-node)))))))
 
 (deftest structural-literal-collections-test
-  (let [vec-ast (sc-body 'sc-vec-literal)
-        map-ast (sc-body 'sc-map-literal)
-        set-ast (sc-body 'sc-set-literal)]
-    (is (= :const (aapi/node-op vec-ast)))
-    (is (= :const (aapi/node-op map-ast)))
-    (is (= :const (aapi/node-op set-ast)))
+  (let [vec-ast (aapi/unwrap-with-meta (sc-body 'sc-vec-literal))
+        map-ast (aapi/unwrap-with-meta (sc-body 'sc-map-literal))
+        set-ast (aapi/unwrap-with-meta (sc-body 'sc-set-literal))]
+    (is (= :vector (aapi/node-op vec-ast)))
+    (is (= :map (aapi/node-op map-ast)))
+    (is (= :set (aapi/node-op set-ast)))
     (is-type= (T [(s/one s/Int 'a) (s/one s/Int 'b)]) (aapi/node-type vec-ast))))

@@ -17,7 +17,7 @@
   (atst/ast-by-name (aat/analyze-ns-file sc-dict sc-ns (atst/fixture-file-for-ns sc-ns) {}) name))
 
 (defn- sc-body [name]
-  (aapi/method-body (first (aapi/function-methods (aapi/def-init-node (sc-def name))))))
+  (aapi/method-body (first (aapi/def-fn-methods (sc-def name)))))
 
 (deftest typed-flow-through-let-and-if-test
   (testing "local bindings feed refined branch outputs"
@@ -30,8 +30,7 @@
       (is-type= (T s/Int) (aapi/node-type ast)))))
 
 (deftest typed-function-flow-test
-  (let [ast (aapi/def-init-node (sc-def 'sc-identity-fn))
-        ast (aapi/unwrap-with-meta ast)
+  (let [ast (aapi/def-value-node (sc-def 'sc-identity-fn))
         method (first (aapi/function-methods ast))]
     (is-type= (T s/Any) (aapi/node-output-type ast))
     (let [arglist (aapi/arglist-types ast 1)]

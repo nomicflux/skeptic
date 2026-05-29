@@ -350,18 +350,17 @@
                            :path path
                            :cases pairs
                            :default default})))))))
-          (def-accessor-summary [node]
-            (when (= :fn (aapi/node-op node))
-              (let [methods (aapi/function-methods node)]
-                (when (= 1 (count methods))
-                  (let [method (first methods)
-                        params (:params method)]
-                    (when (= 1 (count params))
-                      (accessor-summary-from-body (:form (first params))
-                                                 (aapi/method-body method))))))))]
+          (def-accessor-summary [def-node]
+            (let [methods (aapi/def-fn-methods def-node)]
+              (when (= 1 (count methods))
+                (let [method (first methods)
+                      params (:params method)]
+                  (when (= 1 (count params))
+                    (accessor-summary-from-body (:form (first params))
+                                                (aapi/method-body method)))))))]
     (let [[sym entry] (aapi/analyzed-def-entry ns-sym analyzed)
-          value-node (some-> analyzed aapi/unwrap-with-meta aapi/def-value-node)
-          summary (some-> value-node def-accessor-summary)]
+          def-node (aapi/unwrap-with-meta analyzed)
+          summary (def-accessor-summary def-node)]
       (when (and sym entry)
         {:sym sym
          :entry (aapi/strip-derived-types entry)
@@ -405,10 +404,7 @@
 (s/defn def-output-results :- s/Any
   [dict ns-sym source-file source-form enclosing-form node :- aas/AnnotatedNode]
   (let [declared-t (when (aapi/def-node? node) (ac/lookup-type dict ns-sym node))
-        init-node (when (aapi/def-node? node)
-                    (some-> node aapi/def-init-node ca/unwrap-with-meta))
-        methods (when (and init-node (= :fn (aapi/node-op init-node)))
-                  (aapi/function-methods init-node))]
+        methods (aapi/def-fn-methods node)]
     (when (and declared-t (seq methods))
       (->> (map vector methods (cf/defn-decls source-form))
            (keep (fn [[method decl]]

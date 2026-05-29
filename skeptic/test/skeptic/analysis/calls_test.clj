@@ -27,7 +27,7 @@
   "Returns the value-node body of fixture def `name` in worker-analyzed `asts`."
   [asts name]
   (let [def-node (atst/ast-by-name asts name)
-        method (first (aapi/function-methods (aapi/def-init-node def-node)))]
+        method (first (aapi/def-fn-methods def-node))]
     (aapi/method-body method)))
 
 (defn- cc-body

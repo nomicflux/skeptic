@@ -17,7 +17,7 @@
   (atst/ast-by-name (aat/analyze-ns-file sc-dict sc-ns (atst/fixture-file-for-ns sc-ns) {}) name))
 
 (deftest detailed-let-and-if-shape-test
-  (let [ast (aapi/method-body (first (aapi/function-methods (aapi/def-init-node (sc-def 'sc-let-if-shape)))))
+  (let [ast (aapi/method-body (first (aapi/def-fn-methods (sc-def 'sc-let-if-shape))))
         projected (aat/project-ast ast)
         if-node (aat/find-projected-node projected #(= :if (:op %)))]
     (is (= :let (:op projected)))

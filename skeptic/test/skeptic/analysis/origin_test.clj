@@ -33,7 +33,7 @@
    the form the former injected-locals `analyze-form` probe wrapped."
   [name]
   (let [def-node (atst/ast-by-name (oc-asts) name)
-        method (first (aapi/function-methods (aapi/def-init-node def-node)))]
+        method (first (aapi/def-fn-methods def-node))]
     (aapi/method-body method)))
 
 (deftest origin-constructors-unit-test
@@ -534,7 +534,7 @@
   [name]
   (let [asts (aat/analyze-ns-file vn-dict vn-ns (atst/fixture-file-for-ns vn-ns) {})
         def-node (atst/ast-by-name asts name)
-        method (first (aapi/function-methods (aapi/def-init-node def-node)))]
+        method (first (aapi/def-fn-methods def-node))]
     (aapi/method-body method)))
 
 (deftest var-root-origin-attached-test
