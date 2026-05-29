@@ -19,6 +19,7 @@
             [clojure.walk :as walk]
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
+            [skeptic.worker.analyzer-cljs :as wac-cljs]
             [skeptic.worker.discovery :as wdisc]
             [skeptic.worker.wire :as wire]))
 
@@ -59,14 +60,28 @@
 
 (mw/set-descriptor! #'wrap-ping {:requires #{} :expects #{} :handles {"ping" {}}})
 
+(def ^:private primitive-name->class
+  "Primitive classes are not loadable via `Class/forName`; resolve them through
+   their boxed `TYPE` field instead."
+  {"boolean" Boolean/TYPE "byte" Byte/TYPE "short" Short/TYPE
+   "int" Integer/TYPE "long" Long/TYPE "float" Float/TYPE
+   "double" Double/TYPE "char" Character/TYPE})
+
+(defn- resolve-bootstrap-class
+  "The ^Class for bootstrap name `nm`: a primitive via its TYPE field, else
+   `Class/forName`. nil if the name does not resolve."
+  [nm]
+  (or (get primitive-name->class nm)
+      (try (Class/forName nm) (catch ClassNotFoundException _ nil))))
+
 (defn- intern-host-classes-reply
-  "Per-name: try `Class/forName`; on success intern as integer; on CNFE skip.
+  "Per-name: resolve the Class; on success intern as integer; skip if unresolved.
    Returns the `{name handle-id}` map for names that resolved."
   [class-names]
   (reduce (fn [acc nm]
-            (try (let [c (Class/forName nm)]
-                   (assoc acc nm (intern-class! c :integer)))
-                 (catch ClassNotFoundException _ acc)))
+            (if-let [c (resolve-bootstrap-class nm)]
+              (assoc acc nm (intern-class! c :integer))
+              acc))
           {} class-names))
 
 (defn wrap-intern-host-classes
@@ -123,6 +138,23 @@
 
 (mw/set-descriptor! #'wrap-resolve-class-sym
                     {:requires #{} :expects #{} :handles {"resolve-class-sym" {}}})
+
+(defn- class-name-for-handle
+  "The canonical name of the Class behind handle `a`, or nil if not interned.
+   The worker holds the Class, so `.getName` is legal here."
+  [a]
+  (when-let [c (handle->class a)]
+    (.getName ^Class c)))
+
+(defn wrap-class-name
+  [h]
+  (fn [{:keys [op transport a] :as msg}]
+    (if (= op "class-name")
+      (t/send transport (response-for msg :name (class-name-for-handle a) :status #{:done}))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-class-name
+                    {:requires #{} :expects #{} :handles {"class-name" {}}})
 
 (defn- ast-node? [v] (and (map? v) (contains? v :op)))
 
@@ -243,17 +275,50 @@
 (mw/set-descriptor! #'wrap-discover-ns
                     {:requires #{} :expects #{} :handles {"discover-ns" {}}})
 
+(defn- project-entry
+  "Project one clj analysis entry for the wire: AST via handle-project-node,
+   source-form via the raw-forms sentinel walk (non-EDN body literals become
+   sentinels; head/arglist and :source/:line metadata are preserved)."
+  [{:keys [source-form ast]}]
+  {:source-form (project-raw-forms source-form)
+   :ast (handle-project-node ast)})
+
 (defn wrap-analyze-namespace
   [h]
   (fn [{:keys [op transport ns source-file] :as msg}]
     (if (= op "analyze-namespace")
-      (let [{:keys [asts]} (wac/analyze-source-file (symbol ns) (io/file source-file))
-            projected (mapv handle-project-node asts)]
-        (t/send transport (response-for msg :asts projected :status #{:done})))
+      (let [{:keys [entries]} (wac/analyze-source-file (symbol ns) (io/file source-file))
+            projected (mapv project-entry entries)]
+        (t/send transport (response-for msg :entries projected :status #{:done})))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-analyze-namespace
                     {:requires #{} :expects #{} :handles {"analyze-namespace" {}}})
+
+(defn- project-cljs-entry
+  "Project one cljs analysis entry. Like project-entry, but a cljs entry may
+   carry an :exception (Throwable, non-EDN) instead of an :ast; ship its
+   message string and drop the Throwable."
+  [{:keys [source-form ast exception]}]
+  (if exception
+    {:source-form (project-raw-forms source-form)
+     :exception-message (.getMessage ^Throwable exception)}
+    {:source-form (project-raw-forms source-form)
+     :ast (handle-project-node ast)}))
+
+(defn wrap-analyze-cljs-namespace
+  [h]
+  (fn [{:keys [op transport source-file] :as msg}]
+    (if (= op "analyze-cljs-namespace")
+      (let [{:keys [ns-ast entries]} (wac-cljs/analyze-source-file (io/file source-file))]
+        (t/send transport (response-for msg
+                                        :ns-ast (handle-project-node ns-ast)
+                                        :entries (mapv project-cljs-entry entries)
+                                        :status #{:done})))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-analyze-cljs-namespace
+                    {:requires #{} :expects #{} :handles {"analyze-cljs-namespace" {}}})
 
 (defn start!
   []
@@ -263,8 +328,10 @@
                                                   #'wrap-intern-host-classes
                                                   #'wrap-class-rel
                                                   #'wrap-resolve-class-sym
+                                                  #'wrap-class-name
                                                   #'wrap-discover-ns
-                                                  #'wrap-analyze-namespace)))
+                                                  #'wrap-analyze-namespace
+                                                  #'wrap-analyze-cljs-namespace)))
 
 (defn -main
   [& _args]

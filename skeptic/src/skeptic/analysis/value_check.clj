@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]
@@ -82,34 +83,31 @@
       :else
       :unknown)))
 
-(defn- numeric-ground-class
+(defn- numeric-ground-handle
   [type]
   (let [ground (:ground (as-type type))]
     (when (and (map? ground) (:class ground))
-      (at/ground-class (:class ground)))))
+      (:class ground))))
 
 (s/defn numeric-ground-type? :- s/Bool
   [type :- s/Any]
   (let [type (as-type type)
         ground (:ground type)
-        klass (numeric-ground-class type)]
+        h (numeric-ground-handle type)]
     (boolean
      (or (= ground :int)
          (= ground :double)
          (= ground :float)
-         (and klass
-              (class? klass)
-              (or (isa? klass Number)
-                  (= klass Number)
-                  (= klass java.lang.Number)))))))
+         (and h
+              (at/class-assignable? (oracle/host-handle Number) h))))))
 
 (s/defn non-int-numeric-ground-type? :- s/Bool
   [type :- s/Any]
-  (let [klass (numeric-ground-class type)]
+  (let [h (numeric-ground-handle type)]
     (and (numeric-ground-type? type)
          (not= :int (:ground (as-type type)))
-         (or (nil? klass)
-             (not (at/integral-class? klass))))))
+         (or (nil? h)
+             (not (at/class-integral? h))))))
 
 (s/defn numeric-leaf-type? :- s/Bool
   [type :- s/Any]
@@ -129,7 +127,7 @@
       (= ground :bool) (boolean? value)
       (= ground :double) (double? value)
       (= ground :float) (instance? Float value)
-      (and (map? ground) (:class ground)) (instance? (at/ground-class (:class ground)) value)
+      (and (map? ground) (:class ground)) (at/class-instance? (:class ground) value)
       :else false)))
 
 (s/defn leaf-overlap? :- s/Bool
@@ -159,19 +157,19 @@
             (= s t) true
             (and (or (= s :int) (= s :double) (= s :float))
                  (map? t)
-                 (= Number (at/ground-class (:class t))))
+                 (at/class-equals? (oracle/host-handle Number) (:class t)))
             true
             (and (map? s)
-                 (= Number (at/ground-class (:class s)))
+                 (at/class-equals? (oracle/host-handle Number) (:class s))
                  (= t :int))
             false
             (and (#{:int :str :keyword :symbol :bool :double :float} s)
                  (map? t)
-                 (= Object (at/ground-class (:class t))))
+                 (at/class-equals? (oracle/host-handle Object) (:class t)))
             true
             (and (map? s) (:class s) (map? t) (:class t))
-            (or (.isAssignableFrom ^Class (at/ground-class (:class s)) ^Class (at/ground-class (:class t)))
-                (.isAssignableFrom ^Class (at/ground-class (:class t)) ^Class (at/ground-class (:class s))))
+            (or (at/class-assignable? (:class s) (:class t))
+                (at/class-assignable? (:class t) (:class s)))
             :else false))
 
         (at/refinement-type? target-type)

@@ -1,11 +1,13 @@
 (ns skeptic.analysis.value
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.provenance.schema :as provs]))
+            [skeptic.provenance.schema :as provs]
+            [skeptic.worker.wire :as wire]))
 
 (def ^:private cljs-tag-symbol-table
   {'string   [:str 'Str]
@@ -40,6 +42,32 @@
                    unioned))
     :else (at/Dyn prov)))
 
+(def ^:private canonical-class-grounds
+  "Host classes that map to a simple, standard Skeptic ground. Keyed by class so
+   the handle a worker hands back can be recognized host-side via `host-handle`
+   with no oracle round-trip. `:dyn`/`:numeric-dyn` are non-`GroundT` kinds."
+  {java.lang.Long [:int 'Int]     java.lang.Integer [:int 'Int]
+   java.lang.Short [:int 'Int]    java.lang.Byte [:int 'Int]
+   java.math.BigInteger [:int 'Int]
+   Long/TYPE [:int 'Int]          Integer/TYPE [:int 'Int]
+   Short/TYPE [:int 'Int]         Byte/TYPE [:int 'Int]
+   java.lang.String [:str 'Str]   java.lang.Boolean [:bool 'Bool]
+   Boolean/TYPE [:bool 'Bool]
+   clojure.lang.Keyword [:keyword 'Keyword]  clojure.lang.Symbol [:symbol 'Symbol]
+   java.lang.Number [:numeric-dyn]           java.lang.Object [:dyn]})
+
+(s/defn ^:private canonical-handle->type :- (s/maybe at/SemanticType)
+  "If `handle` is the bootstrap handle of a canonical class, return its Skeptic
+   ground host-side (no oracle call); else nil."
+  [prov :- provs/Provenance handle :- s/Any]
+  (some (fn [[klass [kind name-sym]]]
+          (when (= handle (oracle/host-handle klass))
+            (case kind
+              :dyn (at/Dyn prov)
+              :numeric-dyn (at/NumericDyn prov)
+              (at/->GroundT prov kind name-sym))))
+        canonical-class-grounds))
+
 (s/defn class->type :- at/SemanticType
   [prov :- provs/Provenance klass :- s/Any]
   (let [klass (sb/canonical-scalar-schema klass)]
@@ -57,9 +85,11 @@
            (not (or (= klass s/Any)
                     (= klass Object)
                     (= klass java.lang.Object))))
-      (at/->GroundT prov {:class (.getName ^Class klass)} (abc/schema-explain klass))
+      (at/->GroundT prov {:class (oracle/class-handle klass)} (abc/schema-explain klass))
       (symbol? klass) (cljs-tag->type prov klass)
       (set? klass) (cljs-tag->type prov klass)
+      (oracle/handle? klass) (or (canonical-handle->type prov klass)
+                                 (at/->GroundT prov {:class klass} (symbol (oracle/class-name klass))))
       :else (at/Dyn prov))))
 
 (declare type-of-value type-join*)
@@ -109,8 +139,9 @@
                                                      value)
     (set? value) (let [element (collection-element-type prov value)]
                    (at/->SetT (prov/with-refs prov [(prov/of element)]) #{element} true))
+    (wire/nonedn? value) (class->type prov (wire/nonedn-class value))
     (map? value) (map-value-type prov value)
-    (class? value) (class->type prov java.lang.Class)
+    (oracle/handle? value) (class->type prov java.lang.Class)
     :else (class->type prov (class value))))
 
 (s/defn type-join* :- at/SemanticType

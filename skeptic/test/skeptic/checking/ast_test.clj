@@ -1,11 +1,16 @@
 (ns skeptic.checking.ast-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
-            [skeptic.analysis.annotate :as aa]
+            [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.ast-children :as sac]
+            [skeptic.analysis-test :as atst]
             [skeptic.checking.ast :as ca]
-            [skeptic.test-helpers :refer [T]]))
+            [skeptic.test-examples.catalog :as catalog]
+            [skeptic.test-helpers :refer [T]]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (deftest distinctv-test
   (is (= [1 2 3] (ca/distinctv [1 2 1 3 2])))
@@ -54,7 +59,11 @@
     (is (= (ca/node-ref fn-part) (second path)))))
 
 (deftest local-vars-context-test
-  (let [ast (aa/analyze-form '(let [x 1] x))
+  (let [sc-ns 'skeptic.test-examples.structural-cases
+        asts (aat/analyze-ns-file (catalog/typed-test-example-entries) sc-ns
+                                  (atst/fixture-file-for-ns sc-ns) {})
+        def-node (atst/ast-by-name asts 'sc-let-x)
+        ast (aapi/method-body (first (aapi/function-methods (aapi/def-init-node def-node))))
         ctx (ca/local-vars-context ast)]
     (is (contains? ctx 'x))
     (is (= 'x (:form (get ctx 'x))))

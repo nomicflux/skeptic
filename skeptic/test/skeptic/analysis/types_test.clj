@@ -1,9 +1,13 @@
 (ns skeptic.analysis.types-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.types :as sut]
             [skeptic.analysis.types.schema :as types-schema]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def ^:private p-schema
   (prov/make-provenance :schema 'a/b 'a nil [] :clj))
@@ -11,11 +15,9 @@
 (def ^:private p-native
   (prov/make-provenance :native 'x/y 'x nil [] :clj))
 
-(deftest ground-class-test
-  (is (= Long (sut/ground-class "java.lang.Long")))
-  (is (nil? (sut/ground-class nil)))
-  (is (true? (sut/integral-class? "java.lang.Long")))
-  (is (false? (sut/integral-class? "java.lang.String"))))
+(deftest class-integral?-test
+  (is (true? (sut/class-integral? (oracle/host-handle Long))))
+  (is (false? (sut/class-integral? (oracle/host-handle String)))))
 
 (deftest constructors-attach-provenance
   (testing "every constructor attaches its prov arg"

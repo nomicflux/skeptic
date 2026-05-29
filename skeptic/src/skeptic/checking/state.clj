@@ -7,6 +7,7 @@
    per-ns
    per-ns-failures
    cljs-state
+   clj-state
    project-discovery
    var-provs
    user-fn-summaries

@@ -8,6 +8,7 @@
             [skeptic.test-helpers :refer [is-type=]]
             [skeptic.test-support.project-state :as test-state]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest ignore-body-fixtures
   (is (empty? (ps/check-fixture 'skeptic.test-examples.fixture-flags/ignored-body-fn))
       "body of ignore-body fn should not produce mismatches")

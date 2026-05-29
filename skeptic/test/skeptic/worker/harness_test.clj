@@ -45,8 +45,7 @@
         (binding [oracle/*worker-conn* conn
                   oracle/*host-class-handles* m]
           (let [long-h (oracle/resolve-class-sym 'clojure.core 'Long)]
-            (testing "Long resolves to a UUID handle"
-              (is (string? long-h))
+            (testing "Long resolves to a handle (integer: Long is bootstrap-interned)"
               (is (oracle/handle? long-h)))
             (testing ":assignable-from Number<-Long is true"
               (is (true? (oracle/class-rel :assignable-from number-h long-h))))
@@ -81,15 +80,18 @@
   (with-worker
     (fn [conn]
       (oracle/intern-host-classes! conn)
-      (let [{:keys [asts]} (wc/ask conn
-                                   {:op "analyze-namespace"
-                                    :ns "skeptic.research.projection-fixture"
-                                    :source-file "test/skeptic/research/projection_fixture.clj"})]
-        (testing "worker ships a projected AST per top-level form"
-          (is (vector? asts))
-          (is (= 6 (count asts))))
-        (testing "every projected AST round-trips through the EDN reader"
-          (is (every? #(= % (edn/read-string (pr-str %))) asts)))
+      (let [{:keys [entries]} (wc/ask conn
+                                      {:op "analyze-namespace"
+                                       :ns "skeptic.research.projection-fixture"
+                                       :source-file "test/skeptic/research/projection_fixture.clj"})
+            asts (mapv :ast entries)]
+        (testing "worker ships a {:source-form :ast} entry per top-level form"
+          (is (vector? entries))
+          (is (= 6 (count entries)))
+          (is (every? #(contains? % :source-form) entries))
+          (is (every? #(contains? % :ast) entries)))
+        (testing "every projected entry round-trips through the EDN reader"
+          (is (every? #(= % (edn/read-string (pr-str %))) entries)))
         (testing "every class-identity :class slot is a handle, never a Class"
           (let [classes (mapcat leaf-class-slots asts)]
             (is (seq classes))

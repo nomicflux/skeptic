@@ -1,6 +1,7 @@
 (ns skeptic.analysis.calls
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.origin.schema :as aos]
             [skeptic.analysis.type-ops :as ato]
@@ -217,13 +218,13 @@
 
 (s/defn static-equality-call? :- s/Bool
   [node :- s/Any]
-  (and (= Util (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle Util) (aapi/node-class node))
        (= 'equiv (aapi/node-method node))))
 
 (defn- class-literal-node?
   [node]
   (and (= :const (aapi/node-op node))
-       (class? (aapi/node-value node))))
+       (oracle/handle? (aapi/node-value node))))
 
 (s/defn type-predicate-assumption-info-for-sym :- (s/maybe aos/PredInfo)
   [sym :- (s/maybe s/Symbol)
@@ -234,7 +235,7 @@
       (when (and (>= n 2)
                  (class-literal-node? (first args)))
         {:pred :instance?
-         :class (.getName ^Class (aapi/node-value (first args)))})
+         :class (aapi/node-value (first args))})
 
       (contains? type-predicate-sym->pred sym)
       (when (= n 1)
@@ -360,22 +361,22 @@
 
 (s/defn static-get-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/get 'get} (aapi/node-method node))))
 
 (s/defn static-merge-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/merge 'merge} (aapi/node-method node))))
 
 (s/defn static-contains-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/contains? 'contains? 'contains} (aapi/node-method node))))
 
 (s/defn static-nil?-call? :- s/Bool
   [node :- s/Any]
-  (and (= Util (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle Util) (aapi/node-class node))
        (= 'identical (aapi/node-method node))))
 
 (s/defn static-nil?-target :- (s/maybe s/Any)
@@ -387,17 +388,17 @@
 
 (s/defn static-assoc-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/assoc 'assoc} (aapi/node-method node))))
 
 (s/defn static-dissoc-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/dissoc 'dissoc} (aapi/node-method node))))
 
 (s/defn static-update-call? :- s/Bool
   [node :- s/Any]
-  (and (= clojure.lang.RT (aapi/node-class node))
+  (and (at/class-equals? (oracle/host-handle clojure.lang.RT) (aapi/node-class node))
        (contains? #{'clojure.core/update 'update} (aapi/node-method node))))
 
 (s/defn first-call? :- s/Bool

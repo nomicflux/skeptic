@@ -3,6 +3,7 @@
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.test-examples.catalog :as catalog]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest documented-fixture-canary
   (doseq [sym catalog/documented-canary-symbols]
     (try

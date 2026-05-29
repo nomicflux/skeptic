@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]))
 
@@ -20,7 +21,7 @@
    "java.util.function.BinaryOperator" {:arity 2 :return-builder #(at/Dyn %)}})
 
 (defn- target-class [target-type]
-  (some-> (-> target-type :ground :class) at/ground-class .getName))
+  (some-> (-> target-type :ground :class) oracle/class-name))
 
 (s/defn java-callable-target? :- s/Bool
   [t :- s/Any]

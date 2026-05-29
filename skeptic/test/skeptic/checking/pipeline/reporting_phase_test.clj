@@ -6,6 +6,7 @@
             [skeptic.inconsistence.report :as inrep]
             [skeptic.provenance :as prov]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest output-mismatch-renders-canonical-map-types
   (let [results (:results (sut/check-ns (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)
                                         'skeptic.static-call-examples

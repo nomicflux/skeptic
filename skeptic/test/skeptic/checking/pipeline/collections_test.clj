@@ -8,6 +8,7 @@
             [skeptic.inconsistence.report :as inrep]
             [skeptic.output.text :as output-text]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest abcde-maps-output-type-errors
   (is (= [] (ps/check-fixture 'skeptic.test-examples.collections/abcde-maps)))
   (is (= ['(let [base {:a 1}] [(assoc base :b 2 :c 3 :d 4 :e "oops")])

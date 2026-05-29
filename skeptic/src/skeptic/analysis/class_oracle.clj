@@ -8,7 +8,7 @@
    worker via `class-rel`."
   (:require [schema.core :as s]
             [skeptic.worker.client :as wc])
-  (:import [clojure.lang BigInt LazySeq Numbers Ratio RT Util IPersistentCollection]
+  (:import [clojure.lang BigInt Keyword LazySeq Numbers Ratio RT Symbol Util IPersistentCollection]
            [java.math BigDecimal BigInteger]))
 
 (def ^:dynamic *worker-conn*
@@ -25,6 +25,15 @@
    "java.lang.Object"
    "java.lang.Class"
    "java.lang.Float"
+   "java.lang.Double"
+   "java.lang.Long"
+   "java.lang.Integer"
+   "java.lang.Short"
+   "java.lang.Byte"
+   "java.lang.String"
+   "java.lang.Boolean"
+   "clojure.lang.Keyword"
+   "clojure.lang.Symbol"
    "clojure.lang.RT"
    "clojure.lang.Util"
    "clojure.lang.LazySeq"
@@ -33,7 +42,12 @@
    "java.math.BigDecimal"
    "java.math.BigInteger"
    "clojure.lang.BigInt"
-   "clojure.lang.Ratio"])
+   "clojure.lang.Ratio"
+   "boolean"
+   "int"
+   "long"
+   "short"
+   "byte"])
 
 (def ^:private host-class-imports
   "Map from host-imported ^Class to its canonical name. Used to join the
@@ -42,6 +56,15 @@
    Object "java.lang.Object"
    Class "java.lang.Class"
    Float "java.lang.Float"
+   Double "java.lang.Double"
+   Long "java.lang.Long"
+   Integer "java.lang.Integer"
+   Short "java.lang.Short"
+   Byte "java.lang.Byte"
+   String "java.lang.String"
+   Boolean "java.lang.Boolean"
+   Keyword "clojure.lang.Keyword"
+   Symbol "clojure.lang.Symbol"
    RT "clojure.lang.RT"
    Util "clojure.lang.Util"
    LazySeq "clojure.lang.LazySeq"
@@ -50,7 +73,12 @@
    BigDecimal "java.math.BigDecimal"
    BigInteger "java.math.BigInteger"
    BigInt "clojure.lang.BigInt"
-   Ratio "clojure.lang.Ratio"})
+   Ratio "clojure.lang.Ratio"
+   Boolean/TYPE "boolean"
+   Integer/TYPE "int"
+   Long/TYPE "long"
+   Short/TYPE "short"
+   Byte/TYPE "byte"})
 
 (def ^:dynamic *host-class-handles*
   "Bound by `check-project` after the bootstrap RPC. Map from host-imported
@@ -96,3 +124,20 @@
   (:handle (wc/ask *worker-conn* {:op "resolve-class-sym"
                                   :ns (str ns-name)
                                   :sym (str sym)})))
+
+(s/defn class-handle :- s/Any
+  "A worker-recognized handle for a host-held `^Class`. Bootstrap classes use
+   the cheap host-local handle; any other class is resolved by name through the
+   worker so the returned handle is comparable via `class-rel`. nil only if the
+   worker cannot resolve the name."
+  [^Class c]
+  (or (host-handle c)
+      (resolve-class-sym 'clojure.core (symbol (.getName c)))))
+
+(s/defn class-name :- s/Any
+  "Asks the worker for the canonical name of the Class behind handle `a`.
+   Returns the name string, nil if `a` is nil/uninterned. The worker holds the
+   Class; the host never calls `.getName` on a project class."
+  [a :- s/Any]
+  (when a
+    (:name (wc/ask *worker-conn* {:op "class-name" :a a}))))

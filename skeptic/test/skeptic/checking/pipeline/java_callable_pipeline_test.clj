@@ -21,6 +21,7 @@
   [sym rule]
   (some #{rule} (result-rules (ps/check-fixture sym))))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest runnable-fixtures
   (testing "arity-0 fn satisfies Runnable"
     (is (no-errors? (check-success

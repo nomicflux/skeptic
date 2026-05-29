@@ -9,18 +9,18 @@
             [skeptic.provenance :as prov]
             [skeptic.schema.collect]
             [skeptic.static-call-examples]
-            [skeptic.test-examples.catalog :as catalog])
+            [skeptic.test-examples.catalog :as catalog]
+            [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
 
-(defn with-no-worker-fixture
-  "`:once` fixture for tests that build project-state directly and exercise
-   `check-ns` / class-rel call sites without spawning a worker. Binds both
-   class-oracle dyn vars to inert defaults so the dyn-var reads in the
-   instrumented sites don't blow up."
+(defn with-worker
+  "`:once` fixture for pipeline tests that build project-state and exercise
+   `check-ns` against the real worker. Spawns one worker on the host classpath,
+   interns the bootstrap host classes, and runs the namespace's tests with
+   `class-oracle/*worker-conn*` and `*host-class-handles*` bound. Test runtime =
+   production runtime: a real worker JVM, no host-local escape hatch."
   [f]
-  (binding [class-oracle/*worker-conn* nil
-            class-oracle/*host-class-handles* {}]
-    (f)))
+  (shared-worker/with-shared-worker f))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
@@ -71,15 +71,23 @@
   [sym]
   (:ns (fixture-env sym)))
 
+(defn- worker-opts
+  []
+  {:worker-conn class-oracle/*worker-conn*})
+
 (def ^:private fixture-project-state
   (delay
     (sut/project-state
-     {}
+     (worker-opts)
      (into {} (map (juxt :ns :file)) (vals catalog/fixture-envs)))))
 
 (defn project-state-for
   [ns-sym source-file]
-  (sut/project-state {} {ns-sym source-file}))
+  (sut/project-state (worker-opts) {ns-sym source-file}))
+
+(defn project-state-for-nses
+  [ns->file]
+  (sut/project-state (worker-opts) ns->file))
 
 (defn check-fixture
   ([sym]
@@ -90,12 +98,6 @@
                                     (fixture-ns sym)
                                     (fixture-file sym)
                                     opts)))))
-
-(defn fixture-exprs
-  [ns-sym]
-  (let [file (fixture-file-for-ns ns-sym)]
-    (vec (sut/block-in-ns ns-sym file
-           (sut/ns-exprs file)))))
 
 (defn check-fixture-ns
   [ns-sym opts]

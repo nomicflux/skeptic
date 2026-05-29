@@ -1,16 +1,12 @@
 (ns skeptic.checking.pipeline.check-ns-phase-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
             [schema.core :as s]
             [skeptic.checking.pipeline :as sut]
             [skeptic.checking.pipeline.support :as ps]
-            [skeptic.inconsistence.mismatch :as incm]
-            [skeptic.provenance :as prov]
-            [skeptic.test-support.project-state :as test-state]))
+            [skeptic.inconsistence.mismatch :as incm]))
 
-(def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
-
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest check-ns-allows-empty-namespaces
   (require 'skeptic.core-fns)
   (let [file (java.io.File. "src/skeptic/core_fns.clj")]
@@ -20,19 +16,12 @@
                                    file
                                    {}))))))
 
-(deftest check-ns-shares-analyzer-namespace-map-across-forms
-  (let [ns-sym 'skeptic.test-examples.basics
-        file (ps/fixture-file-for-ns ns-sym)
-        project-state (ps/project-state-for ns-sym file)
-        form-count (count (sut/ns-exprs file))
-        calls (atom 0)
-        real-build-ns-map ana.jvm/build-ns-map]
-    (is (< 1 form-count))
-    (with-redefs [ana.jvm/build-ns-map (fn []
-                                         (swap! calls inc)
-                                         (real-build-ns-map))]
-      (sut/check-ns project-state ns-sym file {:remove-context true})
-      (is (= 1 @calls)))))
+;; check-ns-shares-analyzer-namespace-map-across-forms DELETED (Plan 2 §0 cutover):
+;; it asserted the host called clojure.tools.analyzer.jvm/build-ns-map exactly
+;; once across a namespace's forms — a host-side ana.jvm analyzer-sharing
+;; optimization the cutover removed entirely. Host no longer runs ana.jvm/analyze
+;; (the worker analyzes the namespace in one bulk RPC), so the guarded mechanism
+;; no longer exists and the test has no behavioral analogue. See plan2-test-port-baseline.txt.
 
 (deftest check-namespace-localizes-read-failures
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
@@ -139,6 +128,62 @@
                     %)
                   results)))))
 
+(deftest defrecord-factory-return-type-regression
+  ;; `make-provenance`'s body is `(->Provenance ...)`, a call to the defrecord
+  ;; factory var. The declared return is `Provenance`. The factory call must not
+  ;; be inferred as a `java.lang.Object` ground (which would falsely flag every
+  ;; record-returning fn in the project). Run the real checker on the real
+  ;; source file and assert no finding lands on `make-provenance`.
+  (require 'skeptic.provenance 'skeptic.provenance.schema)
+  (let [file (java.io.File. "src/skeptic/provenance.clj")
+        schema-file (java.io.File. "src/skeptic/provenance/schema.clj")
+        project-state (ps/project-state-for-nses
+                       {'skeptic.provenance file
+                        'skeptic.provenance.schema schema-file})
+        results (filterv #(= 'skeptic.provenance/make-provenance
+                             (:enclosing-form %))
+                         (:results (sut/check-ns project-state
+                                                 'skeptic.provenance
+                                                 file
+                                                 {:remove-context true})))]
+    (is (= [] results))))
+
+(deftest project-class-ground-resolves-via-worker-regression
+  ;; A declared schema naming a non-bootstrap project class (here BufferedReader)
+  ;; must mint a worker-resolved :class handle, not {:class nil} from host-handle.
+  ;; Otherwise the call (read-port reader) leaf-overlaps its own declared
+  ;; BufferedReader param because a nil class handle cannot be compared.
+  (require 'skeptic.worker.process)
+  (let [file (java.io.File. "src/skeptic/worker/process.clj")
+        results (filterv #(= 'skeptic.worker.process/spawn!
+                             (:enclosing-form %))
+                         (:results (sut/check-ns (ps/project-state-for 'skeptic.worker.process file)
+                                                 'skeptic.worker.process
+                                                 file
+                                                 {:remove-context true})))]
+    (is (= [] results))))
+
+(deftest autoresolved-keyword-ns-regression
+  ;; exact-key-query builds a map keyed by ::map-key-query, which auto-resolves
+  ;; to :skeptic.analysis.map-ops/map-key-query in that ns. The worker must read
+  ;; forms with *ns* bound to the source namespace, or ::keywords resolve to the
+  ;; wrong ns (clojure.core) and the map fails its declared ExactKeyQuery schema.
+  (require 'skeptic.analysis.map-ops 'skeptic.analysis.map-ops.schema 'skeptic.provenance.schema)
+  (let [file (java.io.File. "src/skeptic/analysis/map_ops.clj")
+        schema-file (java.io.File. "src/skeptic/analysis/map_ops/schema.clj")
+        prov-schema-file (java.io.File. "src/skeptic/provenance/schema.clj")
+        project-state (ps/project-state-for-nses
+                       {'skeptic.analysis.map-ops file
+                        'skeptic.analysis.map-ops.schema schema-file
+                        'skeptic.provenance.schema prov-schema-file})
+        results (filterv #(= 'skeptic.analysis.map-ops/exact-key-query
+                             (:enclosing-form %))
+                         (:results (sut/check-ns project-state
+                                                 'skeptic.analysis.map-ops
+                                                 file
+                                                 {:remove-context true})))]
+    (is (= [] results))))
+
 (deftest check-namespace-localizes-load-failure
   (let [valid-ns 'skeptic.test-examples.basics
         valid-file (ps/fixture-file-for-ns valid-ns)
@@ -152,17 +197,23 @@
     (is (= 'skeptic.nonexistent.namespace.that.does.not.exist
            (:namespace (first results))))))
 
+(defn- exploding-def?
+  "The cached entry / source-form for the def whose analysis or realization the
+   lazy-exception tests force to throw."
+  [source-form]
+  (= 'sample-direct-nil-arg-fn (second source-form)))
+
 (deftest check-ns-localizes-expression-exceptions-and-continues
-  (let [real-analyze sut/analyze-source-exprs
-        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
-        exprs (vec (sut/ns-exprs file))
-        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
-    (is (some? exploding-form))
-    (with-redefs [sut/analyze-source-exprs
-                  (fn [dict ns-sym source-file exprs accessor-summaries cljs-state lang]
-                    (if (= exploding-form (first exprs))
+  ;; Analysis-time exception localization. The worker-backed read pass annotates
+  ;; each cached entry via check-cached-entry; redef it to throw for the
+  ;; exploding def, and assert the exception is localized to its def while later
+  ;; forms still check.
+  (let [real-cached @#'sut/check-cached-entry]
+    (with-redefs [sut/check-cached-entry
+                  (fn [dict ignore-body ns source-file lang entry accessor-summaries form-opts]
+                    (if (exploding-def? (:source-form entry))
                       (throw (ex-info "boom during analysis" {}))
-                      (real-analyze dict ns-sym source-file exprs accessor-summaries cljs-state lang)))]
+                      (real-cached dict ignore-body ns source-file lang entry accessor-summaries form-opts)))]
       (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
                                          {:remove-context true})
             exception-result (some #(when (= :expression (:phase %)) %) results)
@@ -177,35 +228,28 @@
         (is (some? later-mismatch))))))
 
 (deftest check-ns-localizes-lazy-expression-exceptions-and-continues
-  (let [real-check-resolved-form sut/check-resolved-form
-        file (ps/fixture-file-for-ns 'skeptic.test-examples.basics)
-        exprs (vec (sut/ns-exprs file))
-        exploding-form (some #(when (= 'sample-direct-nil-arg-fn (second %)) %) exprs)]
-    (is (some? exploding-form))
+  ;; Realization-time (lazy) exception localization. check-resolved-form returns
+  ;; a lazy seq; redef it to throw on realization for the exploding def, and
+  ;; assert the exception localizes to exactly that def while later forms check.
+  (let [real-check-resolved-form sut/check-resolved-form]
     (with-redefs [sut/check-resolved-form (fn [dict ignore-body ns-sym source-file source-form analyzed opts]
-                                            (if (= exploding-form source-form)
+                                            (if (exploding-def? source-form)
                                               (map (fn [_]
                                                      (throw (ex-info "boom during realization" {})))
                                                    [::explode])
                                               (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
-      (let [{:keys [dict ignore-body]} (test-state/admit-ns 'skeptic.test-examples.basics file)
-            form-results (sut/check-ns-form dict
-                                            ignore-body
-                                            'skeptic.test-examples.basics
-                                            file
-                                            exploding-form
-                                            {}
-                                            {}
-                                            :clj
-                                            {:remove-context true})
-            exception-result (first (:results form-results))
-            results (ps/check-fixture-ns 'skeptic.test-examples.basics
+      (let [results (ps/check-fixture-ns 'skeptic.test-examples.basics
                                          {:remove-context true})
+            exception-results (filterv #(and (= :expression (:phase %))
+                                             (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
+                                                (:enclosing-form %)))
+                                       results)
+            exception-result (first exception-results)
             later-mismatch (some #(when (= 'skeptic.test-examples.basics/sample-mismatched-types
                                           (:enclosing-form %))
                                    %)
                                 results)]
-        (is (= 1 (count (:results form-results))))
+        (is (= 1 (count exception-results)))
         (is (= :expression (:phase exception-result)))
         (is (= 'skeptic.test-examples.basics/sample-direct-nil-arg-fn
                (:enclosing-form exception-result)))

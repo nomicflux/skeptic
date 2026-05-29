@@ -1,9 +1,5 @@
 (ns skeptic.analysis.annotate
   (:require [schema.core :as s]
-            [clojure.tools.analyzer :as ta]
-            [clojure.tools.analyzer.ast :as ana.ast]
-            [clojure.tools.analyzer.env :as ana.env]
-            [clojure.tools.analyzer.jvm :as ana.jvm]
             [skeptic.analysis.annotate.base :as base]
             [skeptic.analysis.annotate.control :as control]
             [skeptic.analysis.annotate.data :as data]
@@ -127,59 +123,3 @@
                                (prov/inferred {:name name :ns ns} lang))
                  ast))
 
-(defn- target-ns
-  [ns-sym]
-  (or (some-> ns-sym find-ns)
-      (some-> ns-sym create-ns)
-      *ns*))
-
-(defn- analyze-env
-  [target-ns locals source-file]
-  (cond-> (assoc (ta/empty-env)
-                 :ns (ns-name target-ns)
-                 :locals (into {}
-                               (map-indexed (fn [idx sym]
-                                              [sym (aapi/synthetic-binding-node idx sym)]))
-                               (keys locals)))
-    source-file
-    (assoc :file source-file)))
-
-(s/defn ^:private normalize-raw-ast :- aas/AnnotatedNode
-  [ast :- aas/RawAnalyzerAst]
-  (ana.ast/prewalk ast (fn [node]
-                         (cond-> node
-                           (= :const (:op node)) (dissoc :type)))))
-
-(def ^:private skeptic-passes-opts
-  (assoc ana.jvm/default-passes-opts
-         :validate/wrong-tag-handler (fn [t _ast] {t Object})))
-
-(defn- loaded-namespace-analyzer-env
-  []
-  (doto (ana.jvm/global-env)
-    ;; Pipeline requires JVM namespaces before source checking, so the initial
-    ;; namespace snapshot is the canonical resolution state for the source pass.
-    (swap! assoc :update-ns-map! (fn [] nil))))
-
-(defn with-loaded-namespace-analyzer-env
-  [f]
-  (if ana.env/*env*
-    (f)
-    (ana.env/with-env (loaded-namespace-analyzer-env)
-      (f))))
-
-(s/defn analyze-form :- aas/AnnotatedNode
-  ([form :- s/Any]
-   (analyze-form form {}))
-  ([form :- s/Any {:keys [locals ns source-file]} :- s/Any]
-   (let [target-ns (target-ns ns)
-         env (binding [*ns* target-ns]
-               (analyze-env target-ns locals source-file))]
-     (binding [*ns* target-ns]
-       (normalize-raw-ast (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts}))))))
-
-(s/defn annotate-form-loop :- aas/AnnotatedNode
-  [dict :- s/Any form :- s/Any opts :- s/Any]
-  (annotate-ast dict
-                (analyze-form form opts)
-                opts))

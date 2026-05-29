@@ -1,10 +1,14 @@
 (ns skeptic.analysis.narrowing-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.test-helpers :refer [is-type= T tp]]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [schema.core :as s]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (deftest classify-leaf-test
   (testing "ground types"
@@ -74,11 +78,11 @@
   (is (= :unknown (an/classify-leaf-for-predicate? {:pred :integer?} (at/NumericDyn tp))))
   (is (= :matches
          (an/classify-leaf-for-predicate? {:pred :instance?
-                                           :class "java.lang.Number"}
+                                           :class (oracle/host-handle Number)}
                                           (at/NumericDyn tp))))
   (is (= :does-not-match
          (an/classify-leaf-for-predicate? {:pred :integer?}
-                                          (at/->GroundT tp {:class "java.lang.Double"} 'Double)))))
+                                          (at/->GroundT tp {:class (oracle/host-handle Double)} 'Double)))))
 
 (deftest partition-conditional-by-predicate-test
   (let [int-t (T s/Int)

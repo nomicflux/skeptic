@@ -8,6 +8,7 @@
             [skeptic.inconsistence.report :as inrep]
             [skeptic.test-helpers :refer [is-type=]]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest resolution-path-resolutions
   (let [results (ps/check-fixture 'skeptic.test-examples.control-flow/sample-bad-local-provenance-fn
                                   {:keep-empty true})

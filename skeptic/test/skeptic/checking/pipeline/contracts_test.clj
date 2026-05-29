@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [are deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest checking-conditional-input-contracts
   (are [sym] (= [] (ps/check-fixture sym))
     'skeptic.test-examples.contracts/conditional-input-int-success

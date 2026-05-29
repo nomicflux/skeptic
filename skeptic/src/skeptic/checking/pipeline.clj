@@ -16,7 +16,6 @@
             [skeptic.checking.form :as cf]
             [skeptic.checking.opts :as copts]
             [skeptic.checking.state :as cstate]
-            [skeptic.cljs.analyzer-driver :as cljs-driver]
             [skeptic.cljs.analyzer-driver.schema :as ads]
             [skeptic.cljs.topo :as topo]
             [skeptic.file :as file]
@@ -29,7 +28,8 @@
             [skeptic.schema.discovery :as discovery]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli]
-            [skeptic.analysis.predicate-descriptor :as pd])
+            [skeptic.analysis.predicate-descriptor :as pd]
+            [skeptic.worker.client :as wc])
   (:import [java.io File]
            [skeptic.analysis.types ConditionalTRec FnMethodTRec MapTRec]))
 
@@ -375,61 +375,14 @@
       (throw (ex-info "cljs requires cljs-state with per-file entry for source-file"
                       {:ns ns-sym :source-file (some-> source-file str)}))))
 
-(defn- analyze-source-expr
-  [dict ns-sym source-file accessor-summaries cljs-state lang expr]
-  (case lang
-    :clj
-    (aa/annotate-form-loop dict
-                           (cf/normalize-check-form expr)
-                           {:ns ns-sym
-                            :source-file (cf/source-file-path source-file)
-                            :accessor-summaries accessor-summaries
-                            :lang :clj})
-    :cljs
-    (let [ns-ast (:ns-ast (require-cljs-per-file cljs-state source-file ns-sym))
-          ast (cljs-driver/analyze-form ns-ast (cf/normalize-check-form expr))]
-      (aa/annotate-ast dict ast {:ns ns-sym
-                                 :accessor-summaries accessor-summaries
-                                 :lang :cljs}))))
-
-(defn- accumulate-analysis
-  [dict ns-sym source-file acc cljs-state lang expr]
-  (let [analyzed (analyze-source-expr dict ns-sym source-file (:accessor-summaries acc) cljs-state lang expr)
-        entry (when-let [entry (analyzed-def-entry ns-sym analyzed)]
-                (enrich-summary-with-declared-output dict entry))]
-    (cond-> (update acc :analyzed conj analyzed)
-      entry (update :entries conj entry)
-      (:summary entry) (assoc-in [:accessor-summaries (:sym entry)] (:summary entry)))))
-
-(defn- run-analyze-source-exprs
-  [dict ns-sym source-file exprs accessor-summaries cljs-state lang]
-  (let [{:keys [analyzed entries]}
-        (reduce #(accumulate-analysis dict ns-sym source-file %1 cljs-state lang %2)
-                {:analyzed [] :entries [] :accessor-summaries accessor-summaries}
-                exprs)]
-    {:analysis-dict dict
-     :analyzed analyzed
-     :resolved analyzed
-     :resolved-defs (into {} (map (juxt :sym :entry)) entries)}))
-
-(s/defn analyze-source-exprs :- s/Any
-  [dict ns-sym source-file exprs
-   accessor-summaries :- {s/Any s/Any}
-   cljs-state :- {s/Any s/Any}
-   lang :- (s/enum :clj :cljs :both)]
-  (run-analyze-source-exprs dict ns-sym source-file exprs accessor-summaries cljs-state lang))
-
 (s/defn ^:private collect-accessor-summaries-for-ns :- AccessorSummaries
   [dict :- {s/Symbol at/SemanticType}
    ns-sym :- s/Symbol
-   source-file :- (s/maybe File)
-   exprs :- [(s/pred seq?)]
-   seed-summaries :- AccessorSummaries
-   cljs-state :- {s/Any s/Any}
-   lang :- (s/enum :clj :cljs :both)]
+   analyzed-asts :- [aas/AnnotatedNode]
+   seed-summaries :- AccessorSummaries]
   (reduce
-   (fn [acc expr]
-     (let [analyzed (analyze-source-expr dict ns-sym source-file acc cljs-state lang expr)]
+   (fn [acc ast]
+     (let [analyzed (aa/annotate-ast dict ast {:ns ns-sym :accessor-summaries acc :lang :clj})]
        (if-let [entry (some->> analyzed
                                (analyzed-def-entry ns-sym)
                                (enrich-summary-with-declared-output dict))]
@@ -438,7 +391,7 @@
            acc)
          acc)))
    seed-summaries
-   exprs))
+   analyzed-asts))
 
 (s/defn method-output-type :- at/SemanticType
   [method :- aas/AnnotatedNode]
@@ -638,14 +591,6 @@
                    (map #(dissoc % :context)))]
     (vec (concat debug-records filtered))))
 
-(s/defn ns-exprs :- s/Any
-  [source-file]
-  (with-open [reader (file/pushback-reader source-file)]
-    (->> (repeatedly #(file/try-read reader))
-         (take-while some?)
-         (remove file/is-ns-block?)
-         doall)))
-
 (s/defn read-exception-result :- s/Any
   [source-file e :- Throwable]
   {:report-kind :exception
@@ -657,25 +602,6 @@
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
                           (str e))})
-
-(s/defn next-checkable-form :- s/Any
-  [reader]
-  (try
-    (loop []
-      (let [source-form (file/try-read reader)]
-        (cond
-          (nil? source-form)
-          {:kind :eof}
-
-          (file/is-ns-block? source-form)
-          (recur)
-
-          :else
-          {:kind :form
-           :form source-form})))
-    (catch Exception e
-      {:kind :read-error
-       :exception e})))
 
 (s/defn expression-exception-result :- s/Any
   [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable
@@ -713,24 +639,25 @@
     {sym entry}
     {}))
 
-(s/defn ^:private check-cached-cljs-entry :- CljsPassResults
+(s/defn ^:private check-cached-entry :- CljsPassResults
   [dict               :- {s/Symbol at/SemanticType}
    ignore-body        :- #{s/Symbol}
    ns                 :- s/Symbol
    source-file        :- (s/maybe (s/cond-pre File s/Str))
+   lang               :- (s/enum :clj :cljs)
    {:keys [source-form ast exception]} :- CljsCachedFormEntry
    accessor-summaries :- AccessorSummaries
    form-opts          :- {s/Keyword s/Any}]
   (cond
     exception
-    {:results [(expression-exception-result ns source-file source-form exception :cljs)]
+    {:results [(expression-exception-result ns source-file source-form exception lang)]
      :provenance {}}
 
     ast
     (try
       (let [analyzed (aa/annotate-ast dict ast {:ns ns
                                                :accessor-summaries accessor-summaries
-                                               :lang :cljs})
+                                               :lang lang})
             resolved-defs (resolved-defs-for-analyzed dict ns analyzed)]
         {:results (vec (check-resolved-form dict
                                             ignore-body
@@ -741,7 +668,7 @@
                                             (select-keys form-opts [:keep-empty :remove-context :debug])))
          :provenance (resolved-defs-provenance resolved-defs)})
       (catch Exception e
-        {:results [(expression-exception-result ns source-file source-form e :cljs)]
+        {:results [(expression-exception-result ns source-file source-form e lang)]
          :provenance {}}))
 
     :else
@@ -760,8 +687,8 @@
     (reduce
      (fn [acc entry]
        (let [{form-results :results form-prov :provenance}
-             (check-cached-cljs-entry dict ignore-body ns source-file entry
-                                      accessor-summaries form-opts)]
+             (check-cached-entry dict ignore-body ns source-file :cljs entry
+                                 accessor-summaries form-opts)]
          (-> acc
              (update :results into form-results)
              (update :provenance merge form-prov))))
@@ -773,26 +700,27 @@
                          {:ns ns :source-file (some-> source-file str)}))]
      :provenance {}}))
 
-(s/defn check-ns-form :- s/Any
-  [dict ignore-body :- #{s/Symbol} ns :- s/Symbol source-file source-form
-   accessor-summaries :- {s/Any s/Any}
-   cljs-state :- {s/Any s/Any}
-   lang :- (s/enum :clj :cljs :both)
-   opts]
-  (try
-    (let [{:keys [resolved resolved-defs]} (analyze-source-exprs dict ns source-file [source-form]
-                                                                 accessor-summaries cljs-state lang)]
-      {:results (vec (check-resolved-form dict
-                                          ignore-body
-                                          ns
-                                          source-file
-                                          source-form
-                                          (first resolved)
-                                          (select-keys opts [:keep-empty :remove-context :debug])))
-       :provenance (resolved-defs-provenance resolved-defs)})
-    (catch Exception e
-      {:results [(expression-exception-result ns source-file source-form e lang)]
-       :provenance {}})))
+(s/defn ^:private clj-read-pass-results :- CljsPassResults
+  [dict               :- {s/Symbol at/SemanticType}
+   ignore-body        :- #{s/Symbol}
+   ns                 :- s/Symbol
+   source-file        :- (s/maybe (s/cond-pre File s/Str))
+   accessor-summaries :- AccessorSummaries
+   clj-state          :- {s/Any s/Any}
+   form-opts          :- {s/Keyword s/Any}]
+  (let [entries (some-> clj-state (get source-file) :entries)]
+    (reduce
+     (fn [acc entry]
+       (if (file/is-ns-block? (:source-form entry))
+         acc
+         (let [{form-results :results form-prov :provenance}
+               (check-cached-entry dict ignore-body ns source-file :clj entry
+                                   accessor-summaries form-opts)]
+           (-> acc
+               (update :results into form-results)
+               (update :provenance merge form-prov)))))
+     {:results [] :provenance {}}
+     (or entries []))))
 
 (defn- native-result []
   {:dict native-fns/native-fn-dict
@@ -866,8 +794,8 @@
     (let [schema-result (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
           malli-result  (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))
-    (let [{:keys [ns-ast asts]} (require-cljs-per-file cljs-state source-file ns-sym)
-          top-asts (filterv :op (or asts []))
+    (let [{:keys [ns-ast entries]} (require-cljs-per-file cljs-state source-file ns-sym)
+          top-asts (filterv :op (mapv :ast (filterv :ast (or entries []))))
           schema-result (if (:plumatic-disable opts)
                           (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
                           (binding [ab/*var-provs* var-provs]
@@ -931,6 +859,29 @@
           {:loaded [] :load-failures {}}
           nss-with-source-files))
 
+(defn preload-clj-state!
+  "Analyze every clj/cljc source-file via the WORKER's analyze-namespace op
+  (the worker reads the project's own source on the project classpath; no form
+  crosses host->worker). Returns `{:clj-state {File → {:entries [{:source-form
+  :ast} ...]}} :clj-load-failures {File → {:exception Throwable}}}`. Empty when
+  `conn` is nil. Requires `class-oracle/*worker-conn*` bound for the op call."
+  [conn loaded]
+  (if-not conn
+    {:clj-state {} :clj-load-failures {}}
+    (reduce
+     (fn [acc [ns-sym source-file lang]]
+       (if (and source-file (#{:clj :both} lang))
+         (try
+           (let [{:keys [entries]} (wc/ask conn {:op "analyze-namespace"
+                                                 :ns (str ns-sym)
+                                                 :source-file (str source-file)})]
+             (assoc-in acc [:clj-state source-file] {:entries entries}))
+           (catch Throwable e
+             (assoc-in acc [:clj-load-failures source-file] {:exception e})))
+         acc))
+     {:clj-state {} :clj-load-failures {}}
+     loaded)))
+
 (defn preload-cljs-state!
   "Parse and analyze every source-file requiring cljs analysis (.cljs or
   .cljc). Files are analyzed in dependency order against a single shared
@@ -946,19 +897,19 @@
   truthy or `loaded` contains no cljs/cljc sources. The shared state
   is created here and discarded on return; downstream phases consume
   only cached entries."
-  [cljs-disable? loaded]
-  (if cljs-disable?
+  [cljs-disable? conn loaded]
+  (if (or cljs-disable? (nil? conn))
     {:cljs-state {} :cljs-load-failures {}}
     (let [ns-sym->file (into {}
                              (comp (filter (fn [[_ _ lang]]
                                              (#{:cljs :both} lang)))
                                    (map (fn [[ns-sym sf _]] [ns-sym sf])))
                              loaded)
-          ordered      (topo/topo-sort-files ns-sym->file)
-          state        (cljs-driver/empty-state)]
+          ordered      (topo/topo-sort-files ns-sym->file)]
       (reduce (fn [acc f]
                 (try
-                  (update acc :cljs-state assoc f (cljs-driver/analyze-source-file state f))
+                  (update acc :cljs-state assoc f
+                          (wc/ask conn {:op "analyze-cljs-namespace" :source-file (str f)}))
                   (catch Throwable e
                     (update acc :cljs-load-failures assoc f {:exception e}))))
               {:cljs-state {} :cljs-load-failures {}}
@@ -1002,6 +953,7 @@
   returned `ProjectState`. Per-ns admission/analysis dispatches on the
   per-source-file `lang` carried in each `loaded` triple."
   [opts all-discovered-nss :- copts/DiscoveredNamespaces]
+  (binding [class-oracle/*worker-conn* (:worker-conn opts)]
   (let [{loaded :loaded load-failures :load-failures}
         (preload-namespaces opts all-discovered-nss)
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
@@ -1016,9 +968,14 @@
                                      {} project-disc)
         {cljs-state         :cljs-state
          cljs-load-failures :cljs-load-failures}
-        (preload-cljs-state! (:cljs-disable opts) loaded)
+        (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded)
         cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
                                       {} cljs-load-failures)
+        {clj-state         :clj-state
+         clj-load-failures :clj-load-failures}
+        (preload-clj-state! (:worker-conn opts) loaded)
+        clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
+                                     {} clj-load-failures)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
@@ -1039,13 +996,14 @@
            (if (and source-file ns-sym (contains? per-ns-admission ns-sym)
                     (#{:clj :both} lang))
              (try
-               (binding [*ns* (the-ns ns-sym)]
-                 (aa/with-loaded-namespace-analyzer-env
-                   #(update acc :accessor-summaries
-                            (fn [summaries]
-                              (collect-accessor-summaries-for-ns merged-dict ns-sym source-file
-                                                                 (ns-exprs source-file) summaries
-                                                                 cljs-state :clj)))))
+               (let [entries (some-> clj-state (get source-file) :entries)
+                     asts (->> entries
+                               (remove #(file/is-ns-block? (:source-form %)))
+                               (keep :ast)
+                               vec)]
+                 (update acc :accessor-summaries
+                         (fn [summaries]
+                           (collect-accessor-summaries-for-ns merged-dict ns-sym asts summaries))))
                (catch Throwable e
                  (assoc-in acc [:accessor-failures ns-sym]
                            {:source-file source-file :exception e :phase :accessors})))
@@ -1057,10 +1015,10 @@
                             (assoc m k (select-keys v [:ignore-body :errors :provenance])))
                           {}
                           per-ns-admission)
-        per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures)]
+        per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures clj-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
-                           cljs-state project-disc var-provs user-fn-summaries
-                           (:worker-conn opts))))
+                           cljs-state clj-state project-disc var-provs user-fn-summaries
+                           (:worker-conn opts)))))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]
@@ -1076,16 +1034,6 @@
        :errors errors
        :provenance provenance
        :worker-conn worker-conn})))
-
-(defmacro block-in-ns
-  [_ns ^File file & body]
-  `(let [contents# (slurp ~file)
-         ns-dec# (read-string contents#)
-         current-namespace# (str ~*ns*)]
-     (eval ns-dec#)
-     (let [res# (do ~@body)]
-       (clojure.core/in-ns (symbol current-namespace#))
-       res#)))
 
 (defn- finding-dedup-key
   "Identity for cross-language deduping: same form/location/blame/rule hits
@@ -1134,23 +1082,10 @@
     (thunk)))
 
 (defn- read-pass-results
-  [dict ignore-body ns source-file accessor-summaries cljs-state lang form-opts]
+  [dict ignore-body ns source-file accessor-summaries cljs-state clj-state lang form-opts]
   (if (= :cljs lang)
     (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state form-opts)
-    (aa/with-loaded-namespace-analyzer-env
-      #(with-open [reader (file/pushback-reader source-file)]
-         (loop [acc {:results [] :provenance {}}]
-           (let [{:keys [kind form exception]} (next-checkable-form reader)]
-             (case kind
-               :eof acc
-               :form (let [{form-results :results form-prov :provenance}
-                           (check-ns-form dict ignore-body ns source-file form
-                                          accessor-summaries cljs-state lang form-opts)]
-                       (recur (-> acc
-                                  (update :results into form-results)
-                                  (update :provenance merge form-prov))))
-               :read-error (recur (update acc :results conj
-                                          (read-exception-result source-file exception))))))))))
+    (clj-read-pass-results dict ignore-body ns source-file accessor-summaries clj-state form-opts)))
 
 (s/defn check-ns :- s/Any
   [project-state ns :- s/Symbol source-file form-opts]
@@ -1159,13 +1094,14 @@
         lang (lang-of-source-file form-opts source-file)
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
+        clj-state (:clj-state project-state)
         pass-results (binding [ac/*user-fn-path-predicate-summaries*
                                (or (:user-fn-summaries project-state) {})]
                        (mapv (fn [pass-lang]
                                (let [needs-jvm? (#{:clj :both} pass-lang)]
                                  (with-jvm-ns needs-jvm? ns
                                    #(read-pass-results dict ignore-body ns source-file
-                                                       accessor-summaries cljs-state pass-lang
+                                                       accessor-summaries cljs-state clj-state pass-lang
                                                        form-opts))))
                              passes))
         form-findings (vec (mapcat :results pass-results))

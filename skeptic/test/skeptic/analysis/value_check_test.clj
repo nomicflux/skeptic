@@ -1,11 +1,15 @@
 (ns skeptic.analysis.value-check-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value-check :as avc]
-            [skeptic.test-helpers :refer [is-type= tp]]))
+            [skeptic.test-helpers :refer [is-type= tp]]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (deftest contains-key-type-classification-regression-test
   (is (= :unknown
@@ -77,8 +81,8 @@
 (deftest leaf-overlap-double-test
   (let [d (at/->GroundT tp :double 'Double)
         i (at/->GroundT tp :int 'Int)
-        num-class (at/->GroundT tp {:class "java.lang.Number"} 'Number)
-        obj-class (at/->GroundT tp {:class "java.lang.Object"} 'Object)]
+        num-class (at/->GroundT tp {:class (oracle/host-handle Number)} 'Number)
+        obj-class (at/->GroundT tp {:class (oracle/host-handle Object)} 'Object)]
     (testing ":double overlaps with :double"
       (is (true? (avc/leaf-overlap? d d))))
     (testing ":double overlaps with Number-class target"
@@ -102,8 +106,8 @@
   (let [f (at/->GroundT tp :float 'Float)
         d (at/->GroundT tp :double 'Double)
         i (at/->GroundT tp :int 'Int)
-        num-class (at/->GroundT tp {:class "java.lang.Number"} 'Number)
-        obj-class (at/->GroundT tp {:class "java.lang.Object"} 'Object)]
+        num-class (at/->GroundT tp {:class (oracle/host-handle Number)} 'Number)
+        obj-class (at/->GroundT tp {:class (oracle/host-handle Object)} 'Object)]
     (testing ":float overlaps with :float"
       (is (true? (avc/leaf-overlap? f f))))
     (testing ":float overlaps with Number-class target"

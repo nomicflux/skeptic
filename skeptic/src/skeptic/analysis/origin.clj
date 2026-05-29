@@ -3,6 +3,7 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.narrowing :as an]
             [skeptic.analysis.origin.schema :as aos]
@@ -207,13 +208,13 @@
          :blank-check true
          :contains-key (= (:key left) (:key right))
          :type-predicate (and (= (:pred left) (:pred right))
-                              (= (some-> (:class left) at/ground-class) (some-> (:class right) at/ground-class)))
+                              (at/class-equals? (:class left) (:class right)))
          :value-equality (= (:values left) (:values right))
          :path-value-equality (and (= (:path left) (:path right))
                                    (= (:values left) (:values right)))
          :path-type-predicate (and (= (:path left) (:path right))
                                    (= (:pred left) (:pred right))
-                                   (= (some-> (:class left) at/ground-class) (some-> (:class right) at/ground-class)))
+                                   (at/class-equals? (:class left) (:class right)))
          :conditional-branch (at/type=? (:narrowed-type left) (:narrowed-type right))
          :conjunction (and (= :conjunction (:kind right))
                            (= (count (:parts left)) (count (:parts right)))
@@ -243,13 +244,13 @@
          :blank-check true
          :contains-key (= (:key a) (:key b))
          :type-predicate (and (= (:pred a) (:pred b))
-                              (= (some-> (:class a) at/ground-class) (some-> (:class b) at/ground-class)))
+                              (at/class-equals? (:class a) (:class b)))
          :value-equality (= (:values a) (:values b))
          :path-value-equality (and (= (:path a) (:path b))
                                    (= (:values a) (:values b)))
          :path-type-predicate (and (= (:path a) (:path b))
                                    (= (:pred a) (:pred b))
-                                   (= (some-> (:class a) at/ground-class) (some-> (:class b) at/ground-class)))
+                                   (at/class-equals? (:class a) (:class b)))
          :conditional-branch (at/type=? (:narrowed-type a) (:narrowed-type b))
          :conjunction (and (= :conjunction (:kind b))
                            (= (count (:parts a)) (count (:parts b)))
@@ -651,11 +652,11 @@
       (= :instance? op)
       (let [target (aapi/node-instance-target test-node)
             cls (aapi/node-class test-node)]
-        (when (class? cls)
-          (or (map-key-lookup-path-assumption target {:pred :instance? :class (.getName ^Class cls)} true)
+        (when (oracle/handle? cls)
+          (or (map-key-lookup-path-assumption target {:pred :instance? :class cls} true)
               (when-let [root (when (aapi/stable-identity-node? target)
                                 (local-root-origin ctx target))]
-                (type-predicate-assumption root {:pred :instance? :class (.getName ^Class cls)} true)))))
+                (type-predicate-assumption root {:pred :instance? :class cls} true)))))
 
       (and invoke? (contains? ac/not-call-syms invoke-sym))
       (when (= 1 (count invoke-args))

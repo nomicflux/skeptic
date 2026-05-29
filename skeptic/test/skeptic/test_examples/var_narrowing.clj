@@ -18,3 +18,22 @@
   [report :- {:report-kind (s/eq 1)}]
   (let [report-kind (:report-kind report)]
     (case report-kind 1)))
+
+;; Origin-test fixtures: each body is a form that references the `server` var so
+;; the worker analyzes it with `server` resolved to `(s/maybe Server)`. The
+;; origin-test selects the relevant inner node by form and asserts its origin.
+
+(s/defn vn-server-root []
+  server)
+
+(s/defn vn-server-host-projection []
+  (:host server))
+
+(s/defn vn-server-some-call []
+  (some? server))
+
+(s/defn vn-server-equality []
+  (= server :foo))
+
+(s/defn vn-server-let-alias []
+  (let [s server] s))

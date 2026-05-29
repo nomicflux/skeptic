@@ -1,7 +1,9 @@
 (ns skeptic.analysis.types
   (:require [schema.core :as s]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.types.proto :as proto]
-            [skeptic.provenance.schema :as provs]))
+            [skeptic.provenance.schema :as provs])
+  (:import [java.math BigInteger]))
 
 (def semantic-type-tag-key
   :skeptic.analysis.types/semantic-type)
@@ -17,22 +19,38 @@
     (.setAccessible field true)
     (.get field value)))
 
-(defn ground-class
-  "Resolve a ground/pred-info :class field (a class-name string) to a live java.lang.Class.
-   nil -> nil. Host-only resolution via Class/forName (single-JVM: identical Class per probe F1)."
-  [v]
+
+(def ^:private integral-classes
+  "Host-runtime classes whose Type ground counts as integral. All are
+   bootstrap-interned, so the host names their handles via `oracle/host-handle`."
+  [Long Integer Short Byte BigInteger clojure.lang.BigInt])
+
+(defn class-equals?
+  "Same answer as `(= class-a class-b)` on the old `:class` values, the worker
+   computing it: equal classes (incl. both-nil) are equal; the worker answers
+   the class-identity question for two present handles."
+  [a b]
   (cond
-    (nil? v) nil
-    (string? v) (try (Class/forName v) (catch ClassNotFoundException _ nil))
-    :else nil))
+    (and (nil? a) (nil? b)) true
+    (or (nil? a) (nil? b)) false
+    :else (oracle/class-rel :equals a b)))
 
-(def integral-class-names
-  #{"java.lang.Long" "java.lang.Integer" "java.lang.Short" "java.lang.Byte"
-    "java.math.BigInteger" "clojure.lang.BigInt"})
+(defn class-assignable?
+  "Same answer as `(.isAssignableFrom class-a class-b)` / `(isa? class-b class-a)`,
+   the worker computing it."
+  [a b]
+  (oracle/class-rel :assignable-from a b))
 
-(defn integral-class?
-  [v]
-  (boolean (contains? integral-class-names (some-> (ground-class v) .getName))))
+(defn class-instance?
+  "Same answer as `(instance? class-a value)`, the worker computing it."
+  [a value]
+  (oracle/class-rel :instance? a value))
+
+(defn class-integral?
+  "Same answer as `integral-class?` (true when the class is one of the integral
+   host-runtime classes), the worker computing the equalities."
+  [h]
+  (boolean (some #(class-equals? (oracle/host-handle %) h) integral-classes)))
 
 (def dyn-type-tag
   :skeptic.analysis.types/dyn-type)

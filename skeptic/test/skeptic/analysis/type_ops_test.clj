@@ -1,12 +1,16 @@
 (ns skeptic.analysis.type-ops-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.render :as abr]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.type-algebra :as ata]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
-            [skeptic.test-helpers :refer [is-type= tp]]))
+            [skeptic.test-helpers :refer [is-type= tp]]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (deftest tagged-polymorphic-type-helpers-test
   (let [type-var (at/->TypeVarT tp 'X)
@@ -131,7 +135,7 @@
             (ato/literal-ground-type tp 1.5))
   (is-type= (at/->GroundT tp :int 'Int)
             (ato/literal-ground-type tp 1))
-  (is-type= (at/->GroundT tp {:class "java.math.BigDecimal"} 'BigDecimal)
+  (is-type= (at/->GroundT tp {:class (oracle/host-handle java.math.BigDecimal)} 'BigDecimal)
             (ato/literal-ground-type tp 1M)))
 
 (deftest literal-ground-type-float-test

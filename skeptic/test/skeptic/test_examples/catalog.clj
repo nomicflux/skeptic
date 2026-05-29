@@ -1,5 +1,7 @@
 (ns skeptic.test-examples.catalog
-  (:require [skeptic.test-examples.basics]
+  (:require [skeptic.test-examples.accessor-cases]
+            [skeptic.test-examples.basics]
+            [skeptic.test-examples.call-cases]
             [skeptic.test-examples.collections]
             [skeptic.test-examples.contracts-xns-schema]
             [skeptic.test-examples.contracts-xns-consumer]
@@ -11,23 +13,29 @@
             [skeptic.test-examples.malli-contracts]
             [skeptic.test-examples.nullability-xns-schema]
             [skeptic.test-examples.nullability]
+            [skeptic.test-examples.origin-cases]
             [skeptic.test-examples.predicate-examples]
             [skeptic.test-examples.resolution]
+            [skeptic.test-examples.structural-cases]
             [skeptic.test-examples.var-narrowing]
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
 (def schema-fixture-order
-  [:basics
+  [:accessor-cases
+   :basics
+   :call-cases
    :control-flow
    :collections
    :resolution
+   :structural-cases
    :contracts-xns-schema
    :contracts-xns-consumer
    :contracts-xns-repro
    :contracts
    :nullability-xns-schema
    :nullability
+   :origin-cases
    :fixture-flags
    :java-callable
    :predicate-examples
@@ -37,14 +45,20 @@
   [:malli-contracts])
 
 (def fixture-envs
-  {:basics {:ns 'skeptic.test-examples.basics
+  {:accessor-cases {:ns 'skeptic.test-examples.accessor-cases
+                    :file (File. "test/skeptic/test_examples/accessor_cases.clj")}
+   :basics {:ns 'skeptic.test-examples.basics
             :file (File. "test/skeptic/test_examples/basics.clj")}
+   :call-cases {:ns 'skeptic.test-examples.call-cases
+                :file (File. "test/skeptic/test_examples/call_cases.clj")}
    :control-flow {:ns 'skeptic.test-examples.control-flow
                   :file (File. "test/skeptic/test_examples/control_flow.clj")}
    :collections {:ns 'skeptic.test-examples.collections
                  :file (File. "test/skeptic/test_examples/collections.clj")}
    :resolution {:ns 'skeptic.test-examples.resolution
                 :file (File. "test/skeptic/test_examples/resolution.clj")}
+   :structural-cases {:ns 'skeptic.test-examples.structural-cases
+                      :file (File. "test/skeptic/test_examples/structural_cases.clj")}
    :contracts-xns-schema {:ns 'skeptic.test-examples.contracts-xns-schema
                           :file (File. "test/skeptic/test_examples/contracts_xns_schema.clj")}
    :contracts-xns-consumer {:ns 'skeptic.test-examples.contracts-xns-consumer
@@ -57,6 +71,8 @@
                             :file (File. "test/skeptic/test_examples/nullability_xns_schema.clj")}
    :nullability {:ns 'skeptic.test-examples.nullability
                  :file (File. "test/skeptic/test_examples/nullability.clj")}
+   :origin-cases {:ns 'skeptic.test-examples.origin-cases
+                  :file (File. "test/skeptic/test_examples/origin_cases.clj")}
    :fixture-flags {:ns 'skeptic.test-examples.fixture-flags
                    :file (File. "test/skeptic/test_examples/fixture_flags.clj")}
    :java-callable {:ns 'skeptic.test-examples.java-callable

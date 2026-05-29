@@ -1,11 +1,15 @@
 (ns skeptic.analysis.cast.collection-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as sut]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.value-check :as avc]
             [skeptic.analysis.types :as at]
-            [skeptic.provenance :as prov]))
+            [skeptic.provenance :as prov]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
@@ -37,8 +41,8 @@
         bad-set (at/->SetT tp #{(T s/Int)} false)
         int-g (at/->GroundT tp :int 'Int)
         numeric-dyn (at/NumericDyn tp)
-        double-g (at/->GroundT tp {:class "java.lang.Double"} 'Double)
-        maybe-obj (at/->MaybeT tp (at/->GroundT tp {:class "java.lang.Object"} 'Object))]
+        double-g (at/->GroundT tp {:class (oracle/host-handle Double)} 'Double)
+        maybe-obj (at/->MaybeT tp (at/->GroundT tp {:class (oracle/host-handle Object)} 'Object))]
     (is (= :set (:rule (sut/check-cast source-set target-set))))
     (is (= :set-cardinality-mismatch
            (:reason (sut/check-cast source-set bad-set))))

@@ -1,5 +1,6 @@
 (ns skeptic.analysis.narrowing
   (:require [schema.core :as s]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.conditional-arms :as ca]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at])
@@ -13,11 +14,7 @@
       (= :double g)
       (= :float g)
       (and (map? g) (:class g)
-           (let [^Class c (at/ground-class (:class g))]
-             (and (class? c)
-                  (or (isa? c Number)
-                      (= c Number)
-                      (= c java.lang.Number)))))))
+           (at/class-assignable? (oracle/host-handle Number) (:class g)))))
 
 (defn- ground-matches-number?
   [t]
@@ -28,16 +25,14 @@
 (defn- instance-ground-assignable?
   [ground pred-class]
   (when (and (map? ground) (:class ground))
-    (let [^Class c (at/ground-class (:class ground))
-          ^Class pc (at/ground-class pred-class)]
-      (and (class? c) (class? pc) (.isAssignableFrom pc c)))))
+    (at/class-assignable? pred-class (:class ground))))
 
 (defn- numeric-dyn-instance-classification
   [pred-class]
   (cond
     (nil? pred-class) :unknown
-    (.isAssignableFrom pred-class Number) :matches
-    (.isAssignableFrom Number pred-class) :unknown
+    (at/class-assignable? pred-class (oracle/host-handle Number)) :matches
+    (at/class-assignable? (oracle/host-handle Number) pred-class) :unknown
     :else :does-not-match))
 
 (s/defn classify-leaf-for-predicate? :- s/Keyword
@@ -75,8 +70,8 @@
           :seq? (if (seq? v) :matches :does-not-match)
           :fn? (if (fn? v) :matches :does-not-match)
           :instance?
-          (if-let [pc (at/ground-class (:class pred-info))]
-            (if (instance? pc v) :matches :does-not-match)
+          (if-let [pc (:class pred-info)]
+            (if (at/class-instance? pc v) :matches :does-not-match)
             :unknown)
           :unknown))
 
@@ -97,7 +92,7 @@
           :seq? :does-not-match
           :fn? :does-not-match
           :instance?
-          (if-let [pc (at/ground-class (:class pred-info))]
+          (if-let [pc (:class pred-info)]
             (if (instance-ground-assignable? g pc) :matches :does-not-match)
             :unknown)
           :unknown))
@@ -118,7 +113,7 @@
         :seq? :does-not-match
         :fn? :does-not-match
         :instance?
-        (numeric-dyn-instance-classification (at/ground-class (:class pred-info)))
+        (numeric-dyn-instance-classification (:class pred-info))
         :unknown)
 
       (at/map-type? t) (case pred :map? :matches :nil? :does-not-match :some? :matches :does-not-match)
@@ -160,7 +155,7 @@
     :nil?     (ato/exact-value-type prov nil)
     :number?  (at/->NumericDynT prov)
     :instance? (when-let [c (:class pred-info)]
-                 (at/->GroundT prov {:class c} (symbol c)))
+                 (at/->GroundT prov {:class c} (symbol (oracle/class-name c))))
     nil))
 
 (defn- dyn-narrow-negative

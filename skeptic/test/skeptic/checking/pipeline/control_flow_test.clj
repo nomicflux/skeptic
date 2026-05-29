@@ -4,6 +4,7 @@
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest loop-return-matches-declared-vector-and-map-schemas
   (are [sym] (empty? (ps/result-errors (ps/check-fixture sym)))
     'skeptic.test-examples.control-flow/loop-returns-int-vec-literal

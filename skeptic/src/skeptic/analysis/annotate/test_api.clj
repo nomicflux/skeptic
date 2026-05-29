@@ -5,7 +5,9 @@
             [clojure.walk :as walk]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
-            [skeptic.analysis.annotate.schema :as aas]))
+            [skeptic.analysis.annotate.schema :as aas]
+            [skeptic.worker.client :as wc]
+            [skeptic.analysis.class-oracle :as oracle]))
 
 (s/defn normalize-symbol :- s/Any
   [value :- s/Any]
@@ -73,8 +75,14 @@
   (some (fn [[child-key child]] (when (= child-key key) child)) (:children node)))
 
 (s/defn ast-by-name :- s/Any
+  "Finds the def AST whose name matches `sym` by short (unqualified) name. A
+   `:def` node's `:name` may be a qualified or bare symbol depending on the
+   analyzer pass, so both sides are normalized to their bare name before
+   comparison (matching `analyzed-def-entry`'s `(some-> (:name node) name symbol)`)."
   [asts :- s/Any sym :- s/Any]
-  (some #(when (= sym (aapi/node-name %)) %) asts))
+  (let [short (fn [x] (some-> x name symbol))
+        want (short sym)]
+    (some #(when (= want (short (aapi/node-name %))) %) asts)))
 
 (s/defn node-by-form :- s/Any
   [ast :- s/Any form :- s/Any]
@@ -84,11 +92,18 @@
   [root :- s/Any arity :- s/Any]
   (aapi/arglist-types root arity))
 
-(s/defn annotate-form-loop :- aas/AnnotatedNode
-  ([dict :- s/Any form :- s/Any]
-   (annotate-form-loop dict form {:lang :clj}))
-  ([dict :- s/Any form :- s/Any opts :- s/Any]
-   (aa/annotate-form-loop dict form opts)))
+(s/defn analyze-ns-file :- [aas/AnnotatedNode]
+  "Analyze every top-level form of `source-file` (in ns `ns-sym`) on the live
+   worker, annotate each against `dict`. Returns the annotated ASTs. Requires
+   `oracle/*worker-conn*` bound (via the shared-worker fixture)."
+  [dict :- s/Any ns-sym :- s/Symbol source-file :- s/Any opts :- s/Any]
+  (let [{:keys [entries]} (wc/ask oracle/*worker-conn*
+                                  {:op "analyze-namespace"
+                                   :ns (str ns-sym)
+                                   :source-file (str source-file)})]
+    (mapv (fn [{:keys [ast]}]
+            (aa/annotate-ast dict ast (merge {:ns ns-sym :lang :clj} opts)))
+          entries)))
 
 (s/defn test-local-node :- s/Any
   [sym :- s/Any init :- s/Any]
@@ -104,7 +119,8 @@
 
 (s/defn test-const-node :- s/Any
   [value :- s/Any]
-  {:op :const :form value :val value})
+  (let [v (if (class? value) (oracle/host-handle value) value)]
+    {:op :const :form value :val v}))
 
 (s/defn test-invoke-node :- s/Any
   [fn-node :- s/Any args :- s/Any expected :- s/Any actual :- s/Any]
@@ -125,4 +141,4 @@
 
 (s/defn test-static-call-node :- s/Any
   [class :- s/Any method :- s/Any]
-  {:op :static-call :form (list '. class method) :class class :method method})
+  {:op :static-call :form (list '. class method) :class (oracle/host-handle class) :method method})

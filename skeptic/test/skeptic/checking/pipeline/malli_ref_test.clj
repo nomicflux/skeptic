@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest ref-int-output-success-passes
   (is (empty? (ps/result-errors
                (ps/check-fixture

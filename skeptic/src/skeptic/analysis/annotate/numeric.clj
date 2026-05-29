@@ -10,11 +10,11 @@
   [prov :- provs/Provenance]
   (at/->GroundT prov :bool 'Bool))
 
-(defn- numeric-ground-class
+(defn- numeric-ground-handle
   [type]
   (let [ground (:ground (ato/normalize type))]
     (when (and (map? ground) (:class ground))
-      (at/ground-class (:class ground)))))
+      (:class ground))))
 
 (s/defn integral-type? :- s/Bool
   [type :- at/SemanticType]
@@ -22,7 +22,7 @@
     (cond
       (and (at/ground-type? type) (= :int (:ground type))) true
       (and (at/ground-type? type) (map? (:ground type)) (:class (:ground type)))
-      (at/integral-class? (:class (:ground type)))
+      (at/class-integral? (:class (:ground type)))
       (and (at/value-type? type) (integer? (:value type))) true
       (at/refinement-type? type) (integral-type? (:base type))
       (at/intersection-type? type) (every? integral-type? (:members type))
@@ -38,7 +38,7 @@
       (at/numeric-dyn-type? type) true
       (and (at/ground-type? type) (= :double (:ground type))) true
       (and (at/ground-type? type) (= :float (:ground type))) true
-      (and (at/ground-type? type) (numeric-ground-class type)) true
+      (and (at/ground-type? type) (numeric-ground-handle type)) true
       (and (at/value-type? type) (number? (:value type))) true
       (at/refinement-type? type) (numeric-type? (:base type))
       (at/intersection-type? type) (every? numeric-type? (:members type))
@@ -47,7 +47,7 @@
 (s/defn non-int-numeric-type? :- s/Bool
   [type :- at/SemanticType]
   (let [type (ato/normalize type)
-        klass (numeric-ground-class type)]
+        klass (numeric-ground-handle type)]
     (cond
       (and (at/value-type? type) (number? (:value type)) (not (integer? (:value type))))
       true
@@ -59,7 +59,7 @@
       true
 
       (and (at/ground-type? type) klass)
-      (not (at/integral-class? klass))
+      (not (at/class-integral? klass))
 
       (at/refinement-type? type)
       (non-int-numeric-type? (:base type))
@@ -83,7 +83,7 @@
       (and (at/ground-type? type) (= :float (:ground type)))
       type
 
-      (and (at/ground-type? type) (numeric-ground-class type))
+      (and (at/ground-type? type) (numeric-ground-handle type))
       type
 
       (at/refinement-type? type)

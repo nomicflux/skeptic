@@ -2,6 +2,7 @@
   (:require [schema.core :as s]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.descriptors :as descriptors]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis.type-ops :as ato]
@@ -54,7 +55,7 @@
       (= schema s/Bool) (at/->GroundT prov :bool 'Bool)
       (and (class? schema)
            (not (broad-dynamic-schema? schema)))
-      (at/->GroundT prov {:class (.getName ^Class schema)} (abc/schema-explain schema)))))
+      (at/->GroundT prov {:class (oracle/class-handle schema)} (abc/schema-explain schema)))))
 
 (defn- invalid-schema-input
   [value]

@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest guarded-keys-nullability-contract
   (let [results (ps/check-fixture 'skeptic.test-examples.nullability/guarded-keys-caller)]
     (is (empty? (ps/result-errors results))

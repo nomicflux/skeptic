@@ -9,6 +9,7 @@
                  (empty? (:errors r))))
           results))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest schema-pred-success-fixtures
   (testing "(s/pred string?) input"
     (is (no-errors? (ps/check-fixture

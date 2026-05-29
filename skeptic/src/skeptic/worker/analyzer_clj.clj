@@ -8,8 +8,9 @@
             [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.ast :as ana.ast]
             [clojure.tools.analyzer.env :as ana.env]
-            [clojure.tools.analyzer.jvm :as ana.jvm])
-  (:import [java.io PushbackReader]))
+            [clojure.tools.analyzer.jvm :as ana.jvm]
+            [clojure.tools.reader :as tr]
+            [clojure.tools.reader.reader-types :as rt]))
 
 (def ^:private skeptic-passes-opts
   (assoc ana.jvm/default-passes-opts
@@ -72,22 +73,28 @@
            (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts})))))))
 
 (defn- read-top-forms
-  "Read every top-level form of `source-file` with the real Clojure reader
-   (reader conditionals on the :clj branch). Regex/fn/quote literals read
-   natively here, unlike clojure.edn."
-  [source-file]
-  (with-open [reader (PushbackReader. (io/reader source-file))]
-    (->> (repeatedly #(read {:read-cond :allow :features #{:clj} :eof ::eof} reader))
-         (take-while #(not= ::eof %))
-         doall)))
+  "Read every top-level form of `source-file` with tools.reader's
+   source-logging reader (reader conditionals on the :clj branch), so each
+   form carries :source/:line/:column metadata the host needs for blame and
+   location. Regex/fn/quote literals read natively here, unlike clojure.edn.
+   `*ns*` is bound to the (already-required) source namespace so auto-resolved
+   `::keyword`s resolve against it, matching how Clojure loads the file."
+  [tn source-file]
+  (binding [*ns* tn]
+    (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
+      (->> (repeatedly #(tr/read {:read-cond :allow :features #{:clj} :eof ::eof} reader))
+           (take-while #(not= ::eof %))
+           doall))))
 
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
    the namespace first so its refers/aliases/imports resolve (matching the host
    pipeline's require-before-analyze contract). The worker reads its own source;
-   no form crosses the wire. Returns `{:asts [...]}` of raw tools.analyzer.jvm
-   ASTs (`:const` `:type` stripped)."
+   no form crosses the wire. Returns `{:entries [{:source-form form :ast ast}
+   ...]}` pairing each read top-level form with its raw tools.analyzer.jvm AST
+   (`:const` `:type` stripped); the host projects each entry for the wire."
   [ns-sym source-file]
   (require ns-sym)
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
-    {:asts (mapv #(analyze % opts) (read-top-forms source-file))}))
+    {:entries (mapv (fn [form] {:source-form form :ast (analyze form opts)})
+                    (read-top-forms (target-ns ns-sym) source-file))}))

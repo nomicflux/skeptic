@@ -1,14 +1,19 @@
 (ns skeptic.checking.pipeline.named-fold-contract-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [skeptic.analysis.annotate.api :as aapi]
+            [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.bridge.render :as render]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.checking.pipeline :as pipeline]
             [skeptic.test-examples.named-fold-contract-probe]
             [skeptic.test-helpers :refer [some!]]
-            [skeptic.test-support.project-state :as test-state])
+            [skeptic.test-support.project-state :as test-state]
+            [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def fixture-file (File. "test/skeptic/test_examples/named_fold_contract_probe.clj"))
 (def fixture-ns 'skeptic.test-examples.named-fold-contract-probe)
@@ -23,14 +28,17 @@
 
 (defn- fixture-project-state
   []
-  (pipeline/project-state {} {fixture-ns fixture-file}))
+  (pipeline/project-state {:worker-conn oracle/*worker-conn*} {fixture-ns fixture-file}))
 
 (defn- analysis-env
   []
-  (let [exprs (pipeline/ns-exprs fixture-file)
-        {:keys [dict]} (test-state/admit-ns fixture-ns fixture-file)
-        analyzed (pipeline/analyze-source-exprs dict fixture-ns fixture-file exprs {} {} :clj)]
-    (assoc analyzed :dict dict)))
+  (let [{:keys [dict]} (test-state/admit-ns fixture-ns fixture-file)
+        analyzed (aat/analyze-ns-file dict fixture-ns fixture-file {})
+        resolved-defs (into {} (keep #(aapi/analyzed-def-entry fixture-ns %)) analyzed)]
+    {:analyzed analyzed
+     :resolved analyzed
+     :resolved-defs resolved-defs
+     :dict dict}))
 
 (defn- actual-output-type
   [{:keys [analyzed]} target-sym]

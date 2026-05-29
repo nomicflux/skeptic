@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is]]
             [skeptic.checking.pipeline.support :as ps]))
 
+(clojure.test/use-fixtures :once ps/with-worker)
 (deftest malli-map-schema-falls-back-to-dyn-no-exception
   (is (every? #(not= :exception (:report-kind %))
               (ps/check-fixture 'skeptic.test-examples.malli-contracts/map-dyn-caller

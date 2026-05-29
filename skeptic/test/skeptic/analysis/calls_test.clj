@@ -1,25 +1,41 @@
 (ns skeptic.analysis.calls-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
-            [skeptic.checking.pipeline :as checking]
+            [skeptic.test-examples.catalog :as catalog]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-helpers :refer [is-type= T tp]]
+            [skeptic.test-helpers :refer [is-type= T]]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.static-call-examples])
   (:import [java.io File]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
 (def static-call-dict
-  (merge (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil))
-         {'user (T skeptic.static-call-examples/UserDesc)
-          'counts (T skeptic.static-call-examples/MaybeCount)
-          'left (T skeptic.static-call-examples/LeftFields)
-          'right (T skeptic.static-call-examples/RightFields)}))
+  (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil)))
+
+(def cc-dict (catalog/typed-test-example-entries))
+(def cc-ns 'skeptic.test-examples.call-cases)
+
+(defn- def-body
+  "Returns the value-node body of fixture def `name` in worker-analyzed `asts`."
+  [asts name]
+  (let [def-node (atst/ast-by-name asts name)
+        method (first (aapi/function-methods (aapi/def-init-node def-node)))]
+    (aapi/method-body method)))
+
+(defn- cc-body
+  [name]
+  (def-body (aat/analyze-ns-file cc-dict cc-ns (atst/fixture-file-for-ns cc-ns) {}) name))
+
+(defn- scc-asts []
+  (aat/analyze-ns-file static-call-dict 'skeptic.static-call-examples static-call-examples-file {}))
 
 (defn assert-typed-call-metadata-only
   [node]
@@ -43,16 +59,10 @@
 
 (deftest invoke-and-static-application-roots-test
   (testing "do, static-call, and invoke roots"
-    (let [do-form (atst/analyze-form '(do (str "hello") (+ 1 2)))
-          plus-form (atst/analyze-form '(+ 1 x) (atst/locals 'x))
-          local-invoke (atst/analyze-form '(f)
-                                          (atst/local-types {'f {:type (T (s/make-fn-schema s/Int [[]]))
-                                                                 :output-type (T s/Int)
-                                                                 :arglists {0 {:arglist []
-                                                                               :count 0
-                                                                               :types []}}}}))
-          nested-invoke (atst/analyze-form '((f 1) 3 4)
-                                           (atst/locals 'f))]
+    (let [do-form (cc-body 'cc-do-roots)
+          plus-form (cc-body 'cc-plus-local)
+          local-invoke (cc-body 'cc-zero-arity-invoke)
+          nested-invoke (cc-body 'cc-nested-invoke)]
       (is (= :do (aapi/node-op do-form)))
       (is (= :static-call (aapi/node-op plus-form)))
       (is (= :invoke (aapi/node-op local-invoke)))
@@ -60,10 +70,9 @@
 
 (deftest typed-application-call-test
   (testing "application types"
-    (let [dynamic-call (atst/analyze-form '(+ 1 2))
-          unknown-invoke (atst/analyze-form '(f 1 2)
-                                            (atst/locals 'f))
-          known-call (atst/analyze-form '(skeptic.test-examples.basics/int-add 1 2))]
+    (let [dynamic-call (cc-body 'cc-dynamic-plus)
+          unknown-invoke (cc-body 'cc-unknown-invoke)
+          known-call (cc-body 'cc-known-call)]
       (let [args (aapi/call-actual-argtypes dynamic-call)]
         (is (= 2 (count args)))
         (is-type= (T s/Int) (nth args 0))
@@ -86,19 +95,19 @@
 
 (deftest analyse-application-test
   (testing "original partially unknown application setup"
-    (let [root (atst/analyze-form '(+ 1 x) (atst/locals 'x))]
+    (let [root (cc-body 'cc-plus-local)]
       (is (= :static-call (aapi/node-op root)))
       (let [args (aapi/call-actual-argtypes root)]
         (is (= 2 (count args)))
         (is-type= (T s/Int) (nth args 0))
         (is-type= (T s/Any) (nth args 1)))))
   (testing "original zero-arity application setup"
-    (let [root (atst/analyze-form '(f) (atst/locals 'f))]
+    (let [root (cc-body 'cc-zero-arity-invoke)]
       (is (= :invoke (aapi/node-op root)))
       (is (= 0 (count (aapi/call-actual-argtypes root))))
       (assert-typed-call-metadata-only root)))
   (testing "original nested application setup"
-    (let [root (atst/analyze-form '((f 1) 3 4) (atst/locals 'f))]
+    (let [root (cc-body 'cc-nested-invoke)]
       (is (= :invoke (aapi/node-op root)))
       (is (= 2 (count (aapi/call-actual-argtypes root))))
       (is (= '(f 1) (aapi/node-form (aapi/call-fn-node root))))
@@ -106,7 +115,7 @@
 
 (deftest attach-type-info-application-test
   (testing "original generic application typed setup"
-    (let [root (atst/analyze-form {} '(+ 1 2))]
+    (let [root (cc-body 'cc-dynamic-plus)]
       (let [args (aapi/call-actual-argtypes root)]
         (is (= 2 (count args)))
         (is-type= (T s/Int) (nth args 0))
@@ -114,8 +123,7 @@
       (is-type= atst/numeric-dyn (aapi/node-type root))
       (assert-typed-call-metadata-only root)))
   (testing "original known application typed setup"
-    (let [root (atst/analyze-form atst/typed-test-examples-dict
-                                  '(skeptic.test-examples.basics/int-add 1 2))]
+    (let [root (cc-body 'cc-known-call)]
       (let [args (aapi/call-actual-argtypes root)]
         (is (= 2 (count args)))
         (is-type= (T s/Int) (nth args 0))
@@ -128,31 +136,11 @@
       (assert-typed-call-metadata-only root))))
 
 (deftest canonicalized-callable-entry-test
-  (let [symbol-type (typed-decls/desc->type tp {:name "f"
-                                                :schema (s/make-fn-schema clojure.lang.Symbol
-                                                                          [[(s/one java.lang.String 'arg)]])}
-                                            nil nil)
-        keyword-type (typed-decls/desc->type tp {:name "f"
-                                                 :schema (s/make-fn-schema clojure.lang.Keyword
-                                                                           [[(s/one s/Any 'arg)]])}
-                                             nil nil)
-        int-type (typed-decls/desc->type tp {:name "f"
-                                             :schema (s/make-fn-schema java.lang.Integer
-                                                                       [[(s/one s/Any 'arg)]])}
-                                         nil nil)
-        symbol-call (atst/analyze-form {}
-                                       '(f "x")
-                                       {:ns 'skeptic.analysis-test
-                                        :locals {'f symbol-type}})
-        keyword-call (atst/analyze-form {}
-                                        '(f :x)
-                                        {:ns 'skeptic.analysis-test
-                                         :locals {'f keyword-type}})
-        int-call (atst/analyze-form {}
-                                    '(f :x)
-                                    {:ns 'skeptic.analysis-test
-                                     :locals {'f int-type}})
-        quoted-symbol (atst/analyze-form '(quote foo))]
+  (let [asts (aat/analyze-ns-file cc-dict cc-ns (atst/fixture-file-for-ns cc-ns) {})
+        symbol-call (def-body asts 'cc-symbol-call)
+        keyword-call (def-body asts 'cc-keyword-call)
+        int-call (def-body asts 'cc-int-call)
+        quoted-symbol (def-body asts 'cc-quoted-symbol)]
     (is-type= (T s/Symbol) (aapi/node-type symbol-call))
     (let [args (aapi/call-expected-argtypes symbol-call)]
       (is (= 1 (count args)))
@@ -165,52 +153,30 @@
     (assert-typed-call-metadata-only int-call)))
 
 (deftest static-call-analysis-test
-  (testing "get returns declared field types from typed maps"
-    (let [required-get (atst/analyze-form static-call-dict
-                                          '(get user :name)
-                                          {:ns 'skeptic.analysis-test
-                                           :locals {'user {:type (T skeptic.static-call-examples/UserDesc)}}})
-          optional-get (atst/analyze-form static-call-dict
-                                          '(get user :nickname)
-                                          {:ns 'skeptic.analysis-test
-                                           :locals {'user {:type (T skeptic.static-call-examples/UserDesc)}}})
-          defaulted-get (atst/analyze-form static-call-dict
-                                           '(get counts :count "zero")
-                                           {:ns 'skeptic.analysis-test
-                                            :locals {'counts {:type (T skeptic.static-call-examples/MaybeCount)}}})]
-      (is-type= (T s/Str) (aapi/node-type required-get))
-      (is-type= (T (s/maybe s/Str)) (aapi/node-type optional-get))
-      (is-type= (T (sb/join s/Int s/Str))
-                (aapi/node-type defaulted-get))))
+  (let [asts (scc-asts)]
+    (testing "get returns declared field types from typed maps"
+      (let [required-get (def-body asts 'required-name)
+            optional-get (def-body asts 'optional-nickname)
+            defaulted-get (def-body asts 'bad-count-default)]
+        (is-type= (T s/Str) (aapi/node-type required-get))
+        (is-type= (T (s/maybe s/Str)) (aapi/node-type optional-get))
+        (is-type= (T (sb/join s/Int s/Str))
+                  (aapi/node-type defaulted-get))))
 
-  (testing "merge returns merged typed maps"
-    (let [merged (atst/analyze-form static-call-dict
-                                    '(merge left right)
-                                    {:ns 'skeptic.analysis-test
-                                     :locals {'left {:type (T skeptic.static-call-examples/LeftFields)}
-                                              'right {:type (T skeptic.static-call-examples/RightFields)}}})]
-      (is-type= (T {:a s/Int :b s/Int})
-                (aapi/node-type merged))))
+    (testing "merge returns merged typed maps"
+      (let [merged (def-body asts 'merge-fields)]
+        (is-type= (T {:a s/Int :b s/Int})
+                  (aapi/node-type merged))))
 
-  (testing "rebuilt maps stay in semantic map format"
-    (let [root (atst/analyze-form static-call-dict
-                                  '{:name (get user :name)
-                                    :nickname (get user :nickname)}
-                                  {:ns 'skeptic.analysis-test
-                                   :locals {'user {:type (T skeptic.static-call-examples/UserDesc)}}})]
-      (is-type= (T {:name s/Str
-                         :nickname (s/maybe s/Str)})
-                (aapi/node-type root)))))
+    (testing "rebuilt maps stay in semantic map format"
+      (let [root (def-body asts 'rebuilt-user)]
+        (is-type= (T {:name s/Str
+                      :nickname (s/maybe s/Str)})
+                  (aapi/node-type root))))))
 
 (deftest resolved-static-get-feeds-parent-call-test
   (testing "resolved static get feeds final reduced field types into parent calls"
-    (let [dict (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil))
-          {:keys [resolved]} (checking/analyze-source-exprs dict
-                                                            'skeptic.static-call-examples
-                                                            static-call-examples-file
-                                                            (atst/source-exprs-in 'skeptic.static-call-examples static-call-examples-file)
-                                                            {} {} :clj)
-          failure-ast (atst/ast-by-name resolved 'nested-multi-step-failure)
+    (let [failure-ast (atst/ast-by-name (scc-asts) 'nested-multi-step-failure)
           call-node (atst/node-by-form failure-ast '(nested-multi-step-takes-str (get (nested-multi-step-g) :value)))]
       (let [args (aapi/call-actual-argtypes call-node)]
         (is (= 1 (count args)))
@@ -218,20 +184,13 @@
       (assert-typed-call-metadata-only call-node))))
 
 (deftest attach-type-info-local-fn-invocation-test
-  (testing "local fn invocation through int-add"
-    (let [root (atst/analyze-form atst/typed-test-examples-dict
-                                  '(let [f (fn [x] nil)]
-                                     (skeptic.test-examples.basics/int-add 1 (f x)))
-                                  (atst/locals 'x))]
+  (let [root (cc-body 'cc-local-fn-invocation)
+        inner (aapi/find-node root #(= '(f x) (aapi/node-form %)))]
+    (testing "local fn invocation through int-add"
       (is-type= (T s/Int) (aapi/node-type root))
-      (is-type= (T (s/eq nil))
-                (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %)))))
-      (assert-typed-call-metadata-only (aapi/find-node root #(= '(f x) (aapi/node-form %))))))
-  (testing "local fn invocation keeps callable metadata with outer local"
-    (let [root (atst/analyze-form '(let [f (fn [x] nil)]
-                                     (skeptic.test-examples.basics/int-add 1 (f x)))
-                                  (atst/locals 'x))]
+      (is-type= (T (s/eq nil)) (aapi/node-type inner))
+      (assert-typed-call-metadata-only inner))
+    (testing "local fn invocation keeps callable metadata with outer local"
       (is-type= (T s/Int) (aapi/node-type root))
-      (is-type= (T (s/eq nil))
-                (aapi/node-type (aapi/find-node root #(= '(f x) (aapi/node-form %)))))
-      (assert-typed-call-metadata-only (aapi/find-node root #(= '(f x) (aapi/node-form %)))))))
+      (is-type= (T (s/eq nil)) (aapi/node-type inner))
+      (assert-typed-call-metadata-only inner))))

@@ -1,16 +1,18 @@
 (ns skeptic.analysis-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.types :as at]
             [skeptic.checking.pipeline :as checking]
-            [skeptic.source :as source]
             [skeptic.test-examples.catalog :as catalog]
             [skeptic.test-examples.contracts :as contracts]
             [skeptic.test-helpers :refer [is-type= T tp]]
-            [skeptic.test-support.project-state :as test-state])
+            [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (defn set-cache-value
   [& _args]
@@ -93,27 +95,11 @@
       (throw (ex-info "Unknown fixture namespace"
                       {:namespace ns-sym}))))
 
-(defn locals
-  [& syms]
-  {:locals (into {}
-                 (map (fn [sym] [sym (T s/Any)]))
-                 syms)})
-
-(defn local-types
-  [m]
-  {:locals m})
-
-(defn analyze-form
-  ([form]
-   (aat/annotate-form-loop analysis-dict form {:ns 'skeptic.analysis-test :lang :clj}))
-  ([arg1 arg2]
-   (if (map? arg1)
-     (aat/annotate-form-loop arg1 arg2 {:ns 'skeptic.analysis-test :lang :clj})
-     (aat/annotate-form-loop analysis-dict arg1 (merge {:ns 'skeptic.analysis-test :lang :clj}
-                                                       arg2))))
-  ([dict form opts]
-   (aat/annotate-form-loop dict form (merge {:ns 'skeptic.analysis-test :lang :clj}
-                                            opts))))
+(defn analyze-ns-file
+  "Worker-backed entrypoint: analyze every top-level form of `ns-sym`'s fixture
+   file on the live worker, annotate each against `dict`. Returns annotated ASTs."
+  [dict ns-sym]
+  (aat/analyze-ns-file dict ns-sym (fixture-file-for-ns ns-sym) {}))
 
 (defn ast-by-name
   [asts sym]
@@ -123,48 +109,50 @@
   [ast form]
   (aat/node-by-form ast form))
 
-(defmacro source-exprs-in
-  [ns-sym file]
-  `(checking/block-in-ns ~ns-sym ~file
-                         (checking/ns-exprs ~file)))
+(defn resolved-defs-of
+  "Builds the `{qsym entry}` resolved-defs map (consumed by
+   `aapi/resolved-def-output-type`) from worker-annotated ASTs of `ns-sym`."
+  [dict ns-sym]
+  (into {} (keep #(aapi/analyzed-def-entry ns-sym %)) (analyze-ns-file dict ns-sym)))
 
 (deftest restored-resolution-contract-test
-  (testing "unannotated helper lookup from collected entries alone stays plain Any"
-    (let [dict (catalog/typed-test-example-entries)
-          form (->> 'skeptic.test-examples.resolution/unannotated-local-helper-g
-                    (source/get-fn-code {})
-                    read-string)
-          ast (aat/annotate-form-loop dict form {:ns 'skeptic.test-examples.resolution :lang :clj})
-          call-node (node-by-form ast '(unannotated-local-helper-f))]
-      (is-type= (T s/Any) (aapi/node-type call-node))
-      (is (not (at/union-type? (aapi/node-type call-node))))))
+  (let [fixture-ns 'skeptic.test-examples.resolution]
+    (testing "unannotated helper lookup from collected entries alone stays plain Any"
+      (let [dict (catalog/typed-test-example-entries)
+            asts (analyze-ns-file dict fixture-ns)
+            g-ast (ast-by-name asts 'unannotated-local-helper-g)
+            call-node (node-by-form g-ast '(unannotated-local-helper-f))]
+        (is-type= (T s/Any) (aapi/node-type call-node))
+        (is (not (at/union-type? (aapi/node-type call-node))))))
 
-  (testing "declared helper chains use declared outputs exactly"
-    (let [dict (catalog/typed-test-example-entries)
-          fixture-ns 'skeptic.test-examples.resolution
-          fixture-file (fixture-file-for-ns fixture-ns)
-          {:keys [resolved resolved-defs]} (checking/analyze-source-exprs dict
-                                                                          fixture-ns
-                                                                          fixture-file
-                                                                          (source-exprs-in fixture-ns fixture-file)
-                                                                          {} {} :clj)
-          failure-ast (ast-by-name resolved 'flat-multi-step-failure)
-          call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
-      (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f))
-      (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g))
-      (let [args (aapi/call-actual-argtypes call-node)]
-        (is (= 1 (count args)))
-        (is-type= (T s/Int) (first args)))
-      (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
-                                                              'skeptic.test-examples.resolution/flat-multi-step-g)))))))
+    (testing "declared helper chains use declared outputs exactly"
+      (let [dict (catalog/typed-test-example-entries)
+            asts (analyze-ns-file dict fixture-ns)
+            resolved-defs (resolved-defs-of dict fixture-ns)
+            failure-ast (ast-by-name asts 'flat-multi-step-failure)
+            call-node (node-by-form failure-ast '(flat-multi-step-takes-str (flat-multi-step-g)))]
+        (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-f))
+        (is-type= (T s/Int) (aapi/resolved-def-output-type resolved-defs 'skeptic.test-examples.resolution/flat-multi-step-g))
+        (let [args (aapi/call-actual-argtypes call-node)]
+          (is (= 1 (count args)))
+          (is-type= (T s/Int) (first args)))
+        (is (not (at/union-type? (aapi/resolved-def-output-type resolved-defs
+                                                                'skeptic.test-examples.resolution/flat-multi-step-g))))))))
+
+(defn- worker-opts
+  []
+  {:worker-conn oracle/*worker-conn*})
+
+(defn- accessor-summaries-of
+  [ns-sym]
+  (:accessor-summaries (checking/project-state (worker-opts)
+                                               {ns-sym (fixture-file-for-ns ns-sym)})))
 
 (deftest accessor-helper-resolution-contract-test
   (let [contracts-ns 'skeptic.test-examples.contracts
-        contracts-file (fixture-file-for-ns contracts-ns)
-        nullability-ns 'skeptic.test-examples.nullability
-        nullability-file (fixture-file-for-ns nullability-ns)]
+        nullability-ns 'skeptic.test-examples.nullability]
     (testing "accessor summaries are emitted only for supported unary projection helpers"
-      (let [summaries (:accessor-summaries (checking/project-state {} {contracts-ns contracts-file}))
+      (let [summaries (accessor-summaries-of contracts-ns)
             choose-summary (get summaries 'skeptic.test-examples.contracts/choose)]
         (is (= {:kind :unary-map-projection :path [{:value :k}]}
                (get summaries 'skeptic.test-examples.contracts/vtype)))
@@ -173,24 +161,16 @@
         (is (= :a (:default choose-summary)))
         (is (= :keyword (:result-transform choose-summary)))
         (is (= #{:a :b} (set (:values choose-summary)))))
-      (is (nil? (get (:accessor-summaries (checking/project-state
-                                            {} {nullability-ns nullability-file}))
+      (is (nil? (get (accessor-summaries-of nullability-ns)
                      'skeptic.test-examples.nullability/non-null-transform)))))
 
   (testing "prepass exposes helper accessor summaries to later case narrowing"
     (let [dict (catalog/typed-test-example-entries)
           fixture-ns 'skeptic.test-examples.contracts
-          fixture-file (fixture-file-for-ns fixture-ns)
-          accessor-summaries (:accessor-summaries (checking/project-state
-                                                   {} {fixture-ns fixture-file}))
-          form (->> 'skeptic.test-examples.contracts/conditional-dispatch-success
-                    (source/get-fn-code {})
-                    read-string)
-          ast (first (:resolved (checking/analyze-source-exprs dict
-                                                               fixture-ns
-                                                               fixture-file
-                                                               [form]
-                                                               accessor-summaries {} :clj)))
+          accessor-summaries (accessor-summaries-of fixture-ns)
+          asts (aat/analyze-ns-file dict fixture-ns (fixture-file-for-ns fixture-ns)
+                                    {:accessor-summaries accessor-summaries})
+          ast (ast-by-name asts 'conditional-dispatch-success)
           handle-a (aapi/find-node ast #(and (aapi/call-node? %)
                                              (= '(handle-a v) (aapi/node-form %))))
           handle-b (aapi/find-node ast #(and (aapi/call-node? %)
@@ -199,19 +179,12 @@
       (is-type= (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b)))))
 
   (testing "classifier case narrowing crosses helper function boundaries"
-    (let [fixture-ns 'skeptic.test-examples.contracts
-          fixture-file (fixture-file-for-ns fixture-ns)
-          accessor-summaries (:accessor-summaries (checking/project-state
-                                                   {} {fixture-ns fixture-file}))
-          {dict :dict} (test-state/admit-ns fixture-ns fixture-file)
-          form (->> 'skeptic.test-examples.contracts/chooses-conditional-success
-                    (source/get-fn-code {})
-                    read-string)
-          ast (first (:resolved (checking/analyze-source-exprs dict
-                                                               fixture-ns
-                                                               fixture-file
-                                                               [form]
-                                                               accessor-summaries {} :clj)))
+    (let [dict (catalog/typed-test-example-entries)
+          fixture-ns 'skeptic.test-examples.contracts
+          accessor-summaries (accessor-summaries-of fixture-ns)
+          asts (aat/analyze-ns-file dict fixture-ns (fixture-file-for-ns fixture-ns)
+                                    {:accessor-summaries accessor-summaries})
+          ast (ast-by-name asts 'chooses-conditional-success)
           f-a (aapi/find-node ast #(and (aapi/call-node? %)
                                         (= '(f-a x) (aapi/node-form %))))
           f-b (aapi/find-node ast #(and (aapi/call-node? %)

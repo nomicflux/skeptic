@@ -4,6 +4,7 @@
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.value :as av]
@@ -225,7 +226,7 @@
 (s/defn lazy-seq-new-type :- (s/maybe at/SemanticType)
   [class-node :- aas/AnnotatedNode, args :- [TypedNode]]
   (when (and (aapi/const-node? class-node)
-             (= LazySeq (:val class-node)))
+             (at/class-equals? (oracle/host-handle LazySeq) (:val class-node)))
     (let [fn-arg (first args)
           prov (ato/derive-prov (:type fn-arg))
           elem
