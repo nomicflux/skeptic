@@ -109,8 +109,9 @@
   `:arglists` var-meta, but every positional input carries its name as the
   `s/one` label, so the arglist is reconstructable from the input schema."
   [input-form :- s/Any]
-  (when (vector? input-form)
-    (vec (keep one-entry-arg-name input-form))))
+  (if (vector? input-form)
+    (vec (keep one-entry-arg-name input-form))
+    []))
 
 (s/defn ^:private resolve-alias-sym :- s/Symbol
   [sym :- s/Symbol]

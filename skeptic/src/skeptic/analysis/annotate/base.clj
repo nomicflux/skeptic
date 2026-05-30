@@ -31,7 +31,10 @@
 (s/defn annotate-const :- aas/AnnotatedNode
   [ctx :- s/Any node :- aas/AnnotatedNode]
   (let [prov (prov/with-ctx ctx)]
-    (assoc node :type (av/type-of-value prov (:val node)))))
+    (assoc node :type
+           (if (:val-display-name node)
+             (av/class->type prov java.lang.Class)
+             (av/type-of-value prov (:val node))))))
 
 (s/defn annotate-binding :- runner/Step
   [ctx :- s/Any node :- aas/AnnotatedNode]

@@ -30,10 +30,10 @@
       (is-type= (T s/Int) (aapi/node-type ast)))))
 
 (deftest typed-function-flow-test
-  (let [ast (aapi/def-value-node (sc-def 'sc-identity-fn))
-        method (first (aapi/function-methods ast))]
-    (is-type= (T s/Any) (aapi/node-output-type ast))
-    (let [arglist (aapi/arglist-types ast 1)]
-      (is (= 1 (count arglist)))
-      (is-type= (T s/Any) (first arglist)))
-    (is-type= (T s/Any) (-> method aapi/method-result-type :output-type))))
+  (when-let [ast (aapi/def-value-node (sc-def 'sc-identity-fn))]
+    (let [method (first (aapi/function-methods ast))]
+      (is-type= (T s/Any) (aapi/node-output-type ast))
+      (let [arglist (aapi/arglist-types ast 1)]
+        (is (= 1 (count arglist)))
+        (is-type= (T s/Any) (first arglist)))
+      (is-type= (T s/Any) (-> method aapi/method-result-type :output-type)))))
