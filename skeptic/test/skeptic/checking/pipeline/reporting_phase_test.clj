@@ -68,6 +68,49 @@
     (is (= :schema (prov/source (get provenance 'skeptic.static-call-examples/bad-rebuilt-user))))
     (is (= :inferred (prov/source (get provenance 'skeptic.static-call-examples/nested-multi-step-failure))))))
 
+(defn- raw-ast-seq
+  "Walk a raw (un-annotated) projected AST node, yielding every nested node map
+   reachable through :children slots. Avoids the annotate-only accessors so it
+   can inspect a freshly-received :clj-state AST."
+  [node]
+  (when (and (map? node) (:op node))
+    (cons node
+          (mapcat (fn [k]
+                    (let [v (get node k)]
+                      (cond
+                        (and (map? v) (:op v)) (raw-ast-seq v)
+                        (and (vector? v) (every? map? v)) (mapcat raw-ast-seq v)
+                        :else nil)))
+                  (:children node)))))
+
+(deftest ^:probe worker-projected-form-metadata-survives-the-wire
+  ;; PROBE for #4: prove whether :form metadata (:line/:source) attached by the
+  ;; worker's source-logging reader survives the worker->host nREPL edn wire.
+  ;; Inspects the RAW received AST in :clj-state (real worker, production path).
+  (let [ps (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)
+        entries (some-> (:clj-state ps) (get ps/static-call-examples-file) :entries)
+        ;; The raw top-level def form the worker read with the source-logging
+        ;; reader — on the worker side this carries :source/:line. Check the
+        ;; received :source-form AND a real user :invoke node inside its :ast.
+        nested-entry (some #(when (and (seq? (:source-form %))
+                                       (= 'nested-multi-step-failure
+                                          (second (:source-form %))))
+                              %)
+                           entries)
+        user-invoke (some #(when (and (= :invoke (:op %))
+                                      (seq? (:form %))
+                                      (not= 'clojure.core/in-ns (first (:form %))))
+                             %)
+                          (raw-ast-seq (:ast nested-entry)))]
+    (is (some? nested-entry) "expected the nested-multi-step-failure entry")
+    (is (some? user-invoke) "expected a real user :invoke node in its :ast")
+    (is (seq (meta (:source-form nested-entry)))
+        (str ":source-form lost its worker-attached meta on the wire. meta="
+             (pr-str (meta (:source-form nested-entry)))))
+    (is (seq (meta (:form user-invoke)))
+        (str "received user :invoke :form carries NO metadata — wire stripped it. form="
+             (pr-str (:form user-invoke)) " meta=" (pr-str (meta (:form user-invoke)))))))
+
 (deftest check-results-carry-cast-metadata
   (let [results (:results (sut/check-ns (ps/project-state-for 'skeptic.static-call-examples ps/static-call-examples-file)
                                         'skeptic.static-call-examples

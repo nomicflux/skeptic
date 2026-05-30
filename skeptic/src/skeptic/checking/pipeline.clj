@@ -29,7 +29,8 @@
             [skeptic.typed-decls :as typed-decls]
             [skeptic.typed-decls.malli :as typed-decls.malli]
             [skeptic.analysis.predicate-descriptor :as pd]
-            [skeptic.worker.client :as wc])
+            [skeptic.worker.client :as wc]
+            [skeptic.worker.wire :as wire])
   (:import [java.io File]
            [skeptic.analysis.types ConditionalTRec FnMethodTRec MapTRec]))
 
@@ -855,6 +856,16 @@
           {:loaded [] :load-failures {}}
           nss-with-source-files))
 
+(defn- reattach-entry-meta
+  "Replay the sibling meta vectors the worker shipped (form metadata cannot ride
+   the edn transport) back onto an entry's `:source-form` and `:ast`, then drop
+   the `-meta` carriers so the stored entry keeps its `{:source-form :ast}`
+   shape. See `skeptic.worker.wire/apply-form-meta`."
+  [{:keys [source-form source-form-meta ast ast-meta] :as entry}]
+  (cond-> (dissoc entry :source-form-meta :ast-meta)
+    source-form-meta (assoc :source-form (wire/apply-form-meta source-form source-form-meta))
+    ast-meta         (assoc :ast (wire/apply-form-meta ast ast-meta))))
+
 (defn preload-clj-state!
   "Analyze every clj/cljc source-file via the WORKER's analyze-namespace op
   (the worker reads the project's own source on the project classpath; no form
@@ -871,12 +882,36 @@
            (let [{:keys [entries]} (wc/ask conn {:op "analyze-namespace"
                                                  :ns (str ns-sym)
                                                  :source-file (str source-file)})]
-             (assoc-in acc [:clj-state source-file] {:entries entries}))
+             (assoc-in acc [:clj-state source-file]
+                       {:entries (mapv reattach-entry-meta entries)}))
            (catch Throwable e
              (assoc-in acc [:clj-load-failures source-file] {:exception e})))
          acc))
      {:clj-state {} :clj-load-failures {}}
      loaded)))
+
+(defn- rehydrate-cljs-entry
+  "Reshape a cljs analysis entry off the wire into the host's
+   `CljsCachedFormEntry`:
+   - replay `:source-form-meta` onto `:source-form` and `:ast-form-meta` onto
+     the AST nodes' `:form` slots (form metadata cannot ride the edn transport;
+     cljs finding locations come from `node-location`, i.e. `(meta (:form
+     node))`). The AST replay walks the `:children` spine only — never the full
+     cljs AST.
+   - rebuild the `:exception` (a Throwable cannot cross the wire) from the
+     worker's `:exception-message` for forms that crashed mid-analysis."
+  [{:keys [source-form source-form-meta ast ast-form-meta] :as entry}]
+  (let [entry (cond-> (dissoc entry :source-form-meta :ast-form-meta)
+                source-form-meta (assoc :source-form
+                                        (wire/apply-form-meta source-form source-form-meta))
+                ast-form-meta    (assoc :ast (wire/apply-ast-form-meta ast ast-form-meta)))]
+    (if (contains? entry :exception-message)
+      (-> entry
+          (dissoc :exception-message)
+          (assoc :ast nil :exception (ex-info (or (:exception-message entry)
+                                                  "cljs analyzer error")
+                                              {})))
+      entry)))
 
 (defn preload-cljs-state!
   "Parse and analyze every source-file requiring cljs analysis (.cljs or
@@ -904,8 +939,16 @@
           ordered      (topo/topo-sort-files ns-sym->file)]
       (reduce (fn [acc f]
                 (try
-                  (update acc :cljs-state assoc f
-                          (wc/ask conn {:op "analyze-cljs-namespace" :source-file (str f)}))
+                  ;; wc/ask returns the raw nREPL reply (carries :id/:session/:status
+                  ;; and no :asts). Reshape to the closed SourceFileAnalysis the
+                  ;; consumers require, mirroring preload-clj-state!'s :entries pull.
+                  (let [{:keys [ns-ast entries]} (wc/ask conn {:op "analyze-cljs-namespace"
+                                                               :source-file (str f)})
+                        entries (mapv rehydrate-cljs-entry entries)]
+                    (update acc :cljs-state assoc f
+                            {:ns-ast ns-ast
+                             :entries entries
+                             :asts (filterv some? (mapv :ast entries))}))
                   (catch Throwable e
                     (update acc :cljs-load-failures assoc f {:exception e}))))
               {:cljs-state {} :cljs-load-failures {}}

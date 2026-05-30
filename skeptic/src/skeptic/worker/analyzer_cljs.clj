@@ -36,23 +36,41 @@
             ast'
             (:children ast'))))
 
+(defn- ast-node?
+  [v]
+  (and (map? v) (contains? v :op)))
+
+(defn- back-ref-slot?
+  "A slot is a back-ref iff it is NOT one of the node's structural `:children`
+   yet its value is an AST node (or a vector of AST nodes). Such a node sits off
+   the `:children` spine `walk-ast` descends, so its own `:env` is never
+   stripped and any plain-graph reader (`edn-safe?`, `pr-str`) runs away into
+   the analyzer environment. Detection is one level deep — it never looks
+   *inside* the back-ref node, so it cannot itself run into that `:env`.
+   Examples: `:local`→`:init`, `:fn`→`:loop-lets`, `:binding`→`:method-params`."
+  [children k v]
+  (and (not (contains? children k))
+       (not= :meta k)
+       (or (ast-node? v)
+           (and (vector? v) (seq v) (every? ast-node? v)))))
+
 (defn- normalize-cljs-node
   [n]
-  (let [n (dissoc n :type :env)
+  (let [children (set (:children n))
+        ;; Drop :type/:env here; drop EVERY non-:children back-ref slot
+        ;; structurally (not by name) so no AST node carrying :env survives off
+        ;; the spine walk-ast/handle-project-node descend. :meta is exempt:
+        ;; walk-ast/handle-project-node project it when it is an AST child.
+        n (reduce-kv (fn [acc k v] (if (back-ref-slot? children k v) (dissoc acc k) acc))
+                     (dissoc n :type :env)
+                     n)
         n (cond
             (not (contains? n :info)) n
             (= :var (:op n))          (update n :info select-keys [:name :meta])
             :else                     (dissoc n :info))
         n (if (and (= :fn (:op n)) (map? (:name n)))
             (assoc n :name (or (:form (:name n)) (:name (:name n))))
-            n)
-        ;; A :local node is the local-binding map + :op, so it carries the
-        ;; binding's :init (a full AST node with its own :env) on a slot that is
-        ;; NOT in (:children :local). walk-ast descends only :children, so this
-        ;; :init's :env is never stripped and any plain-graph reader (edn-safe?,
-        ;; pr-str) runs away into the analyzer environment. The init is already a
-        ;; structural child at the :let/:loop binding site; drop the back-ref.
-        n (if (= :local (:op n)) (dissoc n :init) n)]
+            n)]
     (if (and (= :binding (:op n)) (not (contains? n :form)))
       (assoc n :form (:name n))
       n)))

@@ -4,9 +4,12 @@
   Mirrors `skeptic.schema.collect/ns-schema-results` for cljs source files.
   Operates on per-form analyzed ASTs from `skeptic.cljs.analyzer-driver`.
   Reads alias requires from the parsed ns AST (output of
-  `cljs.analyzer.api/parse-ns`) and Var metadata directly from each
-  `:def` AST node's `[:var :info :meta]` slot — no cenv reads, no caller-
-  managed compiler state.
+  `cljs.analyzer.api/parse-ns`). The cljs analyzer does not attach the
+  `s/defn` `:schema`/`:arglists` Var-metadata to the `:def` AST node, so the
+  schema forms are read directly from the macroexpansion's `:let` binding
+  init forms (`output-schema*` / `input-schema*`); the single-arity arglist is
+  reconstructed from the `s/one` arg-name labels in the input-schema form. No
+  cenv reads, no caller-managed compiler state.
 
   Three top-level shapes are recognized:
 
@@ -16,10 +19,11 @@
   - `s/defn`       :op :let, multi-binding outer let with `output-schema*`
                    and `input-schema*` gensyms.
 
-  The cljs `:meta :schema` value is a symbolic form (the cljs analyzer
-  does not evaluate JVM-side); resolution to a real Schema record goes
-  through `skeptic.cljs.schema-interpreter`, which interprets the form
-  in a sci-sandboxed context that exposes only `schema.core`."
+  Each `output-schema*` / `input-schema*` binding init is a symbolic schema
+  form (the cljs analyzer does not evaluate JVM-side); resolution to a real
+  Schema record goes through `skeptic.cljs.schema-interpreter`, which
+  interprets the form in a sci-sandboxed context that exposes only
+  `schema.core`."
   (:require [clojure.walk :as walk]
             [schema.core :as s]
             [skeptic.analysis.annotate.schema :as aas]
@@ -68,10 +72,16 @@
           (and (seq? init-form)
                (= 'clojure.core/vary-meta (first init-form)))))))
 
-(s/defn ^:private find-binding-init-form :- s/Any
-  [bindings   :- [aas/AnnotatedNode]
-   target-sym :- s/Symbol]
-  (some (fn [b] (when (= target-sym (:name b)) (-> b :init :form)))
+(s/defn ^:private binding-init-form-by-prefix :- s/Any
+  "Init form of the first binding whose name starts with `prefix`. The cljs
+  `s/defn` macroexpansion binds the output schema to `output-schema<gensym>`
+  and the input schema to `input-schema<gensym>`; the analyzer no longer
+  attaches the `:schema` var-meta naming those gensyms, so they are located by
+  their fixed prefix instead."
+  [bindings :- [aas/AnnotatedNode]
+   prefix   :- s/Str]
+  (some (fn [b] (when (some-> (binding-name-str b) (.startsWith prefix))
+                  (-> b :init :form)))
         bindings))
 
 (s/defn ^:private bare-sym :- (s/maybe s/Symbol)
@@ -79,19 +89,28 @@
   (when s (symbol (name s))))
 
 (s/defn ^:private unquote-form :- s/Any
-  "cljs analyzer preserves arglists meta as the quoted form `(quote ([x]))`
-  rather than the evaluated value `([x])`. Unwrap one level of `quote` so
-  downstream code sees the same shape as JVM `(meta v)`."
+  "Unwrap one level of `quote`: `(quote x)` → `x`. The cljs analyzer preserves
+  literal symbols/forms quoted, e.g. the `s/one` arg-name label."
   [form :- s/Any]
   (if (and (seq? form) (= 'quote (first form)))
     (second form)
     form))
 
-(s/defn ^:private def-ast-meta :- s/Any
-  "Reads Var metadata (e.g. {:schema ... :arglists ...}) from a `:def` AST
-  node. cljs analyzer attaches it at `[:var :info :meta]`."
-  [def-ast :- aas/AnnotatedNode]
-  (get-in def-ast [:var :info :meta]))
+(s/defn ^:private one-entry-arg-name :- (s/maybe s/Symbol)
+  "Arg name from a `(schema.core/one <schema> (quote <name>))` input entry."
+  [entry :- s/Any]
+  (when (and (seq? entry) (= 3 (count entry)))
+    (let [nm (unquote-form (nth entry 2))]
+      (when (symbol? nm) nm))))
+
+(s/defn ^:private arglist-from-input-form :- [s/Symbol]
+  "Single-arity arglist recovered from the `input-schema` binding form
+  `[(s/one <schema> (quote <name>)) ...]`. The cljs analyzer drops the
+  `:arglists` var-meta, but every positional input carries its name as the
+  `s/one` label, so the arglist is reconstructable from the input schema."
+  [input-form :- s/Any]
+  (when (vector? input-form)
+    (vec (keep one-entry-arg-name input-form))))
 
 (s/defn ^:private resolve-alias-sym :- s/Symbol
   [sym :- s/Symbol]
@@ -112,15 +131,10 @@
   (si/interpret-schema-form (resolve-aliases form)))
 
 (s/defn ^:private build-fn-schema :- s/Any
-  [ast       :- aas/AnnotatedNode
-   meta-info :- s/Any]
-  (let [[_ output-sym input-vec] (:schema meta-info)
-        input-sym (first input-vec)
-        bindings (:bindings ast)
-        output-form (find-binding-init-form bindings output-sym)
-        input-form (find-binding-init-form bindings input-sym)]
-    (s/->FnSchema (resolve-schema-form output-form)
-                  [(resolve-schema-form input-form)])))
+  [output-form :- s/Any
+   input-form  :- s/Any]
+  (s/->FnSchema (resolve-schema-form output-form)
+                [(resolve-schema-form input-form)]))
 
 (s/defn ^:private defschema-form :- s/Any
   [ast :- aas/AnnotatedNode]
@@ -165,8 +179,8 @@
   (let [def-ast (require-def-ast ast)
         defn-sym (require-name-sym def-ast)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
-        meta-info (def-ast-meta def-ast)
-        schema (resolve-schema-form (:schema meta-info))]
+        output-form (binding-init-form-by-prefix (:bindings ast) "output-schema")
+        schema (resolve-schema-form output-form)]
     [qualified-sym
      (admit-with ns-sym qualified-sym defn-sym source-file
                  #(collect/collect-schemas
@@ -194,15 +208,17 @@
   (let [def-ast (require-def-ast ast)
         defn-sym (require-name-sym def-ast)
         qualified-sym (symbol (name ns-sym) (name defn-sym))
-        meta-info (def-ast-meta def-ast)
-        fn-schema (build-fn-schema ast meta-info)]
+        bindings (:bindings ast)
+        output-form (binding-init-form-by-prefix bindings "output-schema")
+        input-form (binding-init-form-by-prefix bindings "input-schema")
+        fn-schema (build-fn-schema output-form input-form)]
     [qualified-sym
      (admit-with ns-sym qualified-sym defn-sym source-file
                  #(collect/collect-schemas
                    {:schema fn-schema
                     :ns ns-sym
                     :name defn-sym
-                    :arglists (unquote-form (:arglists meta-info))}))]))
+                    :arglists [(arglist-from-input-form input-form)]}))]))
 
 (s/defn ^:private admit-form :- (s/maybe AdmitFormPair)
   [ns-sym      :- s/Symbol

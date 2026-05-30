@@ -156,7 +156,14 @@
 (mw/set-descriptor! #'wrap-class-name
                     {:requires #{} :expects #{} :handles {"class-name" {}}})
 
-(defn- ast-node? [v] (and (map? v) (contains? v :op)))
+(defn- ast-node?
+  "True when `v` is a tools.analyzer AST node (a plain map carrying `:op`).
+   Excludes sorted maps: a `case*` dispatch map is a `PersistentTreeMap` keyed by
+   integer hashes, and `(contains? v :op)` on it throws when its comparator is
+   handed the keyword `:op`. AST nodes are always plain hash-maps, never sorted,
+   so a sorted map is data to be projected, not a node to recurse into."
+  [v]
+  (and (map? v) (not (sorted? v)) (contains? v :op)))
 
 (defn- strip-host-unread
   "Remove non-EDN host slots. Strips :atom :env :o-tag :return-tag.
@@ -175,6 +182,12 @@
   [v]
   (cond
     (or (nil? v) (boolean? v) (number? v) (string? v) (keyword? v) (symbol? v)) true
+    ;; An analyzer AST node (map with :op) is never an EDN-safe incidental leaf:
+    ;; it carries `:env` back-refs (cljs) / cycles that this recursive check
+    ;; would run away into. The host reads AST nodes only through `:children`
+    ;; projection, never raw off an incidental slot — so treat any :op map as
+    ;; non-EDN WITHOUT descending it. Closes the recursive-local-fn runaway.
+    (ast-node? v) false
     ;; A defrecord (e.g. clojure.reflect.Method) is a map? but pr-str emits a
     ;; `#fqcn{...}` tagged literal the host's edn/read cannot read regardless of
     ;; field contents — never EDN-safe via the map branch.
@@ -198,15 +211,19 @@
 (defn- project-raw-forms
   "Deep-walk a :raw-forms structure (raw pre-macroexpansion source forms),
    sentinelling non-EDN leaves (e.g. regex Patterns) while preserving the
-   surrounding structure the host's unanalyze/raw-form-value walks over. A
-   defrecord (e.g. clojure.reflect.Method) prints as a tagged literal, so it is
-   sentinelled as a leaf rather than descended into as a plain collection."
+   surrounding structure the host's unanalyze/raw-form-value walks over. Uses
+   `prewalk` so descent is decided top-down: a defrecord or an analyzer AST node
+   (map with :op) is sentinelled into an opaque leaf BEFORE recursion, so its
+   `:env` back-refs / cycles are never entered. (`postwalk` cannot do this — it
+   recurses into every collection before the fn runs.)"
   [raw-forms]
-  (walk/postwalk (fn [x]
-                   (if (and (coll? x) (not (instance? clojure.lang.IRecord x)))
-                     x
-                     (project-val-form x)))
-                 raw-forms))
+  (walk/prewalk (fn [x]
+                  (if (and (coll? x)
+                           (not (instance? clojure.lang.IRecord x))
+                           (not (ast-node? x)))
+                    x
+                    (project-val-form x)))
+                raw-forms))
 
 (defn- project-class-slot
   "If `v` is a ^Class, replace it with a UUID handle (bootstrap classes
@@ -321,10 +338,16 @@
 (defn- project-entry
   "Project one clj analysis entry for the wire: AST via handle-project-node,
    source-form via the raw-forms sentinel walk (non-EDN body literals become
-   sentinels; head/arglist and :source/:line metadata are preserved)."
+   sentinels). Form metadata (`:source`/`:line`/...) cannot ride the edn
+   transport, so it is captured into sibling EDN vectors in postwalk order and
+   replayed host-side (see `skeptic.worker.wire/capture-form-meta`)."
   [{:keys [source-form ast]}]
-  {:source-form (project-raw-forms source-form)
-   :ast (handle-project-node ast)})
+  (let [source-form' (project-raw-forms source-form)
+        ast' (handle-project-node ast)]
+    {:source-form source-form'
+     :source-form-meta (wire/capture-form-meta source-form')
+     :ast ast'
+     :ast-meta (wire/capture-form-meta ast')}))
 
 (defn wrap-analyze-namespace
   [h]
@@ -341,13 +364,20 @@
 (defn- project-cljs-entry
   "Project one cljs analysis entry. Like project-entry, but a cljs entry may
    carry an :exception (Throwable, non-EDN) instead of an :ast; ship its
-   message string and drop the Throwable."
+   message string and drop the Throwable. Source-form metadata
+   (`:source`/`:line`/...) is captured for the host to replay (locations on
+   cljs findings depend on it); only the `:source-form` is walked — the cljs
+   `:ast` is NEVER walked for meta capture (its `:env` back-refs run away)."
   [{:keys [source-form ast exception]}]
-  (if exception
-    {:source-form (project-raw-forms source-form)
-     :exception-message (.getMessage ^Throwable exception)}
-    {:source-form (project-raw-forms source-form)
-     :ast (handle-project-node ast)}))
+  (let [source-form' (project-raw-forms source-form)
+        base {:source-form source-form'
+              :source-form-meta (wire/capture-form-meta source-form')}]
+    (if exception
+      (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
+      (let [ast' (handle-project-node ast)]
+        (assoc base
+               :ast ast'
+               :ast-form-meta (wire/capture-ast-form-meta ast'))))))
 
 (defn wrap-analyze-cljs-namespace
   [h]
