@@ -1,0 +1,38 @@
+=== PROBE A: lein plugin JVM classpath (eval-in-project removal target JVM) ===
+-- java.class.path skeptic entries: NONE (empty below) --
+-- context URLClassLoader URLs containing skeptic: --
+PROBE-LOADER-URL file:.../skeptic-0.9.0-rc6.jar
+PROBE-LOADER-URL file:.../lein-skeptic-0.9.0-rc6.jar
+(captured /tmp/probe3.log this session: 90 loader URLs total, skeptic on URLClassLoader, NOT on java.class.path)
+
+=== PROBE B: deps -T tool JVM classpath ===
+PROBE-TOOL-SYSPROP /Users/demouser/.m2/repository/org/clojars/nomicflux/skeptic/0.9.0-rc6/skeptic-0.9.0-rc6.jar
+PROBE-TOOL-LOADER-CLASS jdk.internal.loader.ClassLoaders$AppClassLoader
+
+=== PROBE C: worker death when Skeptic absent from -cp (root cause of 'worker exited before port handshake') ===
+Execution error (FileNotFoundException) at clojure.main/main (main.java:40).
+Could not locate skeptic/worker/server__init.class, skeptic/worker/server.clj or skeptic/worker/server.cljc on classpath.
+
+Full report at:
+
+=== BASELINES ===
+lein test: 956 tests / 3600 assertions / 0 failures 0 errors (lein-test-20260530.log)
+clj-kondo --lint src test: errors: 0, warnings: 0
+skeptic-on-self (-p): finding_count:0 exception_count:0 namespace_count:272 errored:false
+=== PROBE D: self-classpath-entries union on lein test JVM ===
+PROBE-SELF-CP-COUNT 94
+PROBE-SELF-CP-LOADER-COUNT 0
+PROBE-SELF-CP-SYSPROP-COUNT 94
+PROBE-SELF-CP-SKEPTIC /Users/demouser/Code/skeptic/skeptic/test
+PROBE-SELF-CP-SKEPTIC /Users/demouser/Code/skeptic/skeptic/src
+PROBE-SELF-CP-SKEPTIC /Users/demouser/Code/skeptic/skeptic/dev-resources
+PROBE-SELF-CP-SKEPTIC /Users/demouser/Code/skeptic/skeptic/resources
+(LOADER-COUNT 0 = AppClassLoader yields no .getURLs on this JVM; sysprop branch covers it; union necessary because F2 plugin JVM is the inverse - URLClassLoader only)
+=== PROBE E: self-classpath-entries union on REAL lein plugin JVM ===
+PROBE-PLUGIN-LOADER-COUNT 90
+PROBE-PLUGIN-SYSPROP-COUNT 1
+PROBE-PLUGIN-UNION-COUNT 91
+PROBE-PLUGIN-ENTRY /Users/demouser/.m2/repository/nrepl/nrepl/1.3.1/nrepl-1.3.1.jar
+PROBE-PLUGIN-ENTRY /Users/demouser/.m2/repository/org/clojars/nomicflux/skeptic/0.9.0-rc6/skeptic-0.9.0-rc6.jar
+PROBE-PLUGIN-ENTRY /Users/demouser/.m2/repository/org/clojars/nomicflux/lein-skeptic/0.9.0-rc6/lein-skeptic-0.9.0-rc6.jar
+(loader branch harvests 90 entries incl skeptic+nrepl; sysprop=1; mirror of test JVM where loader=0 sysprop=94 -> union load-bearing on both)

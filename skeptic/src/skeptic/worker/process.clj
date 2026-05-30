@@ -1,25 +1,38 @@
 (ns skeptic.worker.process
-  "Host-side worker process lifecycle: spawn a JVM running skeptic.worker.server
-   on the project classpath, read the port handshake off its stdout, and tear it
-   down. The worker carries the PROJECT classpath plus the nREPL jar the harness
-   needs; Clojure and spec.alpha already ride along on any real project classpath."
+  "Host-side worker process lifecycle: spawn a JVM running skeptic.worker.server,
+   read the port handshake off its stdout, and tear it down. The worker carries
+   the PROJECT classpath (analysis input) unioned with Skeptic's own runtime
+   entries sourced from the invoking JVM, so skeptic.worker.* and nREPL are on the
+   worker -cp without the user adding any dependency."
   (:require [schema.core :as s]
             [clojure.string :as str])
-  (:import [java.io BufferedReader]))
+  (:import [java.io BufferedReader]
+           [java.net URL URLClassLoader]))
 
-(def ^:private nrepl-jar-marker "nrepl-1.3.1.jar")
+(s/defn ^:private loader-entries :- [s/Str]
+  [loader :- (s/maybe s/Any)]
+  (loop [l loader, acc []]
+    (if-not l
+      acc
+      (let [urls (when (instance? URLClassLoader l) (.getURLs ^URLClassLoader l))
+            paths (map #(.getPath ^URL %) urls)]
+        (recur (.getParent ^ClassLoader l) (into acc paths))))))
 
-(s/defn ^:private host-nrepl-entry :- (s/maybe s/Str)
+(s/defn self-classpath-entries :- [s/Str]
+  "Skeptic's own classpath entries from the invoking JVM: the URLClassLoader chain
+   (lein plugin JVM) unioned with java.class.path (deps -T tool JVM)."
   []
-  (->> (str/split (System/getProperty "java.class.path") (re-pattern java.io.File/pathSeparator))
-       (filter #(str/includes? % nrepl-jar-marker))
-       first))
+  (let [from-loader (loader-entries (.getContextClassLoader (Thread/currentThread)))
+        from-sysprop (str/split (System/getProperty "java.class.path")
+                                (re-pattern java.io.File/pathSeparator))]
+    (vec (distinct (concat from-loader from-sysprop)))))
 
 (s/defn worker-classpath :- s/Str
   [project-cp :- s/Str]
-  (if (str/includes? project-cp nrepl-jar-marker)
-    project-cp
-    (str project-cp java.io.File/pathSeparator (host-nrepl-entry))))
+  (->> (concat (str/split project-cp (re-pattern java.io.File/pathSeparator))
+               (self-classpath-entries))
+       distinct
+       (str/join java.io.File/pathSeparator)))
 
 (s/defn ^:private read-port :- s/Int
   [reader :- BufferedReader]
