@@ -684,8 +684,12 @@
     (reduce
      (fn [acc entry]
        (let [{form-results :results form-prov :provenance}
-             (check-cached-entry dict ignore-body ns source-file :cljs entry
-                                 accessor-summaries form-opts)]
+             (try
+               (check-cached-entry dict ignore-body ns source-file :cljs entry
+                                   accessor-summaries form-opts)
+               (catch Exception e
+                 {:results [(expression-exception-result ns source-file (:source-form entry) e :cljs)]
+                  :provenance {}}))]
          (-> acc
              (update :results into form-results)
              (update :provenance merge form-prov))))
@@ -705,19 +709,26 @@
    accessor-summaries :- AccessorSummaries
    clj-state          :- {s/Any s/Any}
    form-opts          :- {s/Keyword s/Any}]
-  (let [entries (some-> clj-state (get source-file) :entries)]
-    (reduce
-     (fn [acc entry]
-       (if (file/is-ns-block? (:source-form entry))
-         acc
-         (let [{form-results :results form-prov :provenance}
-               (check-cached-entry dict ignore-body ns source-file :clj entry
-                                   accessor-summaries form-opts)]
-           (-> acc
-               (update :results into form-results)
-               (update :provenance merge form-prov)))))
-     {:results [] :provenance {}}
-     (or entries []))))
+  (let [{:keys [entries read-failure]} (some-> clj-state (get source-file))]
+    (if read-failure
+      {:results [(read-exception-result source-file (ex-info read-failure {}))]
+       :provenance {}}
+      (reduce
+       (fn [acc entry]
+         (if (file/is-ns-block? (:source-form entry))
+           acc
+           (let [{form-results :results form-prov :provenance}
+                 (try
+                   (check-cached-entry dict ignore-body ns source-file :clj entry
+                                       accessor-summaries form-opts)
+                   (catch Exception e
+                     {:results [(expression-exception-result ns source-file (:source-form entry) e :clj)]
+                      :provenance {}}))]
+             (-> acc
+                 (update :results into form-results)
+                 (update :provenance merge form-prov)))))
+       {:results [] :provenance {}}
+       (or entries [])))))
 
 (defn- native-result []
   {:dict native-fns/native-fn-dict
@@ -879,11 +890,13 @@
      (fn [acc [ns-sym source-file lang]]
        (if (and source-file (#{:clj :both} lang))
          (try
-           (let [{:keys [entries]} (wc/ask conn {:op "analyze-namespace"
-                                                 :ns (str ns-sym)
-                                                 :source-file (str source-file)})]
+           (let [{:keys [entries read-failure]} (wc/ask conn {:op "analyze-namespace"
+                                                              :ns (str ns-sym)
+                                                              :source-file (str source-file)})]
              (assoc-in acc [:clj-state source-file]
-                       {:entries (mapv reattach-entry-meta entries)}))
+                       (if read-failure
+                         {:entries [] :read-failure read-failure}
+                         {:entries (mapv reattach-entry-meta entries)})))
            (catch Throwable e
              (assoc-in acc [:clj-load-failures source-file] {:exception e})))
          acc))

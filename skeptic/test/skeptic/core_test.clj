@@ -12,6 +12,8 @@
             [skeptic.inconsistence.report :as inrep]
             [skeptic.output.text :as text]
             [skeptic.provenance :as prov]
+            [skeptic.analysis.class-oracle :as class-oracle]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.test-support.worker-opts :refer [with-worker-cp]])
   (:import [java.io File]
            [java.nio.file Files]))
@@ -338,7 +340,10 @@
                              (throw (ex-info "boom during realization" {})))
                            [::explode])
                       (real-check-resolved-form dict ignore-body ns-sym source-file source-form analyzed opts)))]
-      (let [proj-state (checking/project-state {:remove-context true}
+      (shared-worker/with-shared-worker
+       (fn []
+      (let [proj-state (checking/project-state {:remove-context true
+                                                :worker-conn class-oracle/*worker-conn*}
                                                 {'skeptic.check-project-best-effort-examples source-file})
             {:keys [results]} (checking/check-namespace proj-state
                                                         'skeptic.check-project-best-effort-examples
@@ -357,7 +362,7 @@
         (is (some? mismatch-result)
             "The later mismatch should still be found after the exception")
         (is (seq (:errors mismatch-result))
-            "The later mismatch should have actual errors")))))
+            "The later mismatch should have actual errors")))))))
 
 (deftest check-project-ignores-unrelated-discovery-failures-for-requested-namespace
   (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")

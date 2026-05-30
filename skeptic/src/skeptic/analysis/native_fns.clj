@@ -6,6 +6,7 @@
   - Invoke (native-fn-dict): (+) (+ x) (*) (* x); str; format; even? odd?; inc when not inlined.
   - Literal (+ 1 2 3) never yields top-level :invoke; test 3-arg + with ((resolve '+) 1 2 3)."
   (:require [schema.core :as s]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
@@ -22,7 +23,10 @@
 
 (s/defn static-call-native-info :- (s/maybe {s/Keyword s/Any})
   [class :- s/Any method :- s/Any arity :- s/Int]
-  (when (= class Numbers)
+  ;; `class` is the host-side opaque handle for the call's target class (the
+  ;; worker projects every `:class` slot to a handle); compare against Numbers'
+  ;; handle, never the raw Class — `(= handle Numbers)` is always false.
+  (when (= class (oracle/host-handle Numbers))
     (let [p (numbers-prov method)
           n (at/NumericDyn p)
           b (at/->GroundT p :bool 'Bool)]

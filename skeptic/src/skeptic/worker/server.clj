@@ -353,9 +353,17 @@
   [h]
   (fn [{:keys [op transport ns source-file] :as msg}]
     (if (= op "analyze-namespace")
-      (let [{:keys [entries]} (wac/analyze-source-file (symbol ns) (io/file source-file))
-            projected (mapv project-entry entries)]
-        (t/send transport (response-for msg :entries projected :status #{:done})))
+      (try
+        (let [{:keys [entries]} (wac/analyze-source-file (symbol ns) (io/file source-file))
+              projected (mapv project-entry entries)]
+          (t/send transport (response-for msg :entries projected :status #{:done})))
+        (catch Throwable e
+          ;; A read/analysis failure for the whole source-file (e.g. an unbalanced
+          ;; form) produces no entries; ship the message so the host can localize
+          ;; it as a :read-phase finding instead of silently yielding 0 results.
+          (t/send transport (response-for msg
+                                          :read-failure (or (.getMessage e) (str e))
+                                          :status #{:done}))))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-analyze-namespace

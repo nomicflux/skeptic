@@ -143,10 +143,14 @@
   []
   {:worker-conn oracle/*worker-conn*})
 
+(defn- project-state-of
+  [ns-sym]
+  (checking/project-state (worker-opts)
+                          {ns-sym (fixture-file-for-ns ns-sym)}))
+
 (defn- accessor-summaries-of
   [ns-sym]
-  (:accessor-summaries (checking/project-state (worker-opts)
-                                               {ns-sym (fixture-file-for-ns ns-sym)})))
+  (:accessor-summaries (project-state-of ns-sym)))
 
 (deftest accessor-helper-resolution-contract-test
   (let [contracts-ns 'skeptic.test-examples.contracts
@@ -179,9 +183,10 @@
       (is-type= (T contracts/VariantB) (first (aapi/call-actual-argtypes handle-b)))))
 
   (testing "classifier case narrowing crosses helper function boundaries"
-    (let [dict (catalog/typed-test-example-entries)
-          fixture-ns 'skeptic.test-examples.contracts
-          accessor-summaries (accessor-summaries-of fixture-ns)
+    (let [fixture-ns 'skeptic.test-examples.contracts
+          project-state (project-state-of fixture-ns)
+          accessor-summaries (:accessor-summaries project-state)
+          dict (:dict project-state)
           asts (aat/analyze-ns-file dict fixture-ns (fixture-file-for-ns fixture-ns)
                                     {:accessor-summaries accessor-summaries})
           ast (ast-by-name asts 'chooses-conditional-success)

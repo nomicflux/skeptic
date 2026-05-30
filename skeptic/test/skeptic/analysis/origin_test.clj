@@ -78,7 +78,7 @@
   (let [some-info (ac/type-predicate-assumption-info {:op :var :form 'some?}
                                                      [{:op :local :form 'x}])
         instance-info (ac/type-predicate-assumption-info {:op :var :form 'instance?}
-                                                         [{:op :const :val String :form String}
+                                                         [{:op :const :val (oracle/host-handle String) :form String}
                                                           {:op :local :form 'x}])]
     (is (= {:pred :some?} (s/validate aos/PredInfo some-info)))
     (is (= {:pred :instance? :class (oracle/host-handle String)}
@@ -254,7 +254,7 @@
           then-p (aapi/find-node root
                                  #(and (= :local (aapi/node-op %))
                                        (= 'p (aapi/node-form %))
-                                       (= (T s/Str) (aapi/node-type %))))]
+                                       (at/type=? (T s/Str) (aapi/node-type %))))]
       (is-type= (T s/Str) (aapi/node-type then-p))
       (is (= 'p (:sym (ao/local-root-origin tp then-p)))))))
 

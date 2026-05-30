@@ -2,9 +2,10 @@
   "Boundary enforcement: every Type produced by an ingestion path or combinator
   must carry a Provenance with a real source keyword. prov/of is the strict
   reader and throws if the invariant fails."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.malli-spec.bridge :as mb]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.map-ops.algebra :as amoa]
@@ -12,7 +13,10 @@
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.value :as av]
             [skeptic.provenance :as prov]
-            [skeptic.test-helpers :refer [some!]]))
+            [skeptic.test-helpers :refer [some!]]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def ^:private tp
   (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
@@ -41,7 +45,7 @@
 
 (deftest native-fn-output-carries-native-prov
   (let [{:keys [output-type expected-argtypes]}
-        (nf/static-call-native-info clojure.lang.Numbers 'inc 1)
+        (nf/static-call-native-info (oracle/host-handle clojure.lang.Numbers) 'inc 1)
         output-type (some! output-type)]
     (is (carries-real-prov? output-type))
     (is (= :native (prov/source (prov/of output-type))))

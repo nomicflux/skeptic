@@ -9,7 +9,6 @@
             [skeptic.checking.pipeline :as pipeline]
             [skeptic.test-examples.named-fold-contract-probe]
             [skeptic.test-helpers :refer [some!]]
-            [skeptic.test-support.project-state :as test-state]
             [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
 
@@ -32,8 +31,11 @@
 
 (defn- analysis-env
   []
-  (let [{:keys [dict]} (test-state/admit-ns fixture-ns fixture-file)
-        analyzed (aat/analyze-ns-file dict fixture-ns fixture-file {})
+  (let [project-state (fixture-project-state)
+        dict (:dict project-state)
+        accessor-summaries (:accessor-summaries project-state)
+        analyzed (aat/analyze-ns-file dict fixture-ns fixture-file
+                                      {:accessor-summaries accessor-summaries})
         resolved-defs (into {} (keep #(aapi/analyzed-def-entry fixture-ns %)) analyzed)]
     {:analyzed analyzed
      :resolved analyzed
