@@ -31,6 +31,32 @@
   []
   *class-rel-cache*)
 
+(def ^:dynamic *predicate-cache*
+  "Per-run memo for worker `apply-predicate` results, keyed by `[handle arg]`.
+   Sound because a Plumatic predicate is a pure function of its argument and the
+   worker's handle table is additive. Mirrors `*class-rel-cache*`: bound to one
+   atom per run by `check-project`, reused by pipeline sites via
+   `current-predicate-cache`. Only boolean results are cached; a predicate that
+   throws re-round-trips."
+  (atom {}))
+
+(defn current-predicate-cache
+  "The currently-bound per-run predicate cache atom."
+  []
+  *predicate-cache*)
+
+(defn cached-predicate
+  "Returns the cached boolean for `[handle arg]`, else runs `thunk`, caches its
+   result, and returns it."
+  [handle arg thunk]
+  (let [k [handle arg]
+        cache @*predicate-cache*]
+    (if (contains? cache k)
+      (get cache k)
+      (let [v (thunk)]
+        (swap! *predicate-cache* assoc k v)
+        v))))
+
 (defn- cached-rel
   "Returns the cached value for `k`, else runs `thunk`, caches its result under
    `k`, and returns it."

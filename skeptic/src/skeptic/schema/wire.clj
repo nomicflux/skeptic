@@ -36,13 +36,16 @@
             (requiring-resolve core-sym)))
         (when handle
           (fn [x]
-            (let [{:keys [result exception-message]} (wc/ask oracle/*worker-conn*
-                                                             {:op "apply-predicate"
-                                                              :handle handle
-                                                              :arg x})]
-              (when exception-message
-                (throw (ex-info exception-message {:predicate-handle handle})))
-              result)))
+            (oracle/cached-predicate
+             handle x
+             (fn []
+               (let [{:keys [result exception-message]} (wc/ask oracle/*worker-conn*
+                                                                {:op "apply-predicate"
+                                                                 :handle handle
+                                                                 :arg x})]
+                 (when exception-message
+                   (throw (ex-info exception-message {:predicate-handle handle})))
+                 result)))))
         (throw (ex-info "Unsupported function in encoded Plumatic schema"
                         {:symbol sym :unsupported unsupported})))))
 

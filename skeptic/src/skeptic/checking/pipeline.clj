@@ -1057,7 +1057,8 @@
   per-source-file `lang` carried in each `loaded` triple."
   [opts all-discovered-nss :- copts/DiscoveredNamespaces]
   (binding [class-oracle/*worker-conn* (:worker-conn opts)
-            class-oracle/*class-rel-cache* (class-oracle/current-cache)]
+            class-oracle/*class-rel-cache* (class-oracle/current-cache)
+            class-oracle/*predicate-cache* (class-oracle/current-predicate-cache)]
   (let [{loaded :loaded load-failures :load-failures}
         (preload-namespaces opts all-discovered-nss)
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
@@ -1240,7 +1241,8 @@
   {:results [...] :provenance {sym → Provenance}}."
   [project-state ns-sym :- s/Symbol source-file form-opts]
   (binding [class-oracle/*worker-conn* (:worker-conn project-state)
-            class-oracle/*class-rel-cache* (class-oracle/current-cache)]
+            class-oracle/*class-rel-cache* (class-oracle/current-cache)
+            class-oracle/*predicate-cache* (class-oracle/current-predicate-cache)]
     (try
       (check-ns project-state ns-sym source-file form-opts)
       (catch Exception e
