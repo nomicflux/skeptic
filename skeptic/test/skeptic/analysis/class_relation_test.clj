@@ -48,12 +48,18 @@
       (let [m (oracle/intern-host-classes! conn)]
         (binding [oracle/*worker-conn* conn
                   oracle/*host-class-handles* m]
-          (let [long-h   (oracle/host-handle Long)
-                number-h (oracle/host-handle Number)]
-            (testing "Long is integral"
-              (is (true? (at/class-integral? long-h))))
-            (testing "Number is not integral"
-              (is (false? (at/class-integral? number-h))))))))))
+          (let [long-h    (oracle/host-handle Long)
+                integer-h (oracle/host-handle Integer)
+                byte-h    (oracle/host-handle Byte)
+                number-h  (oracle/host-handle Number)
+                string-h  (oracle/host-handle String)]
+            (testing "Long, Integer, Byte are integral (batched path, multiple inputs)"
+              (is (true? (at/class-integral? long-h)))
+              (is (true? (at/class-integral? integer-h)))
+              (is (true? (at/class-integral? byte-h))))
+            (testing "Number and String are not integral"
+              (is (false? (at/class-integral? number-h)))
+              (is (false? (at/class-integral? string-h))))))))))
 
 (deftest class-name-test
   (with-worker

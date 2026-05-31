@@ -50,7 +50,9 @@
   "Same answer as `integral-class?` (true when the class is one of the integral
    host-runtime classes), the worker computing the equalities."
   [h]
-  (boolean (some #(class-equals? (oracle/host-handle %) h) integral-classes)))
+  (let [triples (mapv #(hash-map :rel :equals :a (oracle/host-handle %) :b h)
+                      integral-classes)]
+    (boolean (some true? (oracle/class-rel-batch triples)))))
 
 (def dyn-type-tag
   :skeptic.analysis.types/dyn-type)

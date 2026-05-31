@@ -168,8 +168,9 @@
                  (at/class-equals? (oracle/host-handle Object) (:class t)))
             true
             (and (map? s) (:class s) (map? t) (:class t))
-            (or (at/class-assignable? (:class s) (:class t))
-                (at/class-assignable? (:class t) (:class s)))
+            (boolean (some true? (oracle/class-rel-batch
+                                  [{:rel :assignable-from :a (:class s) :b (:class t)}
+                                   {:rel :assignable-from :a (:class t) :b (:class s)}])))
             :else false))
 
         (at/refinement-type? target-type)

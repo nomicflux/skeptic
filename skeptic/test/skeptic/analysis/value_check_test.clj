@@ -118,3 +118,14 @@
       (is (false? (avc/leaf-overlap? i f))))
     (testing ":double does not overlap with :float"
       (is (false? (avc/leaf-overlap? d f))))))
+
+(deftest leaf-overlap-batched-ground-ground-test
+  (let [num-class    (at/->GroundT tp {:class (oracle/host-handle Number)} 'Number)
+        long-class   (at/->GroundT tp {:class (oracle/host-handle Long)} 'Long)
+        string-class (at/->GroundT tp {:class (oracle/host-handle String)} 'String)]
+    (testing "assignable ground classes overlap (batched branch returns true)"
+      (is (true? (avc/leaf-overlap? num-class long-class)))
+      (is (true? (avc/leaf-overlap? long-class num-class))))
+    (testing "unrelated ground classes do not overlap (batched branch returns false)"
+      (is (false? (avc/leaf-overlap? long-class string-class)))
+      (is (false? (avc/leaf-overlap? string-class long-class))))))
