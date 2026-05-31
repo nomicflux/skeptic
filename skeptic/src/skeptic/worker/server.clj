@@ -119,6 +119,22 @@
 (mw/set-descriptor! #'wrap-class-rel
                     {:requires #{} :expects #{} :handles {"class-rel" {}}})
 
+(defn- run-class-rel-batch
+  "Answers a vector of `{:rel :a :b}` triples in one pass, returning a vector of
+   booleans positionally matching `triples`."
+  [triples]
+  (mapv (fn [{:keys [rel a b]}] (run-class-rel rel a b)) triples))
+
+(defn wrap-class-rel-batch
+  [h]
+  (fn [{:keys [op transport triples] :as msg}]
+    (if (= op "class-rel-batch")
+      (t/send transport (response-for msg :results (run-class-rel-batch triples) :status #{:done}))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-class-rel-batch
+                    {:requires #{} :expects #{} :handles {"class-rel-batch" {}}})
+
 (defn- resolve-sym-to-handle
   "In the namespace `ns-name`, resolve `sym` to a Class and return its handle
    (minting via the UUID branch). nil if `sym` doesn't resolve to a Class."
@@ -653,6 +669,7 @@
                     :handler (srv/default-handler #'wrap-ping
                                                   #'wrap-intern-host-classes
                                                   #'wrap-class-rel
+                                                  #'wrap-class-rel-batch
                                                   #'wrap-resolve-class-sym
                                                   #'wrap-class-name
                                                   #'wrap-analyze-namespace

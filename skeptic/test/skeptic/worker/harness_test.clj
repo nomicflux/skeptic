@@ -55,6 +55,23 @@
             (testing ":equals Long Long is true"
               (is (true? (oracle/class-rel :equals long-h long-h))))))))))
 
+(deftest class-rel-batch-round-trip
+  (with-worker
+    (fn [conn]
+      (let [m (oracle/intern-host-classes! conn)
+            number-h (get m Number)]
+        (binding [oracle/*worker-conn* conn
+                  oracle/*host-class-handles* m]
+          (let [long-h (oracle/resolve-class-sym 'clojure.core 'Long)
+                triples [{:rel :assignable-from :a number-h :b long-h}
+                         {:rel :assignable-from :a long-h :b number-h}
+                         {:rel :equals :a long-h :b long-h}]
+                {:keys [results]} (wc/ask conn {:op "class-rel-batch" :triples triples})]
+            (testing "batched results match the per-call class-rel answers, positionally"
+              (is (= [true false true] results))
+              (is (= (mapv #(oracle/class-rel (:rel %) (:a %) (:b %)) triples)
+                     results)))))))))
+
 (deftest resolve-class-sym-round-trip
   (with-worker
     (fn [conn]
