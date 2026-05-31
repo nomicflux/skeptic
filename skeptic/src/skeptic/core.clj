@@ -146,4 +146,5 @@
               (run-end @errored @totals printer-opts)
               (if @errored 1 0)))))
       (finally
+        (wc/disconnect! conn)
         (wproc/stop! worker)))))

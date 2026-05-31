@@ -13,10 +13,12 @@
   "Spawns a worker, runs `f` with a connected client, tears down."
   [f]
   (let [cp (proc/worker-classpath (System/getProperty "java.class.path"))
-        worker (proc/spawn! cp)]
+        worker (proc/spawn! cp)
+        conn (wc/connect (:port worker))]
     (try
-      (f (wc/connect (:port worker)))
+      (f conn)
       (finally
+        (wc/disconnect! conn)
         (proc/stop! worker)))))
 
 (deftest worker-ping-round-trip

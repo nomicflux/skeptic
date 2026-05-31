@@ -128,7 +128,7 @@
         (is (vector? entries))
         (is (every? #(= % (edn/read-string (pr-str %))) entries)
             "every projected entry must survive the pr-str -> edn/read transport codec"))
-      (finally (proc/stop! worker)))))
+      (finally (wc/disconnect! conn) (proc/stop! worker)))))
 
 (deftest projected-entry-wire-roundtrip-probe
   ;; The transport pr-str's the projected entries on the worker and edn/read's

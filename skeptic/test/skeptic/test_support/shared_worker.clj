@@ -21,7 +21,7 @@
         worker (proc/spawn! cp)
         conn   (wc/connect (:port worker))]
     (.addShutdownHook (Runtime/getRuntime)
-                      (Thread. ^Runnable (fn [] (proc/stop! worker))))
+                      (Thread. ^Runnable (fn [] (wc/disconnect! conn) (proc/stop! worker))))
     {:conn conn :handles (oracle/intern-host-classes! conn)}))
 
 (def ^:private shared (delay (spawn-shared!)))

@@ -15,3 +15,7 @@
   [conn :- s/Any
    msg :- {s/Any s/Any}]
   (first (nrepl.core/message (:client conn) msg)))
+
+(s/defn disconnect! :- s/Any
+  [conn :- s/Any]
+  (.close ^java.io.Closeable (:transport conn)))
