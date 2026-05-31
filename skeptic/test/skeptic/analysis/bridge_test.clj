@@ -1,7 +1,9 @@
 (ns skeptic.analysis.bridge-test
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.descriptors :as descriptors]
             [skeptic.analysis.bridge.algebra :as aba]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.analysis.bridge.localize :as abl]
@@ -12,6 +14,8 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.schema.discovery :as discovery]
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.test-examples.contracts]
             [skeptic.test-examples.form-refs]
             [skeptic.test-helpers :refer [is-type= T tp]]
@@ -23,7 +27,13 @@
   (require ns-sym)
   (into {}
         (keep (fn [[_ v]]
-                (when (and (var? v) (bound? v))
+                (when (and (var? v)
+                           (bound? v)
+                           (not (fn? @v))
+                           (not (sb/schema-literal? @v))
+                           (try
+                             (#'ab/schema-domain? @v)
+                             (catch Throwable _ false)))
                   (let [qsym (sb/qualified-var-symbol v)]
                     [qsym (prov/make-provenance :schema qsym ns-sym (meta v) [] :clj)]))))
         (ns-interns ns-sym)))
@@ -32,15 +42,49 @@
   (fn [test-fn]
     (binding [ab/*var-provs* (merge (ns-var-provs 'skeptic.analysis.bridge-test)
                                     (ns-var-provs 'skeptic.test-examples.form-refs)
+                                    (ns-var-provs 'skeptic.test-examples.contracts)
                                     (ns-var-provs 'skeptic.analysis.origin.schema))]
       (test-fn))))
 
+(use-fixtures :once shared-worker/with-shared-worker)
+
+(defn- read-source-forms
+  "Read every top-level form of a source file as inert data (mirrors the worker
+  :source-form stream); no namespace is loaded for discovery."
+  [^File source-file]
+  (with-open [r (java.io.PushbackReader. (io/reader source-file))]
+    (->> (repeatedly #(read {:eof ::eof} r))
+         (take-while #(not= ::eof %))
+         doall)))
+
 (defn- form-refs-from-discovery
-  [ns-sym source-file]
-  (into {}
-        (for [[qsym {:keys [role form]}] (:declarations (discovery/discover ns-sym source-file))
-              :when (#{:s/defn :s/def :s/defschema} role)]
-          [qsym form])))
+  [ns-sym forms]
+  (let [disc (discovery/discover ns-sym forms)
+        ref-qsyms (into (set (keys (:declarations disc)))
+                        (keep (fn [[qsym p]]
+                                (when (contains? #{:schema :malli :type-override} (prov/source p))
+                                  qsym)))
+                        ab/*var-provs*)]
+    (into {}
+          (keep (fn [[qsym {:keys [role form ns]}]]
+                  (when (#{:s/defn :s/def :s/defschema} role)
+                    (when-let [descriptor (descriptors/prepare-form-ref
+                                           ns
+                                           (:aliases disc)
+                                           ref-qsyms
+                                           form)]
+                      [qsym descriptor]))))
+          (:declarations disc))))
+
+(defn- exact-source-form
+  ([ns-sym form ref-qsyms]
+   (exact-source-form ns-sym {} form ref-qsyms))
+  ([ns-sym aliases form ref-qsyms]
+   (descriptors/prepare-source-form ns-sym aliases ref-qsyms form)))
+
+(defn- exact-source-env
+  [ns-sym ref-qsyms]
+  (descriptors/source-env ns-sym {} ref-qsyms))
 
 (declare UnboundSchemaRef
          DirectRecursiveSchemaRef
@@ -274,7 +318,10 @@
 (deftest source-intake-map-slot-value-position-test
   (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
         result (ab/schema->type tp {:result [s/Int]}
-                                '{:result skeptic.test-examples.form-refs/MapBody})
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 '{:result skeptic.test-examples.form-refs/MapBody}
+                                 #{map-body-qsym}))
         val-type (entry-val-by-key result :result)]
     (is (some? val-type))
     (is (= :schema (prov/source (prov/of val-type))))
@@ -283,7 +330,10 @@
 (deftest source-intake-vector-index-position-test
   (let [vec-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/VecBody)
         result (ab/schema->type tp [s/Int]
-                                '[skeptic.test-examples.form-refs/VecBody])
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 '[skeptic.test-examples.form-refs/VecBody]
+                                 #{vec-body-qsym}))
         child-type (at/pattern-tail (:pattern result))]
     (is (some? child-type))
     (is (= :schema (prov/source (prov/of child-type))))
@@ -292,7 +342,10 @@
 (deftest source-intake-wrapper-node-unnamed-with-child-ref-test
   (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
         result (ab/schema->type tp (s/maybe s/Int)
-                                '(s/maybe skeptic.test-examples.form-refs/MapBody))
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 '(s/maybe skeptic.test-examples.form-refs/MapBody)
+                                 #{map-body-qsym}))
         p (prov/of result)]
     (is (= :inferred (prov/source p)))
     (is (nil? (:qualified-sym p)))
@@ -336,9 +389,32 @@
 
 (deftest source-intake-folds-plain-def-schema-alias-test
   (let [alias-qsym (sb/qualified-var-symbol #'AliasedSchema)
-        result (ab/schema->type tp s/Int 'skeptic.analysis.bridge-test/AliasedSchema)]
+        result (ab/schema->type tp s/Int
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 'skeptic.analysis.bridge-test/AliasedSchema
+                                 #{alias-qsym}))]
     (is (= :schema (prov/source (prov/of result))))
     (is (= alias-qsym (:qualified-sym (prov/of result))))))
+
+(deftest source-intake-unqualified-symbol-does-not-search-foreign-qsyms-test
+  (let [foreign-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        result (ab/schema->type tp s/Int
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 'MapBody
+                                 #{foreign-qsym}))]
+    (is (not= foreign-qsym (:qualified-sym (prov/of result))))))
+
+(deftest source-intake-alias-qualified-symbol-uses-explicit-alias-test
+  (let [foreign-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
+        result (ab/schema->type tp s/Int
+                                (exact-source-form
+                                 'skeptic.analysis.bridge-test
+                                 {'fr 'skeptic.test-examples.form-refs}
+                                 'fr/MapBody
+                                 #{foreign-qsym}))]
+    (is (= foreign-qsym (:qualified-sym (prov/of result))))))
 
 (deftest source-intake-folds-inline-named-source-form-test
   (let [result (ab/schema->type tp s/Int '(s/named s/Int InlineAlias))]
@@ -351,13 +427,19 @@
            (abr/render-type-form
             (ab/schema->type tp
                              (s/optional-key s/Int)
-                             '(s/optional-key skeptic.analysis.bridge-test/AliasedSchema)))))
+                             (exact-source-form
+                              'skeptic.analysis.bridge-test
+                              '(s/optional-key skeptic.analysis.bridge-test/AliasedSchema)
+                              #{alias-qsym})))))
     (is (= (list 'var alias-qsym)
            (abr/render-type-form
             (ab/schema->type tp
                              (sb/variable s/Int)
-                             '(skeptic.analysis.schema-base/variable
-                               skeptic.analysis.bridge-test/AliasedSchema)))))))
+                             (exact-source-form
+                              'skeptic.analysis.bridge-test
+                              '(skeptic.analysis.schema-base/variable
+                                skeptic.analysis.bridge-test/AliasedSchema)
+                              #{alias-qsym})))))))
 
 (deftest source-intake-nil-source-form-unchanged-test
   (let [result (ab/schema->type tp s/Int)]
@@ -366,7 +448,10 @@
 (deftest source-intake-convert-desc-end-to-end-test
   (let [map-body-qsym (sb/qualified-var-symbol #'skeptic.test-examples.form-refs/MapBody)
         form-refs {'skeptic.test-examples.form-refs/fn-with-map-ann
-                   '{:result skeptic.test-examples.form-refs/MapBody}}
+                   (exact-source-form
+                    'skeptic.test-examples.form-refs
+                    '{:result skeptic.test-examples.form-refs/MapBody}
+                    #{map-body-qsym})}
         desc {:schema {:result [s/Int]} :arglists nil}
         result (td/convert-desc 'skeptic.test-examples.form-refs
                                 'skeptic.test-examples.form-refs/fn-with-map-ann
@@ -380,26 +465,34 @@
     (is (= map-body-qsym (:qualified-sym (prov/of val-type))))))
 
 (deftest source-descriptor-cycle-via-cond-pre-vector-terminates-test
-  (let [form '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/BoundSchemaRef])
-        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form}
-        descriptor (#'ab/source-descriptor tp form form-refs)]
+  (let [bound-qsym (sb/qualified-var-symbol #'BoundSchemaRef)
+        form '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/BoundSchemaRef])
+        form-refs {bound-qsym (exact-source-form 'skeptic.analysis.bridge-test form #{bound-qsym})}
+        descriptor (#'ab/source-descriptor tp form form-refs
+                                           (exact-source-env 'skeptic.analysis.bridge-test #{bound-qsym}))]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
 
 (deftest source-descriptor-cycle-via-conditional-self-terminates-test
-  (let [form '(schema.core/conditional clojure.core/even? skeptic.analysis.bridge-test/BoundSchemaRef
+  (let [bound-qsym (sb/qualified-var-symbol #'BoundSchemaRef)
+        form '(schema.core/conditional clojure.core/even? skeptic.analysis.bridge-test/BoundSchemaRef
                                        clojure.core/odd? skeptic.analysis.bridge-test/BoundSchemaRef)
-        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form}
-        descriptor (#'ab/source-descriptor tp form form-refs)]
+        form-refs {bound-qsym (exact-source-form 'skeptic.analysis.bridge-test form #{bound-qsym})}
+        descriptor (#'ab/source-descriptor tp form form-refs
+                                           (exact-source-env 'skeptic.analysis.bridge-test #{bound-qsym}))]
     (is (some? descriptor))
     (is (= form (:form descriptor)))))
 
 (deftest source-descriptor-cycle-via-mutual-vars-terminates-test
-  (let [form-a '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/AliasedSchema])
+  (let [bound-qsym (sb/qualified-var-symbol #'BoundSchemaRef)
+        alias-qsym (sb/qualified-var-symbol #'AliasedSchema)
+        ref-qsyms #{bound-qsym alias-qsym}
+        form-a '(schema.core/cond-pre schema.core/Int [skeptic.analysis.bridge-test/AliasedSchema])
         form-b '(schema.core/cond-pre schema.core/Str [skeptic.analysis.bridge-test/BoundSchemaRef])
-        form-refs {(sb/qualified-var-symbol #'BoundSchemaRef) form-a
-                   (sb/qualified-var-symbol #'AliasedSchema) form-b}
-        descriptor (#'ab/source-descriptor tp form-a form-refs)]
+        form-refs {bound-qsym (exact-source-form 'skeptic.analysis.bridge-test form-a ref-qsyms)
+                   alias-qsym (exact-source-form 'skeptic.analysis.bridge-test form-b ref-qsyms)}
+        descriptor (#'ab/source-descriptor tp form-a form-refs
+                                           (exact-source-env 'skeptic.analysis.bridge-test ref-qsyms))]
     (is (some? descriptor))
     (is (= form-a (:form descriptor)))))
 
@@ -436,14 +529,16 @@
 (deftest source-intake-named-conditional-reference-keeps-branch-predicate-source-test
   (let [ns-sym 'skeptic.test-examples.contracts
         source-file (File. "test/skeptic/test_examples/contracts.clj")
-        form-refs (form-refs-from-discovery ns-sym source-file)
-        result (binding [*ns* (the-ns ns-sym)]
-                 (td/typed-ns-results {} ns-sym :clj source-file form-refs))
-        fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
-        input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
-        pred-forms (mapv :pred-form (:branches input-type))]
-    (is (= 2 (count pred-forms)))
-    (is (every? seq? pred-forms))
-    (is (every? #(= 'fn* (first %)) pred-forms))
-    (is (= #{:a :b} (set (filter keyword? (tree-seq coll? seq pred-forms)))))
-    (is (= '#{choose} (set (filter #(= 'choose %) (tree-seq coll? seq pred-forms)))))))
+        forms (read-source-forms source-file)
+        form-refs (form-refs-from-discovery ns-sym forms)
+        {:keys [entries]} (admit/plumatic-args ns-sym source-file)
+        result (td/typed-ns-results {} ns-sym :clj form-refs entries nil)]
+    (is (= [] (:errors result)))
+    (let [fn-type (get-in result [:dict 'skeptic.test-examples.contracts/chooses-conditional-success])
+          input-type (-> fn-type at/fun-methods first at/fn-method-inputs first)
+          pred-forms (mapv :pred-form (:branches input-type))]
+      (is (= 2 (count pred-forms)))
+      (is (every? seq? pred-forms))
+      (is (every? #(= 'fn* (first %)) pred-forms))
+      (is (= #{:a :b} (set (filter keyword? (tree-seq coll? seq pred-forms)))))
+      (is (= '#{choose} (set (filter #(= 'choose %) (tree-seq coll? seq pred-forms))))))))

@@ -7,6 +7,7 @@
             [skeptic.checking.pipeline.support :as ps]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.test-examples.basics :as basics]
+            [skeptic.test-support.admit :as admit]
             [skeptic.typed-decls :as typed-decls]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
@@ -110,8 +111,11 @@
   (is (= [] (ps/check-fixture 'skeptic.test-examples.basics/div-double-num-success))))
 
 (deftest regex-return-declaration-and-checking
-  (let [{:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics :clj
-                                                            (ps/fixture-file-for-ns 'skeptic.test-examples.basics) nil)
+  (let [{:keys [aliases declarations]} (admit/plumatic-args
+                                        'skeptic.test-examples.basics
+                                        (ps/fixture-file-for-ns 'skeptic.test-examples.basics))
+        {:keys [dict errors]} (typed-decls/typed-ns-results {} 'skeptic.test-examples.basics :clj
+                                                            nil aliases declarations)
         entries dict
         declaration-error (some #(when (= 'skeptic.test-examples.basics/regex-return-caller
                                           (:blame %))

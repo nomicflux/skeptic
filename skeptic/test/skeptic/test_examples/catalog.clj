@@ -18,6 +18,9 @@
             [skeptic.test-examples.resolution]
             [skeptic.test-examples.structural-cases]
             [skeptic.test-examples.var-narrowing]
+            [skeptic.analysis.class-oracle :as oracle]
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.typed-decls :as typed-decls])
   (:import [java.io File]))
 
@@ -159,14 +162,21 @@
   (when-let [category (get @symbol-owner-map sym)]
     (assoc (get fixture-envs category) :category category)))
 
+(defn- build-typed-entry-map
+  []
+  (reduce (fn [acc category]
+            (let [{ns-sym :ns source-file :file} (get fixture-envs category)
+                  {:keys [entries]} (admit/plumatic-args ns-sym source-file)
+                  {dict :dict} (typed-decls/typed-ns-results {} ns-sym :clj nil entries)]
+              (merge acc dict)))
+          {}
+          schema-fixture-order))
+
 (def ^:private typed-entry-map
   (delay
-    (reduce (fn [acc category]
-              (let [{ns-sym :ns source-file :file} (get fixture-envs category)
-                    {entries :dict} (typed-decls/typed-ns-results {} ns-sym :clj source-file nil)]
-                (merge acc entries)))
-            {}
-            schema-fixture-order)))
+    (if oracle/*worker-conn*
+      (build-typed-entry-map)
+      (shared-worker/with-shared-worker build-typed-entry-map))))
 
 (defn typed-test-example-entries
   []

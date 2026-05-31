@@ -1,14 +1,17 @@
 (ns skeptic.malli-spec.collect
-  "Malli intake stream. Hermetic from Plumatic by construction:
-  - reads :malli/schema Var-meta directly (a Malli-only convention; Plumatic
-    never writes :malli/schema).
-  - projects (malli.core/function-schemas) for compile-time-registered
-    m/=> and mx/defn entries.
-  Does NOT call malli.instrument/collect!, which validates each schema as a
-  function schema (`[:=> ...]`) and rejects non-function shapes that the
-  bridge admits as Dyn (e.g. `:map` Var-meta on a value Var)."
-  (:require [malli.core :as m]
-            [skeptic.analysis.malli-spec.bridge :as amb]))
+  "Malli intake stream, hermetic from the project JVM. Reads three channels of
+  inert Malli spec data off the worker-shipped clj-state entries — never the
+  live `(malli.core/function-schemas)` registry or a loaded Var's metadata:
+
+  1. `:malli/schema` Var-meta → the `:malli-schema` field the worker captured
+     off the raw source-form (`skeptic.worker.server/project-entry`).
+  2. `m/=>` → the spec vector at position 2 of the `(m/=> sym SPEC)` source-form.
+  3. `mx/defn` → reassembled `[:=> [:cat IN…] OUT]` from the `:- ` annotations on
+     the `(mx/defn name :- OUT [a :- A …] …)` source-form.
+
+  Specs are inert keyword/vector data; `amb/admit-malli-spec` (pinned Malli)
+  does all interpretation host-side. No `malli.core` require here."
+  (:require [skeptic.analysis.malli-spec.bridge :as amb]))
 
 (defn malli-declaration-error-result
   [ns-sym qualified-sym entry-meta e]
@@ -23,57 +26,72 @@
    :exception-message (or (.getMessage e) (str e))
    :exception-data (ex-data e)})
 
-(defn- registry-entries
-  [ns-sym]
-  (when-let [projection (get (m/function-schemas) ns-sym)]
-    (map (fn [[fn-sym {:keys [schema]}]]
-           [fn-sym schema (some-> (ns-resolve (the-ns ns-sym) fn-sym) meta)])
-         projection)))
+;; --- channel extraction (returns [fn-sym malli-spec-form] pairs) ---
 
-(defn- var-meta-entries
-  [ns-sym registered-syms]
-  (keep (fn [[fn-sym v]]
-          (when-let [schema (:malli/schema (meta v))]
-            (when-not (registered-syms fn-sym)
-              [fn-sym schema (meta v)])))
-        (ns-interns ns-sym)))
+(defn- resolve-head
+  [aliases form]
+  (when (and (seq? form) (symbol? (first form)))
+    (let [head (first form)]
+      (if-let [target (some-> head namespace symbol (->> (get aliases)))]
+        (symbol (name target) (name head))
+        head))))
+
+(defn- mx-defn-spec
+  "Reassemble `[:=> [:cat IN…] OUT]` from an `(mx/defn name :- OUT [a :- A …] …)`
+  source-form's `:- ` annotations. Single-arity only (Malli `mx/defn` arms)."
+  [form]
+  (let [more (nnext form)
+        [output more] (if (= :- (first more)) [(second more) (nnext more)] [:any more])
+        more (if (string? (first more)) (next more) more)
+        more (if (map? (first more)) (next more) more)
+        argv (first more)
+        inputs (loop [[x y & rest :as items] (seq argv) acc []]
+                 (cond
+                   (empty? items) acc
+                   (= x '&) (recur (next items) acc)
+                   (= y :-) (recur (nnext (next items)) (conj acc (first rest)))
+                   :else (recur (next items) (conj acc :any))))]
+    [:=> (into [:cat] inputs) output]))
+
+(defn- channel-entries
+  "All [fn-sym spec entry-meta] Malli declarations from one clj-state entry."
+  [aliases {:keys [source-form malli-schema]}]
+  (let [head (resolve-head aliases source-form)
+        name-sym (when (seq? source-form) (second source-form))
+        entry-meta (meta source-form)]
+    (cond
+      malli-schema [[name-sym malli-schema entry-meta]]
+      (= head 'malli.core/=>) [[name-sym (nth source-form 2 nil) entry-meta]]
+      (= head 'malli.experimental/defn) [[name-sym (mx-defn-spec source-form) entry-meta]]
+      :else nil)))
 
 (defn- admit-entry
-  [ns-sym {:keys [entries errors]} [fn-sym schema entry-meta]]
+  [ns-sym {:keys [entries errors]} [fn-sym spec entry-meta]]
   (let [qualified-sym (symbol (name ns-sym) (name fn-sym))]
     (try
       {:entries (assoc entries qualified-sym {:name (str qualified-sym)
-                                              :malli-spec (amb/admit-malli-spec schema)})
+                                              :malli-spec (amb/admit-malli-spec spec)})
        :errors errors}
       (catch Exception e
         {:entries entries
          :errors (conj errors (malli-declaration-error-result ns-sym qualified-sym entry-meta e))}))))
 
 (defn ns-malli-spec-results
-  [_opts ns-sym]
-  (require ns-sym)
-  (let [registered (registry-entries ns-sym)
-        registered-syms (into #{} (map first) registered)
-        meta-only (var-meta-entries ns-sym registered-syms)]
-    (reduce (partial admit-entry ns-sym)
-            {:entries {} :errors []}
-            (concat registered meta-only))))
-
-(defn ns-malli-specs
-  [opts ns]
-  (:entries (ns-malli-spec-results opts ns)))
+  "Per-namespace Malli admission from worker-shipped clj-state entries. Inputs:
+  - `ns-sym`: the namespace symbol.
+  - `aliases`: the ns alias map (alias-sym → target-ns-sym) for head resolution.
+  - `entries`: the ns's clj-state entries `[{:source-form :malli-schema} …]`.
+  Returns `{:entries {qsym {:name :malli-spec}} :errors [...]}`."
+  [ns-sym aliases entries]
+  (reduce (partial admit-entry ns-sym)
+          {:entries {} :errors []}
+          (mapcat #(channel-entries aliases %) entries)))
 
 (defn malli-admitted-qsyms
   "Qsym set the Malli admission collector would admit for ns-sym, without
-  converting schema bodies. Union of registry-registered Vars (m/=>, mx/defn)
-  and :malli/schema Var-meta-only Vars. Used by pipeline var-provs population
-  so it cannot disagree with what ns-malli-spec-results admits."
-  [ns-sym]
-  (require ns-sym)
-  (let [registered (registry-entries ns-sym)
-        registered-syms (into #{} (map first) registered)
-        meta-only (var-meta-entries ns-sym registered-syms)]
-    (into #{}
-          (map (fn [[fn-sym _ _]]
-                 (symbol (name ns-sym) (name fn-sym))))
-          (concat registered meta-only))))
+  converting spec bodies. Used by pipeline var-provs so it cannot disagree with
+  what ns-malli-spec-results admits."
+  [ns-sym aliases entries]
+  (into #{}
+        (map (fn [[fn-sym _ _]] (symbol (name ns-sym) (name fn-sym))))
+        (mapcat #(channel-entries aliases %) entries)))

@@ -16,6 +16,7 @@
             [skeptic.provenance :as prov]
             [skeptic.test-examples.catalog :as catalog]
             [skeptic.test-helpers :refer [is-type= T tp some!]]
+            [skeptic.test-support.admit :as admit]
             [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.typed-decls :as typed-decls])
   (:import [clojure.lang Numbers]))
@@ -177,8 +178,10 @@
 (deftest branch-resolution-joins-test
   (testing "branch joins stay branch-local and nil-bearing joins canonicalize to maybe"
     (let [test-dict (catalog/typed-test-example-entries)
+          {:keys [aliases declarations]} (admit/plumatic-args
+                                          'skeptic.examples (java.io.File. "src/skeptic/examples.clj"))
           example-dict (:dict (typed-decls/typed-ns-results {} 'skeptic.examples :clj
-                                                            (java.io.File. "src/skeptic/examples.clj") nil))
+                                                            nil aliases declarations))
           control-flow-defs (atst/resolved-defs-of test-dict 'skeptic.test-examples.control-flow)
           resolution-defs (atst/resolved-defs-of test-dict 'skeptic.test-examples.resolution)
           example-defs (->> (aat/analyze-ns-file example-dict 'skeptic.examples atst/examples-file {})

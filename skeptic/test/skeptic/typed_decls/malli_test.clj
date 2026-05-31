@@ -1,10 +1,15 @@
 (ns skeptic.typed-decls.malli-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
             [skeptic.schema.collect :as scollect]
             [skeptic.test-helpers :refer [is-type= tp]]
-            [skeptic.typed-decls.malli :as tdm]))
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as test-worker]
+            [skeptic.typed-decls.malli :as tdm])
+  (:import [java.io File]))
+
+(use-fixtures :once test-worker/with-shared-worker)
 
 (def ^:private Int (at/->GroundT tp :int 'Int))
 
@@ -36,7 +41,10 @@
     (is-type= expected (at/fn-method-output (first (at/fun-methods t))))))
 
 (deftest typed-ns-malli-results-entries
-  (let [{:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli :clj)]
+  (let [{:keys [aliases entries]} (admit/malli-args
+                                   'skeptic.test-examples.malli
+                                   (File. "test/skeptic/test_examples/malli.clj"))
+        {:keys [dict errors]} (tdm/typed-ns-malli-results {} 'skeptic.test-examples.malli :clj aliases entries)]
     (is (empty? errors))
     (is (contains? dict 'skeptic.test-examples.malli/demo-fn))
     (let [t (get dict 'skeptic.test-examples.malli/demo-fn)]

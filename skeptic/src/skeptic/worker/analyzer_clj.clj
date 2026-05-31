@@ -136,6 +136,25 @@
     (strip-schema-defn form)
     form))
 
+(def ^:private class-declaration-head-names
+  #{"defrecord" "deftype"})
+
+(defn- class-declaration-form?
+  [form]
+  (when (seq? form)
+    (let [head (first form)]
+      (and (symbol? head)
+           (contains? class-declaration-head-names (name head))))))
+
+(defn- analyze-entry
+  [opts form]
+  (cond-> {:source-form form}
+    (not (class-declaration-form? form))
+    (assoc :ast (analyze (normalize-check-form form) opts))
+
+    (class-declaration-form? form)
+    (assoc :analysis-skipped? true)))
+
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
    the namespace first so its refers/aliases/imports resolve (matching the host
@@ -149,6 +168,5 @@
   [ns-sym source-file]
   (require ns-sym)
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
-    {:entries (mapv (fn [form] {:source-form form
-                                :ast (analyze (normalize-check-form form) opts)})
+    {:entries (mapv (fn [form] (analyze-entry opts form))
                     (read-top-forms (target-ns ns-sym) source-file))}))

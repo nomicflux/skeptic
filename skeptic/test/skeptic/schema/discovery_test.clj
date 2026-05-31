@@ -1,21 +1,32 @@
 (ns skeptic.schema.discovery-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [skeptic.schema.discovery :as discovery]))
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing]]
+            [skeptic.schema.discovery :as discovery])
+  (:import [java.io PushbackReader]))
 
 (def fixture-ns 'skeptic.research.intake-combined-fixture)
-(def fixture-file
-  (java.io.File. "test/skeptic/research/intake_combined_fixture.clj"))
+(def fixture-file "test/skeptic/research/intake_combined_fixture.clj")
+
+(defn- read-forms
+  "Read every top-level form of the fixture as inert data (mirrors the shipped
+  worker :source-form stream); no namespace is loaded."
+  []
+  (with-open [r (PushbackReader. (io/reader fixture-file))]
+    (->> (repeatedly #(read {:eof ::eof} r))
+         (take-while #(not= ::eof %))
+         doall)))
+
+(def forms (read-forms))
 
 (deftest discover-recognizes-each-plumatic-producer
-  (require fixture-ns)
-  (let [{:keys [declarations]} (discovery/discover fixture-ns fixture-file)]
+  (let [{:keys [declarations]} (discovery/discover fixture-ns forms)]
     (testing "aliased s/defn"
       (is (= :s/defn (get-in declarations
                               ['skeptic.research.intake-combined-fixture/aliased-defn :role]))))
     (testing "fully-qualified schema.core/defn"
       (is (= :s/defn (get-in declarations
                               ['skeptic.research.intake-combined-fixture/qualified-defn :role]))))
-    (testing "alternative alias schemy/defn"
+    (testing "alternative alias schemy/defn (top-level require alias)"
       (is (= :s/defn (get-in declarations
                               ['skeptic.research.intake-combined-fixture/schemy-defn :role]))))
     (testing "s/def"
@@ -43,8 +54,7 @@
                               ['skeptic.research.intake-combined-fixture/cross-stream :role]))))))
 
 (deftest discover-skips-non-plumatic-producers
-  (require fixture-ns)
-  (let [{:keys [declarations]} (discovery/discover fixture-ns fixture-file)]
+  (let [{:keys [declarations]} (discovery/discover fixture-ns forms)]
     (testing "plain defn is NOT a Plumatic declaration"
       (is (not (contains? declarations 'skeptic.research.intake-combined-fixture/plain-defn))))
     (testing "m/=> is NOT a Plumatic declaration"
@@ -58,7 +68,6 @@
       (is (not (contains? declarations 'skeptic.research.intake-combined-fixture/do-wrapped-defn))))))
 
 (deftest source-forms-carries-raw-pre-expansion-forms
-  (require fixture-ns)
-  (let [{:keys [source-forms]} (discovery/discover fixture-ns fixture-file)]
+  (let [{:keys [source-forms]} (discovery/discover fixture-ns forms)]
     (is (some? (get source-forms 'skeptic.research.intake-combined-fixture/aliased-defn)))
     (is (= 's/defn (first (get source-forms 'skeptic.research.intake-combined-fixture/aliased-defn))))))

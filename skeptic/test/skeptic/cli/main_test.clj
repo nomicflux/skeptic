@@ -1,7 +1,44 @@
 (ns skeptic.cli.main-test
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [skeptic.cli.main :as main]))
+            [skeptic.cli.main :as main])
+  (:import [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
+
+(defn- temp-dir!
+  []
+  (.toFile (Files/createTempDirectory "skeptic-main-test-"
+                                      (into-array FileAttribute []))))
+
+(defn- delete-recursively!
+  [^java.io.File f]
+  (when (.isDirectory f)
+    (doseq [c (.listFiles f)] (delete-recursively! c)))
+  (.delete f))
+
+(def ^:private clean-source
+  "(ns demo.core (:require [schema.core :as s]))\n
+(s/defn add-one :- s/Int [x :- s/Int] (+ x 1))\n")
+
+(def ^:private bad-source
+  "A planted output mismatch: the body returns a String where the declared
+  return schema is s/Int. The deps path must CHECK this and report a finding."
+  "(ns demo.core (:require [schema.core :as s]))\n
+(s/defn add-one :- s/Int [x :- s/Int] (str x))\n")
+
+(defn- check-source!
+  "Write `source` as demo.core in a temp deps project, run the deps -T path over
+  it with a live worker, and return the exit code (0 clean, 1 findings)."
+  [source]
+  (let [dir (temp-dir!)]
+    (try
+      (spit (io/file dir "deps.edn") "{:paths [\"src\"]}")
+      (.mkdirs (io/file dir "src" "demo"))
+      (spit (io/file dir "src" "demo" "core.clj") source)
+      (main/check-project {:project-dir (.getPath dir) :paths "src"})
+      (finally
+        (delete-recursively! dir)))))
 
 (deftest legacy-m-entrypoint-is-rejected
   (let [err (with-out-str
@@ -22,3 +59,11 @@
     (is (vector? main/deps-cli-options))
     (is (some #(= "--paths PATHS" (nth % 1 nil)) main/deps-cli-options))
     (is (some #(= "--alias ALIAS" (nth % 1 nil)) main/deps-cli-options))))
+
+(deftest deps-entrypoint-checks-project-code-end-to-end
+  (testing "a clean project is checked and reports no findings (exit 0)"
+    (is (= 0 (check-source! clean-source))
+        "the deps path ran the checker over project code with a live worker"))
+  (testing "a planted output mismatch is CHECKED and reported (exit 1)"
+    (is (= 1 (check-source! bad-source))
+        "the deps path admits the s/defn schema and flags the String/Int mismatch — proving project code is actually checked, not skipped")))

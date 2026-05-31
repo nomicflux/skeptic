@@ -99,18 +99,16 @@
     :else
     one))
 
-(defn- resolve-form-var
-  [form]
-  (when (symbol? form)
-    (try (resolve form) (catch Exception _ nil))))
-
-(defn- lookup-form-ref
+(defn- lookup-form-ref-descriptor
   [ctx qsym]
   (let [form-refs (:form-refs ctx)]
     (when (and form-refs qsym)
-      (some-> (get form-refs qsym)
-              descriptors/raw->descriptor
-              :schema-form))))
+      (get form-refs qsym))))
+
+(defn- exact-form-ref-qsym
+  [ctx form]
+  (when-let [source-env (:source-env ctx)]
+    (descriptors/exact-ref-qsym source-env form)))
 
 (defn- inline-named-name
   [form]
@@ -133,39 +131,23 @@
                             []
                             (:lang ctx-prov)))))
 
-(defn- var-source-prov
-  [v]
-  (when (instance? clojure.lang.Var v)
-    (let [m (meta v)
-          qsym (sb/qualified-var-symbol v)]
-      (when (and qsym
-                 (not= 'schema.core (some-> v .ns ns-name))
-                 (not (:macro m))
-                 (bound? v))
-        (let [val @v]
-          (when (and (not (fn? val))
-                     (not (sb/schema-literal? val))
-                     (schema-domain? val))
-            (prov/make-provenance :schema
-                                  qsym
-                                  (some-> v .ns ns-name)
-                                  m
-                                  []
-                                  :clj)))))))
-
 (defn- named-prov
-  [ctx-prov v form]
-  (or (var-source-prov v)
+  [ctx-prov qsym form]
+  (or (when (and qsym *var-provs*)
+        (get *var-provs* qsym))
       (inline-named-source-prov ctx-prov form)))
 
 (defn- form-spec
   [prov ctx form]
-  (let [v        (resolve-form-var form)
-        qsym     (when (instance? clojure.lang.Var v) (sb/qualified-var-symbol v))
+  (let [qsym     (exact-form-ref-qsym ctx form)
         active?  (and qsym (contains? (:active-refs ctx) qsym))
-        ref-form (when (and qsym (not active?)) (lookup-form-ref ctx qsym))
         sub-ctx  (cond-> ctx
                    qsym (update :active-refs conj qsym))
+        ref-descriptor (when (and qsym (not active?))
+                         (lookup-form-ref-descriptor ctx qsym))
+        ref-form (some-> ref-descriptor descriptors/schema-form)
+        ref-ctx (when ref-descriptor
+                  (assoc sub-ctx :source-env (:source-env ref-descriptor)))
         child-forms (cond
                       (map? form)    nil
                       (vector? form) (vec form)
@@ -177,14 +159,16 @@
                              (and (seq? form) (>= (count (rest form)) 2)) form
                              (and (seq? ref-form) (>= (count (rest ref-form)) 2)) ref-form
                              :else nil)
+        conditional-ctx (if ref-form ref-ctx sub-ctx)
         conditional-pairs (when conditional-source
                             (vec (partition 2 (rest conditional-source))))]
     {:form              form
-     :named-prov        (named-prov prov v form)
+     :named-prov        (named-prov prov qsym form)
      :is-map?           (map? form)
      :child-forms       child-forms
      :map-entries-forms map-entries-forms
      :conditional-pairs conditional-pairs
+     :conditional-ctx   conditional-ctx
      :sub-ctx           sub-ctx}))
 
 (defn- assemble-descriptor
@@ -214,7 +198,7 @@
      :conditional-branches conditional-branches}))
 
 (defn- spec-child-requests
-  [{:keys [child-forms map-entries-forms conditional-pairs]} start-id]
+  [{:keys [child-forms map-entries-forms conditional-pairs conditional-ctx]} start-id]
   (let [children-rs (when child-forms
                       (map-indexed (fn [i c] {:slot [:child i] :form c}) child-forms))
         map-rs      (when map-entries-forms
@@ -224,48 +208,58 @@
                               map-entries-forms))
         cond-rs     (when conditional-pairs
                       (map-indexed (fn [i [_pred branch]]
-                                     {:slot [:cond-branch i] :form branch})
+                                     {:slot [:cond-branch i]
+                                      :form branch
+                                      :ctx conditional-ctx})
                                    conditional-pairs))]
     (mapv (fn [r i] (assoc r :id i))
           (concat children-rs map-rs cond-rs)
           (iterate inc start-id))))
 
 (defn- source-descriptor
-  [prov form form-refs]
-  (loop [stack   [{:op :descend :form form :ctx {:active-refs #{} :form-refs form-refs} :id 0}]
-         next-id 1
-         results {}]
-    (if (empty? stack)
-      (get results 0)
-      (let [{:keys [op] :as item} (peek stack)
-            stack' (pop stack)]
-        (case op
-          :descend
-          (let [{:keys [form ctx id]} item
-                spec (form-spec prov ctx form)
-                requests (spec-child-requests spec next-id)]
-            (if (empty? requests)
-              (recur stack'
-                     next-id
-                     (assoc results id (assemble-descriptor spec {})))
-              (let [sub-ctx (:sub-ctx spec)
-                    descend-items (mapv (fn [{:keys [id form]}]
-                                          {:op :descend :form form :ctx sub-ctx :id id})
-                                        requests)
-                    assemble-item {:op :assemble :id id :spec spec :requests requests}]
-                (recur (-> stack' (conj assemble-item) (into descend-items))
-                       (+ next-id (count requests))
-                       results))))
+  ([prov form form-refs]
+   (source-descriptor prov form form-refs nil))
+  ([prov form form-refs source-env]
+   (loop [stack   [{:op :descend
+                    :form form
+                    :ctx {:active-refs #{} :form-refs form-refs :source-env source-env}
+                    :id 0}]
+          next-id 1
+          results {}]
+     (if (empty? stack)
+       (get results 0)
+       (let [{:keys [op] :as item} (peek stack)
+             stack' (pop stack)]
+         (case op
+           :descend
+           (let [{:keys [form ctx id]} item
+                 spec (form-spec prov ctx form)
+                 requests (spec-child-requests spec next-id)]
+             (if (empty? requests)
+               (recur stack'
+                      next-id
+                      (assoc results id (assemble-descriptor spec {})))
+               (let [sub-ctx (:sub-ctx spec)
+                     descend-items (mapv (fn [{:keys [id form ctx]}]
+                                           {:op :descend
+                                            :form form
+                                            :ctx (or ctx sub-ctx)
+                                            :id id})
+                                         requests)
+                     assemble-item {:op :assemble :id id :spec spec :requests requests}]
+                 (recur (-> stack' (conj assemble-item) (into descend-items))
+                        (+ next-id (count requests))
+                        results))))
 
-          :assemble
-          (let [{:keys [id spec requests]} item
-                resolved (reduce (fn [m {:keys [slot id]}]
-                                   (assoc m slot (get results id)))
-                                 {}
-                                 requests)]
-            (recur stack'
-                   next-id
-                   (assoc results id (assemble-descriptor spec resolved)))))))))
+           :assemble
+           (let [{:keys [id spec requests]} item
+                 resolved (reduce (fn [m {:keys [slot id]}]
+                                    (assoc m slot (get results id)))
+                                  {}
+                                  requests)]
+             (recur stack'
+                    next-id
+                    (assoc results id (assemble-descriptor spec resolved))))))))))
 
 (defn- descriptor-source
   [prov descriptor form-refs]
@@ -276,15 +270,16 @@
       (nil? descriptor) nil
       (and (map? descriptor) (contains? descriptor :kind))
       (case (:kind descriptor)
-        :def (source-descriptor prov (:schema-form descriptor) form-refs)
-        :defschema (source-descriptor prov (:schema-form descriptor) form-refs)
+        :def (source-descriptor prov (:schema-form descriptor) form-refs (:source-env descriptor))
+        :defschema (source-descriptor prov (:schema-form descriptor) form-refs (:source-env descriptor))
+        :schema-source (source-descriptor prov (:schema-form descriptor) form-refs (:source-env descriptor))
         :defn {:kind :defn
-               :output-source (source-descriptor prov (:output-form descriptor) form-refs)
+               :output-source (source-descriptor prov (:output-form descriptor) form-refs (:source-env descriptor))
                :arglists (into {}
                                (map (fn [[k v]]
                                       [k (assoc v
                                                 :input-sources
-                                                (mapv #(source-descriptor prov % form-refs)
+                                                (mapv #(source-descriptor prov % form-refs (:source-env descriptor))
                                                       (:input-forms v)))]))
                                (:arglists descriptor))}
         nil)
@@ -552,6 +547,34 @@
       :else
       (import-result (at/->PlaceholderT prov var-ref)))))
 
+(defn- ref-import-type
+  [run {:keys [prov active-refs] :as ctx} ref-schema]
+  (let [var-ref (:qualified-sym ref-schema)]
+    (cond
+      (contains? active-refs var-ref)
+      (import-result (at/->InfCycleT prov var-ref) #{var-ref})
+
+      (:schema ref-schema)
+      (let [hit (when (and *var-provs* var-ref)
+                  (get *var-provs* var-ref))]
+        (when-not hit
+          (throw (ex-info "ref-import-type: no Provenance for referenced schema Var (intake invariant violated)"
+                          {:qsym var-ref
+                           :referenced-from (some-> prov :declared-in)
+                           :var-provs-bound? (some? *var-provs*)})))
+        (let [ref-source (when-let [ref-descriptor (lookup-form-ref-descriptor ctx var-ref)]
+                           (descriptor-source hit ref-descriptor (:form-refs ctx)))]
+          (run (assoc ctx
+                      :schema (:schema ref-schema)
+                      :prov hit
+                      :source (or ref-source (:source ctx))
+                      :active-refs (conj active-refs var-ref)
+                      :owner-ref var-ref
+                      :name-claimed? false))))
+
+      :else
+      (import-result (at/->PlaceholderT prov var-ref)))))
+
 (s/defn ^:private composite-node-prov :- provs/Provenance
   [ctx-prov    :- provs/Provenance
    child-provs :- [provs/Provenance]]
@@ -599,6 +622,9 @@
       (instance? clojure.lang.Var schema)
       (var-import-type run ctx schema)
 
+      (sb/ref-schema? schema)
+      (ref-import-type run ctx schema)
+
       (instance? Recursive schema)
       (var-import-type run ctx (:derefable schema))
 
@@ -641,6 +667,11 @@
 
       (primitive-ground-schema? scalar-schema)
       (import-result (primitive-ground-type prov schema))
+
+      (sb/class-handle-schema? schema)
+      (import-result (at/->GroundT prov
+                                  {:class (:handle schema)}
+                                  (some-> (:display-form schema) symbol)))
 
       (sb/fn-schema? schema)
       (function-import-type run ctx schema source)
@@ -723,6 +754,14 @@
                 :active-refs (conj active-refs var-ref)}))
         schema)
 
+      (sb/ref-schema? schema)
+      (do
+        (when (and (:schema schema)
+                   (not (contains? active-refs (:qualified-sym schema))))
+          (run {:schema (:schema schema)
+                :active-refs (conj active-refs (:qualified-sym schema))}))
+        schema)
+
       (nil? schema)
       schema
 
@@ -764,6 +803,9 @@
         schema)
 
       (primitive-ground-schema? scalar-schema)
+      schema
+
+      (sb/class-handle-schema? schema)
       schema
 
       (sb/fn-schema? schema)
@@ -892,6 +934,11 @@
   ([prov   :- provs/Provenance
     schema :- s/Any
     source :- s/Any]
+   (import-schema-type prov schema source nil))
+  ([prov      :- provs/Provenance
+    schema    :- s/Any
+    source    :- s/Any
+    form-refs :- s/Any]
    (letfn [(run [ctx]
              (import-schema-type* run ctx))]
      (:type (run {:schema schema
@@ -899,6 +946,7 @@
                   :owner-ref nil
                   :prov prov
                   :source source
+                  :form-refs form-refs
                   :name-claimed? false})))))
 
 (s/defn schema->type :- at/SemanticType
@@ -914,4 +962,7 @@
     schema     :- s/Any
     descriptor :- s/Any
     form-refs  :- s/Any]
-   (import-schema-type prov (admit-schema schema) (descriptor-source prov descriptor form-refs))))
+   (import-schema-type prov
+                       (admit-schema schema)
+                       (descriptor-source prov descriptor form-refs)
+                       form-refs)))

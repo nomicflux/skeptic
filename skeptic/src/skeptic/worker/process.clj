@@ -36,13 +36,14 @@
 
 (s/defn ^:private read-port :- s/Int
   [reader :- BufferedReader]
-  (loop []
+  (loop [lines []]
     (let [line (.readLine reader)]
       (cond
-        (nil? line) (throw (ex-info "worker exited before port handshake" {}))
+        (nil? line) (throw (ex-info "worker exited before port handshake"
+                                     {:worker-output lines}))
         (str/starts-with? line "SKEPTIC-WORKER-PORT ")
         (Integer/parseInt (subs line (count "SKEPTIC-WORKER-PORT ")))
-        :else (recur)))))
+        :else (recur (conj lines line))))))
 
 (s/defn spawn! :- {:proc s/Any :port s/Int}
   [cp :- s/Str]

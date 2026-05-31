@@ -2,21 +2,38 @@
   "Cross-stream regression: asserts hermetic separation between Plumatic and
   Malli intake. Each Var appears in the expected stream; cross-stream Var
   (declared via BOTH s/defn AND m/=>) appears in BOTH; mx/defn never leaks
-  into the Plumatic stream despite writing :schema Var-meta."
-  (:require [clojure.test :refer [deftest is testing]]
+  into the Plumatic stream despite writing :schema Var-meta.
+
+  Hermetic: both collectors are fed inert worker-shipped data (top-level
+  source-forms + the captured :malli-schema field), never a live namespace."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [skeptic.malli-spec.collect :as malli-collect]
-            [skeptic.schema.collect :as schema-collect])
-  (:import [java.io File]))
+            [skeptic.schema.collect.clj-source :as clj-source]
+            [skeptic.schema.discovery :as discovery]
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as shared-worker]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def fixture-ns 'skeptic.research.intake-combined-fixture)
-(def fixture-file (File. "test/skeptic/research/intake_combined_fixture.clj"))
+(def fixture-file "test/skeptic/research/intake_combined_fixture.clj")
 
 (defn- qsym [name-str] (symbol "skeptic.research.intake-combined-fixture" name-str))
 
+(defn- worker-entries []
+  (admit/entries fixture-ns fixture-file))
+
+(defn- plumatic-entries []
+  (:entries (clj-source/ns-schema-results-clj fixture-ns (worker-entries))))
+
+(defn- malli-entries []
+  (let [entries (worker-entries)
+        forms (mapv :source-form entries)
+        aliases (discovery/source-form-aliases forms)]
+    (:entries (malli-collect/ns-malli-spec-results fixture-ns aliases entries))))
+
 (deftest plumatic-stream-admits-only-plumatic-source-forms
-  (require fixture-ns)
-  (let [{:keys [entries]} (schema-collect/ns-schema-results
-                           {} fixture-ns fixture-file)]
+  (let [entries (plumatic-entries)]
     (testing "Plumatic source-form heads are admitted (alias-resolved)"
       (is (contains? entries (qsym "aliased-defn")))
       (is (contains? entries (qsym "qualified-defn")))
@@ -28,12 +45,11 @@
       (is (not (contains? entries (qsym "plain-defn"))))
       (is (not (contains? entries (qsym "malli-arrow"))))
       (is (not (contains? entries (qsym "malli-meta-only")))))
-    (testing "mx/defn does NOT leak into Plumatic stream (writes :schema Var-meta but the stream no longer reads it)"
+    (testing "mx/defn does NOT leak into Plumatic stream"
       (is (not (contains? entries (qsym "malli-mx")))))))
 
 (deftest malli-stream-admits-only-malli-sources
-  (require fixture-ns)
-  (let [{:keys [entries]} (malli-collect/ns-malli-spec-results {} fixture-ns)]
+  (let [entries (malli-entries)]
     (testing "compile-time-registered m/=> admitted"
       (is (contains? entries (qsym "malli-arrow"))))
     (testing "compile-time-registered mx/defn admitted"
@@ -49,13 +65,8 @@
       (is (not (contains? entries (qsym "AliasedSchema")))))))
 
 (deftest cross-stream-var-appears-in-both-streams
-  (require fixture-ns)
-  (let [plumatic-entries (:entries (schema-collect/ns-schema-results
-                                    {} fixture-ns fixture-file))
-        malli-entries (:entries (malli-collect/ns-malli-spec-results
-                                 {} fixture-ns))
-        cross-sym (qsym "cross-stream")]
-    (is (contains? plumatic-entries cross-sym)
+  (let [cross-sym (qsym "cross-stream")]
+    (is (contains? (plumatic-entries) cross-sym)
         "cross-stream Var (s/defn + m/=>) admitted by Plumatic stream")
-    (is (contains? malli-entries cross-sym)
+    (is (contains? (malli-entries) cross-sym)
         "cross-stream Var (s/defn + m/=>) admitted by Malli stream")))

@@ -4,6 +4,7 @@
    Phase 1.5 extends the original ping round-trip with the handle-table API."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
+            [clojure.string :as str]
             [skeptic.worker.process :as proc]
             [skeptic.worker.client :as wc]
             [skeptic.analysis.class-oracle :as oracle]))
@@ -76,6 +77,43 @@
        (map :class)
        (remove coll?)))
 
+(def ^:private ast-class-slots
+  {:class :class-display-name
+   :tag :tag-display-name
+   :val :val-display-name})
+
+(defn- ast-class-handles
+  [ast]
+  (->> (tree-seq coll? seq ast)
+       (filter map?)
+       (mapcat (fn [node]
+                 (keep (fn [[slot display-slot]]
+                         (when (and (contains? node display-slot)
+                                    (oracle/handle? (get node slot)))
+                           (get node slot)))
+                       ast-class-slots)))))
+
+(defn- encoded-schema-class-handles
+  [encoded]
+  (->> (tree-seq coll? seq encoded)
+       (filter #(and (map? %) (= :class (:tag %))))
+       (map :handle)
+       (filter oracle/handle?)))
+
+(defn- entry-class-handles
+  [entry]
+  (concat (ast-class-handles (:ast entry))
+          (encoded-schema-class-handles (get-in entry [:plumatic-schema :schema]))))
+
+(defn- handles-by-worker-class-name
+  [conn handles]
+  (reduce (fn [acc handle]
+            (if-let [class-name (:name (wc/ask conn {:op "class-name" :a handle}))]
+              (update acc class-name (fnil conj #{}) handle)
+              acc))
+          {}
+          (distinct handles)))
+
 (deftest analyze-namespace-round-trip
   (with-worker
     (fn [conn]
@@ -96,6 +134,29 @@
           (let [classes (mapcat leaf-class-slots asts)]
             (is (seq classes))
             (is (every? oracle/handle? classes))))))))
+
+(deftest analyze-namespace-does-not-duplicate-project-record-class-handles
+  (with-worker
+    (fn [conn]
+      (oracle/intern-host-classes! conn)
+      (let [{:keys [entries]} (wc/ask conn
+                                      {:op "analyze-namespace"
+                                       :ns "skeptic.analysis.types"
+                                       :source-file "src/skeptic/analysis/types.clj"})
+            dyn-entry (some #(when (= 'DynTRec (second (:source-form %))) %) entries)
+            name->handles (handles-by-worker-class-name conn (mapcat entry-class-handles entries))
+            duplicate-record-handles (into {}
+                                           (filter (fn [[class-name handles]]
+                                                     (and (str/starts-with? class-name "skeptic.analysis.types.")
+                                                          (str/ends-with? class-name "Rec")
+                                                          (< 1 (count handles)))))
+                                           name->handles)]
+        (testing "top-level defrecord declarations stay available as source forms but are not analyzed"
+          (is (= 'defrecord (first (:source-form dyn-entry))))
+          (is (:analysis-skipped? dyn-entry))
+          (is (nil? (:ast dyn-entry))))
+        (testing "worker does not emit distinct handles for the same project record class name"
+          (is (= {} duplicate-record-handles)))))))
 
 (deftest discover-ns-round-trip
   (with-worker

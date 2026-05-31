@@ -4,9 +4,11 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
             [skeptic.analysis.calls :as ac]
+            [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.analysis-test :as atst]
             [skeptic.test-examples.catalog :as catalog]
+            [skeptic.test-support.admit :as admit]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.test-helpers :refer [is-type= T]]
             [skeptic.test-support.shared-worker :as shared-worker]
@@ -17,8 +19,16 @@
 
 (def static-call-examples-file (File. "src/skeptic/static_call_examples.clj"))
 
+(defn- build-static-call-dict
+  []
+  (let [{:keys [entries]} (admit/plumatic-args 'skeptic.static-call-examples static-call-examples-file)]
+    (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj nil entries))))
+
 (def static-call-dict
-  (:dict (typed-decls/typed-ns-results {} 'skeptic.static-call-examples :clj static-call-examples-file nil)))
+  (delay
+    (if oracle/*worker-conn*
+      (build-static-call-dict)
+      (shared-worker/with-shared-worker build-static-call-dict))))
 
 (def cc-dict (catalog/typed-test-example-entries))
 (def cc-ns 'skeptic.test-examples.call-cases)
@@ -35,7 +45,7 @@
   (def-body (aat/analyze-ns-file cc-dict cc-ns (atst/fixture-file-for-ns cc-ns) {}) name))
 
 (defn- scc-asts []
-  (aat/analyze-ns-file static-call-dict 'skeptic.static-call-examples static-call-examples-file {}))
+  (aat/analyze-ns-file @static-call-dict 'skeptic.static-call-examples static-call-examples-file {}))
 
 (defn assert-typed-call-metadata-only
   [node]

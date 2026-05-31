@@ -1,10 +1,14 @@
 (ns skeptic.typed-decls-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.typed-decls :as sut]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def tp (prov/make-provenance :inferred 'test-sym 'skeptic.test nil [] :clj))
 
@@ -26,9 +30,11 @@
     (is (not (at/fun-type? t)))))
 
 (deftest typed-ns-results-dict-present-unannotated-absent
-  (require 'skeptic.test-examples.basics)
-  (let [{:keys [dict]} (sut/typed-ns-results {} 'skeptic.test-examples.basics :clj
-                                             (java.io.File. "test/skeptic/test_examples/basics.clj") nil)
+  (let [{:keys [aliases declarations]} (admit/plumatic-args
+                                        'skeptic.test-examples.basics
+                                        (java.io.File. "test/skeptic/test_examples/basics.clj"))
+        {:keys [dict]} (sut/typed-ns-results {} 'skeptic.test-examples.basics :clj
+                                             nil aliases declarations)
         int-add-type (get dict 'skeptic.test-examples.basics/int-add)]
     (testing "unannotated vars are absent from dict"
       (is (not (contains? dict 'skeptic.test-examples.basics/sample-unannotated-fn))))
@@ -67,4 +73,3 @@
   (let [p (run-convert 'skeptic.typed-decls-test/test-declared-var)]
     (is (= :schema (:source p)))
     (is (= 'skeptic.typed-decls-test/test-declared-var (:qualified-sym p)))))
-

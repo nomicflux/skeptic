@@ -3,7 +3,6 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.bridge.canonicalize :as abc]
             [skeptic.schema :as dschema]
-            [skeptic.schema.discovery :as discovery]
             [schema.core :as s]))
 
 (defn get-fn-schemas*
@@ -72,14 +71,6 @@
     (if (and (map? m) (contains? m :schema))
       m
       {:schema schema})))
-
-(defn ignore-body?
-  [v]
-  (boolean (-> v meta :skeptic/ignore-body)))
-
-(defn opaque?
-  [v]
-  (boolean (-> v meta :skeptic/opaque)))
 
 (defn normalize-vararg-input-schemas
   [schemas]
@@ -196,52 +187,3 @@
                            [:declaration-slot :rejected-schema])
               (update :declaration-slot #(some-> % pr-str))
               (update :rejected-schema #(some-> % pr-str))))))
-
-(def ^:private admission-roles
-  "Discovery roles that produce a typed dict entry. :s/defschema and
-  :s/defprotocol have no per-Var Plumatic schema (defschema's value IS the
-  schema; defprotocol's Var carries no :schema meta). :s/defrecord-class and
-  :s/defrecord-factory match prior behavior — old build-var-provs!/
-  extract-raw-declaration both gated on (:schema m), which records and their
-  factories never carry."
-  #{:s/defn :s/def :s/defprotocol-method})
-
-(defn- admit-var
-  [ns-sym qualified-sym v]
-  (let [m (meta v)]
-    (when (and (:schema m) (not (:macro m)) (not (opaque? v)))
-      (try
-        (let [desc (build-annotated-schema-desc!
-                    {:schema (:schema m)
-                     :ns ns-sym
-                     :name (:name m)
-                     :arglists (:arglists m)})]
-          {:ok (cond-> desc (ignore-body? v) (assoc :skeptic/ignore-body? true))})
-        (catch Exception e
-          {:err (declaration-error-result ns-sym qualified-sym v e)})))))
-
-(defn- admit-declaration
-  [ns-sym {:keys [entries errors] :as acc} [qualified-sym {:keys [role declared-sym]}]]
-  (if-not (admission-roles role)
-    acc
-    (let [v (ns-resolve (the-ns ns-sym) declared-sym)]
-      (if-not (var? v)
-        acc
-        (let [{:keys [ok err]} (admit-var ns-sym qualified-sym v)]
-          (cond
-            err {:entries entries :errors (conj errors err)}
-            ok  {:entries (assoc entries qualified-sym ok) :errors errors}
-            :else acc))))))
-
-(defn ns-schema-results
-  [_opts ns-sym source-file]
-  (require ns-sym)
-  (binding [*ns* (the-ns ns-sym)]
-    (let [{:keys [declarations errors]} (discovery/discover ns-sym source-file)]
-      (reduce (partial admit-declaration ns-sym)
-              {:entries {} :errors (vec errors)}
-              declarations))))
-
-(defn ns-schemas
-  [opts ns source-file]
-  (:entries (ns-schema-results opts ns source-file)))

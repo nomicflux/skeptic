@@ -1,11 +1,16 @@
 (ns skeptic.schema.collect-test
   (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [schema.core :as s]
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
-            [skeptic.schema.collect :as sut])
+            [skeptic.schema.collect :as sut]
+            [skeptic.schema.collect.clj-source :as clj-source]
+            [skeptic.test-support.admit :as admit]
+            [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
 
@@ -18,6 +23,12 @@
         url (io/resource path)]
     (when url (File. (.getFile url)))))
 
+(defn- schemas-from-file
+  "Hermetic admission through worker-captured schema values."
+  [ns-sym]
+  (let [{:keys [entries]} (admit/plumatic-args ns-sym (src-file ns-sym))]
+    (:entries (clj-source/ns-schema-results-clj ns-sym entries))))
+
 (deftest arg-list-only-varargs
   (is (= {:count 2, :args '[x y], :with-varargs false, :varargs []}
          (sut/arg-list '[x y])))
@@ -27,18 +38,12 @@
          (sut/arg-list '[x & rest]))))
 
 (deftest ns-schemas-only-contains-annotated-vars
-  (require 'skeptic.test-examples.resolution)
-  (let [schemas (sut/ns-schemas {}
-                                'skeptic.test-examples.resolution
-                                (src-file 'skeptic.test-examples.resolution))]
+  (let [schemas (schemas-from-file 'skeptic.test-examples.resolution)]
     (is (contains? schemas 'skeptic.test-examples.resolution/flat-multi-step-f))
     (is (not (contains? schemas 'skeptic.test-examples.resolution/sample-namespaced-keyword-fn)))))
 
 (deftest ns-schemas-reads-auto-resolved-keywords-in-source-namespaces
-  (require 'skeptic.inconsistence.report)
-  (is (map? (sut/ns-schemas {}
-                            'skeptic.inconsistence.report
-                            (src-file 'skeptic.inconsistence.report)))))
+  (is (map? (schemas-from-file 'skeptic.inconsistence.report))))
 
 (deftest collect-schemas-canonicalizes-schema-representations
   (let [symbol-desc (sut/collect-schemas {:schema (s/make-fn-schema clojure.lang.Symbol
@@ -95,10 +100,7 @@
     (is (= s/Bool (get-in varargs-desc [:arglists :varargs :schema 1 :schema])))))
 
 (deftest ns-schemas-canonicalizes-known-public-schemas
-  (require 'skeptic.schema.collect)
-  (let [schemas (sut/ns-schemas {}
-                                'skeptic.schema.collect
-                                (src-file 'skeptic.schema.collect))]
+  (let [schemas (schemas-from-file 'skeptic.schema.collect)]
     (is (= s/Symbol
            (get-in schemas ['skeptic.schema.collect/fully-qualify-str :output])))
     (is (= s/Str
@@ -131,4 +133,3 @@
                                                 :ns 'skeptic.schema.collect
                                                 :name 'invalid-semantic-type
                                                 :arglists '([x])})))))
-

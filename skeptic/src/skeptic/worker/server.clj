@@ -16,6 +16,7 @@
             [nrepl.middleware :as mw]
             [nrepl.misc :refer [response-for]]
             [clojure.edn :as edn]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
@@ -25,6 +26,9 @@
 
 (defonce ^:private handle-state
   (atom {:next-id 0 :id->class {} :class->id {}}))
+
+(defonce ^:private fn-handle-state
+  (atom {:next-id 0 :id->fn {} :fn->id {}}))
 
 (defn- intern-class!
   "Returns the existing handle for `c` if interned, else mints a new one. When
@@ -37,7 +41,7 @@
     (or (get class->id c)
         (let [new-id (case id-kind
                        :integer (-> (swap! handle-state update :next-id inc)
-                                    :next-id)
+                                     :next-id)
                        :uuid    (str (java.util.UUID/randomUUID)))]
           (swap! handle-state
                  (fn [{:keys [id->class class->id] :as s}]
@@ -121,11 +125,14 @@
   "In the namespace `ns-name`, resolve `sym` to a Class and return its handle
    (minting via the UUID branch). nil if `sym` doesn't resolve to a Class."
   [ns-name sym]
-  (when-let [n (find-ns (symbol ns-name))]
-    (binding [*ns* n]
-      (let [v (resolve (symbol sym))]
-        (when (class? v)
-          (intern-class! ^Class v :uuid))))))
+  (or (when-let [c (try (Class/forName (str sym))
+                        (catch ClassNotFoundException _ nil))]
+        (intern-class! ^Class c :uuid))
+      (when-let [n (find-ns (symbol ns-name))]
+        (binding [*ns* n]
+          (let [v (resolve (symbol sym))]
+            (when (class? v)
+              (intern-class! ^Class v :uuid)))))))
 
 (defn wrap-resolve-class-sym
   [h]
@@ -196,7 +203,8 @@
     (coll? v) (every? edn-safe? v)
     :else (try (= (pr-str v) (pr-str (edn/read-string (pr-str v)))) (catch Exception _ false))))
 
-(defn- nonedn-sentinel [v] (wire/nonedn-sentinel (intern-class! (class v) :uuid)))
+(defn- nonedn-sentinel [v]
+  (wire/nonedn-sentinel (intern-class! (class v) :uuid)))
 
 (defn- project-val-form
   "For :val/:form slots: Class→handle path already handled by project-class-slots.
@@ -256,6 +264,209 @@
       (contains? n' :form) (update :form project-val-form)
       (and (contains? n' :val) (not (class? (:val n)))) (update :val project-val-form)
       (contains? n' :raw-forms) (update :raw-forms project-raw-forms))))
+
+(def ^:private core-fn-class->symbol
+  {"clojure.core$integer_QMARK_" 'clojure.core/integer?
+   "clojure.core$int_QMARK_" 'clojure.core/int?
+   "clojure.core$string_QMARK_" 'clojure.core/string?
+   "clojure.core$keyword_QMARK_" 'clojure.core/keyword?
+   "clojure.core$symbol_QMARK_" 'clojure.core/symbol?
+   "clojure.core$boolean_QMARK_" 'clojure.core/boolean?
+   "clojure.core$fn_QMARK_" 'clojure.core/fn?
+   "clojure.core$nil_QMARK_" 'clojure.core/nil?
+   "clojure.core$number_QMARK_" 'clojure.core/number?
+   "clojure.core$pos_QMARK_" 'clojure.core/pos?
+   "clojure.core$neg_QMARK_" 'clojure.core/neg?})
+
+(def ^:private core-fn-class-fragments
+  [["clojure.core$integer_QMARK_" 'clojure.core/integer?]
+   ["clojure.core$int_QMARK_" 'clojure.core/int?]
+   ["clojure.core$string_QMARK_" 'clojure.core/string?]
+   ["clojure.core$keyword_QMARK_" 'clojure.core/keyword?]
+   ["clojure.core$symbol_QMARK_" 'clojure.core/symbol?]
+   ["clojure.core$boolean_QMARK_" 'clojure.core/boolean?]
+   ["clojure.core$fn_QMARK_" 'clojure.core/fn?]
+   ["clojure.core$nil_QMARK_" 'clojure.core/nil?]
+   ["clojure.core$number_QMARK_" 'clojure.core/number?]
+   ["clojure.core$pos_QMARK_" 'clojure.core/pos?]
+   ["clojure.core$neg_QMARK_" 'clojure.core/neg?]])
+
+(defn- core-fn-symbol
+  [class-name]
+  (or (get core-fn-class->symbol class-name)
+      (some (fn [[fragment sym]]
+              (when (str/includes? class-name fragment) sym))
+            core-fn-class-fragments)))
+
+(defn- intern-fn!
+  [f]
+  (let [{:keys [fn->id]} @fn-handle-state]
+    (or (get fn->id f)
+        (let [new-id (-> (swap! fn-handle-state update :next-id inc)
+                         :next-id)]
+          (swap! fn-handle-state
+                 (fn [st]
+                   (-> st
+                       (assoc-in [:id->fn new-id] f)
+                       (assoc-in [:fn->id f] new-id))))
+          new-id))))
+
+(declare encode-schema-value)
+
+(defn- encode-fn
+  [f]
+  (let [class-name (.getName (class f))]
+    (if-let [sym (core-fn-symbol class-name)]
+      {:tag :fn :sym sym}
+      {:tag :fn :handle (intern-fn! f) :display-name class-name})))
+
+(defn- encode-schema-field
+  [active value]
+  (cond
+    (fn? value) (encode-fn value)
+    :else (encode-schema-value active value)))
+
+(defn- encode-record-fields
+  [active schema]
+  (into {}
+        (map (fn [[k v]] [k (encode-schema-field active v)]))
+        (into {} schema)))
+
+(defn- encode-var
+  [active ^clojure.lang.Var v]
+  (let [m (meta v)
+        qsym (when (and (:ns m) (:name m))
+               (symbol (str (ns-name (:ns m)) "/" (:name m))))]
+    (cond-> {:tag :var-ref :qualified-sym qsym}
+      (and qsym (not (contains? active qsym)) (bound? v))
+      (assoc :schema (encode-schema-value (conj active qsym) @v)))))
+
+(defn- instance-field
+  [x field-name]
+  (let [f (.getDeclaredField (class x) field-name)]
+    (.setAccessible f true)
+    (.get f x)))
+
+(defn- encode-map-schema
+  [active m]
+  {:tag :map
+   :entries (mapv (fn [[k v]]
+                    [(encode-schema-value active k)
+                     (encode-schema-value active v)])
+                  m)})
+
+(defn- encode-schema-value
+  [active value]
+  (cond
+    (nil? value) {:tag :nil}
+    (or (boolean? value) (number? value) (string? value) (keyword? value) (symbol? value))
+    {:tag :literal :value value}
+
+    (class? value)
+    (let [[handle display-name] (project-class-slot value)]
+      {:tag :class :handle handle :display-name display-name})
+
+    (instance? java.util.regex.Pattern value)
+    {:tag :regex
+     :pattern (.pattern ^java.util.regex.Pattern value)
+     :flags (.flags ^java.util.regex.Pattern value)}
+
+    (instance? clojure.lang.Var value)
+    (encode-var active value)
+
+    (instance? clojure.lang.Var$Unbound value)
+    (encode-var active (instance-field value "v"))
+
+    (and (record? value) (not (ast-node? value)))
+    {:tag :record
+     :class (.getName (class value))
+     :fields (encode-record-fields active value)}
+
+    (map? value)
+    (encode-map-schema active value)
+
+    (vector? value)
+    {:tag :vector :items (mapv #(encode-schema-value active %) value)}
+
+    (set? value)
+    {:tag :set :items (mapv #(encode-schema-value active %) value)}
+
+    (seq? value)
+    {:tag :seq :items (mapv #(encode-schema-value active %) value)}
+
+    (fn? value)
+    (encode-fn value)
+
+    :else
+    (throw (ex-info "Unsupported Plumatic schema value on worker wire"
+                    {:class (.getName (class value))
+                     :value (pr-str value)}))))
+
+(defn- opaque-var?
+  [v]
+  (boolean (-> v meta :skeptic/opaque)))
+
+(defn- ignore-body-var?
+  [v]
+  (let [m (meta v)]
+    (boolean (or (:skeptic/ignore-body m) (:skeptic/opaque m)))))
+
+(def ^:private plumatic-declaration-heads
+  '#{schema.core/def schema.core/defn schema.core/defschema})
+
+(defn- qualify-source-head
+  [ns-sym head]
+  (when (symbol? head)
+    (if-let [alias (some-> head namespace symbol)]
+      (if-let [alias-ns (get (ns-aliases (the-ns ns-sym)) alias)]
+        (symbol (str (ns-name alias-ns)) (name head))
+        head)
+      (symbol (name ns-sym) (name head)))))
+
+(defn- plumatic-source-form?
+  [ns-sym source-form]
+  (contains? plumatic-declaration-heads
+             (qualify-source-head ns-sym (first source-form))))
+
+(defn- source-form-plumatic-schema
+  [ns-sym source-form]
+  (when (and (seq? source-form)
+             (plumatic-source-form? ns-sym source-form)
+             (symbol? (second source-form)))
+    (let [declared-sym (second source-form)
+          qualified-sym (symbol (name ns-sym) (name declared-sym))
+          v (ns-resolve ns-sym declared-sym)]
+      (when (and (var? v)
+                 (not (:macro (meta v)))
+                 (not (opaque-var? v))
+                 (:schema (meta v)))
+        {:qualified-sym qualified-sym
+         :name (:name (meta v))
+         :arglists (:arglists (meta v))
+         :schema (encode-schema-value #{} (:schema (meta v)))
+         :ignore-body? (ignore-body-var? v)}))))
+
+(defn- source-form-schema-var-prov
+  [ns-sym source-form]
+  (when (and (seq? source-form) (symbol? (second source-form)))
+    (let [declared-sym (second source-form)
+          qualified-sym (symbol (name ns-sym) (name declared-sym))
+          v (ns-resolve ns-sym declared-sym)]
+      (when (and (var? v)
+                 (not (:macro (meta v)))
+                 (not (opaque-var? v))
+                 (bound? v)
+                 (not (fn? @v))
+                 (not (or (boolean? @v)
+                          (number? @v)
+                          (string? @v)
+                          (keyword? @v)
+                          (symbol? @v)))
+                 (try
+                   (encode-schema-value #{} @v)
+                   true
+                   (catch Throwable _ false)))
+        qualified-sym))))
 
 (defn- project-var-slot
   "Replace a clojure.lang.Var in :var with the qualified symbol ns/name."
@@ -335,34 +546,61 @@
 (mw/set-descriptor! #'wrap-discover-ns
                     {:requires #{} :expects #{} :handles {"discover-ns" {}}})
 
+(defn- source-form-malli-schema
+  "Channel-1 Malli spec (`:malli/schema`) read off the RAW `defn`/`s/defn`
+   source-form, before projection. Both legal styles are covered: reader-meta
+   `(defn ^{:malli/schema S} name …)` carries it on the name symbol's meta;
+   attr-map `(defn name {:malli/schema S} …)` carries it in the map at form
+   position 2. Returns nil when absent. Pure form/data inspection — no eval,
+   no malli.core dependency; the spec is inert keyword/vector data."
+  [source-form]
+  (when (seq? source-form)
+    (let [name-sym (second source-form)
+          attr-map (nth source-form 2 nil)]
+      (or (:malli/schema (meta name-sym))
+          (when (map? attr-map) (:malli/schema attr-map))))))
+
 (defn- project-entry
   "Project one clj analysis entry for the wire: AST via handle-project-node,
    source-form via the raw-forms sentinel walk (non-EDN body literals become
    sentinels). Form metadata (`:source`/`:line`/...) cannot ride the edn
    transport, so it is captured into sibling EDN vectors in postwalk order and
-   replayed host-side (see `skeptic.worker.wire/capture-form-meta`)."
-  [{:keys [source-form ast]}]
+   replayed host-side (see `skeptic.worker.wire/capture-form-meta`). The
+   channel-1 `:malli/schema` spec is captured here off the RAW source-form
+   because the wire strips the symbol's reader-metadata (F-MALLISTRIP)."
+  [ns-sym {:keys [source-form ast analysis-skipped?]}]
   (let [source-form' (project-raw-forms source-form)
-        ast' (handle-project-node ast)]
-    {:source-form source-form'
-     :source-form-meta (wire/capture-form-meta source-form')
-     :ast ast'
-     :ast-meta (wire/capture-form-meta ast')}))
+        ast' (when ast
+               (handle-project-node ast))
+        malli-schema (source-form-malli-schema source-form)
+        plumatic-schema (source-form-plumatic-schema ns-sym source-form)
+        schema-var-prov (source-form-schema-var-prov ns-sym source-form)]
+    (cond-> {:source-form source-form'
+             :source-form-meta (wire/capture-form-meta source-form')
+             :ast ast'
+             :ast-meta (wire/capture-form-meta ast')}
+      analysis-skipped? (assoc :analysis-skipped? true)
+      malli-schema (assoc :malli-schema malli-schema)
+      schema-var-prov (assoc :plumatic-var-prov schema-var-prov)
+      plumatic-schema (assoc :plumatic-schema plumatic-schema))))
 
 (defn wrap-analyze-namespace
   [h]
   (fn [{:keys [op transport ns source-file] :as msg}]
     (if (= op "analyze-namespace")
       (try
-        (let [{:keys [entries]} (wac/analyze-source-file (symbol ns) (io/file source-file))
-              projected (mapv project-entry entries)]
+        (let [ns-sym (symbol ns)
+              {:keys [entries]} (wac/analyze-source-file ns-sym (io/file source-file))
+              projected (mapv #(project-entry ns-sym %) entries)]
           (t/send transport (response-for msg :entries projected :status #{:done})))
         (catch Throwable e
           ;; A read/analysis failure for the whole source-file (e.g. an unbalanced
           ;; form) produces no entries; ship the message so the host can localize
           ;; it as a :read-phase finding instead of silently yielding 0 results.
           (t/send transport (response-for msg
-                                          :read-failure (or (.getMessage e) (str e))
+                                          :read-failure (str (or (.getMessage e) (str e))
+                                                             (when-let [data (ex-data e)]
+                                                               (str " " (pr-str data))))
                                           :status #{:done}))))
       (h msg))))
 
@@ -401,6 +639,28 @@
 (mw/set-descriptor! #'wrap-analyze-cljs-namespace
                     {:requires #{} :expects #{} :handles {"analyze-cljs-namespace" {}}})
 
+(defn wrap-apply-predicate
+  [h]
+  (fn [{:keys [op transport handle arg] :as msg}]
+    (if (= op "apply-predicate")
+      (try
+        (let [pred (get-in @fn-handle-state [:id->fn handle])]
+          (if pred
+            (t/send transport (response-for msg
+                                            :result (boolean (pred arg))
+                                            :status #{:done}))
+            (t/send transport (response-for msg
+                                            :exception-message (str "Unknown predicate handle: " handle)
+                                            :status #{:done}))))
+        (catch Throwable e
+          (t/send transport (response-for msg
+                                          :exception-message (or (.getMessage e) (str e))
+                                          :status #{:done}))))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-apply-predicate
+                    {:requires #{} :expects #{} :handles {"apply-predicate" {}}})
+
 (defn start!
   []
   (srv/start-server :port 0
@@ -412,7 +672,8 @@
                                                   #'wrap-class-name
                                                   #'wrap-discover-ns
                                                   #'wrap-analyze-namespace
-                                                  #'wrap-analyze-cljs-namespace)))
+                                                  #'wrap-analyze-cljs-namespace
+                                                  #'wrap-apply-predicate)))
 
 (defn -main
   [& _args]

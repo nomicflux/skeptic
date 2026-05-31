@@ -118,6 +118,12 @@
 (def variable-schema-tag
   :skeptic.analysis.schema/variable-schema)
 
+(def ref-schema-tag
+  :skeptic.analysis.schema/ref-schema)
+
+(def class-handle-schema-tag
+  :skeptic.analysis.schema/class-handle-schema)
+
 (defn bottom-schema?
   [s]
   (tagged-map? s custom-schema-tag-key bottom-schema-tag))
@@ -160,12 +166,34 @@
   [s]
   (tagged-map? s custom-schema-tag-key variable-schema-tag))
 
+(defn ref-schema
+  [qualified-sym schema]
+  {custom-schema-tag-key ref-schema-tag
+   :qualified-sym qualified-sym
+   :schema schema})
+
+(defn ref-schema?
+  [s]
+  (tagged-map? s custom-schema-tag-key ref-schema-tag))
+
+(defn class-handle-schema
+  [handle display-form]
+  {custom-schema-tag-key class-handle-schema-tag
+   :handle handle
+   :display-form display-form})
+
+(defn class-handle-schema?
+  [s]
+  (tagged-map? s custom-schema-tag-key class-handle-schema-tag))
+
 (defn custom-schema?
   [s]
   (or (bottom-schema? s)
       (join? s)
       (valued-schema? s)
-      (variable? s)))
+      (variable? s)
+      (ref-schema? s)
+      (class-handle-schema? s)))
 
 (def placeholder-key
   :skeptic.analysis.resolvers/placeholder)

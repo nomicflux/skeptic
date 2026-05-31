@@ -2,19 +2,18 @@
   "Per-form descriptor extraction for Plumatic source forms stored in the
   project-wide form-refs map, keyed by qualified symbol (built once in
   `skeptic.checking.pipeline/project-state`, threaded through bridge ctx).
-  Pipeline puts raw `(s/defn ...)` / `(s/def ...)` / `(s/defschema ...)` lists
-  into the map; bridge.clj normalizes them via `raw->descriptor` on demand.
-
-  Pipeline-side filtering (only Plumatic-discovered Vars get stored) means a
-  head-name match is sufficient at consumer time — alias resolution already
-  happened in skeptic.schema.discovery. Heads with name 'defn' / 'def' /
-  'defschema' under any alias of schema.core resolve to the matching
-  extractor.
+  Pipeline stores prepared descriptors, not raw forms. Each descriptor carries
+  the exact source namespace, alias map, and known declaration qsyms used to
+  resolve schema-reference symbols deterministically.
 
   Descriptor shapes:
     :defn      → {:kind :defn :output-form form :arglists {k {:input-forms [...]}}}
     :def       → {:kind :def :schema-form form}
-    :defschema → {:kind :defschema :schema-form form}")
+    :defschema → {:kind :defschema :schema-form form}
+    :schema-source → {:kind :schema-source :schema-form form}
+
+  Prepared descriptors add:
+    :source-env → {:ns ns-sym :aliases {alias target-ns} :ref-qsyms #{qsym}}")
 
 (defn- with-form-meta
   [original rewritten]
@@ -104,3 +103,50 @@
       "def"       (extract-def-annotation-form raw-form)
       "defschema" (extract-defschema-body-form raw-form)
       nil)))
+
+(defn schema-form
+  [descriptor]
+  (case (:kind descriptor)
+    :def       (:schema-form descriptor)
+    :defschema (:schema-form descriptor)
+    :schema-source (:schema-form descriptor)
+    nil))
+
+(defn source-env
+  [ns-sym aliases ref-qsyms]
+  {:ns ns-sym
+   :aliases (or aliases {})
+   :ref-qsyms (set ref-qsyms)})
+
+(defn source-symbol-qsym
+  "Resolve one source symbol exactly in the descriptor's namespace context.
+  Qualified symbols either expand through an explicit alias or remain as written.
+  Unqualified symbols resolve to the descriptor's own namespace. This returns a
+  single qsym, never a candidate set."
+  [{:keys [ns aliases]} form]
+  (when (and ns (symbol? form))
+    (if-let [ns-part (some-> form namespace symbol)]
+      (if-let [target (get aliases ns-part)]
+        (symbol (name target) (name form))
+        form)
+      (symbol (name ns) (name form)))))
+
+(defn exact-ref-qsym
+  "The exact admitted declaration qsym named by `form`, or nil when the symbol
+  does not name one of the carried declaration qsyms."
+  [{:keys [ref-qsyms] :as source-env} form]
+  (when-let [qsym (source-symbol-qsym source-env form)]
+    (when (contains? ref-qsyms qsym)
+      qsym)))
+
+(defn prepare-form-ref
+  [ns-sym aliases ref-qsyms raw-form]
+  (when-let [descriptor (raw->descriptor raw-form)]
+    (assoc descriptor
+           :source-env (source-env ns-sym aliases ref-qsyms))))
+
+(defn prepare-source-form
+  [ns-sym aliases ref-qsyms form]
+  {:kind :schema-source
+   :schema-form form
+   :source-env (source-env ns-sym aliases ref-qsyms)})

@@ -250,7 +250,7 @@
 (s/defn ->AdapterLeafT :- SemanticType [prov :- provs/Provenance adapter display-form accepts? adapter-data] (ensure-prov! "AdapterLeafT" prov) (AdapterLeafTRec. prov adapter display-form accepts? adapter-data))
 (s/defn ->OptionalKeyT :- SemanticType [prov :- provs/Provenance inner :- SemanticType] (ensure-prov! "OptionalKeyT" prov) (OptionalKeyTRec. prov inner))
 (s/defn ->FnMethodT :- SemanticType [prov :- provs/Provenance inputs :- [SemanticType] output :- SemanticType min-arity :- s/Int variadic? :- s/Bool names] (ensure-prov! "FnMethodT" prov) (FnMethodTRec. prov inputs output min-arity variadic? names))
-(s/defn ->FunT :- SemanticType [prov :- provs/Provenance methods :- [FnMethodTRec]] (ensure-prov! "FunT" prov) (FunTRec. prov methods))
+(s/defn ->FunT :- SemanticType [prov :- provs/Provenance methods :- [SemanticType]] (ensure-prov! "FunT" prov) (FunTRec. prov methods))
 (s/defn ->MaybeT :- SemanticType [prov :- provs/Provenance inner :- SemanticType] (ensure-prov! "MaybeT" prov) (MaybeTRec. prov inner))
 (s/defn ->UnionT :- SemanticType [prov :- provs/Provenance members :- #{SemanticType}] (ensure-prov! "UnionT" prov) (UnionTRec. prov members))
 (s/defn ->IntersectionT :- SemanticType [prov :- provs/Provenance members :- #{SemanticType}] (ensure-prov! "IntersectionT" prov) (IntersectionTRec. prov members))
@@ -291,7 +291,7 @@
 (s/defn ->ValueT :- SemanticType [prov :- provs/Provenance inner value] (ensure-prov! "ValueT" prov) (ValueTRec. prov inner value))
 (s/defn ->TypeVarT :- SemanticType [prov :- provs/Provenance name] (ensure-prov! "TypeVarT" prov) (TypeVarTRec. prov name))
 (s/defn ->ForallT :- SemanticType [prov :- provs/Provenance binder body] (ensure-prov! "ForallT" prov) (ForallTRec. prov binder body))
-(s/defn ->SealedDynT :- SemanticType [prov :- provs/Provenance ground :- TypeVarTRec] (ensure-prov! "SealedDynT" prov) (SealedDynTRec. prov ground))
+(s/defn ->SealedDynT :- SemanticType [prov :- provs/Provenance ground :- SemanticType] (ensure-prov! "SealedDynT" prov) (SealedDynTRec. prov ground))
 (s/defn ->ConditionalT :- SemanticType [prov :- provs/Provenance branches :- [ConditionalBranchRec]] (ensure-prov! "ConditionalT" prov) (ConditionalTRec. prov branches))
 
 (s/defn ->ConditionalBranch :- ConditionalBranchRec

@@ -138,7 +138,7 @@
   (let [file (io/file "src/skeptic/provenance.clj")
         {:keys [entries]} (wac/analyze-source-file 'skeptic.provenance file)
         project-entry @#'server/project-entry
-        projected (mapv project-entry entries)
+        projected (mapv #(project-entry 'skeptic.provenance %) entries)
         printed (binding [*print-readably* true *print-length* nil *print-level* nil]
                   (pr-str projected))
         outcome (try (edn/read-string printed) :ok

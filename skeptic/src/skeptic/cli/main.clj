@@ -93,7 +93,8 @@
     (string? paths)     (mapv (partial root-relative-path root)
                               (split-paths-arg paths))
     (sequential? paths) (mapv (partial root-relative-path root) paths)
-    :else               (vec (distinct (concat (deps-source-paths root (basis-aliases root alias))
+    :else               (vec (distinct (concat (map (partial root-relative-path root)
+                                                    (deps-source-paths root (basis-aliases root alias)))
                                                (map (partial root-relative-path root)
                                                     (shadow-source-paths root)))))))
 

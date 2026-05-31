@@ -21,9 +21,17 @@
                                   :aliases (or aliases [])})]
     basis))
 
+(defn- root-absolute-path
+  [root path]
+  (let [f (io/file path)]
+    (if (.isAbsolute f)
+      path
+      (.getPath (io/file root path)))))
+
 (defn classpath-entries
   [root aliases]
-  (keys (:classpath (create-basis root aliases))))
+  (mapv (partial root-absolute-path root)
+        (keys (:classpath (create-basis root aliases)))))
 
 (defn discover-paths
   [root aliases]

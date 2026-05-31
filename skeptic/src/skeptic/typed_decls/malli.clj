@@ -39,7 +39,7 @@
                  :malli-declaration
                  (symbol (ns-name ns))
                  qualified-sym
-                 (resolve qualified-sym)
+                 qualified-sym
                  e)]})))
 
 (defn- merge-two
@@ -63,7 +63,7 @@
           entries))
 
 (defn typed-ns-malli-results
-  [opts ns lang]
+  [opts ns lang aliases entries]
   (if (:malli-disable opts)
     (empty-result)
-    (convert-collected ns lang (mcollect/ns-malli-spec-results opts ns))))
+    (convert-collected ns lang (mcollect/ns-malli-spec-results ns aliases entries))))

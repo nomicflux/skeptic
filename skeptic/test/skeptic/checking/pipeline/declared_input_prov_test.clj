@@ -1,9 +1,12 @@
 (ns skeptic.checking.pipeline.declared-input-prov-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [skeptic.provenance :as prov]
             [skeptic.test-examples.named-fold-contract-probe]
-            [skeptic.test-support.project-state :as test-state])
+            [skeptic.test-support.project-state :as test-state]
+            [skeptic.test-support.shared-worker :as shared-worker])
   (:import [java.io File]))
+
+(use-fixtures :once shared-worker/with-shared-worker)
 
 (def fixture-file (File. "test/skeptic/test_examples/named_fold_contract_probe.clj"))
 (def fixture-ns 'skeptic.test-examples.named-fold-contract-probe)

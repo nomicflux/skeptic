@@ -5,7 +5,8 @@
             [skeptic.analysis.types :as at]
             [skeptic.provenance :as prov]
             [skeptic.provenance.schema :as provs]
-            [skeptic.schema.collect :as collect]))
+            [skeptic.schema.collect :as collect]
+            [skeptic.schema.collect.clj-source :as clj-source]))
 
 (defn desc->type
   [prov {:keys [schema]} form-descriptor form-refs]
@@ -36,7 +37,7 @@
        :provenance {}
        :ignore-body #{}
        :errors [(collect/declaration-error-result ns qualified-sym
-                                                  (resolve qualified-sym) e)]})))
+                                                  qualified-sym e)]})))
 
 (defn- empty-result [] {:dict {} :provenance {} :ignore-body #{} :errors []})
 
@@ -79,16 +80,18 @@
       (update :errors into errors)))
 
 (defn typed-ns-results
-  [opts ns lang source-file form-refs]
-  (if (:plumatic-disable opts)
-    (empty-result)
-    (let [collected (collect/ns-schema-results opts ns source-file)
-          result (convert-collected ns lang form-refs collected)
-          overrides (or (:skeptic/type-overrides opts) {})]
-      (reduce (fn [acc [sym v]]
-                (-> acc
-                    (assoc-in [:dict sym] v)
-                    (assoc-in [:provenance sym]
-                              (prov/make-provenance :type-override sym nil nil [] lang))))
-              result
-              overrides))))
+  ([opts ns lang form-refs entries]
+   (if (:plumatic-disable opts)
+     (empty-result)
+     (let [collected (clj-source/ns-schema-results-clj ns entries)
+           result (convert-collected ns lang form-refs collected)
+           overrides (or (:skeptic/type-overrides opts) {})]
+       (reduce (fn [acc [sym v]]
+                 (-> acc
+                     (assoc-in [:dict sym] v)
+                     (assoc-in [:provenance sym]
+                               (prov/make-provenance :type-override sym nil nil [] lang))))
+               result
+               overrides))))
+  ([opts ns lang form-refs entries _ignored-declarations]
+   (typed-ns-results opts ns lang form-refs entries)))

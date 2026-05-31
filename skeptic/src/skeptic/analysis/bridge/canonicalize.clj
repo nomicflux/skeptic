@@ -74,6 +74,12 @@
                        member))
                    (:schemas schema)))
 
+    (sb/ref-schema? schema)
+    (list 'var (:qualified-sym schema))
+
+    (sb/class-handle-schema? schema)
+    (:display-form schema)
+
     (sb/valued-schema? schema)
     (str (:value schema) " : " (schema-explain (:schema schema)))
 
@@ -222,6 +228,10 @@
     (sb/cond-pre? schema) (canonicalize-cond-pre canonicalize-schema* schema opts)
     (sb/both? schema) (canonicalize-both canonicalize-schema* schema opts)
     (sb/join? schema) (schema-join (set (map #(canonicalize-schema* % opts) (:schemas schema))))
+    (sb/ref-schema? schema) (sb/ref-schema (:qualified-sym schema)
+                                           (some-> (:schema schema)
+                                                   (canonicalize-schema* opts)))
+    (sb/class-handle-schema? schema) schema
     (sb/valued-schema? schema) (sb/valued-schema (canonicalize-schema* (:schema schema) opts)
                                                  (:value schema))
     (sb/variable? schema) (sb/variable (canonicalize-schema* (:schema schema) opts))

@@ -6,6 +6,7 @@
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.typed-decls :as typed-decls]
             [skeptic.test-helpers :refer [is-type=]]
+            [skeptic.test-support.admit :as admit]
             [skeptic.test-support.project-state :as test-state]))
 
 (clojure.test/use-fixtures :once ps/with-worker)
@@ -36,8 +37,11 @@
 (deftest type-overrides-merge-into-typed-ns-results
   (let [overrides (config/compile-overrides {'some.ns/some-fn {:schema 's/Int}})
         opts {:skeptic/type-overrides overrides}
+        {:keys [aliases declarations]} (admit/plumatic-args
+                                        'skeptic.test-examples.fixture-flags
+                                        (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags))
         result (typed-decls/typed-ns-results opts 'skeptic.test-examples.fixture-flags :clj
-                                             (ps/fixture-file-for-ns 'skeptic.test-examples.fixture-flags) nil)]
+                                             nil aliases declarations)]
     (is-type= (ps/T s/Int)
               (get-in result [:dict 'some.ns/some-fn]))))
 

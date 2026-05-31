@@ -6,6 +6,7 @@
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.class-oracle :as class-oracle]
+            [skeptic.analysis.bridge.descriptors :as descriptors]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.analysis.types :as at]
@@ -31,8 +32,7 @@
             [skeptic.analysis.predicate-descriptor :as pd]
             [skeptic.worker.client :as wc]
             [skeptic.worker.wire :as wire])
-  (:import [java.io File]
-           [skeptic.analysis.types ConditionalTRec FnMethodTRec MapTRec]))
+  (:import [java.io File]))
 
 (s/defschema AccessorPathElem
   ;; get-call-summary / accessor-summary-from-body emit `{:value Keyword}`.
@@ -91,10 +91,6 @@
        :clj
        lang))))
 
-(defn- needs-jvm-load?
-  [opts source-file]
-  (#{:clj :both} (lang-of-source-file opts source-file)))
-
 (defn- inert-conditional-type?
   [t]
   (or (at/dyn-type? t)
@@ -123,8 +119,8 @@
     (at/seq-type? t)          :items
     (at/fun-type? t)          :methods))
 
-(s/defn ^:private enrich-conditional-branches :- ConditionalTRec
-  [t :- ConditionalTRec
+(s/defn ^:private enrich-conditional-branches :- at/SemanticType
+  [t :- at/SemanticType
    walk :- (s/pred fn?)
    accessor-summaries :- (s/recursive #'AccessorSummaries)]
   (let [ns-sym (:declared-in (prov/of t))]
@@ -138,14 +134,14 @@
                        (:pred-form b)))
                     bs)))))
 
-(s/defn ^:private enrich-fn-method-type :- FnMethodTRec
-  [t :- FnMethodTRec
+(s/defn ^:private enrich-fn-method-type :- at/SemanticType
+  [t :- at/SemanticType
    walk :- (s/pred fn?)]
   (-> t (update :inputs #(mapv walk %))
         (update :output walk)))
 
-(s/defn ^:private enrich-map-entries :- MapTRec
-  [t :- MapTRec
+(s/defn ^:private enrich-map-entries :- at/SemanticType
+  [t :- at/SemanticType
    walk :- (s/pred fn?)]
   (update t :entries
           #(into {} (map (fn [[k v]] [(walk k) (walk v)])) %)))
@@ -264,8 +260,8 @@
    sym :- s/Symbol]
   (if-let [type (get dict sym)]
     (if (at/fun-type? type)
-      (vec (distinct (mapcat (comp finite-values at/fn-method-output)
-                             (at/fun-methods type))))
+      (vec (distinct (mapcat (comp finite-values :output)
+                             (:methods type))))
       [])
     []))
 
@@ -543,9 +539,9 @@
              (symbol? (first source-form))
              (symbol? (second source-form)))
     (let [qualified-sym (ac/qualify-symbol ns-sym (second source-form))]
-      (boolean (or (contains? ignore-body qualified-sym)
-                   (some-> qualified-sym resolve meta :skeptic/ignore-body)
-                   (some-> qualified-sym resolve meta :skeptic/opaque))))))
+      ;; Hermetic: the ignore-body set is populated at admission for BOTH
+      ;; :skeptic/ignore-body and :skeptic/opaque (no host project-Var resolve).
+      (boolean (contains? ignore-body qualified-sym)))))
 
 (s/defn check-resolved-form :- s/Any
   [dict ignore-body :- #{s/Symbol} ns-sym :- s/Symbol source-file source-form
@@ -621,7 +617,11 @@
   "Shape of a single cached CLJS form entry under `cljs-state[source-file] :entries`."
   {(s/required-key :source-form) s/Any
    (s/required-key :ast)         (s/maybe aas/AnnotatedNode)
-   (s/optional-key :exception)   Throwable})
+   (s/optional-key :exception)   Throwable
+   (s/optional-key :analysis-skipped?) s/Bool
+   (s/optional-key :malli-schema) s/Any
+   (s/optional-key :plumatic-schema) s/Any
+   (s/optional-key :plumatic-var-prov) s/Symbol})
 
 (s/defschema CljsPassResults
   {(s/required-key :results)    [s/Any]
@@ -642,12 +642,16 @@
    ns                 :- s/Symbol
    source-file        :- (s/maybe (s/cond-pre File s/Str))
    lang               :- (s/enum :clj :cljs)
-   {:keys [source-form ast exception]} :- CljsCachedFormEntry
+   {:keys [source-form ast exception analysis-skipped?]} :- CljsCachedFormEntry
    accessor-summaries :- AccessorSummaries
    form-opts          :- {s/Keyword s/Any}]
   (cond
     exception
     {:results [(expression-exception-result ns source-file source-form exception lang)]
+     :provenance {}}
+
+    analysis-skipped?
+    {:results []
      :provenance {}}
 
     ast
@@ -742,12 +746,30 @@
   for var-provs but their parent forms produce no useful form-ref descriptor."
   #{:s/defn :s/def :s/defschema})
 
+(def ^:private form-ref-foldable-sources
+  #{:schema :malli :type-override})
+
+(defn- form-ref-qsyms
+  [discovery-out var-provs]
+  (into (set (keys (:declarations discovery-out)))
+        (keep (fn [[qsym p]]
+                (when (contains? form-ref-foldable-sources (:source p))
+                  qsym)))
+        var-provs))
+
 (defn- form-refs-for-ns
-  [discovery-out]
-  (into {}
-        (for [[qsym {:keys [role form]}] (:declarations discovery-out)
-              :when (form-ref-roles role)]
-          [qsym form])))
+  [discovery-out var-provs]
+  (let [ref-qsyms (form-ref-qsyms discovery-out var-provs)]
+    (into {}
+          (keep (fn [[qsym {:keys [role form ns]}]]
+                  (when (form-ref-roles role)
+                    (when-let [descriptor (descriptors/prepare-form-ref
+                                           ns
+                                           (:aliases discovery-out)
+                                           ref-qsyms
+                                           form)]
+                      [qsym descriptor]))))
+          (:declarations discovery-out))))
 
 (defn- collect-user-fn-summaries
   "Walks an ns's discovery output for `s/defn` source forms and returns the
@@ -768,32 +790,37 @@
   collector would admit (registry ∪ :malli/schema Var-meta walk).
   Each branch is gated by the corresponding intake-disable opt so the provs
   map cannot announce a stream that produced no admission."
-  [opts ns-sym discovery-out]
+  [opts ns-sym discovery-out entries]
   (let [schema-provs
         (when (and (not (:plumatic-disable opts)) discovery-out)
-          (into {}
-                (keep (fn [[qsym {:keys [declared-sym]}]]
-                        (when-let [v (ns-resolve (the-ns ns-sym) declared-sym)]
-                          (when (var? v)
-                            [qsym (prov/make-provenance :schema qsym ns-sym (meta v) [] :clj)]))))
-                (:declarations discovery-out)))
+          (merge
+           (into {}
+                 (map (fn [[qsym {:keys [form]}]]
+                        [qsym (prov/make-provenance :schema qsym ns-sym (meta form) [] :clj)]))
+                 (:declarations discovery-out))
+           (into {}
+                 (keep (fn [{:keys [plumatic-var-prov source-form]}]
+                         (when plumatic-var-prov
+                           [plumatic-var-prov
+                            (prov/make-provenance :schema plumatic-var-prov ns-sym
+                                                  (meta source-form) [] :clj)])))
+                 entries)))
         malli-provs
         (when-not (:malli-disable opts)
-          (try
+          (let [aliases (discovery/source-form-aliases (mapv :source-form entries))]
             (into {}
                   (map (fn [qsym]
                          [qsym (prov/make-provenance :malli qsym ns-sym nil [] :clj)]))
-                  (malli-collect/malli-admitted-qsyms ns-sym))
-            (catch Exception _ {})))]
+                  (malli-collect/malli-admitted-qsyms ns-sym aliases entries))))]
     (merge schema-provs malli-provs)))
 
 (defn- clj-namespace-dict
-  [opts ns-sym source-file var-provs form-refs]
-  (require ns-sym)
-  (binding [*ns* (the-ns ns-sym)
-            ab/*var-provs* var-provs]
-    (let [schema-result (typed-decls/typed-ns-results opts ns-sym :clj source-file form-refs)
-          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj)]
+  [opts ns-sym var-provs form-refs entries]
+  (binding [ab/*var-provs* var-provs]
+    (let [forms (mapv :source-form entries)
+          aliases (discovery/source-form-aliases forms)
+          schema-result (typed-decls/typed-ns-results opts ns-sym :clj form-refs entries)
+          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj aliases entries)]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (defn- cljs-namespace-dict
@@ -821,49 +848,51 @@
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (s/defn namespace-dict :- s/Any
-  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs form-refs]
+  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs form-refs entries]
   (case lang
-    :clj  (clj-namespace-dict opts ns-sym source-file var-provs form-refs)
+    :clj  (clj-namespace-dict opts ns-sym var-provs form-refs entries)
     :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)
     :both (typed-decls/merge-type-dicts
-           [(clj-namespace-dict opts ns-sym source-file var-provs form-refs)
+           [(clj-namespace-dict opts ns-sym var-provs form-refs entries)
             (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)])))
 
+(defn- ns-entries
+  "Map ns-sym → the worker's clj-state entries `[{:source-form :ast
+  :malli-schema} …]` (clj-state is keyed by source-file). Empty for a ns whose
+  file produced no entries (read failure / cljs-only). Threaded into discovery,
+  var-provs, and admission so all read the same shipped inert data."
+  [clj-loaded clj-state]
+  (reduce (fn [acc [ns-sym source-file _lang]]
+            (cond-> acc
+              source-file
+              (assoc ns-sym (vec (:entries (get clj-state source-file))))))
+          {}
+          clj-loaded))
+
 (defn project-discovery
-  [nss-with-source-files]
-  (reduce (fn [acc [ns-sym source-file]]
+  [clj-loaded ns-entries-map]
+  (reduce (fn [acc [ns-sym source-file _lang]]
             (if-not source-file
               acc
-              (assoc acc ns-sym (discovery/discover ns-sym source-file))))
+              (let [forms (mapv :source-form (get ns-entries-map ns-sym))]
+                (assoc acc ns-sym (discovery/discover ns-sym forms)))))
           {}
-          nss-with-source-files))
+          clj-loaded))
 
 (defn- preload-namespaces
-  "Require every JVM-loadable namespace (.clj or .cljc) once up front. cljs-only
-  namespaces (.cljs) skip the require — they have no JVM Var surface — and
-  flow straight to :loaded. Partitions into {:loaded [[ns-sym source-file
-  lang] ...] :load-failures {ns-sym {:source-file f :exception e}}}.
-  Subsequent project-state phases iterate :loaded only, so the-ns/ns-resolve
-  calls there cannot trip on an unloaded namespace and load failures are
-  surfaced as discovery warnings instead of bogus per-namespace exception
-  findings.
+  "Tag every discovered namespace with its `lang` and pass it through to
+  `:loaded`. The project is NEVER required on the host: each namespace is read
+  and analyzed on the WORKER (`preload-clj-state!` / `preload-cljs-state!`), and
+  a worker read/analysis failure is surfaced there as a `:clj-load-failure` /
+  `:cljs-load-failure`. Returns {:loaded [[ns-sym source-file lang] ...]
+  :load-failures {}} — the host-load failure map is always empty now.
 
   `opts` carries `--cljs-disable`; when set, `.cljc` files store `lang :clj`
   in the triple so downstream passes drop the cljs branch."
   [opts nss-with-source-files]
   (reduce (fn [acc [ns-sym source-file]]
             (let [lang (lang-of-source-file opts source-file)]
-              (cond
-                (not (needs-jvm-load? opts source-file))
-                (update acc :loaded conj [ns-sym source-file lang])
-
-                :else
-                (try
-                  (require ns-sym)
-                  (update acc :loaded conj [ns-sym source-file lang])
-                  (catch Throwable e
-                    (assoc-in acc [:load-failures ns-sym]
-                              {:source-file source-file :exception e}))))))
+              (update acc :loaded conj [ns-sym source-file lang])))
           {:loaded [] :load-failures {}}
           nss-with-source-files))
 
@@ -968,7 +997,7 @@
               ordered))))
 
 (defn project-var-provs
-  [opts project-disc]
+  [opts project-disc ns-entries-map]
   (let [type-override-provs
         (if (:plumatic-disable opts)
           {}
@@ -977,7 +1006,8 @@
                        [sym (prov/make-provenance :type-override sym nil nil [] :clj)]))
                 (or (:skeptic/type-overrides opts) {})))]
     (reduce-kv (fn [acc ns-sym discovery-out]
-                 (merge acc (ns-var-provs opts ns-sym discovery-out)))
+                 (merge acc (ns-var-provs opts ns-sym discovery-out
+                                          (get ns-entries-map ns-sym))))
                (merge native-fns/native-fn-provenance type-override-provs)
                project-disc)))
 
@@ -1011,11 +1041,24 @@
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
                                  {} load-failures)
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
-        project-disc (project-discovery (mapv (fn [[ns-sym sf _]] [ns-sym sf]) clj-loaded))
-        var-provs (project-var-provs opts project-disc)
-        form-refs (reduce (fn [m [_ns-sym d]]
-                            (cond-> m d (merge (form-refs-for-ns d))))
-                          {} project-disc)
+        ;; Worker clj-state is computed BEFORE discovery/var-provs: discovery and
+        ;; admission read the shipped :source-form data, never a host-loaded Var.
+        {clj-state         :clj-state
+         clj-load-failures :clj-load-failures}
+        (preload-clj-state! (:worker-conn opts) loaded)
+        clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
+                                     {} clj-load-failures)
+        ns-entries-map (ns-entries clj-loaded clj-state)
+        project-disc (project-discovery clj-loaded ns-entries-map)
+        var-provs (project-var-provs opts project-disc ns-entries-map)
+        form-refs (with-meta
+                    (reduce (fn [m [_ns-sym d]]
+                              (cond-> m d (merge (form-refs-for-ns d var-provs))))
+                            {} project-disc)
+                    {:aliases-by-ns (into {}
+                                           (keep (fn [[ns-sym d]]
+                                                   (when d [ns-sym (:aliases d)])))
+                                           project-disc)})
         user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
                                      {} project-disc)
         {cljs-state         :cljs-state
@@ -1023,17 +1066,13 @@
         (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded)
         cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
                                       {} cljs-load-failures)
-        {clj-state         :clj-state
-         clj-load-failures :clj-load-failures}
-        (preload-clj-state! (:worker-conn opts) loaded)
-        clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
-                                     {} clj-load-failures)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
                               (namespace-dict opts ns-sym source-file lang
-                                              cljs-state var-provs form-refs))
+                                              cljs-state var-provs form-refs
+                                              (get ns-entries-map ns-sym)))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))
@@ -1127,12 +1166,6 @@
                    (assoc-in (first group) [:location :lang] merged-lang)
                    (first group)))))))
 
-(defn- with-jvm-ns
-  [needs-jvm? ns-sym thunk]
-  (if needs-jvm?
-    (binding [*ns* (the-ns ns-sym)] (thunk))
-    (thunk)))
-
 (defn- read-pass-results
   [dict ignore-body ns source-file accessor-summaries cljs-state clj-state lang form-opts]
   (if (= :cljs lang)
@@ -1150,11 +1183,11 @@
         pass-results (binding [ac/*user-fn-path-predicate-summaries*
                                (or (:user-fn-summaries project-state) {})]
                        (mapv (fn [pass-lang]
-                               (let [needs-jvm? (#{:clj :both} pass-lang)]
-                                 (with-jvm-ns needs-jvm? ns
-                                   #(read-pass-results dict ignore-body ns source-file
-                                                       accessor-summaries cljs-state clj-state pass-lang
-                                                       form-opts))))
+                               ;; The read pass consumes worker-shipped ASTs via
+                               ;; clj-state/cljs-state; no host project-ns binding.
+                               (read-pass-results dict ignore-body ns source-file
+                                                  accessor-summaries cljs-state clj-state pass-lang
+                                                  form-opts))
                              passes))
         form-findings (vec (mapcat :results pass-results))
         deduped (if (= :both lang)
