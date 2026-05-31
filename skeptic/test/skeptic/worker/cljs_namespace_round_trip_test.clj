@@ -21,3 +21,14 @@
             (is (= ns-ast (edn/read-string (pr-str ns-ast))))))
         (testing "every entry round-trips through EDN reader"
           (is (every? #(= % (edn/read-string (pr-str %))) (:entries reply))))))))
+
+(deftest cljs-ns-head-returns-dependency-ordering-fields
+  (with-worker
+    (fn [conn]
+      (let [reply (wc/ask conn {:op "cljs-ns-head"
+                                :source-file "dev-resources/cljs-fixtures/p4.cljs"})]
+        (testing "head carries the ns name and requires"
+          (is (= 'p4 (:name reply)))
+          (is (contains? (set (vals (:requires reply))) 'schema.core)))
+        (testing "head fields round-trip through EDN reader"
+          (is (= (:requires reply) (edn/read-string (pr-str (:requires reply))))))))))

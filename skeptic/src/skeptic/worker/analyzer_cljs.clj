@@ -205,13 +205,12 @@
           result)
         result))))
 
-(defn analyze-source-file
-  "Analyze every top-level form of `source-file` using the cljs analyzer's
-   reader loop. Returns `{:ns-ast :entries :asts}` in the shape the host
-   wrapper produces today."
-  [source-file]
-  (let [path (str source-file)
-        state (empty-state)]
+(defn- with-analysis-bindings
+  "Run `f` with the cljs analyzer dynamic vars Skeptic uses bound, inside a
+   fresh `with-state`. `*load-macros*` is true so `:require-macros` deps load
+   on this (worker) JVM under the project basis."
+  [path f]
+  (let [state (empty-state)]
     (ana-api/with-state state
       (binding [ana/*file-defs* (atom #{})
                 ana/*unchecked-if* false
@@ -220,6 +219,39 @@
                 ana/*load-macros* true
                 ana/*cljs-ns* 'cljs.user
                 ana/*cljs-file* path]
+        (f state)))))
+
+(defn- analyze-ns-form
+  "Read `source-file`'s leading `(ns ...)` form and analyze it to an ns-AST.
+   Throws if the file has no ns form."
+  [state path source-file]
+  (with-open [r (io/reader source-file)]
+    (let [base-env (assoc (ana-api/empty-env) :build-options {})
+          ns-form (some (fn [form]
+                          (when (and (seq? form) (= 'ns (first form))) form))
+                        (ana-api/forms-seq r path))]
+      (if ns-form
+        (analyze-source-entry state base-env ns-form)
+        (throw (ex-info "cljs source has no (ns ...) form" {:source-file path}))))))
+
+(defn ns-head
+  "Parse only `source-file`'s `(ns ...)` form on the worker (project basis) and
+   return the dependency-ordering head fields. The rest of the file is not
+   analyzed. Mirrors the data `skeptic.cljs.topo/file-head` needs."
+  [source-file]
+  (let [path (str source-file)
+        ns-ast (with-analysis-bindings path
+                 (fn [state] (analyze-ns-form state path source-file)))]
+    (select-keys ns-ast [:name :requires :require-macros :use-macros])))
+
+(defn analyze-source-file
+  "Analyze every top-level form of `source-file` using the cljs analyzer's
+   reader loop. Returns `{:ns-ast :entries :asts}` in the shape the host
+   wrapper produces today."
+  [source-file]
+  (let [path (str source-file)]
+    (with-analysis-bindings path
+      (fn [state]
         (with-open [r (io/reader source-file)]
           (let [base-env (assoc (ana-api/empty-env) :build-options {})]
             (loop [forms (ana-api/forms-seq r path)

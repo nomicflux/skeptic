@@ -97,19 +97,6 @@
    ast :- aas/AnnotatedNode]
   (find-by-op* op ast))
 
-(s/defn parse-source-ns :- aas/AnnotatedNode
-  "Parse a `.cljs` / `.cljc` source file's `(ns ...)` form. Triggers JVM
-  loading of any `:require-macros` namespaces and returns the analyzed ns
-  AST: a map with `:name`, `:requires`, `:require-macros`, `:uses`, etc.
-  Suitable for use as the `:ns` slot of an analysis env passed to
-  `analyze-form`. Wraps the call in a Skeptic-configured empty state so
-  cljs macro-syntax spec validation is skipped; the state is discarded
-  on return, while JVM-loaded macro namespaces persist."
-  [source-file :- s/Any]
-  (ana-api/with-state (empty-state)
-    (:ast (ana-api/parse-ns source-file
-                            {:load-macros true :analyze-deps false}))))
-
 (s/defn analyze-form :- aas/AnnotatedNode
   "Analyze an already-read cljs form using the supplied ns AST. Real source
   files should use `analyze-source-file`, which keeps cljs reading and

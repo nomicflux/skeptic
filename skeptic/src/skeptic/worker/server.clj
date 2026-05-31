@@ -640,6 +640,23 @@
 (mw/set-descriptor! #'wrap-analyze-cljs-namespace
                     {:requires #{} :expects #{} :handles {"analyze-cljs-namespace" {}}})
 
+(defn wrap-cljs-ns-head
+  [h]
+  (fn [{:keys [op transport source-file] :as msg}]
+    (if (= op "cljs-ns-head")
+      (let [{:keys [name requires require-macros use-macros]}
+            (wac-cljs/ns-head (io/file source-file))]
+        (t/send transport (response-for msg
+                                        :name name
+                                        :requires requires
+                                        :require-macros require-macros
+                                        :use-macros use-macros
+                                        :status #{:done})))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-cljs-ns-head
+                    {:requires #{} :expects #{} :handles {"cljs-ns-head" {}}})
+
 (defn wrap-apply-predicate
   [h]
   (fn [{:keys [op transport handle arg] :as msg}]
@@ -674,6 +691,7 @@
                                                   #'wrap-class-name
                                                   #'wrap-analyze-namespace
                                                   #'wrap-analyze-cljs-namespace
+                                                  #'wrap-cljs-ns-head
                                                   #'wrap-apply-predicate)))
 
 (defn -main

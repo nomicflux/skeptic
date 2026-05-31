@@ -241,8 +241,9 @@
   "Per-namespace Plumatic Schema admission for cljs sources.
 
   Inputs:
-  - `ns-ast`: the parsed ns AST from
-    `skeptic.cljs.analyzer-driver/parse-source-ns`. Provides `:requires`
+  - `ns-ast`: the parsed ns AST produced on the worker by
+    `skeptic.worker.analyzer-cljs/analyze-source-file` (the `:ns-ast` of the
+    `analyze-cljs-namespace` reply). Provides `:requires`
     (alias→target map) for alias rewriting before JVM eval of schema forms.
   - `source-file`: the cljs source file, attached to error results.
   - `ns-sym`: the namespace symbol.

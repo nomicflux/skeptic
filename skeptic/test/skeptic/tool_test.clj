@@ -1,7 +1,7 @@
 (ns skeptic.tool-test
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.main :as main]
             [skeptic.cli.paths :as paths]
@@ -56,31 +56,40 @@
       (finally
         (delete-recursively! dir)))))
 
-(deftest tool-check-treats-shadow-aliases-as-basis-input
+(deftest tool-check-discovery-and-classpath-share-one-basis
+  ;; The project resolves under one alias set: the user --alias plus the
+  ;; deps.edn aliases its shadow-cljs.edn declares as its deps source. Both
+  ;; source-path discovery and the worker classpath must be resolved under
+  ;; that SAME set, so Skeptic reads the project under the basis it compiles
+  ;; under. Discovery does not separately concatenate shadow-cljs.edn source
+  ;; paths — they ride the basis via the activated aliases' :extra-paths.
   (let [dir (temp-dir!)
         root (canonical-file dir)
-        aliases (atom nil)
+        discover-aliases (atom nil)
+        classpath-aliases (atom nil)
         captured-paths (atom nil)]
     (try
       (spit (io/file dir "deps.edn") "{}")
       (spit (io/file dir "shadow-cljs.edn") "{}")
-      (with-redefs [paths/discover-paths (fn [root basis-aliases]
-                                           (reset! aliases {:root root :aliases basis-aliases})
-                                           [(str (io/file root "src"))
-                                            (str (io/file root "shadow-dep-src"))])
-                    shadow/deps-aliases (fn [_root] [:shadow :dev])
-                    shadow/discover-sources (fn [_root] {:source-paths ["shadow-src"]})
+      (with-redefs [paths/discover-paths (fn [root aliases]
+                                           (reset! discover-aliases {:root root :aliases aliases})
+                                           [(str (io/file root "src"))])
+                    paths/classpath-entries (fn [_root aliases]
+                                              (reset! classpath-aliases aliases)
+                                              [])
+                    shadow/deps-aliases (fn [_root] [:shadow :sci])
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
                     core/check-project (fn [_opts _root & source-paths]
                                          (reset! captured-paths source-paths)
                                          0)]
         (is (= 0 (main/check-project {:project-dir (.getPath dir)
                                       :alias ":dev"}))))
-      (is (= (.getPath root) (:root @aliases)))
-      (is (= [:dev :shadow] (:aliases @aliases)))
-      (is (= [(str (io/file root "src"))
-              (str (io/file root "shadow-dep-src"))
-              (str (io/file root "shadow-src"))]
-             @captured-paths))
+      (testing "discovery aliases = user --alias plus shadow-cljs.edn-declared aliases"
+        (is (= (.getPath root) (:root @discover-aliases)))
+        (is (= [:dev :shadow :sci] (:aliases @discover-aliases))))
+      (testing "classpath is resolved under the SAME alias set as discovery"
+        (is (= [:dev :shadow :sci] @classpath-aliases)))
+      (testing "source paths come only from the basis, no shadow-cljs.edn concat"
+        (is (= [(str (io/file root "src"))] @captured-paths)))
       (finally
         (delete-recursively! dir)))))

@@ -69,12 +69,12 @@
   (when (has-file? root "deps.edn")
     (paths/discover-paths root (or aliases []))))
 
-(defn- shadow-source-paths
-  [root]
-  (when (has-file? root "shadow-cljs.edn")
-    (:source-paths (shadow/discover-sources root))))
-
 (defn- basis-aliases
+  "The single alias set the project resolves under: the user-selected
+  --alias plus any deps.edn aliases the project's shadow-cljs.edn declares as
+  its deps source (`{:deps {:aliases [...]}}`). Both source-path discovery and
+  the worker classpath are resolved from one `create-basis` under this set, so
+  Skeptic reads the project under the same basis the project compiles under."
   [root aliases]
   (vec (distinct (concat (or aliases []) (shadow/deps-aliases root)))))
 
@@ -86,17 +86,16 @@
       (.getPath (io/file root path)))))
 
 (defn- resolve-paths
-  "Both deps.edn and shadow-cljs.edn may be present and contribute paths.
-  --paths overrides everything; --alias only affects deps.edn discovery."
-  [{:keys [paths alias]} root]
+  "Source paths come from the single deps.edn basis resolved under
+  `basis-aliases`, the same basis the worker classpath uses. --paths overrides
+  discovery entirely."
+  [{:keys [paths]} root aliases]
   (cond
     (string? paths)     (mapv (partial root-relative-path root)
                               (split-paths-arg paths))
     (sequential? paths) (mapv (partial root-relative-path root) paths)
-    :else               (vec (distinct (concat (map (partial root-relative-path root)
-                                                    (deps-source-paths root (basis-aliases root alias)))
-                                               (map (partial root-relative-path root)
-                                                    (shadow-source-paths root)))))))
+    :else               (mapv (partial root-relative-path root)
+                              (deps-source-paths root aliases))))
 
 (defn- run-checker
   [opts root paths cp]
@@ -125,9 +124,10 @@
                                       (System/getProperty "user.dir"))))
         root (.getPath root-file)
         opts (dissoc opts :project-dir :root)
-        paths (resolve-paths opts root)
+        aliases (basis-aliases root (:alias opts))
+        paths (resolve-paths opts root aliases)
         cp (when (has-file? root "deps.edn")
-             (vec (paths/classpath-entries root (or (:alias opts) []))))
+             (vec (paths/classpath-entries root aliases)))
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths cp)))

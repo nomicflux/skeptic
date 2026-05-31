@@ -5,7 +5,7 @@
 
 (deftest analyze-form-handles-aliased-schema-defn
   (require 'schema.core)
-  (let [ns-ast (sut/parse-source-ns "dev-resources/cljs-fixtures/p4.cljs")
+  (let [ns-ast (:ns-ast (sut/analyze-source-file "dev-resources/cljs-fixtures/p4.cljs"))
         ast (sut/analyze-form ns-ast
                               '(s/defn g :- s/Int [x :- s/Int] (+ x 1)))]
     (is (= :let (:op ast)))

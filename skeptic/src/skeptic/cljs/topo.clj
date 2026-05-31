@@ -3,28 +3,32 @@
    order where each file's project-local :require'd dependencies appear
    before it. When a cycle blocks standard topo progress, the next pick is
    chosen by tiebreaker: nss without :require-macros / :use-macros first,
-   then fewest :requires, then ns-sym alphabetical."
-  (:require [schema.core :as s]
-            [skeptic.cljs.analyzer-driver :as driver]))
+   then fewest :requires, then ns-sym alphabetical.
+
+   Ns-head data (`:name` / `:requires` / `:require-macros` / `:use-macros`)
+   is supplied by `head-fn`, which reads each file on the worker under the
+   project basis. This namespace never loads cljs sources itself."
+  (:require [schema.core :as s]))
 
 (s/defn ^:private file-head
   [project-nss :- #{s/Symbol}
-   source-file :- s/Any]
-  (let [ns-ast       (driver/parse-source-ns source-file)
-        all-reqs     (set (vals (:requires ns-ast)))
+   source-file :- s/Any
+   ns-head     :- {s/Any s/Any}]
+  (let [all-reqs     (set (vals (:requires ns-head)))
         project-reqs (into #{} (filter project-nss) all-reqs)]
-    {:ns               (:name ns-ast)
+    {:ns               (:name ns-head)
      :file             source-file
      :project-requires project-reqs
-     :macro-free?      (and (empty? (:require-macros ns-ast))
-                            (empty? (:use-macros ns-ast)))
+     :macro-free?      (and (empty? (:require-macros ns-head))
+                            (empty? (:use-macros ns-head)))
      :requires-count   (count all-reqs)}))
 
 (s/defn ^:private heads-by-ns :- {s/Symbol s/Any}
-  [ns-sym->file :- {s/Symbol s/Any}]
+  [ns-sym->file :- {s/Symbol s/Any}
+   head-fn      :- (s/=> {s/Any s/Any} s/Any)]
   (let [project-nss (set (keys ns-sym->file))]
     (into {}
-          (map (fn [[ns-sym f]] [ns-sym (file-head project-nss f)]))
+          (map (fn [[ns-sym f]] [ns-sym (file-head project-nss f (head-fn f))]))
           ns-sym->file)))
 
 (s/defn ^:private initial-in-degrees :- {s/Symbol s/Int}
@@ -75,7 +79,9 @@
                (conj out pick))))))
 
 (s/defn topo-sort-files :- [s/Any]
-  "Order source-files so each file's project deps appear before it."
-  [ns-sym->file :- {s/Symbol s/Any}]
-  (let [heads (heads-by-ns ns-sym->file)]
+  "Order source-files so each file's project deps appear before it. `head-fn`
+   maps a source-file to its ns-head map (read on the worker)."
+  [ns-sym->file :- {s/Symbol s/Any}
+   head-fn      :- (s/=> {s/Any s/Any} s/Any)]
+  (let [heads (heads-by-ns ns-sym->file head-fn)]
     (mapv #(get-in heads [% :file]) (topo-sort-heads heads))))

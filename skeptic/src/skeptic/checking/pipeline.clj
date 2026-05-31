@@ -955,6 +955,25 @@
                                               {})))
       entry)))
 
+(defn- fetch-cljs-heads
+  "Read each source-file's ns-head on the worker (project basis) for dependency
+   ordering. Returns `{:heads {File → ns-head} :head-failures {File → {:exception}}}`.
+   A file whose head read throws is recorded as a failure rather than aborting
+   the preload, mirroring the analysis-phase containment."
+  [conn ns-sym->file]
+  (reduce (fn [acc f]
+            (try
+              (let [{:keys [name requires require-macros use-macros]}
+                    (wc/ask conn {:op "cljs-ns-head" :source-file (str f)})]
+                (assoc-in acc [:heads f] {:name name
+                                          :requires requires
+                                          :require-macros require-macros
+                                          :use-macros use-macros}))
+              (catch Throwable e
+                (assoc-in acc [:head-failures f] {:exception e}))))
+          {:heads {} :head-failures {}}
+          (vals ns-sym->file)))
+
 (defn preload-cljs-state!
   "Parse and analyze every source-file requiring cljs analysis (.cljs or
   .cljc). Files are analyzed in dependency order against a single shared
@@ -978,7 +997,9 @@
                                              (#{:cljs :both} lang)))
                                    (map (fn [[ns-sym sf _]] [ns-sym sf])))
                              loaded)
-          ordered      (topo/topo-sort-files ns-sym->file)]
+          {:keys [heads head-failures]} (fetch-cljs-heads conn ns-sym->file)
+          headed       (into {} (filter (fn [[_ f]] (contains? heads f))) ns-sym->file)
+          ordered      (topo/topo-sort-files headed (fn [f] (get heads f)))]
       (reduce (fn [acc f]
                 (try
                   ;; wc/ask returns the raw nREPL reply (carries :id/:session/:status
@@ -993,7 +1014,7 @@
                              :asts (filterv some? (mapv :ast entries))}))
                   (catch Throwable e
                     (update acc :cljs-load-failures assoc f {:exception e}))))
-              {:cljs-state {} :cljs-load-failures {}}
+              {:cljs-state {} :cljs-load-failures head-failures}
               ordered))))
 
 (defn project-var-provs

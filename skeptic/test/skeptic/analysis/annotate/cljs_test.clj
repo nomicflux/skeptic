@@ -8,7 +8,7 @@
             [skeptic.cljs.analyzer-driver :as ad]))
 
 (def ^:private bootstrap-ns-ast
-  (delay (ad/parse-source-ns "dev-resources/cljs-fixtures/p1.cljs")))
+  (delay (:ns-ast (ad/analyze-source-file "dev-resources/cljs-fixtures/p1.cljs"))))
 
 (defn- annotated [form]
   (let [ast (ad/analyze-form @bootstrap-ns-ast form)]
