@@ -87,9 +87,8 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        worker (wproc/spawn! (wproc/worker-classpath
-                              (str/join java.io.File/pathSeparator
-                                        (:worker-classpath opts))))
+        worker (wproc/spawn! (str/join java.io.File/pathSeparator
+                                       (:worker-classpath opts)))
         conn (wc/connect (:port worker))]
     (try
       (let [host-handles (class-oracle/intern-host-classes! conn)]

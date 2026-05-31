@@ -1,5 +1,5 @@
 (ns skeptic.worker.server
-  "Worker-side EDN nREPL server. Runs in the spawned JVM on the project's
+  "Worker-side Nippy nREPL server. Runs in the spawned JVM on the project's
    classpath and answers host requests on demand. Plan 2 Phase 1.5 adds the
    handle-table machinery: every Class operand on the wire is an opaque handle
    (integer for bootstrap-interned host-runtime classes; UUID-string for project
@@ -20,6 +20,7 @@
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
             [skeptic.worker.analyzer-cljs :as wac-cljs]
+            [skeptic.worker.transport :as worker-transport]
             [skeptic.worker.wire :as wire]))
 
 (defonce ^:private handle-state
@@ -187,12 +188,14 @@
   (and (map? v) (not (sorted? v)) (contains? v :op)))
 
 (defn- strip-host-unread
-  "Remove non-EDN host slots. Strips :atom :env :o-tag :return-tag.
-   Strips :info but retains [:info :name]. Strips :meta only when it is
-   raw var-metadata (no :op key)."
+  "Remove host-unread slots. Strips :atom :env :o-tag :return-tag, plus the
+   verified host-unread analyzer flags :once :max-fixed-arity :variadic? :bridges.
+   Strips :info but retains [:info :name]. Strips :meta only when it is raw
+   var-metadata (no :op key)."
   [n]
   (let [info-name (get-in n [:info :name])
-        n' (dissoc n :atom :env :o-tag :return-tag :info)
+        n' (dissoc n :atom :env :o-tag :return-tag :info
+                   :once :max-fixed-arity :variadic? :bridges)
         n' (if info-name (assoc-in n' [:info :name] info-name) n')
         meta-val (:meta n')]
     (if (and (some? meta-val) (not (ast-node? meta-val)))
@@ -203,6 +206,9 @@
   [v]
   (cond
     (or (nil? v) (boolean? v) (number? v) (string? v) (keyword? v) (symbol? v)) true
+    ;; A Class can print as a readable symbol, but Nippy preserves the actual
+    ;; Class object. It must cross only through the worker's opaque handle model.
+    (class? v) false
     ;; An analyzer AST node (map with :op) is never an EDN-safe incidental leaf:
     ;; it carries `:env` back-refs (cljs) / cycles that this recursive check
     ;; would run away into. The host reads AST nodes only through `:children`
@@ -564,22 +570,24 @@
 (defn- project-entry
   "Project one clj analysis entry for the wire: AST via handle-project-node,
    source-form via the raw-forms sentinel walk (non-EDN body literals become
-   sentinels). Form metadata (`:source`/`:line`/...) cannot ride the edn
-   transport, so it is captured into sibling EDN vectors in postwalk order and
-   replayed host-side (see `skeptic.worker.wire/capture-form-meta`). The
-   channel-1 `:malli/schema` spec is captured here off the RAW source-form
-   because the wire strips the symbol's reader-metadata (F-MALLISTRIP)."
+   sentinels). Form metadata (`:source`/`:line`/...) is captured into sibling
+   vectors in postwalk order and replayed host-side (see
+   `skeptic.worker.wire/capture-form-meta`). The channel-1 `:malli/schema` spec
+   is captured here off the RAW source-form because the wire strips the symbol's
+   reader-metadata (F-MALLISTRIP)."
   [ns-sym {:keys [source-form ast analysis-skipped?]}]
   (let [source-form' (project-raw-forms source-form)
         ast' (when ast
                (handle-project-node ast))
+        source-form-meta (wire/capture-form-meta source-form')
+        ast-meta (wire/capture-form-meta ast')
         malli-schema (source-form-malli-schema source-form)
         plumatic-schema (source-form-plumatic-schema ns-sym source-form)
         schema-var-prov (source-form-schema-var-prov ns-sym source-form)]
-    (cond-> {:source-form source-form'
-             :source-form-meta (wire/capture-form-meta source-form')
-             :ast ast'
-             :ast-meta (wire/capture-form-meta ast')}
+    (cond-> {:source-form (wire/strip-form-meta source-form')
+             :source-form-meta source-form-meta
+             :ast (wire/strip-form-meta ast')
+             :ast-meta ast-meta}
       analysis-skipped? (assoc :analysis-skipped? true)
       malli-schema (assoc :malli-schema malli-schema)
       schema-var-prov (assoc :plumatic-var-prov schema-var-prov)
@@ -617,13 +625,13 @@
    `:ast` is NEVER walked for meta capture (its `:env` back-refs run away)."
   [{:keys [source-form ast exception]}]
   (let [source-form' (project-raw-forms source-form)
-        base {:source-form source-form'
+        base {:source-form (wire/strip-form-meta source-form')
               :source-form-meta (wire/capture-form-meta source-form')}]
     (if exception
       (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
       (let [ast' (handle-project-node ast)]
         (assoc base
-               :ast ast'
+               :ast (wire/strip-ast-form-meta ast')
                :ast-form-meta (wire/capture-ast-form-meta ast'))))))
 
 (defn wrap-analyze-cljs-namespace
@@ -632,7 +640,8 @@
     (if (= op "analyze-cljs-namespace")
       (let [{:keys [ns-ast entries]} (wac-cljs/analyze-source-file (io/file source-file))]
         (t/send transport (response-for msg
-                                        :ns-ast (handle-project-node ns-ast)
+                                        :ns-ast (wire/strip-ast-form-meta
+                                                 (handle-project-node ns-ast))
                                         :entries (mapv project-cljs-entry entries)
                                         :status #{:done})))
       (h msg))))
@@ -682,7 +691,7 @@
 (defn start!
   []
   (srv/start-server :port 0
-                    :transport-fn t/edn
+                    :transport-fn worker-transport/nippy
                     :handler (srv/default-handler #'wrap-ping
                                                   #'wrap-intern-host-classes
                                                   #'wrap-class-rel

@@ -17,7 +17,7 @@
   "Spawns the singleton worker, connects, interns bootstrap host classes, and
    registers a shutdown hook to stop it. Returns `{:conn :handles}`."
   []
-  (let [cp     (proc/worker-classpath (System/getProperty "java.class.path"))
+  (let [cp     (System/getProperty "java.class.path")
         worker (proc/spawn! cp)
         conn   (wc/connect (:port worker))]
     (.addShutdownHook (Runtime/getRuntime)

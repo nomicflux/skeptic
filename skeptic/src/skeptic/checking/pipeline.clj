@@ -898,7 +898,7 @@
 
 (defn- reattach-entry-meta
   "Replay the sibling meta vectors the worker shipped (form metadata cannot ride
-   the edn transport) back onto an entry's `:source-form` and `:ast`, then drop
+   as ordinary collection metadata) back onto an entry's `:source-form` and `:ast`, then drop
    the `-meta` carriers so the stored entry keeps its `{:source-form :ast}`
    shape. See `skeptic.worker.wire/apply-form-meta`."
   [{:keys [source-form source-form-meta ast ast-meta] :as entry}]
@@ -936,10 +936,9 @@
   "Reshape a cljs analysis entry off the wire into the host's
    `CljsCachedFormEntry`:
    - replay `:source-form-meta` onto `:source-form` and `:ast-form-meta` onto
-     the AST nodes' `:form` slots (form metadata cannot ride the edn transport;
-     cljs finding locations come from `node-location`, i.e. `(meta (:form
-     node))`). The AST replay walks the `:children` spine only — never the full
-     cljs AST.
+     the AST nodes' `:form` slots (cljs finding locations come from
+     `node-location`, i.e. `(meta (:form node))`). The AST replay walks the
+     `:children` spine only — never the full cljs AST.
    - rebuild the `:exception` (a Throwable cannot cross the wire) from the
      worker's `:exception-message` for forms that crashed mid-analysis."
   [{:keys [source-form source-form-meta ast ast-form-meta] :as entry}]

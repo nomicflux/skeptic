@@ -1,5 +1,5 @@
 (ns skeptic.worker.harness-test
-  "Committed two-JVM round-trips: spawn a real worker JVM, connect over the EDN
+  "Committed two-JVM round-trips: spawn a real worker JVM, connect over the Nippy
    transport, exercise each handle-shaped op, tear the worker down. Plan 2
    Phase 1.5 extends the original ping round-trip with the handle-table API."
   (:require [clojure.test :refer [deftest is testing]]
@@ -12,7 +12,7 @@
 (defn with-worker
   "Spawns a worker, runs `f` with a connected client, tears down."
   [f]
-  (let [cp (proc/worker-classpath (System/getProperty "java.class.path"))
+  (let [cp (System/getProperty "java.class.path")
         worker (proc/spawn! cp)
         conn (wc/connect (:port worker))]
     (try
@@ -163,7 +163,7 @@
           (is (= 6 (count entries)))
           (is (every? #(contains? % :source-form) entries))
           (is (every? #(contains? % :ast) entries)))
-        (testing "every projected entry round-trips through the EDN reader"
+        (testing "projection remains readable as plain data"
           (is (every? #(= % (edn/read-string (pr-str %))) entries)))
         (testing "every class-identity :class slot is a handle, never a Class"
           (let [classes (mapcat leaf-class-slots asts)]

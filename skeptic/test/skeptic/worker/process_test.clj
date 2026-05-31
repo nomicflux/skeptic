@@ -1,14 +1,15 @@
 (ns skeptic.worker.process-test
   (:require [clojure.test :refer [deftest is]]
-            [clojure.string :as str]
             [skeptic.worker.process :as process]))
 
-(deftest self-classpath-entries-carries-skeptic
-  (let [entries (process/self-classpath-entries)]
-    (is (seq entries))
-    (is (some #(str/includes? % "skeptic") entries))))
+(deftest spawn-cp-is-the-project-classpath-unchanged
+  ;; The worker -cp IS the project's resolved classpath, full stop. Skeptic's own
+  ;; entries are NOT unioned on: the project depends on Skeptic, so the worker
+  ;; boot code is already on the project cp. process.clj exposes no classpath
+  ;; assembly fn anymore; spawn! takes the project cp string as given.
+  (is (not (contains? (ns-publics 'skeptic.worker.process) 'worker-classpath)))
+  (is (not (contains? (ns-publics 'skeptic.worker.process) 'self-classpath-entries))))
 
-(deftest worker-classpath-unions-project-and-self
-  (let [cp (process/worker-classpath "/x")]
-    (is (str/includes? cp "/x"))
-    (is (str/includes? cp "skeptic"))))
+(deftest spawn-takes-a-classpath-string
+  (let [arglists (:arglists (meta #'process/spawn!))]
+    (is (= '([cp]) (map #(mapv (comp symbol name) %) arglists)))))

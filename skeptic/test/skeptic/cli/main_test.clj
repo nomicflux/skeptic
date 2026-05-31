@@ -17,6 +17,29 @@
     (doseq [c (.listFiles f)] (delete-recursively! c)))
   (.delete f))
 
+(def ^:private skeptic-deps
+  '{prismatic/schema {:mvn/version "1.4.1"}
+    prismatic/plumbing {:mvn/version "0.6.0"}
+    metosin/malli {:mvn/version "0.20.1"}
+    org.clojure/clojure {:mvn/version "1.12.0"}
+    org.clojure/clojurescript {:mvn/version "1.11.132"}
+    org.clojure/data.json {:mvn/version "2.5.1"}
+    org.clojure/tools.analyzer {:mvn/version "1.2.2"}
+    org.clojure/tools.analyzer.jvm {:mvn/version "1.4.0-beta1"}
+    org.clojure/tools.cli {:mvn/version "1.0.214"}
+    org.clojure/tools.deps {:mvn/version "0.29.1598"}
+    org.babashka/sci {:mvn/version "0.12.51"}
+    commons-io/commons-io {:mvn/version "2.11.0"}
+    com.taoensso/nippy {:mvn/version "3.4.2"}
+    nrepl/nrepl {:mvn/version "1.3.1"}})
+
+(defn- deps-edn-source
+  []
+  (pr-str {:paths ["src"
+                   (.getPath (io/file (System/getProperty "user.dir") "src"))
+                   (.getPath (io/file (System/getProperty "user.dir") "resources"))]
+           :deps skeptic-deps}))
+
 (def ^:private clean-source
   "(ns demo.core (:require [schema.core :as s]))\n
 (s/defn add-one :- s/Int [x :- s/Int] (+ x 1))\n")
@@ -33,7 +56,7 @@
   [source]
   (let [dir (temp-dir!)]
     (try
-      (spit (io/file dir "deps.edn") "{:paths [\"src\"]}")
+      (spit (io/file dir "deps.edn") (deps-edn-source))
       (.mkdirs (io/file dir "src" "demo"))
       (spit (io/file dir "src" "demo" "core.clj") source)
       (main/check-project {:project-dir (.getPath dir) :paths "src"})

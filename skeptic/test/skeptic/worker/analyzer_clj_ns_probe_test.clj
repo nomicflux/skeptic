@@ -113,11 +113,10 @@
   ;; the Clojure 1.12 qualified method-value syntax `(BigDecimal/.equals a b)`,
   ;; which tools.analyzer.jvm lowers to an :instance-call node carrying a
   ;; :methods slot of clojure.reflect.Method records. That slot is not a child,
-  ;; so it must be made EDN-safe by handle-project-node — otherwise the worker's
-  ;; pr-str emits #clojure.reflect.Method{...} and the host's edn/read throws.
-  ;; Run the REAL worker subprocess: wc/ask edn/reads the reply, so a raw
-  ;; reflect.Method would throw here.
-  (let [cp (proc/worker-classpath (System/getProperty "java.class.path"))
+  ;; so it must be projected away before the host sees it.
+  ;; Run the REAL worker subprocess: wc/ask reads the reply through the production
+  ;; transport, so a raw reflect.Method would throw here if projection leaked it.
+  (let [cp (System/getProperty "java.class.path")
         worker (proc/spawn! cp)
         conn (wc/connect (:port worker))]
     (try
@@ -127,13 +126,13 @@
                                        :source-file "test/skeptic/test_examples/resolution.clj"})]
         (is (vector? entries))
         (is (every? #(= % (edn/read-string (pr-str %))) entries)
-            "every projected entry must survive the pr-str -> edn/read transport codec"))
+            "every projected entry must remain readable as plain data"))
       (finally (wc/disconnect! conn) (proc/stop! worker)))))
 
 (deftest projected-entry-wire-roundtrip-probe
-  ;; The transport pr-str's the projected entries on the worker and edn/read's
-  ;; them on the host (no data-readers). Reproduce that exact codec on the REAL
-  ;; projection output and confirm it round-trips.
+  ;; The production transport is binary, but the projection contract still keeps
+  ;; entries printable/readable as plain data. Check that invariant on REAL
+  ;; projection output.
   (require 'skeptic.provenance)
   (let [file (io/file "src/skeptic/provenance.clj")
         {:keys [entries]} (wac/analyze-source-file 'skeptic.provenance file)
@@ -148,7 +147,7 @@
       (when-let [m (re-find #"#[\w.]+" printed)]
         (println "first reader-tag in payload:" m)))
     (is (= :ok outcome)
-        "projected entries must survive pr-str -> edn/read (the real transport codec)")))
+        "projected entries must survive pr-str -> edn/read as plain data")))
 
 (deftest structural-cases-sdefn-root-op-probe
   ;; Class A root: an `s/defn` form macroexpands to a `:let`/`:do` wrapper whose

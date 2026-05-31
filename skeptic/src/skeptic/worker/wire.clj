@@ -9,12 +9,11 @@
    `{::nonedn true ::class <class-handle>}`. The host types it by its class via
    the carried handle; it never inspects the original value.
 
-   Form metadata: the `nrepl.transport/edn` link cannot carry metadata (write
-   pr-strs with `*print-meta*` false; read is `clojure.edn/read` which attaches
-   none). The worker captures the host-read meta keys off each form into a plain
-   EDN vector in `clojure.walk/postwalk` order (`capture-form-meta`); the host
-   replays them onto the structurally-identical received form in the same order
-   (`apply-form-meta`). Shape is never altered, so structural form walks survive."
+   Form metadata: the worker captures the host-read meta keys off each form into
+   a plain data vector in `clojure.walk/postwalk` order (`capture-form-meta`);
+   the host replays them onto the structurally-identical received form in the
+   same order (`apply-form-meta`). Shape is never altered, so structural form
+   walks survive."
   (:require [clojure.walk :as walk]))
 
 (defn nonedn-sentinel
@@ -67,6 +66,18 @@
            x)))
      form)))
 
+(defn strip-form-meta
+  "Drop metadata from every IObj in `form` after it has been captured into a
+   sidecar. Nippy preserves metadata, so the worker must make the sidecar the
+   only metadata channel."
+  [form]
+  (walk/postwalk
+   (fn [x]
+     (if (instance? clojure.lang.IObj x)
+       (with-meta x nil)
+       x))
+   form))
+
 (defn- ast-node?
   "True when `v` is a tools.analyzer AST node (a plain map carrying `:op`).
    Sorted maps are excluded: `(contains? v :op)` throws on a `PersistentTreeMap`
@@ -104,8 +115,8 @@
    plain EDN vector, visiting nodes along the `:children` spine in
    `handle-project-node` order. Pairs with `apply-ast-form-meta`. The form
    metadata of cljs AST nodes carries the source location `node-location`
-   reads, which the edn transport strips; capturing it along the safe
-   `:children` spine avoids the runaway full AST walk."
+   reads; capturing it along the safe `:children` spine avoids the runaway full
+   AST walk and keeps the host-side contract explicit."
   [ast]
   (let [acc (volatile! [])]
     (walk-ast-spine (fn [n]
@@ -129,3 +140,13 @@
                           (update n :form with-meta (merge (meta (:form n)) m))
                           n)))
                     ast)))
+
+(defn strip-ast-form-meta
+  "Drop metadata from each AST node's `:form` along the safe child spine. Used by
+   cljs projection, where a full tree walk can touch analyzer back-refs."
+  [ast]
+  (walk-ast-spine (fn [n]
+                    (cond-> n
+                      (instance? clojure.lang.IObj (:form n))
+                      (update :form with-meta nil)))
+                  ast))
