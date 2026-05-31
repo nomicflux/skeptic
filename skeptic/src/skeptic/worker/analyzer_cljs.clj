@@ -1,20 +1,16 @@
 (ns skeptic.worker.analyzer-cljs
   "Worker-side cljs analyzer execution. Mirrors the parse + reader-loop
    that live in `skeptic.cljs.analyzer-driver`, with no Skeptic / Schema /
-   Malli dependency. The host-side wrappers
-   (`parse-source-ns`/`analyze-form`/`analyze-source-file`) are rewired in
-   Phase 8 to issue worker RPCs instead of running the cljs analyzer locally.
+   Malli dependency. The host-side source-file wrapper is rewired to issue a
+   worker RPC instead of running the cljs analyzer locally.
 
-   The ns-ast for each parsed source file is held in a worker-scoped cache
-   keyed by the source-file string. Wire payloads carry the source-file
-   descriptor only; the cljs compiler state never crosses the wire."
+   Wire payloads carry the source-file descriptor only; the cljs compiler state
+   never crosses the wire."
   (:require [cljs.analyzer :as ana]
             [cljs.analyzer.api :as ana-api]
             [cljs.compiler]
             [clojure.java.io :as io]
             [clojure.string :as str]))
-
-(defonce ^:private ns-ast-cache (atom {}))
 
 (defn- empty-state
   []
@@ -78,30 +74,6 @@
 (defn- strip-cljs-type
   [ast]
   (walk-ast normalize-cljs-node ast))
-
-(defn parse-ns
-  "Parse the `(ns ...)` form of `source-file` and cache the resulting ns AST
-   under the source-file string. Returns the source-file string (the key the
-   host will pass back on subsequent ops)."
-  [source-file]
-  (let [path (str source-file)]
-    (when-not (contains? @ns-ast-cache path)
-      (let [ns-ast (ana-api/with-state (empty-state)
-                     (:ast (ana-api/parse-ns (io/file source-file)
-                                             {:load-macros true :analyze-deps false})))]
-        (swap! ns-ast-cache assoc path ns-ast)))
-    path))
-
-(defn analyze-form-by-ns-key
-  "Analyze `form` using the cached ns-ast for `ns-key` (the source-file
-   string returned by `parse-ns`). Returns a stripped cljs AST."
-  [ns-key form]
-  (let [ns-ast (get @ns-ast-cache ns-key)]
-    (ana-api/no-warn
-     (-> (ana-api/analyze (assoc (ana-api/empty-env) :ns ns-ast)
-                          form
-                          (:name ns-ast))
-         strip-cljs-type))))
 
 (defn- analyze-source-entry
   [state base-env source-form]

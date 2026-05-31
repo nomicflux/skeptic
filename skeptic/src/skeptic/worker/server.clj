@@ -6,9 +6,8 @@
    classes). Worker is sole owner of `Class/forName`, `.isAssignableFrom`,
    `instance?`, and class equality.
 
-   Phase 5 adds the analyzer + discover ops. The analyzer-execution glue lives
-   in `skeptic.worker.analyzer-clj` / `skeptic.worker.analyzer-cljs`; the
-   discovery walker lives in `skeptic.worker.discovery`. No other `skeptic.*`
+   Phase 5 adds the analyzer ops. The analyzer-execution glue lives
+   in `skeptic.worker.analyzer-clj` / `skeptic.worker.analyzer-cljs`. No other `skeptic.*`
    namespace is required from this server: Skeptic's own analysis code and
    Plumatic Schema / Malli stay on the host (B3/B4)."
   (:require [nrepl.server :as srv]
@@ -21,7 +20,6 @@
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
             [skeptic.worker.analyzer-cljs :as wac-cljs]
-            [skeptic.worker.discovery :as wdisc]
             [skeptic.worker.wire :as wire]))
 
 (defonce ^:private handle-state
@@ -533,19 +531,6 @@
           descend (fn [a k] (assoc a k (project-child handle-project-node (get a k))))]
       (reduce descend n' child-keys))))
 
-(defn wrap-discover-ns
-  [h]
-  (fn [{:keys [op transport ns source-file] :as msg}]
-    (if (= op "discover-ns")
-      (let [result (wdisc/discover (symbol ns) (io/file source-file))]
-        (t/send transport (response-for msg
-                                        :result (dissoc result :source-forms)
-                                        :status #{:done})))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-discover-ns
-                    {:requires #{} :expects #{} :handles {"discover-ns" {}}})
-
 (defn- source-form-malli-schema
   "Channel-1 Malli spec (`:malli/schema`) read off the RAW `defn`/`s/defn`
    source-form, before projection. Both legal styles are covered: reader-meta
@@ -670,7 +655,6 @@
                                                   #'wrap-class-rel
                                                   #'wrap-resolve-class-sym
                                                   #'wrap-class-name
-                                                  #'wrap-discover-ns
                                                   #'wrap-analyze-namespace
                                                   #'wrap-analyze-cljs-namespace
                                                   #'wrap-apply-predicate)))

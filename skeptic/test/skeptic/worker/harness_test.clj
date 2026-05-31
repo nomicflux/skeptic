@@ -157,19 +157,3 @@
           (is (nil? (:ast dyn-entry))))
         (testing "worker does not emit distinct handles for the same project record class name"
           (is (= {} duplicate-record-handles)))))))
-
-(deftest discover-ns-round-trip
-  (with-worker
-    (fn [conn]
-      (require 'skeptic.research.intake-combined-fixture)
-      (let [reply (wc/ask conn {:op "discover-ns"
-                                :ns "skeptic.research.intake-combined-fixture"
-                                :source-file "test/skeptic/research/intake_combined_fixture.clj"})
-            result (:result reply)]
-        (testing "result is EDN-readable"
-          (is (map? result)))
-        (testing ":declarations contains an expected qsym"
-          (is (contains? (:declarations result)
-                         'skeptic.research.intake-combined-fixture/aliased-defn)))
-        (testing ":source-forms is dropped from the reply"
-          (is (not (contains? result :source-forms))))))))
