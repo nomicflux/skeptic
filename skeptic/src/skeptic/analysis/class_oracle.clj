@@ -25,6 +25,12 @@
    un-shared) when no binding is installed. `:instance?` is never cached."
   (atom {}))
 
+(defn current-cache
+  "The currently-bound per-run cache atom. Pipeline sites reuse this when a run
+   has already installed one, rather than shadowing it with a fresh atom."
+  []
+  *class-rel-cache*)
+
 (defn- cached-rel
   "Returns the cached value for `k`, else runs `thunk`, caches its result under
    `k`, and returns it."

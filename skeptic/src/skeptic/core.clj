@@ -94,7 +94,8 @@
     (try
       (let [host-handles (class-oracle/intern-host-classes! conn)]
         (binding [class-oracle/*worker-conn* conn
-                  class-oracle/*host-class-handles* host-handles]
+                  class-oracle/*host-class-handles* host-handles
+                  class-oracle/*class-rel-cache* (atom {})]
           (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-nss)
                 per-ns-failures (:per-ns-failures project-state)
                 nss-to-check (cond-> discovered-nss
