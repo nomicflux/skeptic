@@ -72,6 +72,22 @@
               (is (= (mapv #(oracle/class-rel (:rel %) (:a %) (:b %)) triples)
                      results)))))))))
 
+(deftest persistent-client-reuse-round-trip
+  (with-worker
+    (fn [conn]
+      (let [m (oracle/intern-host-classes! conn)]
+        (binding [oracle/*worker-conn* conn
+                  oracle/*host-class-handles* m]
+          (let [long-h (oracle/resolve-class-sym 'clojure.core 'Long)]
+            (testing "50 interleaved ops over one persistent client each match their request"
+              (doseq [i (range 50)]
+                (if (even? i)
+                  (is (= "ok" (:pong (wc/ask conn {:op "ping"}))))
+                  (is (true? (:result (wc/ask conn {:op "class-rel"
+                                                    :rel :equals
+                                                    :a long-h
+                                                    :b long-h})))))))))))))
+
 (deftest resolve-class-sym-round-trip
   (with-worker
     (fn [conn]
