@@ -65,3 +65,38 @@
             (is (= "java.lang.Number" (oracle/class-name (oracle/host-handle Number)))))
           (testing "nil handle yields nil"
             (is (nil? (oracle/class-name nil)))))))))
+
+(deftest class-rel-cache-test
+  (with-worker
+    (fn [conn]
+      (let [m (oracle/intern-host-classes! conn)]
+        (binding [oracle/*worker-conn* conn
+                  oracle/*host-class-handles* m
+                  oracle/*class-rel-cache* (atom {})]
+          (let [number-h (oracle/host-handle Number)
+                long-h   (oracle/host-handle Long)
+                first-call (at/class-equals? number-h long-h)
+                second-call (at/class-equals? number-h long-h)]
+            (testing "a repeated pure rel returns the same answer and is cached"
+              (is (= first-call second-call))
+              (is (contains? @oracle/*class-rel-cache* [:equals number-h long-h])))
+            (testing ":instance? is never cached"
+              (let [before @oracle/*class-rel-cache*]
+                (at/class-instance? number-h 5)
+                (is (= before @oracle/*class-rel-cache*))))))))))
+
+(deftest class-rel-batch-test
+  (with-worker
+    (fn [conn]
+      (let [m (oracle/intern-host-classes! conn)]
+        (binding [oracle/*worker-conn* conn
+                  oracle/*host-class-handles* m
+                  oracle/*class-rel-cache* (atom {})]
+          (let [number-h (oracle/host-handle Number)
+                long-h   (oracle/host-handle Long)
+                triples [{:rel :equals :a long-h :b long-h}
+                         {:rel :assignable-from :a number-h :b long-h}
+                         {:rel :assignable-from :a long-h :b number-h}]]
+            (testing "batched results equal the per-call class-rel answers"
+              (is (= (mapv #(oracle/class-rel (:rel %) (:a %) (:b %)) triples)
+                     (oracle/class-rel-batch triples))))))))))

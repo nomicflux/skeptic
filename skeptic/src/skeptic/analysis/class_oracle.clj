@@ -16,6 +16,26 @@
    read from this var; nil means the host has no worker (test scaffolding only)."
   nil)
 
+(def ^:dynamic *class-rel-cache*
+  "Per-run memo for the pure oracle relations, keyed by request. Sound because
+   the worker's handle table is additive (handles never re-point), so
+   `:equals`/`:assignable-from`/`class-name`/`resolve-class-sym` are pure
+   functions of their handles for the life of the worker. Bound to one atom per
+   run by `check-project`; the default fresh atom keeps the oracle correct (just
+   un-shared) when no binding is installed. `:instance?` is never cached."
+  (atom {}))
+
+(defn- cached-rel
+  "Returns the cached value for `k`, else runs `thunk`, caches its result under
+   `k`, and returns it."
+  [k thunk]
+  (let [cache @*class-rel-cache*]
+    (if (contains? cache k)
+      (get cache k)
+      (let [v (thunk)]
+        (swap! *class-rel-cache* assoc k v)
+        v))))
+
 (def bootstrap-class-names
   "The closed set of host-runtime classes whose names are guaranteed unique by
    the JVM bootloader rules (D12). The host imports each one; the worker also
@@ -119,15 +139,35 @@
    `:instance?` `b` is a runtime value (worker uses it directly); otherwise
    `b` is a handle. Returns boolean."
   [rel :- s/Keyword a :- s/Any b :- s/Any]
-  (:result (wc/ask *worker-conn* {:op "class-rel" :rel rel :a a :b b})))
+  (let [ask-rel #(:result (wc/ask *worker-conn* {:op "class-rel" :rel rel :a a :b b}))]
+    (if (= rel :instance?)
+      (ask-rel)
+      (cached-rel [rel a b] ask-rel))))
+
+(s/defn class-rel-batch :- [s/Any]
+  "Answers a vector of `{:rel :a :b}` triples, returning a vector of booleans
+   positionally matching `triples`. Cache hits never hit the wire; only the
+   uncached triples are sent in one `class-rel-batch` round-trip, then cached."
+  [triples :- [{s/Keyword s/Any}]]
+  (let [cache @*class-rel-cache*
+        key-of (fn [{:keys [rel a b]}] [rel a b])
+        misses (vec (remove #(contains? cache (key-of %)) triples))
+        results (when (seq misses)
+                  (:results (wc/ask *worker-conn* {:op "class-rel-batch" :triples misses})))
+        miss->result (zipmap (map key-of misses) results)]
+    (doseq [[k v] miss->result] (swap! *class-rel-cache* assoc k v))
+    (mapv (fn [t] (let [k (key-of t)]
+                    (if (contains? cache k) (get cache k) (get miss->result k))))
+          triples)))
 
 (s/defn resolve-class-sym :- s/Any
   "Asks the worker to resolve `sym` in `ns-name` to a Class. Returns a UUID
    handle on success, nil otherwise. Host never sees the Class."
   [ns-name :- s/Symbol sym :- s/Symbol]
-  (:handle (wc/ask *worker-conn* {:op "resolve-class-sym"
-                                  :ns (str ns-name)
-                                  :sym (str sym)})))
+  (cached-rel [:resolve (str ns-name) (str sym)]
+              #(:handle (wc/ask *worker-conn* {:op "resolve-class-sym"
+                                               :ns (str ns-name)
+                                               :sym (str sym)}))))
 
 (s/defn class-handle :- s/Any
   "A worker-recognized handle for a host-held `^Class`. Bootstrap classes use
@@ -144,4 +184,5 @@
    Class; the host never calls `.getName` on a project class."
   [a :- s/Any]
   (when a
-    (:name (wc/ask *worker-conn* {:op "class-name" :a a}))))
+    (cached-rel [:class-name a]
+                #(:name (wc/ask *worker-conn* {:op "class-name" :a a})))))
