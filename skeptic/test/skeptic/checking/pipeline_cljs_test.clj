@@ -8,6 +8,7 @@
             [skeptic.analysis.annotate.fn :as fn-annotate]
             [skeptic.checking.pipeline :as pipeline]
             [skeptic.checking.pipeline.support :as psup]
+            [skeptic.provenance :as prov]
             [skeptic.worker.client :as wc]
             [skeptic.worker.process :as proc])
   (:import [java.io File]))
@@ -70,11 +71,15 @@
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
 
 (deftest cljs-malli-registration-is-admitted-through-production-path
+  ;; `g` is admitted via the `m/=>` registration channel; `h` via the
+  ;; `:malli/schema` var-meta channel. Both must carry :malli provenance —
+  ;; `(contains? provenance sym)` alone is a false positive because inference
+  ;; also populates the provenance map.
   (let [ps (psup/project-state-for-nses {'p5 p5-file})
         {:keys [results provenance]} (pipeline/check-namespace ps 'p5 p5-file {:remove-context true})]
     (is (empty? (read-exceptions results)))
-    (is (contains? provenance 'p5/g))
-    (is (contains? provenance 'p5/h))))
+    (is (= :malli (some-> (get provenance 'p5/g) prov/source)))
+    (is (= :malli (some-> (get provenance 'p5/h) prov/source)))))
 
 (def ^:private p6-tests-file
   (File. "dev-resources/cljs-fixtures/p6-cross-require/src/p6/tests.cljs"))

@@ -852,7 +852,7 @@
                            (typed-decls.malli/convert-collected
                             ns-sym :cljs
                             (malli-collect-cljs/ns-malli-spec-results-cljs
-                             source-file ns-sym top-asts))))]
+                             source-file ns-sym (or entries [])))))]
       (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
 
 (s/defn namespace-dict :- s/Any

@@ -636,14 +636,16 @@
    `:ast` is NEVER walked for meta capture (its `:env` back-refs run away)."
   [{:keys [source-form ast exception]}]
   (let [source-form' (project-raw-forms source-form)
+        malli-schema (source-form-malli-schema source-form)
         base {:source-form (wire/strip-form-meta source-form')
               :source-form-meta (wire/capture-form-meta source-form')}]
     (if exception
       (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
       (let [ast' (handle-project-node ast)]
-        (assoc base
-               :ast (wire/strip-ast-form-meta ast')
-               :ast-form-meta (wire/capture-ast-form-meta ast'))))))
+        (cond-> (assoc base
+                       :ast (wire/strip-ast-form-meta ast')
+                       :ast-form-meta (wire/capture-ast-form-meta ast'))
+          malli-schema (assoc :malli-schema malli-schema))))))
 
 (defn wrap-analyze-cljs-namespace
   [h]

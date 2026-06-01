@@ -12,7 +12,8 @@
 (s/defschema SourceFormEntry
   {:source-form              s/Any
    :ast                      (s/maybe aas/AnnotatedNode)
-   (s/optional-key :exception) Throwable})
+   (s/optional-key :exception)    Throwable
+   (s/optional-key :malli-schema) s/Any})
 
 (s/defschema SourceFileAnalysis
   {:ns-ast  aas/AnnotatedNode
