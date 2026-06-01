@@ -20,7 +20,7 @@
    [nil  "--explain-full" "Show fully expanded structural forms in type-mismatch output (disable name-folding)"]
    ["-p" "--porcelain" "Emit machine-readable JSONL (one JSON object per line)"]
    [nil  "--plumatic-disable" "Disable Plumatic Schema intake (skip s/defn / s/def / s/defschema declarations and :skeptic/type-overrides)"]
-   [nil  "--malli-disable" "Disable Malli intake (skip m/=>, mx/defn, and :malli/schema Var-meta)"]
+   [nil  "--malli-disable" "Disable Malli intake (skip m/=> and :malli/schema Var-meta)"]
    [nil  "--cljs-disable" "Disable ClojureScript intake (skip .cljs files; treat .cljc as :clj-only — drop the :cljs reader-conditional branch)"]
    [nil  "--debug" "Emit raw internal state for cross-environment diffing"]
    [nil  "--profile" "Profile the run (CPU, memory, wall-clock time)"]

@@ -60,8 +60,6 @@
     (testing "m/=> is NOT a Plumatic declaration"
       (is (not (contains? declarations 'skeptic.research.intake-combined-fixture/malli-arrow))
           "malli-arrow Var was created by plain defn, but the m/=> form does not produce a Plumatic entry"))
-    (testing "mx/defn is NOT a Plumatic declaration"
-      (is (not (contains? declarations 'skeptic.research.intake-combined-fixture/malli-mx))))
     (testing "defn with :malli/schema Var-meta is NOT a Plumatic declaration"
       (is (not (contains? declarations 'skeptic.research.intake-combined-fixture/malli-meta-only))))
     (testing "do-wrapped s/defn is skipped (head is do, not s/defn)"

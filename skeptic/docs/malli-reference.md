@@ -4,7 +4,7 @@ Scope: the external shape of [Malli](https://github.com/metosin/malli) that Skep
 
 Sourced from the official Malli README and `docs/function-schemas.md` at `github.com/metosin/malli`, pinned to release **0.20.1**.
 
-The entire Malli intake described below — `m/=>`, `mx/defn`, `:malli/schema`
+The entire Malli intake described below — `m/=>`, `:malli/schema`
 Var-meta, and `malli.core/function-schemas` registry projection — can be
 disabled wholesale with the `--malli-disable` CLI flag. When set, no Malli
 declaration contributes to the merged dict, no `:malli` provenance is
@@ -92,9 +92,8 @@ Sequence schemas used inside arrow inputs include `:cat`, `:catn` (named childre
 ## Function-schema Var annotations
 
 Per the Defn Schemas section of `docs/function-schemas.md`, Malli itself has
-several ways to attach a schema to a function. Skeptic currently discovers only
-the `:malli/schema` metadata form below; registry-based `m/=>` and
-`malli.experimental/defn` discovery are deferred.
+several ways to attach a schema to a function. Skeptic discovers the
+`:malli/schema` metadata form and registry-based `m/=>` declarations.
 
 1. `m/=>` — stores the var → schema mapping in the global registry.
 
@@ -110,16 +109,6 @@ the `:malli/schema` metadata form below; registry-based `m/=>` and
       {:malli/schema [:=> [:cat :int] small-int]}
       [x]
       (dec x))
-    ```
-
-3. `malli.experimental/defn` (aliased `mx/defn`) — Plumatic-style inline type hints; the function is registered automatically.
-
-    ```clojure
-    (require '[malli.experimental :as mx])
-
-    (mx/defn times :- :int
-      [x :- :int, y :- small-int]
-      (* x y))
     ```
 
 Registry-backed function schemas are queryable via `malli.core/function-schemas`
@@ -145,7 +134,7 @@ Current boundary (pinned to Malli 0.20.1):
 
 - Discovery (`skeptic.malli-spec.collect`):
   - Reads `:malli/schema` from var metadata.
-  - Does not read `m/function-schemas`; `m/=>` and `mx/defn` discovery are deferred.
+  - Does not read `m/function-schemas`; registry-based discovery is deferred.
   - Never reads `:schema` from var metadata — that key belongs to Plumatic Schema.
 - Admission (`skeptic.analysis.malli-spec.bridge/admit-malli-spec`):
   - Calls `malli.core/schema` and returns `malli.core/form` on success.
@@ -189,7 +178,7 @@ Stubbed now:
 
 Deferred:
 
-- Registry-based discovery through `m/=>`, `malli.experimental/defn`, and `malli.core/function-schemas`.
+- Registry-based discovery through `malli.core/function-schemas`.
 - Conflict handling when the same var has both a Plumatic `:schema` declaration and a MalliSpec declaration. In this pass, merge order is the only resolution.
 - `.skeptic/config.edn` `:type-overrides` and `:skeptic/type` metadata parity. Those remain Schema-only; MalliSpec does not participate.
 - Any reverse conversion. `Schema → MalliSpec` and `Type → MalliSpec` do not exist and are not planned.

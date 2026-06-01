@@ -74,9 +74,9 @@
       (with-redefs [paths/discover-paths (fn [root aliases]
                                            (reset! discover-aliases {:root root :aliases aliases})
                                            [(str (io/file root "src"))])
-                    paths/classpath-entries (fn [_root aliases]
-                                              (reset! classpath-aliases aliases)
-                                              [])
+                    paths/worker-classpath-entries (fn [_root aliases]
+                                                     (reset! classpath-aliases aliases)
+                                                     [])
                     shadow/deps-aliases (fn [_root] [:shadow :sci])
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
                     core/check-project (fn [_opts _root & source-paths]

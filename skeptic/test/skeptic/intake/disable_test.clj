@@ -25,7 +25,7 @@
   (map qsym ["aliased-defn" "qualified-defn" "schemy-defn" "aliased-def"]))
 
 (def malli-only-syms
-  (map qsym ["malli-arrow" "malli-mx" "malli-meta-only"]))
+  (map qsym ["malli-arrow" "malli-meta-only"]))
 
 (def cross-stream-sym (qsym "cross-stream"))
 

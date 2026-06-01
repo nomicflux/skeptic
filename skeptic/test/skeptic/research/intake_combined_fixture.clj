@@ -2,8 +2,7 @@
   "Cross-stream fixture: forms from BOTH libraries in one ns, with aliasing
    variants. Read by intake_data_dump_test."
   (:require [schema.core :as s]
-            [malli.core :as m]
-            [malli.experimental :as mx]))
+            [malli.core :as m]))
 
 ;; --- Plumatic, aliased s/ ---
 
@@ -42,12 +41,6 @@
 
 (defn malli-arrow [x] (inc x))
 (m/=> malli-arrow [:=> [:cat :int] :int])
-
-;; --- Malli mx/defn ---
-
-(mx/defn malli-mx :- :int
-  [x :- :int]
-  (inc x))
 
 ;; --- Malli :malli/schema Var-meta only ---
 

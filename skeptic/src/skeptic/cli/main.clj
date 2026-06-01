@@ -72,8 +72,8 @@
 (defn- basis-aliases
   "The single alias set the project resolves under: the user-selected
   --alias plus any deps.edn aliases the project's shadow-cljs.edn declares as
-  its deps source (`{:deps {:aliases [...]}}`). Both source-path discovery and
-  the worker classpath are resolved from one `create-basis` under this set, so
+  its deps source (`{:deps {:aliases [...]}}`). Source-path discovery and the
+  project portion of the worker classpath are resolved under this set, so
   Skeptic reads the project under the same basis the project compiles under."
   [root aliases]
   (vec (distinct (concat (or aliases []) (shadow/deps-aliases root)))))
@@ -87,8 +87,8 @@
 
 (defn- resolve-paths
   "Source paths come from the single deps.edn basis resolved under
-  `basis-aliases`, the same basis the worker classpath uses. --paths overrides
-  discovery entirely."
+  `basis-aliases`, the same basis the project portion of the worker classpath
+  uses. --paths overrides discovery entirely."
   [{:keys [paths]} root aliases]
   (cond
     (string? paths)     (mapv (partial root-relative-path root)
@@ -125,9 +125,13 @@
         root (.getPath root-file)
         opts (dissoc opts :project-dir :root)
         aliases (basis-aliases root (:alias opts))
+        cljs-only-namespaces (shadow/preload-namespaces root)
+        opts (cond-> opts
+               (seq cljs-only-namespaces)
+               (assoc :cljs-only-namespaces cljs-only-namespaces))
         paths (resolve-paths opts root aliases)
         cp (when (has-file? root "deps.edn")
-             (vec (paths/classpath-entries root aliases)))
+             (paths/worker-classpath-entries root aliases))
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths cp)))

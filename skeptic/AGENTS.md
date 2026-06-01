@@ -103,7 +103,7 @@ The MalliSpec domain is the external [Malli](https://github.com/metosin/malli) r
 
 The slice as it now stands:
 
-- **Discovery:** `:malli/schema` Var-meta plus `(malli.core/function-schemas)` registry projection (captures `m/=>` and `malli.experimental/defn`). Unioned by `skeptic.malli-spec.collect/ns-malli-spec-results`.
+- **Discovery:** `:malli/schema` Var-meta plus `(malli.core/function-schemas)` registry projection (captures `m/=>`). Unioned by `skeptic.malli-spec.collect/ns-malli-spec-results`.
 - **Conversion (`malli-spec->type`):** admits via `m/form ∘ m/schema` and recursively dispatches the admitted form. Heads currently handled:
   - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
   - `[:function & arms]` (each arm a `:=>`) → single `FunT` with one `FnMethodT` per arm.

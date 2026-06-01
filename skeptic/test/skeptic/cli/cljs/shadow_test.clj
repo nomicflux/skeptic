@@ -67,3 +67,13 @@
         (is (= [] (sut/deps-aliases (.getAbsolutePath dir))))
         (finally
           (delete-recursively! dir))))))
+
+(deftest preload-namespaces-reads-shadow-preloads
+  (let [dir (temp-dir!)]
+    (try
+      (write-shadow! dir {:builds {:app {:modules {:main {:preloads '[demo.preload]}}}
+                                    :test {:devtools {:preloads '[demo.devtools]}}}})
+      (is (= '#{demo.preload demo.devtools}
+             (sut/preload-namespaces (.getAbsolutePath dir))))
+      (finally
+        (delete-recursively! dir)))))

@@ -91,6 +91,14 @@
        :clj
        lang))))
 
+(defn- lang-of-namespace-source
+  [opts ns-sym source-file]
+  (let [lang (lang-of-source-file opts source-file)]
+    (if (and (= :both lang)
+             (contains? (:cljs-only-namespaces opts) ns-sym))
+      :cljs
+      lang)))
+
 (defn- inert-conditional-type?
   [t]
   (or (at/dyn-type? t)
@@ -891,7 +899,7 @@
   in the triple so downstream passes drop the cljs branch."
   [opts nss-with-source-files]
   (reduce (fn [acc [ns-sym source-file]]
-            (let [lang (lang-of-source-file opts source-file)]
+            (let [lang (lang-of-namespace-source opts ns-sym source-file)]
               (update acc :loaded conj [ns-sym source-file lang])))
           {:loaded [] :load-failures {}}
           nss-with-source-files))
@@ -1063,6 +1071,15 @@
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
                                  {} load-failures)
         clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
+        ;; Run cljs analysis before clj namespace preload. CLJ preload requires
+        ;; project namespaces and may execute .cljc top-level side effects in the
+        ;; worker JVM; cljs macroexpansion must see the project as a cljs build
+        ;; would, before those clj-side effects mutate shared runtime state.
+        {cljs-state         :cljs-state
+         cljs-load-failures :cljs-load-failures}
+        (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded)
+        cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
+                                      {} cljs-load-failures)
         ;; Worker clj-state is computed BEFORE discovery/var-provs: discovery and
         ;; admission read the shipped :source-form data, never a host-loaded Var.
         {clj-state         :clj-state
@@ -1083,11 +1100,6 @@
                                            project-disc)})
         user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
                                      {} project-disc)
-        {cljs-state         :cljs-state
-         cljs-load-failures :cljs-load-failures}
-        (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded)
-        cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
-                                      {} cljs-load-failures)
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
@@ -1198,7 +1210,7 @@
   [project-state ns :- s/Symbol source-file form-opts]
   (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
         (prepare-namespace project-state ns source-file)
-        lang (lang-of-source-file form-opts source-file)
+        lang (lang-of-namespace-source form-opts ns source-file)
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
         clj-state (:clj-state project-state)

@@ -1,13 +1,11 @@
 (ns skeptic.malli-spec.collect
-  "Malli intake stream, hermetic from the project JVM. Reads three channels of
+  "Malli intake stream, hermetic from the project JVM. Reads two channels of
   inert Malli spec data off the worker-shipped clj-state entries — never the
   live `(malli.core/function-schemas)` registry or a loaded Var's metadata:
 
   1. `:malli/schema` Var-meta → the `:malli-schema` field the worker captured
      off the raw source-form (`skeptic.worker.server/project-entry`).
   2. `m/=>` → the spec vector at position 2 of the `(m/=> sym SPEC)` source-form.
-  3. `mx/defn` → reassembled `[:=> [:cat IN…] OUT]` from the `:- ` annotations on
-     the `(mx/defn name :- OUT [a :- A …] …)` source-form.
 
   Specs are inert keyword/vector data; `amb/admit-malli-spec` (pinned Malli)
   does all interpretation host-side. No `malli.core` require here."
@@ -36,23 +34,6 @@
         (symbol (name target) (name head))
         head))))
 
-(defn- mx-defn-spec
-  "Reassemble `[:=> [:cat IN…] OUT]` from an `(mx/defn name :- OUT [a :- A …] …)`
-  source-form's `:- ` annotations. Single-arity only (Malli `mx/defn` arms)."
-  [form]
-  (let [more (nnext form)
-        [output more] (if (= :- (first more)) [(second more) (nnext more)] [:any more])
-        more (if (string? (first more)) (next more) more)
-        more (if (map? (first more)) (next more) more)
-        argv (first more)
-        inputs (loop [[x y & rest :as items] (seq argv) acc []]
-                 (cond
-                   (empty? items) acc
-                   (= x '&) (recur (next items) acc)
-                   (= y :-) (recur (nnext (next items)) (conj acc (first rest)))
-                   :else (recur (next items) (conj acc :any))))]
-    [:=> (into [:cat] inputs) output]))
-
 (defn- channel-entries
   "All [fn-sym spec entry-meta] Malli declarations from one clj-state entry."
   [aliases {:keys [source-form malli-schema]}]
@@ -62,7 +43,6 @@
     (cond
       malli-schema [[name-sym malli-schema entry-meta]]
       (= head 'malli.core/=>) [[name-sym (nth source-form 2 nil) entry-meta]]
-      (= head 'malli.experimental/defn) [[name-sym (mx-defn-spec source-form) entry-meta]]
       :else nil)))
 
 (defn- admit-entry

@@ -46,6 +46,7 @@
    (s/optional-key :help) s/Bool
    (s/optional-key :paths) [s/Str]
    (s/optional-key :alias) [s/Keyword]
+   (s/optional-key :cljs-only-namespaces) #{s/Symbol}
    (s/optional-key :skeptic/config) (s/maybe SkepticConfig)
    (s/optional-key :skeptic/type-overrides) {s/Symbol CompiledTypeOverride}
    (s/optional-key :worker-classpath) (s/maybe [s/Str])})

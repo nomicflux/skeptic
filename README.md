@@ -119,7 +119,7 @@ Options:
   `s/def` / `s/defschema` declarations are admitted, no `:skeptic/type-overrides`
   are applied, and no finding will report `[source: schema]` /
   `"source": "type-override"`. See [Disabling an intake stream](#disabling-an-intake-stream).
-- `--malli-disable`: skip Malli intake entirely. No `m/=>`, `mx/defn`, or
+- `--malli-disable`: skip Malli intake entirely. No `m/=>` or
   `:malli/schema` Var-meta declarations are admitted, and no finding will report
   `[source: malli]`. See [Disabling an intake stream](#disabling-an-intake-stream).
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
@@ -135,7 +135,7 @@ Options:
 
 Skeptic admits typed declarations from two independent stream sources —
 Plumatic Schema (`s/defn` / `s/def` / `s/defschema`) and Malli (`m/=>`,
-`mx/defn`, `:malli/schema` Var-meta) — plus Skeptic's built-in native-fn
+`:malli/schema` Var-meta) — plus Skeptic's built-in native-fn
 registry. `--plumatic-disable` and `--malli-disable` switch off either stream
 wholesale.
 
@@ -357,7 +357,7 @@ namespace requires the dependency to be analyzable in dependency order.
 
 Skeptic reads Malli function declarations from `:malli/schema` Var metadata
 and from the compile-time `(malli.core/function-schemas)` registry (which
-captures `m/=>` and `malli.experimental/defn` declarations):
+captures `m/=>` declarations):
 
 ```clojure
 (defn takes-int

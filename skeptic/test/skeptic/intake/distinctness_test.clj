@@ -1,8 +1,7 @@
 (ns skeptic.intake.distinctness-test
   "Cross-stream regression: asserts hermetic separation between Plumatic and
   Malli intake. Each Var appears in the expected stream; cross-stream Var
-  (declared via BOTH s/defn AND m/=>) appears in BOTH; mx/defn never leaks
-  into the Plumatic stream despite writing :schema Var-meta.
+  (declared via BOTH s/defn AND m/=>) appears in BOTH.
 
   Hermetic: both collectors are fed inert worker-shipped data (top-level
   source-forms + the captured :malli-schema field), never a live namespace."
@@ -44,16 +43,12 @@
     (testing "non-Plumatic Vars do NOT enter the Plumatic stream"
       (is (not (contains? entries (qsym "plain-defn"))))
       (is (not (contains? entries (qsym "malli-arrow"))))
-      (is (not (contains? entries (qsym "malli-meta-only")))))
-    (testing "mx/defn does NOT leak into Plumatic stream"
-      (is (not (contains? entries (qsym "malli-mx")))))))
+      (is (not (contains? entries (qsym "malli-meta-only")))))))
 
 (deftest malli-stream-admits-only-malli-sources
   (let [entries (malli-entries)]
     (testing "compile-time-registered m/=> admitted"
       (is (contains? entries (qsym "malli-arrow"))))
-    (testing "compile-time-registered mx/defn admitted"
-      (is (contains? entries (qsym "malli-mx"))))
     (testing ":malli/schema Var-meta admitted"
       (is (contains? entries (qsym "malli-meta-only"))))
     (testing "cross-stream Var admitted via its m/=> declaration"

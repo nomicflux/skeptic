@@ -33,6 +33,31 @@
              distinct
              vec)))))
 
+(defn- preload-symbols
+  [x]
+  (cond
+    (map? x)
+    (reduce-kv (fn [acc k v]
+                 (into acc
+                       (if (= :preloads k)
+                         (filter symbol? v)
+                         (preload-symbols v))))
+               #{}
+               x)
+
+    (sequential? x)
+    (into #{} (mapcat preload-symbols) x)
+
+    :else
+    #{}))
+
+(defn preload-namespaces
+  [root]
+  (let [^File f (io/file root "shadow-cljs.edn")]
+    (if-not (.exists f)
+      #{}
+      (preload-symbols (read-shadow-edn f)))))
+
 (s/defn discover-sources :- discover/DiscoverySources
   [root]
   (let [config (read-shadow-edn (shadow-edn-file root))

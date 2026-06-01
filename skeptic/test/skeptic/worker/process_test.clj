@@ -3,10 +3,8 @@
             [skeptic.worker.process :as process]))
 
 (deftest spawn-cp-is-the-project-classpath-unchanged
-  ;; The worker -cp IS the project's resolved classpath, full stop. Skeptic's own
-  ;; entries are NOT unioned on: the project depends on Skeptic, so the worker
-  ;; boot code is already on the project cp. process.clj exposes no classpath
-  ;; assembly fn anymore; spawn! takes the project cp string as given.
+  ;; process.clj owns only subprocess launch. Classpath assembly lives at the
+  ;; CLI boundary; spawn! takes the already assembled worker cp string as given.
   (is (not (contains? (ns-publics 'skeptic.worker.process) 'worker-classpath)))
   (is (not (contains? (ns-publics 'skeptic.worker.process) 'self-classpath-entries))))
 

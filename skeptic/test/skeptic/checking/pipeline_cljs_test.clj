@@ -4,9 +4,12 @@
   both passes and dedup identical findings to `:lang #{:clj :cljs}`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.analysis.annotate.fn :as fn-annotate]
             [skeptic.checking.pipeline :as pipeline]
-            [skeptic.checking.pipeline.support :as psup])
+            [skeptic.checking.pipeline.support :as psup]
+            [skeptic.worker.client :as wc]
+            [skeptic.worker.process :as proc])
   (:import [java.io File]))
 
 ;; Bind a real worker for the whole namespace: project-state's cljs preload
@@ -116,6 +119,35 @@
 (def ^:private p13-macro-publics-ns
   'skeptic.cljs-fixtures.p13-macro-publics.core)
 
+(def ^:private p14-malli-mx-file
+  (File. "dev-resources/cljs-fixtures/p14_malli_mx.cljs"))
+(def ^:private p14-malli-mx-ns 'p14-malli-mx)
+
+(def ^:private p15-registry-side-effect-file
+  (File. "dev-resources/cljs-fixtures/p15_registry_side_effect.cljc"))
+(def ^:private p15-registry-side-effect-ns 'p15-registry-side-effect)
+(def ^:private p15-malli-mx-file
+  (File. "dev-resources/cljs-fixtures/p15_malli_mx.cljs"))
+(def ^:private p15-malli-mx-ns 'p15-malli-mx)
+
+(def ^:private p16-shadow-preload-file
+  (File. "dev-resources/cljs-fixtures/p16_shadow_preload.cljc"))
+(def ^:private p16-shadow-preload-ns 'p16-shadow-preload)
+
+(defn- with-isolated-worker
+  [f]
+  (let [worker (proc/spawn! (System/getProperty "java.class.path"))
+        conn (wc/connect (:port worker))]
+    (try
+      (binding [class-oracle/*worker-conn* conn
+                class-oracle/*host-class-handles* (class-oracle/intern-host-classes! conn)
+                class-oracle/*class-rel-cache* (atom {})
+                class-oracle/*predicate-cache* (atom {})]
+        (f conn))
+      (finally
+        (wc/disconnect! conn)
+        (proc/stop! worker)))))
+
 (defn- cljs-expression-exceptions
   [results]
   (filter #(and (= :exception (:report-kind %))
@@ -165,6 +197,38 @@
         {:keys [results]} (pipeline/check-namespace ps p13-macro-publics-ns p13-macro-publics-file
                                                     {:remove-context true})]
     (is (contains? (:cljs-state ps) p13-macro-publics-file))
+    (is (empty? (read-exceptions results)))
+    (is (empty? (cljs-expression-exceptions results)))))
+
+(deftest malli-experimental-defn-macroexpands-through-worker-cljs-path
+  (let [ps (psup/project-state-for-nses {p14-malli-mx-ns p14-malli-mx-file})
+        {:keys [results]} (pipeline/check-namespace ps p14-malli-mx-ns p14-malli-mx-file
+                                                    {:remove-context true})]
+    (is (contains? (:cljs-state ps) p14-malli-mx-file))
+    (is (empty? (read-exceptions results)))
+    (is (empty? (cljs-expression-exceptions results)))))
+
+(deftest cljs-preload-precedes-clj-top-level-side-effects
+  (with-isolated-worker
+    (fn [_conn]
+      (let [ps (pipeline/project-state
+                {:worker-conn class-oracle/*worker-conn*}
+                {p15-registry-side-effect-ns p15-registry-side-effect-file
+                 p15-malli-mx-ns p15-malli-mx-file})
+            {:keys [results]} (pipeline/check-namespace ps p15-malli-mx-ns p15-malli-mx-file
+                                                        {:remove-context true})]
+        (is (contains? (:cljs-state ps) p15-malli-mx-file))
+        (is (empty? (read-exceptions results)))
+        (is (empty? (cljs-expression-exceptions results)))))))
+
+(deftest shadow-preload-cljc-is-treated-as-cljs-only
+  (let [opts {:worker-conn class-oracle/*worker-conn*
+              :cljs-only-namespaces #{p16-shadow-preload-ns}}
+        ps (pipeline/project-state opts {p16-shadow-preload-ns p16-shadow-preload-file})
+        {:keys [results]} (pipeline/check-namespace ps p16-shadow-preload-ns p16-shadow-preload-file
+                                                    {:remove-context true
+                                                     :cljs-only-namespaces #{p16-shadow-preload-ns}})]
+    (is (contains? (:cljs-state ps) p16-shadow-preload-file))
     (is (empty? (read-exceptions results)))
     (is (empty? (cljs-expression-exceptions results)))))
 
