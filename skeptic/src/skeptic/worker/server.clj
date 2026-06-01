@@ -448,6 +448,17 @@
   (contains? plumatic-declaration-heads
              (qualify-source-head ns-sym (first source-form))))
 
+(defn- declared-var
+  "The Var named by `declared-sym` interned in `ns-sym`, or nil. Uses the
+   namespace's own intern table rather than `ns-resolve`: `ns-resolve` resolves a
+   symbol to a Var *or a Class*, so a dotted declaration symbol (e.g. an `ns`
+   form's name) routes through `Compiler/maybeResolveIn` -> `RT/classForName` and
+   can throw `NoClassDefFoundError`. A declared var is always a simple-symbol key
+   in the namespace's interns, so the intern lookup is both correct and free of
+   any class resolution."
+  [ns-sym declared-sym]
+  (get (ns-interns (the-ns ns-sym)) declared-sym))
+
 (defn- source-form-plumatic-schema
   [ns-sym source-form]
   (when (and (seq? source-form)
@@ -455,7 +466,7 @@
              (symbol? (second source-form)))
     (let [declared-sym (second source-form)
           qualified-sym (symbol (name ns-sym) (name declared-sym))
-          v (ns-resolve ns-sym declared-sym)]
+          v (declared-var ns-sym declared-sym)]
       (when (and (var? v)
                  (not (:macro (meta v)))
                  (not (opaque-var? v))
@@ -471,7 +482,7 @@
   (when (and (seq? source-form) (symbol? (second source-form)))
     (let [declared-sym (second source-form)
           qualified-sym (symbol (name ns-sym) (name declared-sym))
-          v (ns-resolve ns-sym declared-sym)]
+          v (declared-var ns-sym declared-sym)]
       (when (and (var? v)
                  (not (:macro (meta v)))
                  (not (opaque-var? v))

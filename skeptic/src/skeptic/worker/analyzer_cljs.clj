@@ -215,7 +215,7 @@
       (binding [ana/*file-defs* (atom #{})
                 ana/*unchecked-if* false
                 ana/*unchecked-arrays* false
-                ana/*analyze-deps* false
+                ana/*analyze-deps* true
                 ana/*load-macros* true
                 ana/*cljs-ns* 'cljs.user
                 ana/*cljs-file* path]
