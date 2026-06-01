@@ -5,10 +5,11 @@
   (:require [clojure.test :refer [deftest is]]
             [skeptic.analysis.annotate :as annotate]
             [skeptic.analysis.types :as at]
-            [skeptic.cljs.analyzer-driver :as ad]))
+            [skeptic.cljs.analyzer-driver :as ad]
+            [skeptic.worker.analyzer-cljs :as wac]))
 
 (def ^:private bootstrap-ns-ast
-  (delay (:ns-ast (ad/analyze-source-file "dev-resources/cljs-fixtures/p1.cljs"))))
+  (delay (:ns-ast (wac/analyze-source-file "dev-resources/cljs-fixtures/p1.cljs"))))
 
 (defn- annotated [form]
   (let [ast (ad/analyze-form @bootstrap-ns-ast form)]

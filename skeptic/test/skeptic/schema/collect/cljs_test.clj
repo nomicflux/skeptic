@@ -3,9 +3,9 @@
             [schema.core :as s]
             [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.types :as at]
-            [skeptic.cljs.analyzer-driver :as driver]
             [skeptic.provenance :as prov]
-            [skeptic.schema.collect.cljs :as sut]))
+            [skeptic.schema.collect.cljs :as sut]
+            [skeptic.worker.analyzer-cljs :as wac]))
 
 (def ^:private fixture-path "dev-resources/cljs-fixtures/p4.cljs")
 
@@ -16,7 +16,7 @@
 (defn- collect-once
   [f]
   (require 'schema.core)
-  (let [{:keys [ns-ast asts]} (driver/analyze-source-file fixture-path)
+  (let [{:keys [ns-ast asts]} (wac/analyze-source-file fixture-path)
         result (sut/ns-schema-results-cljs ns-ast fixture-path 'p4 asts)]
     (binding [*result* result] (f))))
 
