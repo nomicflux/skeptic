@@ -1,8 +1,8 @@
 (ns skeptic.worker.process
   "Host-side worker process lifecycle: spawn a JVM running skeptic.worker.server,
-   read the port handshake off its stdout, and tear it down. The worker carries
-   the PROJECT classpath only: the project depends on Skeptic, so skeptic.worker.*
-   and nREPL are already on the project's resolved classpath."
+   read the port handshake off its stdout, and tear it down. The caller passes
+   the already assembled worker classpath; entrypoints build it through
+   skeptic.worker.classpath."
   (:require [schema.core :as s]
             [clojure.string :as str])
   (:import [java.io BufferedReader]))

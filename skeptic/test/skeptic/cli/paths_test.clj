@@ -1,10 +1,7 @@
 (ns skeptic.cli.paths-test
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [skeptic.cli.paths :as paths]
-            [skeptic.worker.client :as wc]
-            [skeptic.worker.process :as proc])
+            [skeptic.cli.paths :as paths])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -53,24 +50,3 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No deps\.edn"
                             (paths/discover-paths (.getAbsolutePath dir) [])))
       (finally (delete-recursively! dir)))))
-
-(deftest worker-classpath-starts-worker-without-skeptic-schema-or-malli-deps
-  (let [dir (temp-dir!)
-        worker (atom nil)
-        conn (atom nil)]
-    (try
-      (write-deps! dir {:paths ["src"]
-                        :deps {'org.clojure/clojure {:mvn/version "1.12.4"}}})
-      (.mkdirs (io/file dir "src"))
-      (let [entries (paths/worker-classpath-entries (.getAbsolutePath dir) [])
-            cp (str/join java.io.File/pathSeparator entries)]
-        (is (some #(str/ends-with? % "src") entries))
-        (is (not-any? #(re-find #"/schema-[^/]+\.jar$" %) entries))
-        (is (not-any? #(re-find #"/malli-[^/]+\.jar$" %) entries))
-        (reset! worker (proc/spawn! cp))
-        (reset! conn (wc/connect (:port @worker)))
-        (is (= "ok" (:pong (wc/ask @conn {:op "ping"})))))
-      (finally
-        (when @conn (wc/disconnect! @conn))
-        (when @worker (proc/stop! @worker))
-        (delete-recursively! dir)))))

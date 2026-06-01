@@ -10,7 +10,8 @@
             [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.paths :as paths]
             [skeptic.core :as core]
-            [skeptic.profiling :as profiling])
+            [skeptic.profiling :as profiling]
+            [skeptic.worker.classpath :as worker-classpath])
   (:import [java.io File]))
 
 (def deps-cli-options
@@ -131,7 +132,8 @@
                (assoc :cljs-only-namespaces cljs-only-namespaces))
         paths (resolve-paths opts root aliases)
         cp (when (has-file? root "deps.edn")
-             (paths/worker-classpath-entries root aliases))
+             (worker-classpath/worker-classpath-entries
+              (paths/classpath-entries root aliases)))
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths cp)))

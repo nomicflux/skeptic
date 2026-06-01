@@ -7,7 +7,8 @@
             [skeptic.cli.paths :as paths]
             [skeptic.core :as core]
             [skeptic.profiling :as profiling]
-            [skeptic.tool :as tool])
+            [skeptic.tool :as tool]
+            [skeptic.worker.classpath :as worker-classpath])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -67,6 +68,8 @@
         root (canonical-file dir)
         discover-aliases (atom nil)
         classpath-aliases (atom nil)
+        worker-builder-input (atom nil)
+        captured-worker-cp (atom nil)
         captured-paths (atom nil)]
     (try
       (spit (io/file dir "deps.edn") "{}")
@@ -74,12 +77,16 @@
       (with-redefs [paths/discover-paths (fn [root aliases]
                                            (reset! discover-aliases {:root root :aliases aliases})
                                            [(str (io/file root "src"))])
-                    paths/worker-classpath-entries (fn [_root aliases]
-                                                     (reset! classpath-aliases aliases)
-                                                     [])
+                    paths/classpath-entries (fn [_root aliases]
+                                              (reset! classpath-aliases aliases)
+                                              ["project-cp"])
+                    worker-classpath/worker-classpath-entries (fn [project-cp]
+                                                                 (reset! worker-builder-input project-cp)
+                                                                 ["worker-cp"])
                     shadow/deps-aliases (fn [_root] [:shadow :sci])
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
-                    core/check-project (fn [_opts _root & source-paths]
+                    core/check-project (fn [opts _root & source-paths]
+                                         (reset! captured-worker-cp (:worker-classpath opts))
                                          (reset! captured-paths source-paths)
                                          0)]
         (is (= 0 (main/check-project {:project-dir (.getPath dir)
@@ -89,6 +96,9 @@
         (is (= [:dev :shadow :sci] (:aliases @discover-aliases))))
       (testing "classpath is resolved under the SAME alias set as discovery"
         (is (= [:dev :shadow :sci] @classpath-aliases)))
+      (testing "the deps entrypoint delegates worker cp assembly to the shared builder"
+        (is (= ["project-cp"] @worker-builder-input))
+        (is (= ["worker-cp"] @captured-worker-cp)))
       (testing "source paths come only from the basis, no shadow-cljs.edn concat"
         (is (= [(str (io/file root "src"))] @captured-paths)))
       (finally

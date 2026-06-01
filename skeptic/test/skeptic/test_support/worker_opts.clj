@@ -1,11 +1,12 @@
 (ns skeptic.test-support.worker-opts
   "Phase 6 test support: `check-project` now spawns a worker per invocation
    and reads its classpath from `(:worker-classpath opts)`. Production
-   entrypoints (lein-skeptic, cli/main) compute this from the project
-   classpath; tests funnel through `with-worker-cp` which fills the slot
-   from the host test JVM's own classpath. `:worker-classpath` is a vector
-   of strings per the opts schema; the join into a single classpath string
-   happens at the spawn site in `core.clj`."
+   entrypoints (lein-skeptic, cli/main) compute this through
+   skeptic.worker.classpath after discovering the project classpath; tests
+   funnel through `with-worker-cp` which fills the slot from the host test JVM's
+   own classpath. `:worker-classpath` is a vector of strings per the opts
+   schema; the join into a single classpath string happens at the spawn site in
+   `core.clj`."
   (:require [clojure.string :as str]))
 
 (def ^:private host-cp-entries
