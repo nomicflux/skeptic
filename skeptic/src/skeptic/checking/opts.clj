@@ -49,7 +49,10 @@
    (s/optional-key :cljs-only-namespaces) #{s/Symbol}
    (s/optional-key :skeptic/config) (s/maybe SkepticConfig)
    (s/optional-key :skeptic/type-overrides) {s/Symbol CompiledTypeOverride}
-   (s/optional-key :worker-classpath) (s/maybe [s/Str])})
+   (s/optional-key :skeptic/source-files) [java.io.File]
+   (s/optional-key :skeptic/source-discovery-failures) [s/Any]
+   (s/optional-key :worker-classpath) (s/maybe {:runtime [s/Str]
+                                                :project [s/Str]})})
 
 (s/defschema Lang (s/enum :clj :cljs :both))
 

@@ -66,23 +66,22 @@
   ;; paths — they ride the basis via the activated aliases' :extra-paths.
   (let [dir (temp-dir!)
         root (canonical-file dir)
-        discover-aliases (atom nil)
-        classpath-aliases (atom nil)
+        project-context-call (atom nil)
         worker-builder-input (atom nil)
         captured-worker-cp (atom nil)
         captured-paths (atom nil)]
     (try
       (spit (io/file dir "deps.edn") "{}")
       (spit (io/file dir "shadow-cljs.edn") "{}")
-      (with-redefs [paths/discover-paths (fn [root aliases]
-                                           (reset! discover-aliases {:root root :aliases aliases})
-                                           [(str (io/file root "src"))])
-                    paths/classpath-entries (fn [_root aliases]
-                                              (reset! classpath-aliases aliases)
-                                              ["project-cp"])
+      (with-redefs [paths/project-context (fn [root aliases]
+                                            (reset! project-context-call {:root root :aliases aliases})
+                                            {:basis ::single-basis
+                                             :source-paths [(str (io/file root "src"))]
+                                             :classpath-entries ["project-cp"]})
                     worker-classpath/worker-classpath-entries (fn [project-cp]
                                                                  (reset! worker-builder-input project-cp)
-                                                                 ["worker-cp"])
+                                                                 {:runtime ["runtime-cp"]
+                                                                  :project ["project-cp"]})
                     shadow/deps-aliases (fn [_root] [:shadow :sci])
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
                     core/check-project (fn [opts _root & source-paths]
@@ -92,13 +91,12 @@
         (is (= 0 (main/check-project {:project-dir (.getPath dir)
                                       :alias ":dev"}))))
       (testing "discovery aliases = user --alias plus shadow-cljs.edn-declared aliases"
-        (is (= (.getPath root) (:root @discover-aliases)))
-        (is (= [:dev :shadow :sci] (:aliases @discover-aliases))))
-      (testing "classpath is resolved under the SAME alias set as discovery"
-        (is (= [:dev :shadow :sci] @classpath-aliases)))
+        (is (= (.getPath root) (:root @project-context-call)))
+        (is (= [:dev :shadow :sci] (:aliases @project-context-call))))
       (testing "the deps entrypoint delegates worker cp assembly to the shared builder"
         (is (= ["project-cp"] @worker-builder-input))
-        (is (= ["worker-cp"] @captured-worker-cp)))
+        (is (= {:runtime ["runtime-cp"] :project ["project-cp"]}
+               @captured-worker-cp)))
       (testing "source paths come only from the basis, no shadow-cljs.edn concat"
         (is (= [(str (io/file root "src"))] @captured-paths)))
       (finally

@@ -37,7 +37,8 @@
                     worker-classpath/worker-classpath-entries
                     (fn [project-cp]
                       (reset! builder-input project-cp)
-                      ["worker-cp"])
+                      {:runtime ["runtime-cp"]
+                       :project ["project-cp"]})
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
                     skeptic.core/check-project
                     (fn [opts root & source-paths]
@@ -48,7 +49,8 @@
         (is (= 0 (#'sut/run-skeptic project []))))
       (is (= project @classpath-project))
       (is (= ["project-cp"] @builder-input))
-      (is (= ["worker-cp"] (get-in @captured [:opts :worker-classpath])))
+      (is (= {:runtime ["runtime-cp"] :project ["project-cp"]}
+             (get-in @captured [:opts :worker-classpath])))
       (is (= root (:root @captured)))
       (is (= [src] (:source-paths @captured)))
       (finally

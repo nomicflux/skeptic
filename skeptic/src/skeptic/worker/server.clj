@@ -1,6 +1,8 @@
 (ns skeptic.worker.server
-  "Worker-side Nippy nREPL server. Runs in the spawned JVM on the project's
-   classpath and answers host requests on demand. Plan 2 Phase 1.5 adds the
+  "Worker-side Nippy nREPL server. Runs in the spawned JVM on Skeptic's
+   private worker runtime and answers host requests on demand. Project classpath
+   entries are installed as a separate context loader around project-resolution
+   operations. Plan 2 Phase 1.5 adds the
    handle-table machinery: every Class operand on the wire is an opaque handle
    (integer for bootstrap-interned host-runtime classes; UUID-string for project
    classes). Worker is sole owner of `Class/forName`, `.isAssignableFrom`,
@@ -20,6 +22,8 @@
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
             [skeptic.worker.analyzer-cljs :as wac-cljs]
+            [skeptic.worker.client :as worker-client]
+            [skeptic.worker.project-context :as project-context]
             [skeptic.worker.transport :as worker-transport]
             [skeptic.worker.wire :as wire]))
 
@@ -69,6 +73,42 @@
   {"boolean" Boolean/TYPE "byte" Byte/TYPE "short" Short/TYPE
    "int" Integer/TYPE "long" Long/TYPE "float" Float/TYPE
    "double" Double/TYPE "char" Character/TYPE})
+
+(declare handle-loopback-message project-entry)
+
+(defn- project-oracle-vars
+  []
+  (try
+    (require 'skeptic.analysis.class-oracle)
+    (let [oracle-ns (find-ns 'skeptic.analysis.class-oracle)]
+      (select-keys (ns-publics oracle-ns)
+                   '[*worker-conn* *host-class-handles* *class-rel-cache* *predicate-cache*
+                     intern-host-classes!]))
+    (catch Throwable _
+      nil)))
+
+(defn- project-oracle-bindings
+  []
+  (when-let [{:syms [*worker-conn* *host-class-handles* *class-rel-cache* *predicate-cache*
+                    intern-host-classes!]}
+             (project-oracle-vars)]
+    (let [conn (worker-client/loopback-conn handle-loopback-message)
+          host-handles (if intern-host-classes!
+                         (intern-host-classes! conn)
+                         {})]
+      (cond-> {*worker-conn* conn}
+        *host-class-handles* (assoc *host-class-handles* host-handles)
+        *class-rel-cache* (assoc *class-rel-cache* (atom {}))
+        *predicate-cache* (assoc *predicate-cache* (atom {}))))))
+
+(defmacro ^:private with-project-operation
+  [& body]
+  `(project-context/with-project-context
+     (let [bindings# (project-oracle-bindings)]
+       (if (seq bindings#)
+         (with-bindings bindings#
+           ~@body)
+         (do ~@body)))))
 
 (defn- resolve-bootstrap-class
   "The ^Class for bootstrap name `nm`: a primitive via its TYPE field, else
@@ -140,14 +180,22 @@
   "In the namespace `ns-name`, resolve `sym` to a Class and return its handle
    (minting via the UUID branch). nil if `sym` doesn't resolve to a Class."
   [ns-name sym]
-  (or (when-let [c (try (Class/forName (str sym))
-                        (catch ClassNotFoundException _ nil))]
-        (intern-class! ^Class c :uuid))
-      (when-let [n (find-ns (symbol ns-name))]
-        (binding [*ns* n]
-          (let [v (resolve (symbol sym))]
-            (when (class? v)
-              (intern-class! ^Class v :uuid)))))))
+  (with-project-operation
+    (or (when-let [c (some (fn [class-name]
+                             (when class-name
+                               (or (resolve-bootstrap-class class-name)
+                                   (try
+                                     (Class/forName class-name false (project-context/loader))
+                                     (catch ClassNotFoundException _ nil)))))
+                           [(str sym)
+                            (when-not (namespace (symbol sym))
+                              (str "java.lang." sym))])]
+          (intern-class! ^Class c :uuid))
+        (when-let [n (find-ns (symbol ns-name))]
+          (binding [*ns* n]
+            (let [v (resolve (symbol sym))]
+              (when (class? v)
+                (intern-class! ^Class v :uuid))))))))
 
 (defn wrap-resolve-class-sym
   [h]
@@ -160,6 +208,27 @@
 
 (mw/set-descriptor! #'wrap-resolve-class-sym
                     {:requires #{} :expects #{} :handles {"resolve-class-sym" {}}})
+
+(defn- analyze-namespace-reply
+  [ns source-file]
+  (try
+    (let [projected (with-project-operation
+                      (let [ns-sym (symbol ns)
+                            {:keys [entries]} (wac/analyze-source-file ns-sym (io/file source-file))]
+                        (mapv #(project-entry ns-sym %) entries)))]
+      {:entries projected})
+    (catch Throwable e
+      {:read-failure
+       (str (or (.getMessage e) (str e))
+            (when-let [data (ex-data e)]
+              (str " " (pr-str data)))
+            (let [causes (->> (iterate #(.getCause ^Throwable %) (.getCause e))
+                              (take-while some?)
+                              (map #(or (.getMessage ^Throwable %) (str %)))
+                              (remove str/blank?)
+                              distinct)]
+              (when (seq causes)
+                (str " Causes: " (str/join " <- " causes)))))})))
 
 (defn- class-name-for-handle
   "The canonical name of the Class behind handle `a`, or nil if not interned.
@@ -608,20 +677,13 @@
   [h]
   (fn [{:keys [op transport ns source-file] :as msg}]
     (if (= op "analyze-namespace")
-      (try
-        (let [ns-sym (symbol ns)
-              {:keys [entries]} (wac/analyze-source-file ns-sym (io/file source-file))
-              projected (mapv #(project-entry ns-sym %) entries)]
-          (t/send transport (response-for msg :entries projected :status #{:done})))
-        (catch Throwable e
-          ;; A read/analysis failure for the whole source-file (e.g. an unbalanced
-          ;; form) produces no entries; ship the message so the host can localize
-          ;; it as a :read-phase finding instead of silently yielding 0 results.
-          (t/send transport (response-for msg
-                                          :read-failure (str (or (.getMessage e) (str e))
-                                                             (when-let [data (ex-data e)]
-                                                               (str " " (pr-str data))))
-                                          :status #{:done}))))
+      (let [{:keys [entries read-failure]} (analyze-namespace-reply ns source-file)]
+        ;; A read/analysis failure for the whole source-file (e.g. an unbalanced
+        ;; form) produces no entries; ship the message so the host can localize
+        ;; it as a :read-phase finding instead of silently yielding 0 results.
+        (t/send transport (cond-> (response-for msg :status #{:done})
+                            entries (assoc :entries entries)
+                            read-failure (assoc :read-failure read-failure))))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-analyze-namespace
@@ -651,7 +713,8 @@
   [h]
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "analyze-cljs-namespace")
-      (let [{:keys [ns-ast entries]} (wac-cljs/analyze-source-file (io/file source-file))]
+      (let [{:keys [ns-ast entries]} (with-project-operation
+                                       (wac-cljs/analyze-source-file (io/file source-file)))]
         (t/send transport (response-for msg
                                         :ns-ast (wire/strip-ast-form-meta
                                                  (handle-project-node ns-ast))
@@ -667,7 +730,8 @@
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "cljs-ns-head")
       (let [{:keys [name requires require-macros use-macros]}
-            (wac-cljs/ns-head (io/file source-file))]
+            (with-project-operation
+              (wac-cljs/ns-head (io/file source-file)))]
         (t/send transport (response-for msg
                                         :name name
                                         :requires requires
@@ -687,7 +751,8 @@
         (let [pred (get-in @fn-handle-state [:id->fn handle])]
           (if pred
             (t/send transport (response-for msg
-                                            :result (boolean (pred arg))
+                                            :result (with-project-operation
+                                                      (boolean (pred arg)))
                                             :status #{:done}))
             (t/send transport (response-for msg
                                             :exception-message (str "Unknown predicate handle: " handle)
@@ -700,6 +765,20 @@
 
 (mw/set-descriptor! #'wrap-apply-predicate
                     {:requires #{} :expects #{} :handles {"apply-predicate" {}}})
+
+(defn- handle-loopback-message
+  [{:keys [op class-names rel a b triples ns sym source-file handle arg]}]
+  (case op
+    "intern-host-classes" {:handles (intern-host-classes-reply class-names)}
+    "class-rel" {:result (run-class-rel rel a b)}
+    "class-rel-batch" {:results (run-class-rel-batch triples)}
+    "resolve-class-sym" {:handle (resolve-sym-to-handle ns sym)}
+    "class-name" {:name (class-name-for-handle a)}
+    "analyze-namespace" (analyze-namespace-reply ns source-file)
+    "apply-predicate" (if-let [pred (get-in @fn-handle-state [:id->fn handle])]
+                        {:result (with-project-operation (boolean (pred arg)))}
+                        {:exception-message (str "Unknown predicate handle: " handle)})
+    (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
 (defn start!
   []
@@ -717,7 +796,8 @@
                                                   #'wrap-apply-predicate)))
 
 (defn -main
-  [& _args]
+  [& args]
+  (project-context/install! (first args))
   (let [server (start!)]
     (println (str "SKEPTIC-WORKER-PORT " (:port server)))
     (flush)

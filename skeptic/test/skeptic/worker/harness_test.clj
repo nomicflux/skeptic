@@ -4,22 +4,44 @@
    Phase 1.5 extends the original ping round-trip with the handle-table API."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [skeptic.worker.process :as proc]
             [skeptic.worker.client :as wc]
-            [skeptic.analysis.class-oracle :as oracle]))
+            [skeptic.analysis.class-oracle :as oracle])
+  (:import [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
+
+(defn- cp-string
+  [entries]
+  (str/join java.io.File/pathSeparator entries))
 
 (defn with-worker
   "Spawns a worker, runs `f` with a connected client, tears down."
-  [f]
-  (let [cp (System/getProperty "java.class.path")
-        worker (proc/spawn! cp)
+  ([f]
+   (with-worker nil f))
+  ([project-cp f]
+   (let [cp (System/getProperty "java.class.path")
+        worker (if project-cp
+                 (proc/spawn! cp (cp-string project-cp))
+                 (proc/spawn! cp))
         conn (wc/connect (:port worker))]
-    (try
-      (f conn)
-      (finally
-        (wc/disconnect! conn)
-        (proc/stop! worker)))))
+     (try
+       (f conn)
+       (finally
+         (wc/disconnect! conn)
+         (proc/stop! worker))))))
+
+(defn- temp-dir!
+  []
+  (.toFile (Files/createTempDirectory "skeptic-worker-harness-test-"
+                                      (into-array FileAttribute []))))
+
+(defn- delete-recursively!
+  [^java.io.File f]
+  (when (.isDirectory f)
+    (doseq [c (.listFiles f)] (delete-recursively! c)))
+  (.delete f))
 
 (deftest worker-ping-round-trip
   (with-worker
@@ -169,6 +191,43 @@
           (let [classes (mapcat leaf-class-slots asts)]
             (is (seq classes))
             (is (every? oracle/handle? classes))))))))
+
+(deftest analyze-namespace-resolves-referred-vars-and-project-macros-in-one-context
+  (let [dir (temp-dir!)
+        src (io/file dir "src")]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "demo" "context_marker.txt") "project")
+      (spit (io/file src "demo" "helper.clj")
+            "(ns demo.helper
+               (:require [clojure.java.io :as io]))
+
+             (defmacro require-project-context! []
+               (when-not (io/resource \"demo/context_marker.txt\")
+                 (throw (ex-info \"project context resource was not visible\" {})))
+               nil)")
+      (spit (io/file src "demo" "core.clj")
+            "(ns demo.core
+               (:require [clojure.test :refer [use-fixtures]]
+                         [demo.helper :refer [require-project-context!]]))
+
+             (defn fixture [f] (f))
+             (use-fixtures :once fixture)
+             (require-project-context!)
+             (defn value [] 1)")
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.core"
+                                                        :source-file (.getPath (io/file src "demo" "core.clj"))})
+                source-forms (mapv :source-form entries)]
+            (is (nil? read-failure))
+            (is (= '[ns defn use-fixtures require-project-context! defn]
+                   (mapv first source-forms)))
+            (is (every? #(contains? % :ast) entries)))))
+      (finally
+        (delete-recursively! dir)))))
 
 (deftest analyze-namespace-does-not-duplicate-project-record-class-handles
   (with-worker

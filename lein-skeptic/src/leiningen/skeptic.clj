@@ -4,16 +4,21 @@
             [leiningen.core.main]
             [schema.core]
             [skeptic.cli.cljs.lein :as cljs-lein]
-            [skeptic.cli.options :as cli-opts]
-            [skeptic.core]
-            [skeptic.profiling :as profiling]
-            [skeptic.worker.classpath :as worker-classpath]))
+            [skeptic.cli.options :as cli-opts]))
+
+(defn- required-var
+  [sym]
+  (or (requiring-resolve sym)
+      (throw (ex-info (str "Could not resolve " sym) {:sym sym}))))
 
 (defn- run-skeptic
   [project args]
   (let [paths (:source-paths (cljs-lein/discover-sources project))
         project-cp (vec (leiningen.core.classpath/get-classpath project))
-        cp (worker-classpath/worker-classpath-entries project-cp)
+        worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
+        profiling-run (required-var 'skeptic.profiling/run)
+        check-project (required-var 'skeptic.core/check-project)
+        cp (worker-classpath-entries project-cp)
         {:keys [options summary errors]} (cli-opts/parse args)]
     (cond
       (:help options) (println summary)
@@ -26,9 +31,9 @@
         (try
           (binding [*out* (or writer *out*)]
             (schema.core/without-fn-validation
-              (profiling/run options (str (:root project) "/target")
+              (profiling-run options (str (:root project) "/target")
                 (fn []
-                  (apply skeptic.core/check-project
+                  (apply check-project
                          (assoc options :worker-classpath cp)
                          (:root project)
                          paths)))))

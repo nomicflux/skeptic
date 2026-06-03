@@ -13,19 +13,22 @@
             [skeptic.worker.process :as wproc]))
 
 (defn- discover-project-files
-  [_root paths]
-  (reduce (fn [{:keys [files failures]} path]
-            (let [resolved (io/file path)]
-              (if-not (.exists resolved)
-                {:files files :failures failures}
-                (let [{new-files :files
-                       new-failures :failures}
-                      (file/discover-clojure-files (.getPath resolved))]
-                  {:files (into files new-files)
-                   :failures (into failures new-failures)}))))
-          {:files []
-           :failures []}
-          paths))
+  [opts _root paths]
+  (if (contains? opts :skeptic/source-files)
+    {:files (vec (:skeptic/source-files opts))
+     :failures (vec (:skeptic/source-discovery-failures opts))}
+    (reduce (fn [{:keys [files failures]} path]
+              (let [resolved (io/file path)]
+                (if-not (.exists resolved)
+                  {:files files :failures failures}
+                  (let [{new-files :files
+                         new-failures :failures}
+                        (file/discover-clojure-files (.getPath resolved))]
+                    {:files (into files new-files)
+                     :failures (into failures new-failures)}))))
+            {:files []
+             :failures []}
+            paths)))
 
 (defn- blocking-discovery-failures
   [requested-namespaces discovered-nss failures]
@@ -51,6 +54,10 @@
        (remove str/blank?)
        (mapv symbol)))
 
+(defn- classpath-string
+  [entries]
+  (str/join java.io.File/pathSeparator (or entries [])))
+
 (s/defn check-project :- s/Int
   [opts :- copts/CheckProjectOpts root :- (s/cond-pre s/Str java.io.File) & paths :- [s/Str]]
   (let [raw-namespaces (:namespace opts)
@@ -59,7 +66,7 @@
         raw-config (config/load-raw-config root)
         type-overrides (config/compile-overrides (:type-overrides raw-config))
         opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
-        {:keys [files failures]} (discover-project-files root paths)
+        {:keys [files failures]} (discover-project-files opts root paths)
         files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
         files (if (:cljs-disable opts)
                 (remove #(str/ends-with? (.getName ^java.io.File %) ".cljs") files)
@@ -87,8 +94,9 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        worker (wproc/spawn! (str/join java.io.File/pathSeparator
-                                       (:worker-classpath opts)))
+        {:keys [runtime project]} (:worker-classpath opts)
+        worker (wproc/spawn! (classpath-string runtime)
+                             (classpath-string project))
         conn (wc/connect (:port worker))]
     (try
       (let [host-handles (class-oracle/intern-host-classes! conn)]

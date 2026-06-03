@@ -4,8 +4,8 @@
    entrypoints (lein-skeptic, cli/main) compute this through
    skeptic.worker.classpath after discovering the project classpath; tests
    funnel through `with-worker-cp` which fills the slot from the host test JVM's
-   own classpath. `:worker-classpath` is a vector of strings per the opts
-   schema; the join into a single classpath string happens at the spawn site in
+   own classpath. `:worker-classpath` keeps runtime and project entries
+   separate; the joins into launch strings happen at the spawn site in
    `core.clj`."
   (:require [clojure.string :as str]))
 
@@ -15,8 +15,10 @@
 
 (defn with-worker-cp
   "Returns `opts` augmented with `:worker-classpath` set to the host JVM's
-   classpath (vector of strings). No-op if `:worker-classpath` is already set."
+   classpath for both runtime and project test loaders. No-op if
+   `:worker-classpath` is already set."
   [opts]
   (if (contains? opts :worker-classpath)
     opts
-    (assoc opts :worker-classpath @host-cp-entries)))
+    (assoc opts :worker-classpath {:runtime @host-cp-entries
+                                   :project @host-cp-entries})))

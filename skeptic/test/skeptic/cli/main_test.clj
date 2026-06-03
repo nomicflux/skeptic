@@ -1,5 +1,6 @@
 (ns skeptic.cli.main-test
   (:require [clojure.java.io :as io]
+            [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [skeptic.cli.main :as main])
@@ -40,6 +41,16 @@
                    (.getPath (io/file (System/getProperty "user.dir") "resources"))]
            :deps skeptic-deps}))
 
+(defn- selected-basis-deps-edn-source
+  []
+  (pr-str {:paths ["src"]
+           :deps (select-keys skeptic-deps
+                              '[org.clojure/clojure
+                                prismatic/schema
+                                prismatic/plumbing])
+           :aliases {:malli {:extra-deps
+                             (select-keys skeptic-deps '[metosin/malli])}}}))
+
 (def ^:private clean-source
   "(ns demo.core (:require [schema.core :as s]))\n
 (s/defn add-one :- s/Int [x :- s/Int] (+ x 1))\n")
@@ -49,6 +60,17 @@
   return schema is s/Int. The deps path must CHECK this and report a finding."
   "(ns demo.core (:require [schema.core :as s]))\n
 (s/defn add-one :- s/Int [x :- s/Int] (str x))\n")
+
+(def ^:private selected-basis-core-source
+  "(ns demo.core (:require [schema.core :as s]))\n
+(s/defn add-one :- s/Int [x :- s/Int] (+ x 1))\n")
+
+(def ^:private selected-basis-optional-source
+  "(ns demo.optional
+  (:require [schema.core :as s]
+            [malli.core :as m]))\n
+(def sample-schema (m/schema [:map [:x :int]]))\n
+(s/defn optional-id :- s/Int [x :- s/Int] x)\n")
 
 (defn- check-source!
   "Write `source` as demo.core in a temp deps project, run the deps -T path over
@@ -62,6 +84,36 @@
       (main/check-project {:project-dir (.getPath dir) :paths "src"})
       (finally
         (delete-recursively! dir)))))
+
+(defn- json-records
+  [output]
+  (->> (str/split-lines output)
+       (remove str/blank?)
+       (map #(json/read-str % :key-fn keyword))
+       vec))
+
+(defn- run-summary
+  [records]
+  (some #(when (= "run-summary" (:kind %)) %) records))
+
+(defn- write-selected-basis-project!
+  [dir]
+  (spit (io/file dir "deps.edn") (selected-basis-deps-edn-source))
+  (.mkdirs (io/file dir "src" "demo"))
+  (spit (io/file dir "src" "demo" "core.clj") selected-basis-core-source)
+  (spit (io/file dir "src" "demo" "optional.clj") selected-basis-optional-source))
+
+(defn- check-selected-basis-project!
+  [dir opts]
+  (let [exit (atom nil)
+        output (with-out-str
+                 (reset! exit (main/check-project
+                                (merge {:project-dir (.getPath dir)
+                                        :porcelain true}
+                                       opts))))]
+    {:exit @exit
+     :records (json-records output)
+     :output output}))
 
 (deftest legacy-m-entrypoint-is-rejected
   (let [err (with-out-str
@@ -90,3 +142,22 @@
   (testing "a planted output mismatch is CHECKED and reported (exit 1)"
     (is (= 1 (check-source! bad-source))
         "the deps path admits the s/defn schema and flags the String/Int mismatch — proving project code is actually checked, not skipped")))
+
+(deftest deps-entrypoint-selects-source-files-from-selected-basis
+  (let [dir (temp-dir!)]
+    (try
+      (write-selected-basis-project! dir)
+      (testing "the default basis does not analyze a namespace whose direct deps are unavailable"
+        (let [{:keys [exit records output]} (check-selected-basis-project! dir {})
+              summary (run-summary records)]
+          (is (= 0 exit))
+          (is (= 1 (:namespace_count summary)))
+          (is (not (str/includes? output "demo.optional")))))
+      (testing "the aliased basis includes the namespace once its deps are selected"
+        (let [{:keys [exit records output]} (check-selected-basis-project! dir {:alias [:malli]})
+              summary (run-summary records)]
+          (is (= 0 exit))
+          (is (= 2 (:namespace_count summary)))
+          (is (not (str/includes? output "ns-discovery-warning")))))
+      (finally
+        (delete-recursively! dir)))))

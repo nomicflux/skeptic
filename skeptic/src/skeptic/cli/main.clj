@@ -65,11 +65,6 @@
   [root name]
   (.exists ^File (io/file root name)))
 
-(defn- deps-source-paths
-  [root aliases]
-  (when (has-file? root "deps.edn")
-    (paths/discover-paths root (or aliases []))))
-
 (defn- basis-aliases
   "The single alias set the project resolves under: the user-selected
   --alias plus any deps.edn aliases the project's shadow-cljs.edn declares as
@@ -90,13 +85,25 @@
   "Source paths come from the single deps.edn basis resolved under
   `basis-aliases`, the same basis the project portion of the worker classpath
   uses. --paths overrides discovery entirely."
-  [{:keys [paths]} root aliases]
+  [{:keys [paths]} root basis-source-paths]
   (cond
     (string? paths)     (mapv (partial root-relative-path root)
                               (split-paths-arg paths))
     (sequential? paths) (mapv (partial root-relative-path root) paths)
     :else               (mapv (partial root-relative-path root)
-                              (deps-source-paths root aliases))))
+                              basis-source-paths)))
+
+(defn- paths-override?
+  [opts]
+  (contains? opts :paths))
+
+(defn- with-selected-source-scope
+  [opts project-context]
+  (if (and project-context (not (paths-override? opts)))
+    (assoc opts
+           :skeptic/source-files (:source-files project-context)
+           :skeptic/source-discovery-failures (:source-discovery-failures project-context))
+    opts))
 
 (defn- run-checker
   [opts root paths cp]
@@ -130,10 +137,13 @@
         opts (cond-> opts
                (seq cljs-only-namespaces)
                (assoc :cljs-only-namespaces cljs-only-namespaces))
-        paths (resolve-paths opts root aliases)
-        cp (when (has-file? root "deps.edn")
+        project-context (when (has-file? root "deps.edn")
+                          (paths/project-context root aliases))
+        paths (resolve-paths opts root (:source-paths project-context))
+        opts (with-selected-source-scope opts project-context)
+        cp (when project-context
              (worker-classpath/worker-classpath-entries
-              (paths/classpath-entries root aliases)))
+              (:classpath-entries project-context)))
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths cp)))
