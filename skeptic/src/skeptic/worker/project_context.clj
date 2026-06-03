@@ -24,14 +24,57 @@
   ^URL [path]
   (-> (File. path) .toURI .toURL))
 
+(def ^:private parent-first-trees
+  "Package roots whose entire subtree is parent-owned. A class belongs
+   when its name equals the entry or starts with `entry + \".\"`.
+
+   JDK packages are always trees. `clojure.lang`, `clojure.asm`, and
+   `clojure.java` are Clojure-runtime internals. `clojure.spec` is the
+   spec.alpha space shipped in `clojure-X.Y.Z.jar`. The remaining
+   `clojure.*` entries are Skeptic-owned contrib libraries whose nested
+   packages also belong to Skeptic's parent loader."
+  ["java" "javax" "jdk" "sun" "com.sun"
+   "clojure.lang" "clojure.asm" "clojure.java" "clojure.spec"
+   "clojure.tools.analyzer" "clojure.tools.cli" "clojure.tools.deps"
+   "clojure.tools.logging" "clojure.tools.reader"
+   "clojure.data.json" "clojure.data.priority-map" "clojure.data.xml"
+   "taoensso"])
+
+(def ^:private parent-first-leaves
+  "Single-namespace package roots whose only legitimate parent-owned
+   children are JVM inner classes (`prefix$...`) or Clojure-emitted
+   helpers (`prefix__init`, `prefix_deftype`, etc.). A class belongs
+   when its name equals the entry, starts with `entry + \"$\"`, or
+   starts with `entry + \"_\"`.
+
+   These entries deliberately exclude the `.` boundary because their
+   `prefix.X` children are independent third-party libraries (e.g.
+   `clojure.core.async`, `clojure.data.priority-map`,
+   `clojure.tools.namespace`) that must load from the project's
+   classpath."
+  ["clojure.core" "clojure.data" "clojure.datafy" "clojure.edn"
+   "clojure.genclass" "clojure.gvec" "clojure.inspector" "clojure.instant"
+   "clojure.main" "clojure.math" "clojure.parallel" "clojure.pprint"
+   "clojure.reflect" "clojure.repl" "clojure.set" "clojure.stacktrace"
+   "clojure.string" "clojure.template" "clojure.test" "clojure.uuid"
+   "clojure.walk" "clojure.xml" "clojure.zip"])
+
+(defn- in-tree?
+  [class-name prefix]
+  (or (= class-name prefix)
+      (str/starts-with? class-name (str prefix "."))))
+
+(defn- in-leaf?
+  [class-name prefix]
+  (or (= class-name prefix)
+      (str/starts-with? class-name (str prefix "$"))
+      (str/starts-with? class-name (str prefix "_"))))
+
 (defn- parent-first-class?
   [class-name]
-  (or (str/starts-with? class-name "java.")
-      (str/starts-with? class-name "javax.")
-      (str/starts-with? class-name "jdk.")
-      (str/starts-with? class-name "sun.")
-      (str/starts-with? class-name "com.sun.")
-      (str/starts-with? class-name "clojure.")))
+  (boolean
+   (or (some (partial in-tree? class-name) parent-first-trees)
+       (some (partial in-leaf? class-name) parent-first-leaves))))
 
 (defn- enumeration
   [xs]

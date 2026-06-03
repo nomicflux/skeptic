@@ -155,6 +155,19 @@
     (class-declaration-form? form)
     (assoc :analysis-skipped? true)))
 
+(defn- require-with-reload-retry
+  "Require `ns-sym` once; if the first attempt fails (typically a namespace
+   was partially loaded earlier and its `defn`s were not yet interned when
+   downstream macroexpansion looked them up), retry with `:reload`. The
+   reload forces a fresh, sequential load of the file, which both completes
+   the partial state and is harmless when the first attempt already
+   succeeded."
+  [ns-sym]
+  (try
+    (require ns-sym)
+    (catch Throwable _e
+      (require ns-sym :reload-all))))
+
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
    the namespace first so its refers/aliases/imports resolve (matching the host
@@ -166,7 +179,7 @@
    each raw top-level form with its tools.analyzer.jvm AST (`:const` `:type`
    stripped); the host projects each entry for the wire."
   [ns-sym source-file]
-  (require ns-sym)
+  (require-with-reload-retry ns-sym)
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
     {:entries (mapv (fn [form] (analyze-entry opts form))
                     (read-top-forms (target-ns ns-sym) source-file))}))
