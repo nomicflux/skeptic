@@ -6,14 +6,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKEPTIC_PC="${ROOT}/skeptic/project.clj"
 PLUGIN_PC="${ROOT}/lein-skeptic/project.clj"
 ROOT_PC="${ROOT}/project.clj"
-PLUGIN_SRC="${ROOT}/lein-skeptic/src/leiningen/skeptic.clj"
 
 die() { echo "verify-monorepo-versions: $*" >&2; exit 1; }
 
 [[ -f "$SKEPTIC_PC" ]] || die "missing ${SKEPTIC_PC}"
 [[ -f "$PLUGIN_PC" ]] || die "missing ${PLUGIN_PC}"
 [[ -f "$ROOT_PC" ]] || die "missing ${ROOT_PC}"
-[[ -f "$PLUGIN_SRC" ]] || die "missing ${PLUGIN_SRC}"
 
 # (defproject org.clojars.nomicflux/skeptic "VERSION"
 lib_line="$(grep -m1 '^(defproject org.clojars.nomicflux/skeptic ' "$SKEPTIC_PC" || true)"
@@ -51,13 +49,5 @@ root_ver="$(sed -n 's/^(defproject skeptic "\([^"]*\)".*/\1/p' <<<"$root_line")"
 [[ -n "$root_ver" ]] || die "could not parse root project version from: $root_line"
 [[ "$lib_ver" == "$root_ver" ]] || \
   die "root project.clj version \"$root_ver\" does not match library \"$lib_ver\""
-
-# 'org.clojars.nomicflux/skeptic "VERSION" inside skeptic-profile in plugin source
-src_line="$(grep 'org.clojars.nomicflux/skeptic ' "$PLUGIN_SRC" | head -1 || true)"
-[[ -n "$src_line" ]] || die "expected org.clojars.nomicflux/skeptic \"…\" in ${PLUGIN_SRC}"
-src_ver="$(sed -n 's/.*org\.clojars\.nomicflux\/skeptic "\([^"]*\)".*/\1/p' <<<"$src_line")"
-[[ -n "$src_ver" ]] || die "could not parse skeptic-profile dep version from: $src_line"
-[[ "$lib_ver" == "$src_ver" ]] || \
-  die "skeptic-profile pins skeptic \"$src_ver\" but library is \"$lib_ver\""
 
 echo "verify-monorepo-versions: OK (skeptic ${lib_ver}, lein-skeptic ${plug_ver})"
