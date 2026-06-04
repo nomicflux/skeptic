@@ -17,17 +17,6 @@
     (swap! state assoc-in [:options :spec-skip-macros] true)
     state))
 
-(def ^:private shared-state
-  "Process-wide cljs compiler state, reused across every `ns-head` /
-   `analyze-source-file` call on this worker. A fresh `empty-state` per call
-   makes the cljs analyzer re-analyze every transitive cljs dependency
-   (e.g. `schema.core`) from scratch and throws when that recursive walk
-   fails in isolation. One persistent state lets the analyzer cache the
-   first analysis of each dependency, mirroring the single shared state the
-   production preload (`skeptic.checking.pipeline/preload-cljs-state!`)
-   already promises in its docstring."
-  (delay (empty-state)))
-
 (defn- walk-ast
   [f ast]
   (let [ast' (f ast)]
@@ -107,14 +96,11 @@
       {:ast nil :exception e})))
 
 (defn- with-analysis-bindings
-  "Run `f` with the cljs analyzer dynamic vars Skeptic uses bound, inside the
-   process-wide `shared-state`. `*load-macros*` is true so `:require-macros`
-   deps load on this (worker) JVM under the project basis. Sharing one state
-   across calls lets `*analyze-deps* true` cache each transitive cljs
-   dependency the first time it's analyzed, instead of recursively
-   re-analyzing it from scratch on every op call."
+  "Run `f` with the cljs analyzer dynamic vars Skeptic uses bound, inside a
+   fresh `empty-state`. `*load-macros*` is true so `:require-macros` deps
+   load on this (worker) JVM under the project basis."
   [path f]
-  (let [state @shared-state]
+  (let [state (empty-state)]
     (ana-api/with-state state
       (binding [ana/*file-defs* (atom #{})
                 ana/*unchecked-if* false

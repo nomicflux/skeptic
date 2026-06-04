@@ -16,10 +16,22 @@
    :handler handler})
 
 (defn ask
+  "Send `msg` to the worker and return the merged reply map. nREPL may emit
+   multiple messages per request (an interim `:out`/`:err` flush, then the
+   domain reply carrying `:status #{:done}`); taking `(first ...)` was a race
+   on which message landed first. Merging every reply through `:done` gives a
+   strict construction: the result deterministically contains every field any
+   reply for this request carried."
   [conn msg]
   (if (:skeptic.worker/loopback? conn)
     ((:handler conn) msg)
-    (first (nrepl.core/message (:client conn) msg))))
+    (reduce (fn [acc reply]
+              (let [acc' (merge acc reply)]
+                (if (contains? (:status reply) :done)
+                  (reduced acc')
+                  acc')))
+            {}
+            (nrepl.core/message (:client conn) msg))))
 
 (defn disconnect!
   [conn]
