@@ -91,6 +91,30 @@ Use an override to describe a boundary Skeptic cannot otherwise know. An
 override should still be a real contract. If an override widens everything to a
 dynamic Type, later phases lose the ability to report useful mismatches.
 
+## ClojureScript Admission
+
+`.cljs` and `.cljc` sources go through the same admission contract:
+declarations become Type dictionary entries keyed by qualified symbol,
+with a Provenance carrying the source language. Plumatic Schema
+(`s/defn`, `s/def`, `s/defschema`) and Malli (`:malli/schema` Var-meta)
+on cljs vars are both admitted.
+
+The relevant addition is on Provenance, not the Type. Every admitted
+Type carries a `:lang` field on its Provenance — `:clj`, `:cljs`, or
+the merged `#{:clj :cljs}`. Findings later read that field to attach
+the host language to their location.
+
+`.cljc` is admitted twice: once with the `:clj` reader-conditional
+feature active and once with `:cljs`. When both passes admit the same
+Type for the same qualified symbol, the entries are merged with
+`:lang` widened to `#{:clj :cljs}`. When only one pass admits a symbol,
+that pass's `:lang` is kept.
+
+The output layer reads back the same field. Identical findings from
+both passes of a `.cljc` Var dedup with `lang` set to the sorted JSON
+array `["clj","cljs"]`. Findings unique to one pass keep `lang` as the
+single keyword string.
+
 ## Merging The Sources
 
 The dictionary is assembled from the available sources. When more than one
@@ -161,3 +185,6 @@ syntax.
 - `skeptic/typed_decls.clj:merge-type-dicts` - merges admitted source dictionaries.
 - `skeptic/analysis/bridge/canonicalize.clj:canonicalize-schema` - regularizes Schema inputs.
 - `skeptic/analysis/bridge/render.clj:render-type-form*` - renders Type forms for display.
+- `skeptic/schema/collect/cljs.clj`, `skeptic/malli_spec/collect/cljs.clj` - cljs-side declaration collectors.
+- `skeptic/cljs/analyzer_driver.clj` - stateless cljs analyzer entrypoints.
+- `skeptic/provenance.clj:lang` - reads the host-language field carried on every admitted Provenance.

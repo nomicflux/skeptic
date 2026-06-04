@@ -113,6 +113,37 @@ For `double-or-zero`, a vague nullable warning would point toward narrowing: did
 the `(some? n)` assumption attach to the local origin, and did the branch-local
 environment refine `n` before the multiplication was annotated?
 
+## The Worker And The Host
+
+Analysis runs in a separate worker JVM. The host process is what users
+invoke (`lein skeptic`, `clj -T:skeptic check`); it runs admission, the
+cast engine, the bridge, the pipeline, projection, and output. The worker
+runs the analyzer against the **project's own classpath**, so the
+project's pinned versions of Clojure, Plumatic Schema, Malli, and
+`tools.analyzer` drive the AST shape — not Skeptic's.
+
+A contributor whose change crosses this boundary should be sure which
+side owns the work:
+
+- Reading project source belongs to the worker. The host sends paths,
+  never forms. The bulk `analyze-namespace` op opens the file inside the
+  worker and projects the AST back over the wire.
+- Schema and Malli admission — anything that calls `schema->type` or
+  `malli-spec->type` — belongs to the host. The worker never runs the
+  bridge. Var-meta from the worker arrives as inert data.
+- The transport drops form metadata. The worker reattaches `:form` and
+  source-location metadata as plain data, and the host re-materializes
+  it after the round trip.
+
+When the analyzer behaves differently from the host's expectations,
+suspect a classpath ordering bug first: the worker classpath is
+project-first, so a stray host entry resolving ahead of a project entry
+is a wrong-jar collision, not a version mismatch.
+
+For changes to discovery, admission, or output, the worker is rarely
+involved. For changes to AST shape, def discovery, source location, or
+how `s/defn` reaches the analyzer, the worker is the right edit point.
+
 ## Production Path Beats Shortcut Proof
 
 Helper-level tests are useful, but a checker bug that spans admission,
@@ -132,3 +163,7 @@ between the helper and production.
 - `skeptic/provenance.clj:merge-provenances` - provenance source ranking.
 - `skeptic/analysis/types.clj:type=?` - semantic Type equality.
 - `skeptic/checking/pipeline.clj:check-namespace` - production namespace path.
+- `skeptic/worker/classpath.clj` - project-first worker classpath construction.
+- `skeptic/worker/process.clj` - worker JVM spawn.
+- `skeptic/worker/analyzer_clj.clj`, `skeptic/worker/analyzer_cljs.clj` - in-worker analyzer entrypoints.
+- `skeptic/worker/{server,client,transport,wire}.clj` - host↔worker transport.

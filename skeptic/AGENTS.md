@@ -5,6 +5,10 @@
 Before changing the cast engine or related type-analysis code, read `skeptic/docs/blame-for-all.md`.
 Use it as the high-level algorithm reference for the library's core cast and blame behavior.
 
+Before changing anything that crosses the host/worker boundary (analyzer driver,
+classpath construction, transport, project-state wiring), read the **Worker
+Runtime Isolation** section below.
+
 ## Deliverable matching (agents)
 
 When implementing or answering from this doc, **match the requested artifact and audience**. Do not substitute a different deliverable and treat it as equivalent.
@@ -35,13 +39,15 @@ When `/psp` is used in this repo, each phase's completion gate requires **all th
 Primary execution path:
 
 - `leiningen.skeptic`: Leiningen plugin entrypoint. Parses CLI flags (via the shared `skeptic.cli.options` vector), selects the Skeptic profile, and runs the checker in the target project.
-- `skeptic.cli.main`: deps.edn / Clojure CLI entrypoint (`clojure -M:skeptic` and `clojure -X:skeptic`). Library-pure: no `leiningen.core.*` dependency.
+- `skeptic.tool`: deps.edn tool entrypoint exposed at `clj -T:skeptic check`. One-line wrapper over `skeptic.cli.main/check-project`.
+- `skeptic.cli.main`: library-pure deps.edn driver. `check-project` does the real work for the `-T` tool path. The legacy `-M` (`-main`/`run-cli`) and `-X` (`run`) entrypoints intentionally refuse with a redirect message — those invocations are not hermetic because they would load the client project on Skeptic's runtime classpath.
 - `skeptic.core`: top-level checker/report printer. Discovers namespaces, invokes per-namespace checking, formats output.
 - `skeptic.checking.pipeline`: main per-namespace pipeline. Reads forms, annotates analyzer ASTs, compares inferred vs declared types, emits results.
 
 Source namespace families (open one of these files when you need to know what's inside):
 
 - `skeptic.cli.*`: runner layer for deps.edn / Clojure CLI. `skeptic.cli.options` owns the shared CLI option vector, used by both `leiningen.skeptic` and `skeptic.cli.main`. `skeptic.cli.cljs.{deps,lein,shadow}` implement project-layout-specific cljs source discovery returning the shared `DiscoverySources` shape in `skeptic.cli.cljs.discover`. **Rule:** project-metadata reading and CLI parsing live only under `skeptic.cli.*`; library namespaces never read project layout — they receive paths as arguments.
+- `skeptic.worker.*`: worker JVM that runs analysis against the project's own classpath. Host code lives outside this family and never analyzes project source directly. `skeptic.worker.classpath` builds the `(concat project-cp runtime-entries)` classpath (project entries first, so the project's pinned versions of Clojure, Plumatic Schema, Malli, and tools.analyzer win over Skeptic's). `skeptic.worker.process` spawns the worker JVM; `skeptic.worker.{server,client,transport,wire}` carry the host↔worker nREPL transport with explicit teardown and non-EDN sentinel handling; `skeptic.worker.{analyzer_clj,analyzer_cljs}` are the in-worker analyzer entrypoints that read project source by path and project annotated AST data back over the wire; `skeptic.worker.project_context` holds project-state hand-off. See **Worker Runtime Isolation** below for the contract.
 - `skeptic.cljs.*`: ClojureScript loading and admission helpers. `analyzer-driver` exposes stateless cljs analyzer entrypoints via `cljs.analyzer.api` (no compiler state threaded across calls). `schema-interpreter` interprets post-macroexpansion Plumatic Schema bodies in a sci sandbox.
 - `skeptic.checking.*`: checking-time orchestration — AST/form/opts/state helpers consumed by the pipeline.
 - `skeptic.schema`, `skeptic.schema.collect[.cljs]`, `skeptic.typed-decls[.malli]`: declaration admission pipeline. Reads var metadata, admits raw Plumatic/Malli declarations, converts admitted descriptions into typed entries via `schema->type` / `malli-spec->type`.
@@ -160,6 +166,57 @@ Each Provenance also carries a `:lang` field — one of `:clj`, `:cljs`, or `#{:
 - Keep cast and analysis helpers small, focused, and type-domain-first.
 - Preserve ordered dispatch when branch priority is semantically meaningful.
 - Treat schema-level helpers as boundary adapters, not as the core analysis model.
+
+## Worker Runtime Isolation
+
+Analysis runs in a separate worker JVM whose classpath is built from the
+**project's own** deps basis. Host code (everything the user invokes —
+`leiningen.skeptic`, `skeptic.tool`, `skeptic.cli.main`, `skeptic.core`,
+the checking pipeline, the cast engine, the bridge) runs on Skeptic's
+own classpath. The worker JVM is what reads project source and emits
+analyzer ASTs.
+
+The boundary exists so the project's pinned versions of Clojure,
+Plumatic Schema, Malli, `tools.analyzer`, and any other library drive
+the analyzer. Skeptic's own declared versions of those libraries no
+longer collide with the project's.
+
+The contract is strict and load-bearing:
+
+- **Worker classpath is project-first.** `skeptic.worker.classpath`
+  builds `(concat project-cp runtime-entries)` so the project's
+  Clojure / schema / malli / tools.analyzer entries are resolved
+  ahead of Skeptic's runtime entries. A symbol present in both
+  Clojures is a wrong-jar bug, not a version mismatch; treat it as a
+  classpath ordering failure.
+- **Worker reads its own source.** The host sends paths over the
+  wire, never forms. The bulk `analyze-namespace` op opens the file
+  inside the worker and returns the projected AST. There is no
+  round-trip op that takes a form on the host, ships it to the
+  worker, and ships back an AST — that shape was deliberately
+  removed and must not return.
+- **Skeptic, schema, malli, and admission are host-only.** The
+  worker never runs `schema->type`, `malli-spec->type`, the cast
+  engine, the bridge, or any `skeptic.*` analysis namespace.
+  Malli's registry is data on the wire (`m/=>` carried as
+  `:form`, `mx/defn` carried as `:source-form :-`), not a
+  registry projection. The host runs the admission and conversion;
+  the worker ships var-meta as inert data.
+- **The transport is nREPL with explicit teardown.** EDN over the
+  bencode transport strips form metadata, so the worker reattaches
+  `:form` metadata as plain data and the host re-materializes it
+  (using `clojure.walk/postwalk` for clj ASTs, `:children`-only
+  descent for cljs ASTs — never `postwalk` over a cljs AST,
+  which runs away into `:env`/`:init` back-refs). Blame and source
+  location are read from metadata, not from AST structure.
+- **Worker resolves vars via `ns-interns`, not `ns-resolve`.**
+  `ns-resolve` also resolves classes via `Class/forName`, which
+  hits sibling-class collisions on the project classpath. Use the
+  intern table.
+
+`s/defn` is normalized to `defn` inside the worker before analysis,
+so the `:def` node is visible to def-discovery; the raw form is kept
+as `:source-form`.
 
 ## Releasing and CI
 

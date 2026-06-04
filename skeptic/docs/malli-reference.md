@@ -134,8 +134,9 @@ Current boundary (pinned to Malli 0.20.1):
 
 - Discovery (`skeptic.malli-spec.collect`):
   - Reads `:malli/schema` from var metadata.
-  - Does not read `m/function-schemas`; registry-based discovery is deferred.
+  - Reads the compile-time `(malli.core/function-schemas)` registry to capture `m/=>` declarations. The two sources are unioned by `ns-malli-spec-results`; a Var declared via both contributes once.
   - Never reads `:schema` from var metadata — that key belongs to Plumatic Schema.
+  - The entire Malli intake can be switched off with the `--malli-disable` CLI flag.
 - Admission (`skeptic.analysis.malli-spec.bridge/admit-malli-spec`):
   - Calls `malli.core/schema` and returns `malli.core/form` on success.
   - Raises `IllegalArgumentException` on failure, carried up as a declaration-phase error.
@@ -143,11 +144,14 @@ Current boundary (pinned to Malli 0.20.1):
   - Takes a `Provenance` (source `:malli`) as first argument and threads it through every sub-constructor it produces. `FunT`, `FnMethodT`, `MaybeT`, each `UnionT` member, and every primitive leaf carry that `:malli` prov on their `:prov` field. `prov/of` on any returned sub-Type will report `:malli`.
   - Recursive runner over the admitted form.
     - `[:=> [:cat & inputs] output]` → `FunT` with one `FnMethodT`.
+    - `[:function & arms]` → single `FunT` carrying one `FnMethodT` per `:=>` arm. Multi-arity dispatch by arity matches Plumatic's `s/=>*` import.
     - `[:maybe X]` → `MaybeT` over the converted inner.
     - `[:or X Y …]` → `ato/union-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side union behavior).
     - `[:and X Y …]` → `ato/intersection-type` over converted members (so dedup / singleton-collapse / ordering match the Schema-side `sb/both?` behavior at `src/skeptic/analysis/bridge.clj:623-624`).
     - `[:tuple X Y …]` → `(at/->SeqT prov [Tx Ty …] nil :vector)` directly. The cast engine treats `tail=nil` `:vector`-kind `SeqT` as closed/exact-arity via `prefix-tail-cast-fails-arity?` at `src/skeptic/analysis/cast/collection.clj:24-26`, and Plumatic vector schemas already import to the same shape via `prefix-tail-import-type` at `src/skeptic/analysis/bridge.clj:644-645`, so a separate tuple type variant is not required. `[:tuple]` (zero-element) collapses in `m/form` to the bare keyword `:tuple` and falls through to `Dyn`.
-    - `[:map [:k T] [:k {:optional true} T] …]` → `at/->MapT` directly. Required entries use `ato/exact-value-type prov k` for the key; optional entries wrap that in `at/->OptionalKeyT`. The cast engine consumes both kinds via `amo/map-entry-descriptor` at `src/skeptic/analysis/map_ops.clj:85-110`, and Plumatic plain-map schemas already import to the same shape via `map-import-type` at `src/skeptic/analysis/bridge.clj:393-409`, so no separate map type variant is required. The optional map-level properties index (e.g. `[:map {:closed true} ...]`) is parsed and dropped — Skeptic's `MapT` is closed-by-default (open-ness is encoded by adding a `domain-entry`, e.g. `Keyword → T`), matching Plumatic's representation. Honoring Malli's open-by-default semantics is deferred. `[:map]` (zero-element) collapses in `m/form` to the bare keyword `:map` and falls through to `Dyn`.
+    - `[:vector child]` and `[:sequential child]` → homogeneous `SeqT` with a single `:star`-tagged pattern atom over the converted child, kind `:vector` and `:sequential` respectively. `:min`/`:max` properties on the head are parsed and dropped — Skeptic does not constrain container length.
+    - `[:set child]` → `SetT` over the converted child.
+    - `[:map [:k T] [:k {:optional true} T] …]` → `at/->MapT` directly. Required entries use `ato/exact-value-type prov k` for the key; optional entries wrap that in `at/->OptionalKeyT`. The cast engine consumes both kinds via `amo/map-entry-descriptor` at `src/skeptic/analysis/map_ops.clj:85-110`, and Plumatic plain-map schemas already import to the same shape via `map-import-type` at `src/skeptic/analysis/bridge.clj:393-409`, so no separate map type variant is required. The map-level `{:closed true}` property is honored: a `:closed`-tagged head emits only the explicitly listed keys. The default (no `:closed`) honors Malli's open-by-default semantics by adding a `Keyword → Dyn` domain entry, so extra keyword keys are admitted with `Any` values. `[:map]` (zero-element) collapses in `m/form` to the bare keyword `:map` and falls through to `Dyn`.
     - `[:multi {:dispatch DISP} [tag schema] …]` → `at/->ConditionalT` directly. Each entry produces a branch triple `[tag (form->type schema) descriptor]` with the same shape Plumatic's `s/conditional` imports to via `conditional-import-type` at `src/skeptic/analysis/bridge.clj:464-480`; consumed by `effective-conditional-branches` / `effective-conditional-arms` at `src/skeptic/analysis/conditional_arms.clj:52-76`. The descriptor is `{:path [DISP] :values [tag]}` when `DISP` is a keyword (so later arms are correctly narrowed by negation of earlier tags via `route-conditional-by-values`) and `nil` for fn-dispatch and the `:malli.core/default` sentinel — Malli's `:multi` carries enough structure to emit `:values` descriptors that Plumatic's `s/conditional` cannot, so the bridge uses that structure where available.
     - `[:= X]` → `ato/exact-value-type prov X` directly, mirroring the Plumatic `s/eq` import at `src/skeptic/analysis/bridge.clj:590-591`. Malli rejects `[:= nil]` at admission, so the form is reachable only with non-nil values.
     - `[:enum & values]` (optional properties map at index 1 is ignored) → `ato/union-type` over per-value `ato/exact-value-type` results (so dedup / singleton-collapse / ordering match the Schema-side enum behavior at `src/skeptic/analysis/bridge.clj:386-387`).
@@ -168,17 +172,15 @@ Admission is direct: `MalliSpec → malli-spec->type → dict[qualified-sym] = T
 
 Stubbed now:
 
-- Non-primitive leaves and compound forms outside `:=>` / `:maybe` / `:or` / `:and` / `:tuple` / `:map` / `:multi` / `:=` / `:enum` / `:schema` / `:ref`. `:vector`, `:sequential`, `:set`, `:fn`, and refinement leaves with `:min`/`:max`/`:re` currently convert to `Dyn`.
-- Honoring Malli's open-by-default `:map` semantics. `:closed true` is currently a no-op: every admitted `:map` is closed-by-default, matching Plumatic and `MapT`'s native representation.
+- Compound forms outside the heads listed in "What Skeptic does with MalliSpec". `:fn`, `:re`, and refinement leaves with `:min`/`:max` outside container heads convert to `Dyn`.
 - Fn-dispatch in `:multi`. Branches are admitted but their narrowing descriptors are `nil`, so each arm stands alone (no negation refinement from earlier arms). Only keyword-dispatch produces `{:path :values}` descriptors that drive `route-conditional-by-values`.
-- Non-`:=>` callable shapes. `:->` and `:function` do not produce `FnMethodT` / `FunT` values; they convert to `Dyn`.
-- Multi-arity under `:function`. No per-method shapes yet.
-- Repetition operators (`:?`, `:*`, `:+`, `:repeat`) and `:catn` layouts are admitted but not parsed (the flat `:cat` form is parsed only inside `:=>` for input extraction).
+- `:->` (the flat-arrow function shape) is not recognized as a function head; it converts to `Dyn`.
+- Sequence/regex combinators outside the `:=>` head — `:cat` outside the function head, `:catn`, `:alt`, `:*`, `:+`, `:?`, `:repeat`. They are admitted when Malli accepts them but their Skeptic type is `Dyn`.
 - `malli.util` schemas are admitted if `malli.core/schema` accepts them; they convert to `Dyn`.
 
 Deferred:
 
-- Registry-based discovery through `malli.core/function-schemas`.
 - Conflict handling when the same var has both a Plumatic `:schema` declaration and a MalliSpec declaration. In this pass, merge order is the only resolution.
 - `.skeptic/config.edn` `:type-overrides` and `:skeptic/type` metadata parity. Those remain Schema-only; MalliSpec does not participate.
+- JSONL Malli-specific finding kinds.
 - Any reverse conversion. `Schema → MalliSpec` and `Type → MalliSpec` do not exist and are not planned.
