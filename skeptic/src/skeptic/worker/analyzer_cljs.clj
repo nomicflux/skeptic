@@ -132,6 +132,12 @@
   (let [path (str source-file)
         ns-ast (with-analysis-bindings path
                  (fn [state] (analyze-ns-form state path source-file)))]
+    (when-not (:name ns-ast)
+      (throw (ex-info "cljs ns-head produced an ns-AST without :name"
+                      {:source-file path
+                       :ns-ast-op (:op ns-ast)
+                       :ns-ast-keys (sort (keys ns-ast))
+                       :ns-ast ns-ast})))
     (select-keys ns-ast [:name :requires :require-macros :use-macros])))
 
 (defn analyze-source-file
