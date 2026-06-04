@@ -89,15 +89,27 @@
   [ns->file]
   (sut/project-state (worker-opts) ns->file))
 
+(def ^:private check-ns-cache
+  "Per-(ns-sym, opts) cache of `check-ns` results against the shared
+   `fixture-project-state`. `check-fixture` only filters by `:enclosing-form`
+   after the fact, so dozens of distinct symbols inside one fixture namespace
+   share one underlying `check-ns` run."
+  (atom {}))
+
+(defn- cached-check-ns-results
+  [ns-sym file opts]
+  (let [k [ns-sym opts]]
+    (or (get @check-ns-cache k)
+        (let [results (:results (sut/check-ns @fixture-project-state ns-sym file opts))]
+          (swap! check-ns-cache assoc k results)
+          results))))
+
 (defn check-fixture
   ([sym]
    (check-fixture sym {}))
   ([sym opts]
    (filterv #(= sym (:enclosing-form %))
-            (:results (sut/check-ns @fixture-project-state
-                                    (fixture-ns sym)
-                                    (fixture-file sym)
-                                    opts)))))
+            (cached-check-ns-results (fixture-ns sym) (fixture-file sym) opts))))
 
 (defn check-fixture-ns
   [ns-sym opts]
