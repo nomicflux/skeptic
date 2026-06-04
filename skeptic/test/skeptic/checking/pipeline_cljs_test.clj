@@ -82,9 +82,9 @@
     (is (= :malli (some-> (get provenance 'p5/h) prov/source)))))
 
 (def ^:private p6-tests-file
-  (File. "dev-resources/cljs-fixtures/p6-cross-require/src/p6/tests.cljs"))
+  (File. "dev-resources/p6/tests.cljs"))
 (def ^:private p6-core-file
-  (File. "dev-resources/cljs-fixtures/p6-cross-require/src/p6/core.cljs"))
+  (File. "dev-resources/p6/core.cljs"))
 
 (deftest cross-required-cljs-files-share-analyzer-state
   ;; Regression: cljs.test/run-tests at top level macroexpands to

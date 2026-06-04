@@ -81,13 +81,35 @@
      (worker-opts)
      (into {} (map (juxt :ns :file)) (vals catalog/fixture-envs)))))
 
+(defn- assert-no-per-ns-failures!
+  "Pipeline phases (cljs-load, clj-load, admission, accessors, load) catch per-
+   file/per-ns Throwables and record them on the project state's `per-ns-failures`
+   map so one bad file does not abort the run. Production surfaces those as
+   findings; tests do not, so a swallow here would hide a worker exception
+   behind a silent `(not (contains? ...))` later. Throw at the helper boundary
+   with EVERY exception's class+message, so every test built on top is loud by
+   default."
+  [project-state]
+  (let [failures (:per-ns-failures project-state)]
+    (when (seq failures)
+      (throw (ex-info (str "project-state has " (count failures) " per-ns failure(s): "
+                           (str/join " | "
+                                     (map (fn [[k {:keys [^Throwable exception phase]}]]
+                                            (str (pr-str k) " [" phase "] "
+                                                 (.getName (class exception)) ": "
+                                                 (.getMessage exception)))
+                                          failures)))
+                      {:per-ns-failures failures})))))
+
 (defn project-state-for
   [ns-sym source-file]
-  (sut/project-state (worker-opts) {ns-sym source-file}))
+  (doto (sut/project-state (worker-opts) {ns-sym source-file})
+    assert-no-per-ns-failures!))
 
 (defn project-state-for-nses
   [ns->file]
-  (sut/project-state (worker-opts) ns->file))
+  (doto (sut/project-state (worker-opts) ns->file)
+    assert-no-per-ns-failures!))
 
 (def ^:private check-ns-cache
   "Per-(ns-sym, opts) cache of `check-ns` results against the shared

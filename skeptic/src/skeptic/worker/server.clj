@@ -709,28 +709,67 @@
                        :ast-form-meta (wire/capture-ast-form-meta ast'))
           malli-schema (assoc :malli-schema malli-schema))))))
 
+(defn- chain-messages
+  "Each cause's message joined with ` <- `, deepest cause first. cljs.analyzer
+   wraps the inner cause's real message inside an outer ExceptionInfo whose own
+   `.getMessage` is nil; without walking the chain the host sees only nil."
+  [^Throwable e]
+  (->> (iterate #(.getCause ^Throwable %) e)
+       (take-while some?)
+       (map #(or (.getMessage ^Throwable %) (str %)))
+       (remove str/blank?)
+       distinct
+       reverse
+       (str/join " <- ")))
+
+(defn- safe-pr-str
+  "pr-str that never throws. Used for `ex-data` payloads which may carry values
+   `pr-str` itself rejects (raw Class objects, Vars, regex Patterns, etc.). A
+   throwing pr-str inside the wire-error path would shadow the original failure."
+  [v]
+  (try (pr-str v) (catch Throwable _ (str "<unprintable " (.getName (class v)) ">"))))
+
+(defn- error-reply
+  "Wire reply for a thrown exception. Carries `:status #{:error :done}` so the
+   host MUST treat it as failure (wc/ask throws when it sees :error). The class,
+   the full cause-chain messages, and a printable rendering of the deepest
+   `ex-data` ride the wire. Success fields are NOT present, so no consumer can
+   accidentally read past a thrown exception."
+  [^Throwable e]
+  (let [deepest-data (->> (iterate #(.getCause ^Throwable %) e)
+                          (take-while some?)
+                          (keep ex-data)
+                          last)]
+    (cond-> {:status #{:error :done}
+             :exception-class (.getName (class e))
+             :exception-message (chain-messages e)}
+      deepest-data (assoc :exception-data (safe-pr-str deepest-data)))))
+
+(defmacro ^:private send-reply-or-error
+  "Run `body` and send its result map (must include `:status`) on `transport`,
+   responding under `msg`. If `body` throws, send an error reply instead. The
+   exception is NEVER swallowed: the host's wc/ask throws on `:status :error`."
+  [transport msg & body]
+  `(t/send ~transport
+           (response-for ~msg
+                         (try
+                           (do ~@body)
+                           (catch Throwable e# (error-reply e#))))))
+
 (defn- analyze-cljs-namespace-reply
   [source-file]
-  (try
-    (let [{:keys [ns-ast entries]} (with-project-operation
-                                     (wac-cljs/analyze-source-file (io/file source-file)))]
-      {:ns-ast (wire/strip-ast-form-meta (handle-project-node ns-ast))
-       :entries (mapv project-cljs-entry entries)})
-    (catch Throwable e
-      {:exception-message (or (.getMessage e) (str e))
-       :exception-class (.getName (class e))})))
+  (let [{:keys [ns-ast entries]} (with-project-operation
+                                   (wac-cljs/analyze-source-file (io/file source-file)))]
+    {:ns-ast (wire/strip-ast-form-meta (handle-project-node ns-ast))
+     :entries (mapv project-cljs-entry entries)}))
 
 (defn wrap-analyze-cljs-namespace
   [h]
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "analyze-cljs-namespace")
-      (let [{:keys [ns-ast entries exception-message exception-class]}
-            (analyze-cljs-namespace-reply source-file)]
-        (t/send transport (cond-> (response-for msg :status #{:done})
-                            ns-ast (assoc :ns-ast ns-ast)
-                            entries (assoc :entries entries)
-                            exception-message (assoc :exception-message exception-message)
-                            exception-class (assoc :exception-class exception-class))))
+      (send-reply-or-error transport msg
+        (let [{:keys [ns-ast entries]} (analyze-cljs-namespace-reply source-file)]
+          {:status #{:done} :ns-ast ns-ast :entries entries}))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-analyze-cljs-namespace
@@ -738,27 +777,21 @@
 
 (defn- cljs-ns-head-reply
   [source-file]
-  (try
-    (with-project-operation
-      (wac-cljs/ns-head (io/file source-file)))
-    (catch Throwable e
-      {:exception-message (or (.getMessage e) (str e))
-       :exception-class (.getName (class e))})))
+  (with-project-operation
+    (wac-cljs/ns-head (io/file source-file))))
 
 (defn wrap-cljs-ns-head
   [h]
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "cljs-ns-head")
-      (let [{:keys [name requires require-macros use-macros
-                    exception-message exception-class]}
-            (cljs-ns-head-reply source-file)]
-        (t/send transport (cond-> (response-for msg :status #{:done})
-                            name (assoc :name name)
-                            requires (assoc :requires requires)
-                            require-macros (assoc :require-macros require-macros)
-                            use-macros (assoc :use-macros use-macros)
-                            exception-message (assoc :exception-message exception-message)
-                            exception-class (assoc :exception-class exception-class))))
+      (send-reply-or-error transport msg
+        (let [{:keys [name requires require-macros use-macros]}
+              (cljs-ns-head-reply source-file)]
+          {:status #{:done}
+           :name name
+           :requires requires
+           :require-macros require-macros
+           :use-macros use-macros}))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-cljs-ns-head
@@ -768,20 +801,12 @@
   [h]
   (fn [{:keys [op transport handle arg] :as msg}]
     (if (= op "apply-predicate")
-      (try
-        (let [pred (get-in @fn-handle-state [:id->fn handle])]
-          (if pred
-            (t/send transport (response-for msg
-                                            :result (with-project-operation
-                                                      (boolean (pred arg)))
-                                            :status #{:done}))
-            (t/send transport (response-for msg
-                                            :exception-message (str "Unknown predicate handle: " handle)
-                                            :status #{:done}))))
-        (catch Throwable e
-          (t/send transport (response-for msg
-                                          :exception-message (or (.getMessage e) (str e))
-                                          :status #{:done}))))
+      (send-reply-or-error transport msg
+        (let [pred (or (get-in @fn-handle-state [:id->fn handle])
+                       (throw (ex-info (str "Unknown predicate handle: " handle)
+                                       {:handle handle})))]
+          {:status #{:done}
+           :result (with-project-operation (boolean (pred arg)))}))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-apply-predicate
@@ -796,9 +821,10 @@
     "resolve-class-sym" {:handle (resolve-sym-to-handle ns sym)}
     "class-name" {:name (class-name-for-handle a)}
     "analyze-namespace" (analyze-namespace-reply ns source-file)
-    "apply-predicate" (if-let [pred (get-in @fn-handle-state [:id->fn handle])]
-                        {:result (with-project-operation (boolean (pred arg)))}
-                        {:exception-message (str "Unknown predicate handle: " handle)})
+    "apply-predicate" (let [pred (or (get-in @fn-handle-state [:id->fn handle])
+                                      (throw (ex-info (str "Unknown predicate handle: " handle)
+                                                      {:handle handle})))]
+                        {:result (with-project-operation (boolean (pred arg)))})
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
 (defn start!
