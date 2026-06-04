@@ -6,61 +6,61 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- ClojureScript source-file support, including project-layout discovery for
-  deps.edn, Leiningen, and Shadow-CLJS. Skeptic now reads `.cljs` source
-  files via the public `cljs.analyzer.api` and admits both Plumatic Schema
-  and Malli declarations on cljs vars. `.cljc` files are admitted twice
-  (once per host language); identical findings from both passes are deduped
-  with their `lang` set to `["clj","cljs"]`.
-- `clojure -M:skeptic` deps.edn entrypoint via `skeptic.cli.main`. Skeptic
-  is now usable from a `deps.edn` alias in addition to the existing
-  Leiningen plugin; the analyzer must load the project's namespaces, so
-  `clj -T` (tool installation) is not supported.
-- `--paths PATHS` and `--alias ALIAS` flags (deps.edn entrypoint only) for
-  overriding the discovered source paths or merging additional deps.edn
-  aliases before path resolution.
-- `--cljs-disable` flag to skip ClojureScript admission entirely. With the
-  flag set, `.cljs` files are dropped and `.cljc` files are admitted as
-  `:clj`-only — the `:cljs` reader-conditional branch is discarded.
+- Expanded Malli admission to cover `:and`, `:tuple`, `:vector`,
+  `:sequential`, `:set` (with `:min`/`:max` parsed and dropped), `:map`
+  with required keys, `{:optional true}` keys, and the `:closed true`
+  property (default is open, matching Malli's semantics — extra keyword
+  keys are admitted with `Any` values); multi-arity `:function` with
+  per-arm `FnMethodT`; `:multi` with `{:dispatch :kw}` tagged dispatch
+  (later branches are narrowed by negation of earlier tags); `:=`;
+  `:schema` with optional `{:registry {...}}` properties carrying a
+  local registry; `:ref` resolved through the active registry with
+  cycle detection (recursive positions emit `InfCycleT` rather than
+  diverging); and the primitive leaves `:double`, `:float`,
+  `:qualified-keyword`, and `:qualified-symbol`. Sequence/regex
+  combinators outside the `:=>` head remain experimental.
+- ClojureScript source-file support. Skeptic discovers `.cljs` and
+  `.cljc` files in deps.edn, Leiningen, and Shadow-CLJS projects and
+  admits Plumatic Schema (`s/defn` / `s/def` / `s/defschema`) and
+  Malli (`:malli/schema`) declarations on cljs vars. `.cljc` files
+  are admitted twice (once per host language); identical findings
+  from both passes are deduped with `lang` set to `["clj","cljs"]`.
+- `clj -T:skeptic check` deps.edn tool entrypoint, so Skeptic is now
+  usable from a `deps.edn` `:tools/usage` alias in addition to the
+  Leiningen plugin. Supported tool arg-map keys include `:project-dir`,
+  `:paths` (override discovered source paths), and `:alias` (merge
+  additional deps.edn aliases when resolving the project's basis).
+  `clojure -M:skeptic` and `clj -X:skeptic` print a message redirecting
+  to the `-T` form.
+- Analysis now runs against the **project's own classpath**: the
+  project's pinned versions of Clojure, Plumatic Schema, Malli,
+  `tools.analyzer`, and any other library are what drive checking.
+  Skeptic's own declared dependency versions no longer collide with
+  the project's.
+- `--cljs-disable` flag to skip ClojureScript admission entirely. With
+  the flag set, `.cljs` files are dropped and `.cljc` files are
+  admitted as `:clj`-only — the `:cljs` reader-conditional branch is
+  discarded.
+- `--plumatic-disable` and `--malli-disable` flags to switch off either
+  intake stream entirely. A disabled stream contributes no entries and
+  no findings whose source matches that stream. `--plumatic-disable`
+  additionally suppresses `:skeptic/type-overrides`, since overrides
+  are a Plumatic-domain construct. A Var declared via both streams is
+  still admitted via the enabled one; combining both flags leaves only
+  Skeptic's built-in native-fn declarations.
 - `lang` field on every JSONL `location` object identifying the host
-  language the reported type was admitted under: `"clj"`, `"cljs"`, or a
-  sorted JSON array `["clj","cljs"]` when both passes of a `.cljc` file
-  produced the same finding.
-- `--plumatic-disable` and `--malli-disable` CLI flags to switch off either
-  intake stream entirely. A disabled stream contributes no entries to the
-  merged type dict, no provenance, and no findings whose source matches the
-  disabled stream's tag (`schema` for `--plumatic-disable`, `malli` for
-  `--malli-disable`). `--plumatic-disable` additionally suppresses
-  `:skeptic/type-overrides` since overrides are a Plumatic-domain construct.
-  A Var declared via both streams is still admitted via the enabled one;
-  combining both flags leaves only Skeptic's built-in native-fn declarations.
-- Basic, experimental Malli declaration support for `:malli/schema` var
-  metadata. Skeptic now converts simple `[:=> [:cat ...] out]` function
-  schemas, primitive leaves, `:maybe`, `:or`, `:enum`, and recognized
-  predicate symbols into the checker type domain. Unsupported Malli forms
-  currently remain dynamic.
-- Finding output now carries source attribution so text and JSONL consumers can
-  distinguish types that came from Schema, Malli, built-in/native declarations,
-  type overrides, or inference.
-- Function values are now checked against Java callable-interface targets
-  (`Runnable`, `Callable`, `Comparator`, and the `java.util.function.*`
-  single-abstract-method interfaces). Previously a `:- Runnable` parameter
-  produced a confusing `(=> Any) but expected java.lang.Runnable` mismatch
-  for any Clojure fn; now skeptic checks the source fn's arity against the
-  interface's abstract-method arity and casts its declared return type to
-  `Bool` for `Predicate` / `BiPredicate`, `Int` for `Comparator`, and `Dyn`
+  language the reported type was admitted under: `"clj"`, `"cljs"`, or
+  a sorted JSON array `["clj","cljs"]` when both passes of a `.cljc`
+  file produced the same finding.
+- Function values are now checked against Java callable-interface
+  targets (`Runnable`, `Callable`, `Comparator`, and the
+  `java.util.function.*` single-abstract-method interfaces).
+  Previously a `:- Runnable` parameter produced a confusing
+  `(=> Any) but expected java.lang.Runnable` mismatch for any Clojure
+  fn; now Skeptic checks the source fn's arity against the interface's
+  abstract-method arity and casts its declared return type to `Bool`
+  for `Predicate` / `BiPredicate`, `Int` for `Comparator`, and `Dyn`
   for the rest.
-
-### Changed
-
-- Default type rendering now uses declared Schema, Malli, and type-override
-  names for more compact reports when possible. Use `--explain-full` to show
-  fully expanded structural forms.
-- `lein skeptic` runs the analysis pass under
-  `schema.core/without-fn-validation`, avoiding Plumatic Schema function
-  validation overhead in projects that have runtime Schema validation enabled.
-- Annotation and reporting hot paths have been tightened to reduce repeated
-  type rendering, provenance, and checker work.
 
 ### Fixed
 
@@ -71,15 +71,9 @@ All notable changes to this project will be documented in this file.
   being silently dropped. Keyword required keys were already handled
   by Plumatic's short-circuit to bare keywords; the bug only affected
   string and other non-keyword keys.
-- Additional nullability and conditional-narrowing cases now preserve
-  flow-sensitive facts through aliases, let-bound vars, path-shaped map
-  projections, conditional branches, and enum/sum-type tests.
 - Analysis no longer throws `Expected typed entry` on Malli `:map` or other
   unsupported Malli forms encountered while building the per-namespace
   declaration dict.
-- Multi-arity `defn` output is now checked per arity against the declared
-  return type for that specific arity, instead of comparing every analyzed
-  method against the first arity's declared output.
 - `(assoc nilable-map k v)` (and `update` on a nilable map) no longer
   carries a `Maybe` wrapper through the result, since `(assoc nil k v)`
   returns `{k v}` — not `nil`. The nil-branch is captured by downgrading
@@ -95,6 +89,79 @@ All notable changes to this project will be documented in this file.
   finding on a correct program. The conjunctive shape
   `(when (and (nil? a) (nil? b)) (throw))` was already handled and is
   unchanged.
+
+## [0.8.1] - 2026-05-05
+
+### Added
+
+- Per-namespace error counts at the end of text and JSONL reports, so
+  large runs show which namespaces are worst-offending without piping
+  through `wc`.
+
+### Fixed
+
+- Collections that mix a fixed prefix with a homogeneous tail
+  (e.g. `[(s/one s/Int 'a) (s/one s/Str 'b) s/Keyword]`) are now
+  checked correctly. Previously Skeptic treated every collection
+  schema as either fully fixed-arity or fully homogeneous (#8).
+- Earlier `cond` / `case` branches now restrict later ones. A
+  predicate test that succeeds on one arm narrows the remaining
+  arms by negation, so a `(some? v)` arm following `(vector? v)`
+  sees `v` as a non-vector non-nil, and downstream sum-type
+  variants flagged exhausted are removed from the residual (#9).
+
+## [0.8.0] - 2026-05-03
+
+### Added
+
+- Initial Malli intake. Skeptic now reads `:malli/schema` Var metadata
+  and projects the compile-time `(malli.core/function-schemas)`
+  registry (which captures `m/=>`). The first batch of admitted
+  forms covers single-arity `[:=> [:cat ...] out]` function schemas,
+  `:maybe`, `:or`, `:enum`, the primitive leaves `:int`, `:string`,
+  `:keyword`, `:symbol`, `:boolean`, `:nil`, and `:any`, and the bare
+  predicate symbols recognized by Skeptic's predicate registry.
+  Unsupported Malli forms admit as dynamic. Broader Malli shapes are
+  added in subsequent releases.
+- `--explain-full` flag to print fully expanded structural forms in
+  type-mismatch output. Without the flag, declared Schema names are
+  preferred so reports stay compact.
+- Findings carry source attribution. Text output annotates each
+  location with `[source: schema|malli|native|type-override|inferred]`
+  and JSONL findings include the same source on the `location` object,
+  so consumers can tell which intake stream produced the expected
+  type. The corresponding `Provenance` is recorded on every admitted
+  Type and is used to render the `:source` field.
+
+### Changed
+
+- Default type rendering uses declared Schema and Malli names where
+  available, falling back to fully expanded structural forms only when
+  pinned via `--explain-full`. Reports for `s/maybe`, `s/eq`, declared
+  map schemas, and similar shapes are noticeably shorter.
+- `lein skeptic` runs the analysis pass under
+  `schema.core/without-fn-validation`, avoiding Plumatic Schema
+  function-validation overhead in projects that have runtime Schema
+  validation enabled. Runtime validation is restored after Skeptic's
+  pass completes.
+
+### Fixed
+
+- Multi-arity `defn` output is now checked per arity against the
+  declared return type for that specific arity, instead of comparing
+  every analyzed method against the first arity's declared output.
+- Flow-sensitive narrowing flows through more shapes: aliases,
+  let-bound vars, path-shaped map projections, conditional branches,
+  and enum/sum-type tests. A `(some? n)` or `(string? s)` guard now
+  refines the local in subsequent expressions even when the local
+  reaches the test through a structured-origin path.
+- Conditional narrowing fixes for let-vars and `and`/`or` paths so
+  branch tests on a let-bound local refine subsequent reads of that
+  local (previously the refinement was lost across the let boundary).
+- Dynamic types narrow through ground-classifying positive predicates
+  (`string?`, `int?`, `keyword?`, etc.), so a `Dyn` value tested
+  positively against a recognized predicate is treated as the
+  corresponding ground type for the remainder of the then-branch.
 
 ## [0.7.1] - 2026-04-22
 

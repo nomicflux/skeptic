@@ -4,11 +4,10 @@
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/lein-skeptic.svg)](https://clojars.org/org.clojars.nomicflux/lein-skeptic)
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.nomicflux/skeptic.svg)](https://clojars.org/org.clojars.nomicflux/skeptic)
 
-Skeptic is a Leiningen plugin that statically type-checks Clojure projects based on
-[Plumatic Schema](https://github.com/plumatic/schema) annotations. 
-
-Experimental support for [Malli](https://github.com/metosin/malli) is in
-development.
+Skeptic statically type-checks Clojure and ClojureScript projects based on
+[Plumatic Schema](https://github.com/plumatic/schema) and
+[Malli](https://github.com/metosin/malli) annotations. It runs as a Leiningen
+plugin or as a Clojure CLI tool.
 
 ## What Skeptic checks
 
@@ -75,12 +74,6 @@ Then run it from the project you want to check:
 clj -T:skeptic check
 ```
 
-`clojure -M:skeptic` is not supported for hermetic deps.edn execution. `-M`
-starts Skeptic on the client project's classpath, which lets client
-dependencies become Skeptic implementation dependencies. The `-T:skeptic`
-tool-alias entry runs Skeptic on the alias tool stack and reads the client
-project as analysis input.
-
 ## Running it
 
 From the project you want to check.
@@ -115,42 +108,21 @@ Options:
   output instead of compact declared names.
 - `-p`, `--porcelain`: emit machine-readable JSONL (one JSON object per line)
   instead of the default human-readable output. See [Output](#output) below.
-- `--plumatic-disable`: skip Plumatic Schema intake entirely. No `s/defn` /
-  `s/def` / `s/defschema` declarations are admitted, no `:skeptic/type-overrides`
-  are applied, and no finding will report `[source: schema]` /
-  `"source": "type-override"`. See [Disabling an intake stream](#disabling-an-intake-stream).
-- `--malli-disable`: skip Malli intake entirely. No `m/=>` or
-  `:malli/schema` Var-meta declarations are admitted, and no finding will report
-  `[source: malli]`. See [Disabling an intake stream](#disabling-an-intake-stream).
+- `--plumatic-disable`: skip Plumatic Schema intake.
+- `--malli-disable`: skip Malli intake.
+- `--cljs-disable`: skip Clojurescript analysis.
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
-  stdout, so lein/JVM messages stay on stdout. Works with text and `-p` JSONL
-  output.
+  stdout. Works with text and `-p` JSONL output.
+- `:project-dir PATH` (deps.edn tool only): absolute path to the project to
+  check, for running the tool from outside the project root. Example:
+  `clj -T:skeptic check :project-dir '"/path/to/project"'`.
 - `:paths PATHS` (deps.edn tool only): string or vector of source paths to
-  check, overriding the paths discovered from `deps.edn`.
+  check, overriding the paths discovered from `deps.edn`. Example:
+  `clj -T:skeptic check :paths '["src"]'`.
 - `:alias ALIAS` (deps.edn tool only): keyword, string, or vector of aliases
-  to merge when discovering source paths (for example, `:alias :test`).
-
-### Disabling an intake stream
-
-Skeptic admits typed declarations from two independent stream sources —
-Plumatic Schema (`s/defn` / `s/def` / `s/defschema`) and Malli (`m/=>`,
-`:malli/schema` Var-meta) — plus Skeptic's built-in native-fn
-registry. `--plumatic-disable` and `--malli-disable` switch off either stream
-wholesale.
-
-When a stream is disabled:
-
-- No declarations from that stream contribute to the merged type dict.
-- No findings carry that stream's `source:` attribution.
-- The other stream is unaffected; native-fn checks still run.
-- A Var declared in **both** streams (i.e. `s/defn` + `m/=>` on the same
-  symbol) is still admitted via the surviving stream.
-- `--plumatic-disable` also disables `:skeptic/type-overrides` from
-  `.skeptic/config.edn`, since overrides are a Plumatic-domain construct.
-
-Both flags can be combined; the result is a run that checks only against
-Skeptic's built-in native-fn declarations.
+  to merge when discovering source paths. Example:
+  `clj -T:skeptic check :alias :test`.
 
 ## Output
 
@@ -318,46 +290,20 @@ After this, call sites of `infof` are checked as returning `nil`.
 ## ClojureScript support
 
 Skeptic loads and admits ClojureScript source files alongside Clojure.
-It discovers `.cljs` and `.cljc` files via project-layout-aware helpers
-for deps.edn, Leiningen, and Shadow-CLJS.
-
-Each cljs source file is parsed with the public
-`cljs.analyzer.api/parse-ns` (which loads any `:require-macros`
-namespaces on the JVM) and analyzed form-by-form with the 3-arity
-`analyze`. No compiler state is constructed or carried across calls —
-every form analysis rebuilds a fresh ephemeral environment from the
-source file's ns AST.
-
-Both intake streams support cljs:
-
-- **Plumatic Schema:** `s/defn`, `s/def`, and `s/defschema` declarations
-  on cljs vars are admitted. Post-macroexpansion schema bodies are
-  evaluated in a sci-sandboxed Clojure interpreter configured with
-  `schema.core` pre-loaded, so `s/Int`, `s/maybe`, `s/eq`, and the rest
-  resolve to the same Plumatic Schema record values they would on the
-  JVM without using `clojure.lang.Compiler/eval`.
-- **Malli:** `:malli/schema` var-meta on cljs vars is read directly off
-  the cljs analyzer AST and passes through the same
-  `malli-spec->type` bridge used for JVM admissions.
+It discovers `.cljs` and `.cljc` files in deps.edn, Leiningen, and
+Shadow-CLJS projects.
 
 `.cljc` files are admitted twice — once with `:clj` reader-conditional
-features active and once with `:cljs` — and identical findings from both
-passes are deduped at the JSONL layer with `lang` set to
-`["clj","cljs"]`. Findings unique to one pass keep `lang` as a single
-keyword string (`"clj"` or `"cljs"`).
+features active and once with `:cljs`.
 
 Pass `--cljs-disable` to skip cljs admission entirely. With the flag
 set, `.cljs` files are dropped and `.cljc` files are admitted as
 `:clj`-only — the `:cljs` reader-conditional branch is discarded.
 
-Known limitation: a pure-cljs schema that references another pure-cljs
-namespace requires the dependency to be analyzable in dependency order.
-
-## Experimental Malli support
+## Malli support
 
 Skeptic reads Malli function declarations from `:malli/schema` Var metadata
-and from the compile-time `(malli.core/function-schemas)` registry (which
-captures `m/=>` declarations):
+and from the compile-time `(malli.core/function-schemas)` registry.
 
 ```clojure
 (defn takes-int
@@ -366,28 +312,8 @@ captures `m/=>` declarations):
   (str x))
 ```
 
-Currently parsed forms include single-arity `[:=> [:cat ...] out]` and
-multi-arity `[:function [:=> ...] [:=> ...]]`; primitive leaves such as
-`:int`, `:string`, `:keyword`, `:symbol`, `:boolean`, `:double`, `:float`,
-`:nil`, `:qualified-keyword`, `:qualified-symbol`, and `:any`; plus
-`:maybe`, `:or`, `:and`, `:tuple`, `:vector`, `:set`, `:sequential` (with
-optional `:min`/`:max` properties parsed and dropped — Skeptic does not
-constrain container length), `:map` (with required keys,
-`{:optional true}` keys, and nested values; `:closed true` is honored,
-and the default is open — extra keyword keys are admitted with `Any`
-values, mirroring Malli's open-by-default semantics), `:multi` with
-`{:dispatch :kw}` tagged-dispatch (later branches are correctly narrowed
-by negation of earlier tags; fn-dispatch is admitted but each arm stands
-alone), `:=`, `:enum`, `:schema` (with optional `{:registry {...}}`
-properties carrying a local registry), `:ref` (resolved through the
-active registry, with cycle detection: a recursive position emits an
-`InfCycleT` rather than diverging), and bare predicate symbols that
-Skeptic recognizes.
-
-Broader Malli forms are still experimental. Sequence/regex combinators
-outside the `:=>` head (e.g. `:cat` outside the function head, `:alt`,
-`:*`, `:+`, `:?`, `:repeat`, `:re`, `:fn`) are admitted when Malli
-accepts them; their Skeptic type is currently dynamic.
+Sequence/regex combinators outside the `:=>` head (e.g. `:cat` outside the function head, `:alt`,
+`:*`, `:+`, `:?`, `:repeat`, `:re`, `:fn`) are not currently supported.
 
 ## Suppressing checks
 
@@ -442,32 +368,6 @@ wrap them in a form if needed:
 ```clojure
 ^{:skeptic/type s/Int} (identity 42)
 ```
-
-## How it works
-
-Skeptic discovers `.clj`, `.cljs`, and `.cljc` source files under your
-project's source paths, loads each namespace (via JVM `require` for
-Clojure and via the public `cljs.analyzer.api` for ClojureScript),
-collects the Plumatic Schema and Malli annotations you've written on
-vars and functions, infers a type for each expression in your code, and
-compares the inferred types against the declared schemas on function
-inputs and outputs. Each mismatch is reported with a source location,
-the inferred type, and the expected type. `.cljc` files are admitted
-twice — once with the `:clj` reader-conditional feature active and once
-with `:cljs` — and identical findings from both passes are deduped with
-their `lang` set to `["clj","cljs"]`.
-
-If a discovered file cannot be loaded — for example, a `.clj` file
-whose body depends on a runtime not available to the lein/JVM process,
-or a `.cljs` file whose require graph cannot be parsed — Skeptic skips
-it cleanly with a discovery warning naming the file and the underlying
-load error. The rest of the project continues to be checked. Discovery
-warnings do not flip the run's exit code on their own.
-
-During `lein skeptic`, the checker runs with Plumatic Schema function
-validation disabled around the analysis pass. Projects that enable runtime
-Schema validation still keep that behavior for their own code; Skeptic simply
-avoids paying that validation cost while it is inspecting the project.
 
 ## Attribution
 
