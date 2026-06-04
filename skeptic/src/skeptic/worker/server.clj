@@ -731,24 +731,21 @@
 
 (defn- error-reply
   "Wire reply for a thrown exception. Carries `:status #{:error :done}` so the
-   host MUST treat it as failure (wc/ask throws when it sees :error). The class,
-   the full cause-chain messages, and a printable rendering of the deepest
-   `ex-data` ride the wire. Success fields are NOT present, so no consumer can
-   accidentally read past a thrown exception."
+   host MUST treat it as failure (wc/ask throws when `:exception-class` is
+   present). The wire payload is `Throwable->map`'s pr-str — Clojure's standard
+   EDN-readable exception serialization, carrying class + message + data + every
+   cause link's class/message/data/at + the trace. One pr-str string so it
+   round-trips through Nippy without arguing about non-EDN values."
   [^Throwable e]
-  (let [deepest-data (->> (iterate #(.getCause ^Throwable %) e)
-                          (take-while some?)
-                          (keep ex-data)
-                          last)]
-    (cond-> {:status #{:error :done}
-             :exception-class (.getName (class e))
-             :exception-message (chain-messages e)}
-      deepest-data (assoc :exception-data (safe-pr-str deepest-data)))))
+  {:status #{:error :done}
+   :exception-class (.getName (class e))
+   :exception-message (chain-messages e)
+   :exception-via (safe-pr-str (Throwable->map e))})
 
 (defmacro ^:private send-reply-or-error
   "Run `body` and send its result map (must include `:status`) on `transport`,
    responding under `msg`. If `body` throws, send an error reply instead. The
-   exception is NEVER swallowed: the host's wc/ask throws on `:status :error`."
+   exception is NEVER swallowed: the host's wc/ask throws on `:exception-class`."
   [transport msg & body]
   `(t/send ~transport
            (response-for ~msg
