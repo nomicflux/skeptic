@@ -709,35 +709,56 @@
                        :ast-form-meta (wire/capture-ast-form-meta ast'))
           malli-schema (assoc :malli-schema malli-schema))))))
 
+(defn- analyze-cljs-namespace-reply
+  [source-file]
+  (try
+    (let [{:keys [ns-ast entries]} (with-project-operation
+                                     (wac-cljs/analyze-source-file (io/file source-file)))]
+      {:ns-ast (wire/strip-ast-form-meta (handle-project-node ns-ast))
+       :entries (mapv project-cljs-entry entries)})
+    (catch Throwable e
+      {:exception-message (or (.getMessage e) (str e))
+       :exception-class (.getName (class e))})))
+
 (defn wrap-analyze-cljs-namespace
   [h]
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "analyze-cljs-namespace")
-      (let [{:keys [ns-ast entries]} (with-project-operation
-                                       (wac-cljs/analyze-source-file (io/file source-file)))]
-        (t/send transport (response-for msg
-                                        :ns-ast (wire/strip-ast-form-meta
-                                                 (handle-project-node ns-ast))
-                                        :entries (mapv project-cljs-entry entries)
-                                        :status #{:done})))
+      (let [{:keys [ns-ast entries exception-message exception-class]}
+            (analyze-cljs-namespace-reply source-file)]
+        (t/send transport (cond-> (response-for msg :status #{:done})
+                            ns-ast (assoc :ns-ast ns-ast)
+                            entries (assoc :entries entries)
+                            exception-message (assoc :exception-message exception-message)
+                            exception-class (assoc :exception-class exception-class))))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-analyze-cljs-namespace
                     {:requires #{} :expects #{} :handles {"analyze-cljs-namespace" {}}})
 
+(defn- cljs-ns-head-reply
+  [source-file]
+  (try
+    (with-project-operation
+      (wac-cljs/ns-head (io/file source-file)))
+    (catch Throwable e
+      {:exception-message (or (.getMessage e) (str e))
+       :exception-class (.getName (class e))})))
+
 (defn wrap-cljs-ns-head
   [h]
   (fn [{:keys [op transport source-file] :as msg}]
     (if (= op "cljs-ns-head")
-      (let [{:keys [name requires require-macros use-macros]}
-            (with-project-operation
-              (wac-cljs/ns-head (io/file source-file)))]
-        (t/send transport (response-for msg
-                                        :name name
-                                        :requires requires
-                                        :require-macros require-macros
-                                        :use-macros use-macros
-                                        :status #{:done})))
+      (let [{:keys [name requires require-macros use-macros
+                    exception-message exception-class]}
+            (cljs-ns-head-reply source-file)]
+        (t/send transport (cond-> (response-for msg :status #{:done})
+                            name (assoc :name name)
+                            requires (assoc :requires requires)
+                            require-macros (assoc :require-macros require-macros)
+                            use-macros (assoc :use-macros use-macros)
+                            exception-message (assoc :exception-message exception-message)
+                            exception-class (assoc :exception-class exception-class))))
       (h msg))))
 
 (mw/set-descriptor! #'wrap-cljs-ns-head
