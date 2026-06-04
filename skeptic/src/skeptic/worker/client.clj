@@ -16,12 +16,18 @@
    :handler handler})
 
 (defn- check-no-error!
-  "A worker reply carrying `:status :error` carries the worker exception's class,
-   the full cause-chain messages, and a printable rendering of the deepest
-   `ex-data`; re-throw on the host so the failure is loud, not a silent nil
-   in some downstream field the caller forgot to inspect."
+  "A worker reply carrying `:exception-class` carries the worker exception's
+   class, full cause-chain messages, and a printable rendering of the deepest
+   `ex-data`; re-throw on the host so the failure is loud, not a silent nil in
+   some downstream field the caller forgot to inspect.
+
+   The discriminator is `:exception-class`, NOT `:status` membership: nREPL's
+   middleware may ship `:status` as a bare keyword, a set, or split across
+   messages, and `contains?` on a bare keyword throws — none of which is robust.
+   A `:exception-class` field on the wire is produced ONLY by the worker's
+   `error-reply`, so its presence is an unambiguous error signal."
   [msg reply]
-  (when (contains? (:status reply) :error)
+  (when (:exception-class reply)
     (throw (ex-info (str "worker " (:op msg) " threw "
                          (:exception-class reply) ": "
                          (:exception-message reply)
