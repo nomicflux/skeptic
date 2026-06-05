@@ -111,6 +111,14 @@
   (doto (sut/project-state (worker-opts) ns->file)
     assert-no-per-ns-failures!))
 
+(defn project-state-allowing-failures
+  "Variant for tests that INTENTIONALLY produce a per-ns-failure (e.g. tests
+   asserting the pipeline localizes reader errors as `:read`-phase findings).
+   Bypasses `assert-no-per-ns-failures!`. Do not use as a general escape hatch
+   for unexpected failures — those should remain loud through `project-state-for`."
+  [ns-sym source-file]
+  (sut/project-state (worker-opts) {ns-sym source-file}))
+
 (def ^:private check-ns-cache
   "Per-(ns-sym, opts) cache of `check-ns` results against the shared
    `fixture-project-state`. `check-fixture` only filters by `:enclosing-form`

@@ -209,7 +209,26 @@
 (mw/set-descriptor! #'wrap-resolve-class-sym
                     {:requires #{} :expects #{} :handles {"resolve-class-sym" {}}})
 
+(defn- reader-error-cause
+  "If `e` or any of its causes is a tools.reader exception (a known
+   phase-localized analyzer failure — unbalanced delimiter, EOF inside a form,
+   etc.), return that Throwable. nil for any other failure kind. This is the
+   ONLY catch-and-encode allowed in `analyze-namespace-reply`: a reader error
+   on one source-file is a per-namespace finding (the pipeline routes it as a
+   `:clj-load` finding so other namespaces still run), not a transport-level
+   exception. Every other Throwable propagates and the wrap-* boundary
+   converts it to a loud `:exception-class` reply."
+  [^Throwable e]
+  (->> (iterate #(.getCause ^Throwable %) e)
+       (take-while some?)
+       (some (fn [^Throwable c]
+               (when (= :reader-exception (:type (ex-data c))) c)))))
+
 (defn- analyze-namespace-reply
+  "Returns either `{:entries ...}` on success or `{:read-failure <msg>}` when a
+   tools.reader exception fires (a known phase-localized failure). Any other
+   Throwable propagates, hits the wrap-* boundary, and surfaces as a loud
+   `:exception-class` wire reply."
   [ns source-file]
   (try
     (let [projected (with-project-operation
@@ -218,17 +237,9 @@
                         (mapv #(project-entry ns-sym %) entries)))]
       {:entries projected})
     (catch Throwable e
-      {:read-failure
-       (str (or (.getMessage e) (str e))
-            (when-let [data (ex-data e)]
-              (str " " (pr-str data)))
-            (let [causes (->> (iterate #(.getCause ^Throwable %) (.getCause e))
-                              (take-while some?)
-                              (map #(or (.getMessage ^Throwable %) (str %)))
-                              (remove str/blank?)
-                              distinct)]
-              (when (seq causes)
-                (str " Causes: " (str/join " <- " causes)))))})))
+      (if-let [re (reader-error-cause e)]
+        {:read-failure (or (.getMessage ^Throwable re) (str re))}
+        (throw e)))))
 
 (defn- class-name-for-handle
   "The canonical name of the Class behind handle `a`, or nil if not interned.
@@ -673,42 +684,6 @@
       schema-var-prov (assoc :plumatic-var-prov schema-var-prov)
       plumatic-schema (assoc :plumatic-schema plumatic-schema))))
 
-(defn wrap-analyze-namespace
-  [h]
-  (fn [{:keys [op transport ns source-file] :as msg}]
-    (if (= op "analyze-namespace")
-      (let [{:keys [entries read-failure]} (analyze-namespace-reply ns source-file)]
-        ;; A read/analysis failure for the whole source-file (e.g. an unbalanced
-        ;; form) produces no entries; ship the message so the host can localize
-        ;; it as a :read-phase finding instead of silently yielding 0 results.
-        (t/send transport (cond-> (response-for msg :status #{:done})
-                            entries (assoc :entries entries)
-                            read-failure (assoc :read-failure read-failure))))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-analyze-namespace
-                    {:requires #{} :expects #{} :handles {"analyze-namespace" {}}})
-
-(defn- project-cljs-entry
-  "Project one cljs analysis entry. Like project-entry, but a cljs entry may
-   carry an :exception (Throwable, non-EDN) instead of an :ast; ship its
-   message string and drop the Throwable. Source-form metadata
-   (`:source`/`:line`/...) is captured for the host to replay (locations on
-   cljs findings depend on it); only the `:source-form` is walked — the cljs
-   `:ast` is NEVER walked for meta capture (its `:env` back-refs run away)."
-  [{:keys [source-form ast exception]}]
-  (let [source-form' (project-raw-forms source-form)
-        malli-schema (source-form-malli-schema source-form)
-        base {:source-form (wire/strip-form-meta source-form')
-              :source-form-meta (wire/capture-form-meta source-form')}]
-    (if exception
-      (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
-      (let [ast' (handle-project-node ast)]
-        (cond-> (assoc base
-                       :ast (wire/strip-ast-form-meta ast')
-                       :ast-form-meta (wire/capture-ast-form-meta ast'))
-          malli-schema (assoc :malli-schema malli-schema))))))
-
 (defn- chain-messages
   "Each cause's message joined with ` <- `, deepest cause first. cljs.analyzer
    wraps the inner cause's real message inside an outer ExceptionInfo whose own
@@ -744,14 +719,65 @@
 
 (defmacro ^:private send-reply-or-error
   "Run `body` and send its result map (must include `:status`) on `transport`,
-   responding under `msg`. If `body` throws, send an error reply instead. The
-   exception is NEVER swallowed: the host's wc/ask throws on `:exception-class`."
+   responding under `msg`. Two layers of catch, because nREPL's outer dispatch
+   (`nrepl.server/handle*`) catches Throwable and ONLY LOGS — the client gets
+   no reply, `message`'s `take-until` blocks until the client-side timeout, the
+   reduce in `wc/ask` then sees an empty seq and returns `{}`, and the test
+   sees `(:ns-ast {})` = nil with NO `:exception-class` to discriminate on.
+   So every throw inside this macro must be converted to a wire reply HERE,
+   never allowed to escape into `handle*`'s logger:
+
+     (1) BODY throws → catch → `error-reply` carrying `Throwable->map`.
+     (2) `t/send` throws (e.g. Nippy can't freeze a non-EDN value still hiding
+         in the success reply) → catch → send a SECOND error-reply built from
+         a Throwable carrying only EDN-safe scalars (class name + chain
+         messages + pr-str of `Throwable->map`). If that ALSO fails the
+         transport is dead and there is nothing further to do.
+
+   The host's `wc/ask` discriminates on `:exception-class` (a producer-owned
+   domain field), so the recursive error reply is unambiguous."
   [transport msg & body]
-  `(t/send ~transport
-           (response-for ~msg
-                         (try
-                           (do ~@body)
-                           (catch Throwable e# (error-reply e#))))))
+  `(let [reply# (try (do ~@body) (catch Throwable e# (error-reply e#)))]
+     (try
+       (t/send ~transport (response-for ~msg reply#))
+       (catch Throwable send-err#
+         (try
+           (t/send ~transport (response-for ~msg (error-reply send-err#)))
+           (catch Throwable _#))))))
+
+(defn wrap-analyze-namespace
+  [h]
+  (fn [{:keys [op transport ns source-file] :as msg}]
+    (if (= op "analyze-namespace")
+      (send-reply-or-error transport msg
+        (let [{:keys [entries read-failure]} (analyze-namespace-reply ns source-file)]
+          (cond-> {:status #{:done}}
+            entries (assoc :entries entries)
+            read-failure (assoc :read-failure read-failure))))
+      (h msg))))
+
+(mw/set-descriptor! #'wrap-analyze-namespace
+                    {:requires #{} :expects #{} :handles {"analyze-namespace" {}}})
+
+(defn- project-cljs-entry
+  "Project one cljs analysis entry. Like project-entry, but a cljs entry may
+   carry an :exception (Throwable, non-EDN) instead of an :ast; ship its
+   message string and drop the Throwable. Source-form metadata
+   (`:source`/`:line`/...) is captured for the host to replay (locations on
+   cljs findings depend on it); only the `:source-form` is walked — the cljs
+   `:ast` is NEVER walked for meta capture (its `:env` back-refs run away)."
+  [{:keys [source-form ast exception]}]
+  (let [source-form' (project-raw-forms source-form)
+        malli-schema (source-form-malli-schema source-form)
+        base {:source-form (wire/strip-form-meta source-form')
+              :source-form-meta (wire/capture-form-meta source-form')}]
+    (if exception
+      (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
+      (let [ast' (handle-project-node ast)]
+        (cond-> (assoc base
+                       :ast (wire/strip-ast-form-meta ast')
+                       :ast-form-meta (wire/capture-ast-form-meta ast'))
+          malli-schema (assoc :malli-schema malli-schema))))))
 
 (defn- analyze-cljs-namespace-reply
   [source-file]
@@ -824,20 +850,27 @@
                         {:result (with-project-operation (boolean (pred arg)))})
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
+(defn- worker-handler
+  "Direct handler chain for RPC — no session middleware, no eval, no REPL
+   machinery. Each request gets exactly one reply from exactly one handler."
+  []
+  (-> srv/unknown-op
+      wrap-apply-predicate
+      wrap-cljs-ns-head
+      wrap-analyze-cljs-namespace
+      wrap-analyze-namespace
+      wrap-class-name
+      wrap-resolve-class-sym
+      wrap-class-rel-batch
+      wrap-class-rel
+      wrap-intern-host-classes
+      wrap-ping))
+
 (defn start!
   []
   (srv/start-server :port 0
                     :transport-fn worker-transport/nippy
-                    :handler (srv/default-handler #'wrap-ping
-                                                  #'wrap-intern-host-classes
-                                                  #'wrap-class-rel
-                                                  #'wrap-class-rel-batch
-                                                  #'wrap-resolve-class-sym
-                                                  #'wrap-class-name
-                                                  #'wrap-analyze-namespace
-                                                  #'wrap-analyze-cljs-namespace
-                                                  #'wrap-cljs-ns-head
-                                                  #'wrap-apply-predicate)))
+                    :handler (worker-handler)))
 
 (defn -main
   [& args]

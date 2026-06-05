@@ -27,7 +27,8 @@
   (let [temp-file (doto (java.io.File/createTempFile "skeptic-read-failure" ".clj")
                     (.deleteOnExit))
         _ (spit temp-file "(ns skeptic.test-examples.basics)\n(def ok 1)\n(def broken [)\n")
-        {:keys [results]} (sut/check-namespace (ps/project-state-for 'skeptic.test-examples.basics temp-file)
+        {:keys [results]} (sut/check-namespace (ps/project-state-allowing-failures
+                                                 'skeptic.test-examples.basics temp-file)
                                                'skeptic.test-examples.basics
                                                temp-file
                                                {:remove-context true})]
