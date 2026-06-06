@@ -15,11 +15,12 @@
   "Resolve Skeptic's worker dependency declaration via leiningen's aether
    wrapper. The declaration lives in `skeptic.worker.deps/worker-deps` —
    Skeptic owns it as data, lein resolves it as a synthetic project.
-   `resolve-managed-dependencies` falls back to lein's default-repositories
-   when a project map omits `:repositories`."
-  []
+   The synthetic project inherits the real project's `:repositories` so
+   aether knows where to download from."
+  [project]
   (let [worker-deps (deref (required-var 'skeptic.worker.deps/worker-deps))
-        synthetic-project {:dependencies worker-deps}]
+        synthetic-project {:dependencies worker-deps
+                           :repositories (:repositories project)}]
     (mapv #(.getAbsolutePath ^java.io.File %)
           (leiningen.core.classpath/resolve-managed-dependencies
             :dependencies :managed-dependencies synthetic-project))))
@@ -51,7 +52,7 @@
         ;; required namespaces. Add discovered source-paths here so worker
         ;; classpath includes them.
         project-cp (vec (distinct (concat base-cp plugin-jars paths)))
-        worker-jars (resolve-worker-jars)
+        worker-jars (resolve-worker-jars project)
         worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
         profiling-run (required-var 'skeptic.profiling/run)
         check-project (required-var 'skeptic.core/check-project)
