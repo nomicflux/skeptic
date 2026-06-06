@@ -3,7 +3,17 @@
    `analyze-form` body that live in `skeptic.analysis.annotate`, with no
    Skeptic / Schema / Malli dependency. The worker reads the project's own
    source files with the real Clojure reader and analyzes them in bulk; no
-   form ever crosses host->worker (the host sends only a source-file path)."
+   form ever crosses host->worker (the host sends only a source-file path).
+
+   tools.analyzer.* and tools.reader.* are required eagerly at ns-load
+   (worker boot), under the JVM launch classloader, not under a
+   project-context loader. Lazy-loading them inside an op handler caused
+   `clojure.reflect.JavaReflector` to be interned in a sibling classloader
+   from the `Reflector` protocol Var resolved at dispatch, producing
+   `No implementation of method: :do-reflect`. The launch-classpath order
+   already prefers project entries (`worker-classpath-entries` in
+   `classpath.clj`), so the project's pinned tools.analyzer version wins
+   without lazy require."
   (:require [clojure.java.io :as io]
             [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.ast :as ana.ast]
@@ -50,10 +60,15 @@
     (swap! assoc :update-ns-map! (fn [] nil))))
 
 (defn- with-loaded-namespace-analyzer-env
+  "Delta A: bind `ana.env/*env*` directly to the global-env Atom, not to
+   `(atom (loaded-namespace-analyzer-env))`. The macro `ana.env/with-env`
+   would wrap a fresh Atom around its arg; we avoid that wrapper because
+   `loaded-namespace-analyzer-env` already returns an Atom and double-wrap
+   breaks `(env/deref-env)` → `mmerge`."
   [f]
   (if ana.env/*env*
     (f)
-    (ana.env/with-env (loaded-namespace-analyzer-env)
+    (with-bindings {#'ana.env/*env* (loaded-namespace-analyzer-env)}
       (f))))
 
 (defn analyze

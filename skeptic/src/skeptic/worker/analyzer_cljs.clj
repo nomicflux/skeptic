@@ -5,15 +5,44 @@
    worker RPC instead of running the cljs analyzer locally.
 
    Wire payloads carry the source-file descriptor only; the cljs compiler state
-   never crosses the wire."
-  (:require [cljs.analyzer :as ana]
-            [cljs.analyzer.api :as ana-api]
-            [cljs.compiler]
-            [clojure.java.io :as io]))
+   never crosses the wire.
+
+   cljs.analyzer / cljs.analyzer.api / cljs.env / cljs.compiler are loaded
+   lazily inside `with-analysis-bindings` so they intern from the project's
+   pinned clojurescript version when present, not Skeptic's runtime-cp version
+   at worker boot."
+  (:require [clojure.java.io :as io]))
+
+(defonce ^:private ensure-cljs-loaded!
+  (delay
+    (require 'cljs.env)
+    (require 'cljs.analyzer)
+    (require 'cljs.analyzer.api)
+    (require 'cljs.compiler)
+    true))
+
+(defn- resolved-ana-vars
+  []
+  @ensure-cljs-loaded!
+  {:*compiler*          (requiring-resolve 'cljs.env/*compiler*)
+   :*file-defs*         (requiring-resolve 'cljs.analyzer/*file-defs*)
+   :*unchecked-if*      (requiring-resolve 'cljs.analyzer/*unchecked-if*)
+   :*unchecked-arrays*  (requiring-resolve 'cljs.analyzer/*unchecked-arrays*)
+   :*analyze-deps*      (requiring-resolve 'cljs.analyzer/*analyze-deps*)
+   :*load-macros*       (requiring-resolve 'cljs.analyzer/*load-macros*)
+   :*cljs-ns*           (requiring-resolve 'cljs.analyzer/*cljs-ns*)
+   :*cljs-file*         (requiring-resolve 'cljs.analyzer/*cljs-file*)
+   :*cljs-warnings*     (requiring-resolve 'cljs.analyzer/*cljs-warnings*)
+   :empty-state         (requiring-resolve 'cljs.analyzer.api/empty-state)
+   :find-ns             (requiring-resolve 'cljs.analyzer.api/find-ns)
+   :current-ns          (requiring-resolve 'cljs.analyzer.api/current-ns)
+   :empty-env           (requiring-resolve 'cljs.analyzer.api/empty-env)
+   :forms-seq           (requiring-resolve 'cljs.analyzer.api/forms-seq)
+   :analyze             (requiring-resolve 'cljs.analyzer.api/analyze)})
 
 (defn- empty-state
-  []
-  (let [state (ana-api/empty-state)]
+  [vars]
+  (let [state ((:empty-state vars))]
     (swap! state assoc-in [:options :spec-skip-macros] true)
     state))
 
@@ -36,13 +65,6 @@
   (and (map? v) (contains? v :op)))
 
 (defn- back-ref-slot?
-  "A slot is a back-ref iff it is NOT one of the node's structural `:children`
-   yet its value is an AST node (or a vector of AST nodes). Such a node sits off
-   the `:children` spine `walk-ast` descends, so its own `:env` is never
-   stripped and any plain-graph reader (`edn-safe?`, `pr-str`) runs away into
-   the analyzer environment. Detection is one level deep — it never looks
-   *inside* the back-ref node, so it cannot itself run into that `:env`.
-   Examples: `:local`→`:init`, `:fn`→`:loop-lets`, `:binding`→`:method-params`."
   [children k v]
   (and (not (contains? children k))
        (not= :meta k)
@@ -52,10 +74,6 @@
 (defn- normalize-cljs-node
   [n]
   (let [children (set (:children n))
-        ;; Drop :type/:env here; drop EVERY non-:children back-ref slot
-        ;; structurally (not by name) so no AST node carrying :env survives off
-        ;; the spine walk-ast/handle-project-node descend. :meta is exempt:
-        ;; walk-ast/handle-project-node project it when it is an AST child.
         n (reduce-kv (fn [acc k v] (if (back-ref-slot? children k v) (dissoc acc k) acc))
                      (dissoc n :type :env)
                      n)
@@ -74,64 +92,65 @@
   [ast]
   (walk-ast normalize-cljs-node ast))
 
+(defn- no-warn-bindings
+  "Inline expansion of `cljs.analyzer.api/no-warn` (probe artifact
+   `probes-v2/cljs-sources/v1.12.134/api.cljc:62-67`). The macro reads
+   `cljs.analyzer/*cljs-warnings*` at expansion time; we read its current
+   value through the resolved Var at call time instead."
+  [vars]
+  (let [warnings-var (:*cljs-warnings* vars)]
+    {warnings-var (zipmap (keys @warnings-var) (repeat false))}))
+
 (defn- analyze-source-entry
-  [state base-env source-form]
+  [vars state base-env source-form]
   (let [env (assoc base-env
-                   :ns (or (ana-api/find-ns state (ana-api/current-ns))
+                   :ns (or ((:find-ns vars) state ((:current-ns vars)))
                            (:ns base-env)))]
-    (ana-api/no-warn
-     (-> (ana-api/analyze state env source-form nil {})
-         strip-cljs-type))))
+    (with-bindings (no-warn-bindings vars)
+      (-> ((:analyze vars) state env source-form nil {})
+          strip-cljs-type))))
 
 (defn- analyze-source-entry-result
-  "Analyze one top-level form, isolating any analyzer throw as an `:exception`
-   entry so a single bad form does not abort the namespace (the host turns it
-   into an expression-phase exception finding). Dependencies are analyzed in
-   full (`*analyze-deps* true`), so referenced vars resolve the way they do in
-   a real compile and no per-form repair is needed."
-  [state base-env source-form]
+  [vars state base-env source-form]
   (try
-    {:ast (analyze-source-entry state base-env source-form)}
+    {:ast (analyze-source-entry vars state base-env source-form)}
     (catch Throwable e
       {:ast nil :exception e})))
 
 (defn- with-analysis-bindings
-  "Run `f` with the cljs analyzer dynamic vars Skeptic uses bound, inside a
-   fresh `empty-state`. `*load-macros*` is true so `:require-macros` deps
-   load on this (worker) JVM under the project basis."
+  "Inline expansion of `cljs.analyzer.api/with-state` + the
+   `(binding [ana/*file-defs* ...])` block from the pre-fix file. The
+   `with-state` macro (probe artifact `probes-v2/cljs-sources/v1.12.134/api.cljc:51-55`)
+   expands to `(binding [cljs.env/*compiler* state-atom] ...)`."
   [path f]
-  (let [state (empty-state)]
-    (ana-api/with-state state
-      (binding [ana/*file-defs* (atom #{})
-                ana/*unchecked-if* false
-                ana/*unchecked-arrays* false
-                ana/*analyze-deps* true
-                ana/*load-macros* true
-                ana/*cljs-ns* 'cljs.user
-                ana/*cljs-file* path]
-        (f state)))))
+  (let [vars  (resolved-ana-vars)
+        state (empty-state vars)]
+    (with-bindings {(:*compiler*         vars) state
+                    (:*file-defs*        vars) (atom #{})
+                    (:*unchecked-if*     vars) false
+                    (:*unchecked-arrays* vars) false
+                    (:*analyze-deps*     vars) true
+                    (:*load-macros*      vars) true
+                    (:*cljs-ns*          vars) 'cljs.user
+                    (:*cljs-file*        vars) path}
+      (f vars state))))
 
 (defn- analyze-ns-form
-  "Read `source-file`'s leading `(ns ...)` form and analyze it to an ns-AST.
-   Throws if the file has no ns form."
-  [state path source-file]
+  [vars state path source-file]
   (with-open [r (io/reader source-file)]
-    (let [base-env (assoc (ana-api/empty-env) :build-options {})
+    (let [base-env (assoc ((:empty-env vars)) :build-options {})
           ns-form (some (fn [form]
                           (when (and (seq? form) (= 'ns (first form))) form))
-                        (ana-api/forms-seq r path))]
+                        ((:forms-seq vars) r path))]
       (if ns-form
-        (analyze-source-entry state base-env ns-form)
+        (analyze-source-entry vars state base-env ns-form)
         (throw (ex-info "cljs source has no (ns ...) form" {:source-file path}))))))
 
 (defn ns-head
-  "Parse only `source-file`'s `(ns ...)` form on the worker (project basis) and
-   return the dependency-ordering head fields. The rest of the file is not
-   analyzed. Mirrors the data `skeptic.cljs.topo/file-head` needs."
   [source-file]
   (let [path (str source-file)
         ns-ast (with-analysis-bindings path
-                 (fn [state] (analyze-ns-form state path source-file)))]
+                 (fn [vars state] (analyze-ns-form vars state path source-file)))]
     (when-not (:name ns-ast)
       (throw (ex-info "cljs ns-head produced an ns-AST without :name"
                       {:source-file path
@@ -141,25 +160,22 @@
     (select-keys ns-ast [:name :requires :require-macros :use-macros])))
 
 (defn analyze-source-file
-  "Analyze every top-level form of `source-file` using the cljs analyzer's
-   reader loop. Returns `{:ns-ast :entries :asts}` in the shape the host
-   wrapper produces today."
   [source-file]
   (let [path (str source-file)]
     (with-analysis-bindings path
-      (fn [state]
+      (fn [vars state]
         (with-open [r (io/reader source-file)]
-          (let [base-env (assoc (ana-api/empty-env) :build-options {})]
-            (loop [forms (ana-api/forms-seq r path)
+          (let [base-env (assoc ((:empty-env vars)) :build-options {})]
+            (loop [forms ((:forms-seq vars) r path)
                    ns-ast nil
                    entries []]
               (if-let [s (seq forms)]
                 (let [source-form (first s)
                       ns-form? (and (seq? source-form) (= 'ns (first source-form)))]
                   (if ns-form?
-                    (let [ns-ast (analyze-source-entry state base-env source-form)]
+                    (let [ns-ast (analyze-source-entry vars state base-env source-form)]
                       (recur (next s) ns-ast entries))
-                    (let [result (analyze-source-entry-result state
+                    (let [result (analyze-source-entry-result vars state
                                                               (assoc base-env :ns ns-ast)
                                                               source-form)]
                       (recur (next s)
