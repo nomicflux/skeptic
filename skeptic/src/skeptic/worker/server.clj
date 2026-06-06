@@ -1,22 +1,25 @@
 (ns skeptic.worker.server
-  "Worker-side Nippy nREPL server. Runs in the spawned JVM on Skeptic's
-   private worker runtime and answers host requests on demand. Project classpath
+  "Worker-side nREPL server. Runs in the spawned JVM on Skeptic's private
+   worker runtime and answers host requests on demand. Project classpath
    entries are installed as a separate context loader around project-resolution
-   operations. Plan 2 Phase 1.5 adds the
-   handle-table machinery: every Class operand on the wire is an opaque handle
-   (integer for bootstrap-interned host-runtime classes; UUID-string for project
-   classes). Worker is sole owner of `Class/forName`, `.isAssignableFrom`,
-   `instance?`, and class equality.
+   operations. Plan 2 Phase 1.5 adds the handle-table machinery: every Class
+   operand on the wire is an opaque handle (integer for bootstrap-interned
+   host-runtime classes; UUID-string for project classes). Worker is sole owner
+   of `Class/forName`, `.isAssignableFrom`, `instance?`, and class equality.
 
-   Phase 5 adds the analyzer ops. The analyzer-execution glue lives
-   in `skeptic.worker.analyzer-clj` / `skeptic.worker.analyzer-cljs`. No other `skeptic.*`
-   namespace is required from this server: Skeptic's own analysis code and
-   Plumatic Schema / Malli stay on the host (B3/B4)."
-  (:require [nrepl.server :as srv]
-            [nrepl.transport :as t]
-            [nrepl.middleware :as mw]
-            [nrepl.misc :refer [response-for]]
-            [clojure.edn :as edn]
+   Phase 5 adds the analyzer ops. The analyzer-execution glue lives in
+   `skeptic.worker.analyzer-clj` / `skeptic.worker.analyzer-cljs`. No other
+   `skeptic.*` namespace is required from this server: Skeptic's own analysis
+   code and Plumatic Schema / Malli stay on the host (B3/B4).
+
+   Change 2.5: nREPL is lazy-loaded inside `start!` under the project-context
+   classloader. The ns form does NOT require any nrepl.* namespace at load
+   time — projects pinning a different nrepl can win their version. The
+   `wrap-*` dispatchers are let-bound inside `start!`, closing over locally
+   resolved `nrepl.transport/send`, `nrepl.misc/response-for`, and
+   `nrepl.server/{start-server,unknown-op}`. Descriptor metadata is dead
+   code under the explicit handler thread and has been removed."
+  (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.walk :as walk]
             [clojure.java.io :as io]
@@ -57,15 +60,6 @@
   "Returns the ^Class for handle `id`, or nil if not interned."
   [id]
   (get (:id->class @handle-state) id))
-
-(defn wrap-ping
-  [h]
-  (fn [{:keys [op transport] :as msg}]
-    (if (= op "ping")
-      (t/send transport (response-for msg :pong "ok" :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-ping {:requires #{} :expects #{} :handles {"ping" {}}})
 
 (def ^:private primitive-name->class
   "Primitive classes are not loadable via `Class/forName`; resolve them through
@@ -127,18 +121,6 @@
               acc))
           {} class-names))
 
-(defn wrap-intern-host-classes
-  [h]
-  (fn [{:keys [op transport class-names] :as msg}]
-    (if (= op "intern-host-classes")
-      (t/send transport (response-for msg
-                                      :handles (intern-host-classes-reply class-names)
-                                      :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-intern-host-classes
-                    {:requires #{} :expects #{} :handles {"intern-host-classes" {}}})
-
 (defn- run-class-rel
   "Dispatches a class relation against handle operands. `:a` is always a handle.
    For `:instance?` `:b` is a runtime value; otherwise `:b` is a handle."
@@ -150,31 +132,11 @@
       :equals          (boolean (and ca (= ca (handle->class b))))
       :instance?       (boolean (and ca (instance? ^Class ca b))))))
 
-(defn wrap-class-rel
-  [h]
-  (fn [{:keys [op transport rel a b] :as msg}]
-    (if (= op "class-rel")
-      (t/send transport (response-for msg :result (run-class-rel rel a b) :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-class-rel
-                    {:requires #{} :expects #{} :handles {"class-rel" {}}})
-
 (defn- run-class-rel-batch
   "Answers a vector of `{:rel :a :b}` triples in one pass, returning a vector of
    booleans positionally matching `triples`."
   [triples]
   (mapv (fn [{:keys [rel a b]}] (run-class-rel rel a b)) triples))
-
-(defn wrap-class-rel-batch
-  [h]
-  (fn [{:keys [op transport triples] :as msg}]
-    (if (= op "class-rel-batch")
-      (t/send transport (response-for msg :results (run-class-rel-batch triples) :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-class-rel-batch
-                    {:requires #{} :expects #{} :handles {"class-rel-batch" {}}})
 
 (defn- resolve-sym-to-handle
   "In the namespace `ns-name`, resolve `sym` to a Class and return its handle
@@ -196,18 +158,6 @@
             (let [v (resolve (symbol sym))]
               (when (class? v)
                 (intern-class! ^Class v :uuid))))))))
-
-(defn wrap-resolve-class-sym
-  [h]
-  (fn [{:keys [op transport ns sym] :as msg}]
-    (if (= op "resolve-class-sym")
-      (t/send transport (response-for msg
-                                      :handle (resolve-sym-to-handle ns sym)
-                                      :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-resolve-class-sym
-                    {:requires #{} :expects #{} :handles {"resolve-class-sym" {}}})
 
 (defn- reader-error-cause
   "If `e` or any of its causes is a tools.reader exception (a known
@@ -247,16 +197,6 @@
   [a]
   (when-let [c (handle->class a)]
     (.getName ^Class c)))
-
-(defn wrap-class-name
-  [h]
-  (fn [{:keys [op transport a] :as msg}]
-    (if (= op "class-name")
-      (t/send transport (response-for msg :name (class-name-for-handle a) :status #{:done}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-class-name
-                    {:requires #{} :expects #{} :handles {"class-name" {}}})
 
 (defn- ast-node?
   "True when `v` is a tools.analyzer AST node (a plain map carrying `:op`).
@@ -709,55 +649,12 @@
    host MUST treat it as failure (wc/ask throws when `:exception-class` is
    present). The wire payload is `Throwable->map`'s pr-str — Clojure's standard
    EDN-readable exception serialization, carrying class + message + data + every
-   cause link's class/message/data/at + the trace. One pr-str string so it
-   round-trips through Nippy without arguing about non-EDN values."
+   cause link's class/message/data/at + the trace."
   [^Throwable e]
   {:status #{:error :done}
    :exception-class (.getName (class e))
    :exception-message (chain-messages e)
    :exception-via (safe-pr-str (Throwable->map e))})
-
-(defmacro ^:private send-reply-or-error
-  "Run `body` and send its result map (must include `:status`) on `transport`,
-   responding under `msg`. Two layers of catch, because nREPL's outer dispatch
-   (`nrepl.server/handle*`) catches Throwable and ONLY LOGS — the client gets
-   no reply, `message`'s `take-until` blocks until the client-side timeout, the
-   reduce in `wc/ask` then sees an empty seq and returns `{}`, and the test
-   sees `(:ns-ast {})` = nil with NO `:exception-class` to discriminate on.
-   So every throw inside this macro must be converted to a wire reply HERE,
-   never allowed to escape into `handle*`'s logger:
-
-     (1) BODY throws → catch → `error-reply` carrying `Throwable->map`.
-     (2) `t/send` throws (e.g. Nippy can't freeze a non-EDN value still hiding
-         in the success reply) → catch → send a SECOND error-reply built from
-         a Throwable carrying only EDN-safe scalars (class name + chain
-         messages + pr-str of `Throwable->map`). If that ALSO fails the
-         transport is dead and there is nothing further to do.
-
-   The host's `wc/ask` discriminates on `:exception-class` (a producer-owned
-   domain field), so the recursive error reply is unambiguous."
-  [transport msg & body]
-  `(let [reply# (try (do ~@body) (catch Throwable e# (error-reply e#)))]
-     (try
-       (t/send ~transport (response-for ~msg reply#))
-       (catch Throwable send-err#
-         (try
-           (t/send ~transport (response-for ~msg (error-reply send-err#)))
-           (catch Throwable _#))))))
-
-(defn wrap-analyze-namespace
-  [h]
-  (fn [{:keys [op transport ns source-file] :as msg}]
-    (if (= op "analyze-namespace")
-      (send-reply-or-error transport msg
-        (let [{:keys [entries read-failure]} (analyze-namespace-reply ns source-file)]
-          (cond-> {:status #{:done}}
-            entries (assoc :entries entries)
-            read-failure (assoc :read-failure read-failure))))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-analyze-namespace
-                    {:requires #{} :expects #{} :handles {"analyze-namespace" {}}})
 
 (defn- project-cljs-entry
   "Project one cljs analysis entry. Like project-entry, but a cljs entry may
@@ -786,54 +683,10 @@
     {:ns-ast (wire/strip-ast-form-meta (handle-project-node ns-ast))
      :entries (mapv project-cljs-entry entries)}))
 
-(defn wrap-analyze-cljs-namespace
-  [h]
-  (fn [{:keys [op transport source-file] :as msg}]
-    (if (= op "analyze-cljs-namespace")
-      (send-reply-or-error transport msg
-        (let [{:keys [ns-ast entries]} (analyze-cljs-namespace-reply source-file)]
-          {:status #{:done} :ns-ast ns-ast :entries entries}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-analyze-cljs-namespace
-                    {:requires #{} :expects #{} :handles {"analyze-cljs-namespace" {}}})
-
 (defn- cljs-ns-head-reply
   [source-file]
   (with-project-operation
     (wac-cljs/ns-head (io/file source-file))))
-
-(defn wrap-cljs-ns-head
-  [h]
-  (fn [{:keys [op transport source-file] :as msg}]
-    (if (= op "cljs-ns-head")
-      (send-reply-or-error transport msg
-        (let [{:keys [name requires require-macros use-macros]}
-              (cljs-ns-head-reply source-file)]
-          {:status #{:done}
-           :name name
-           :requires requires
-           :require-macros require-macros
-           :use-macros use-macros}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-cljs-ns-head
-                    {:requires #{} :expects #{} :handles {"cljs-ns-head" {}}})
-
-(defn wrap-apply-predicate
-  [h]
-  (fn [{:keys [op transport handle arg] :as msg}]
-    (if (= op "apply-predicate")
-      (send-reply-or-error transport msg
-        (let [pred (or (get-in @fn-handle-state [:id->fn handle])
-                       (throw (ex-info (str "Unknown predicate handle: " handle)
-                                       {:handle handle})))]
-          {:status #{:done}
-           :result (with-project-operation (boolean (pred arg)))}))
-      (h msg))))
-
-(mw/set-descriptor! #'wrap-apply-predicate
-                    {:requires #{} :expects #{} :handles {"apply-predicate" {}}})
 
 (defn- handle-loopback-message
   [{:keys [op class-names rel a b triples ns sym source-file handle arg]}]
@@ -850,32 +703,142 @@
                         {:result (with-project-operation (boolean (pred arg)))})
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
-(defn- worker-handler
-  "Direct handler chain for RPC — no session middleware, no eval, no REPL
-   machinery. Each request gets exactly one reply from exactly one handler."
-  []
-  (-> srv/unknown-op
-      wrap-apply-predicate
-      wrap-cljs-ns-head
-      wrap-analyze-cljs-namespace
-      wrap-analyze-namespace
-      wrap-class-name
-      wrap-resolve-class-sym
-      wrap-class-rel-batch
-      wrap-class-rel
-      wrap-intern-host-classes
-      wrap-ping))
-
 (defn start!
+  "Lazy-load nREPL inside `with-project-context`, then start a server with an
+   explicit handler chain. Every nREPL Var (`t/send`, `response-for`,
+   `srv/start-server`, `srv/unknown-op`-equivalent) is resolved here under the
+   project-context classloader so a project pinning a different nrepl wins.
+   Wrap-* dispatchers are let-bound inside this fn — they close over locally
+   resolved `t-send` and `resp-for`, never reference a namespace-scoped alias."
   []
-  (srv/start-server :port 0
-                    :transport-fn worker-transport/transit
-                    :handler (worker-handler)))
+  (require 'nrepl.transport)
+  (require 'nrepl.server)
+  (require 'nrepl.misc)
+  (let [t-send (requiring-resolve 'nrepl.transport/send)
+        resp-for (requiring-resolve 'nrepl.misc/response-for)
+        start-server (requiring-resolve 'nrepl.server/start-server)
+        send-reply!
+        (fn [transport msg reply]
+          (try
+            (t-send transport (resp-for msg reply))
+            (catch Throwable send-err
+              (try
+                (t-send transport (resp-for msg (error-reply send-err)))
+                (catch Throwable _)))))
+        send-reply-or-error*
+        (fn [transport msg body-fn]
+          (let [reply (try (body-fn) (catch Throwable e (error-reply e)))]
+            (send-reply! transport msg reply)))
+        unknown-op
+        (fn [{:keys [op transport] :as msg}]
+          (t-send transport (resp-for msg :status #{:error :unknown-op :done} :op op)))
+        wrap-ping
+        (fn [h]
+          (fn [{:keys [op transport] :as msg}]
+            (if (= op "ping")
+              (t-send transport (resp-for msg :pong "ok" :status #{:done}))
+              (h msg))))
+        wrap-intern-host-classes
+        (fn [h]
+          (fn [{:keys [op transport class-names] :as msg}]
+            (if (= op "intern-host-classes")
+              (t-send transport (resp-for msg
+                                          :handles (intern-host-classes-reply class-names)
+                                          :status #{:done}))
+              (h msg))))
+        wrap-class-rel
+        (fn [h]
+          (fn [{:keys [op transport rel a b] :as msg}]
+            (if (= op "class-rel")
+              (t-send transport (resp-for msg :result (run-class-rel rel a b) :status #{:done}))
+              (h msg))))
+        wrap-class-rel-batch
+        (fn [h]
+          (fn [{:keys [op transport triples] :as msg}]
+            (if (= op "class-rel-batch")
+              (t-send transport (resp-for msg :results (run-class-rel-batch triples) :status #{:done}))
+              (h msg))))
+        wrap-resolve-class-sym
+        (fn [h]
+          (fn [{:keys [op transport ns sym] :as msg}]
+            (if (= op "resolve-class-sym")
+              (t-send transport (resp-for msg
+                                          :handle (resolve-sym-to-handle ns sym)
+                                          :status #{:done}))
+              (h msg))))
+        wrap-class-name
+        (fn [h]
+          (fn [{:keys [op transport a] :as msg}]
+            (if (= op "class-name")
+              (t-send transport (resp-for msg :name (class-name-for-handle a) :status #{:done}))
+              (h msg))))
+        wrap-analyze-namespace
+        (fn [h]
+          (fn [{:keys [op transport ns source-file] :as msg}]
+            (if (= op "analyze-namespace")
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      (let [{:keys [entries read-failure]}
+                                            (analyze-namespace-reply ns source-file)]
+                                        (cond-> {:status #{:done}}
+                                          entries (assoc :entries entries)
+                                          read-failure (assoc :read-failure read-failure)))))
+              (h msg))))
+        wrap-analyze-cljs-namespace
+        (fn [h]
+          (fn [{:keys [op transport source-file] :as msg}]
+            (if (= op "analyze-cljs-namespace")
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      (let [{:keys [ns-ast entries]}
+                                            (analyze-cljs-namespace-reply source-file)]
+                                        {:status #{:done} :ns-ast ns-ast :entries entries})))
+              (h msg))))
+        wrap-cljs-ns-head
+        (fn [h]
+          (fn [{:keys [op transport source-file] :as msg}]
+            (if (= op "cljs-ns-head")
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      (let [{:keys [name requires require-macros use-macros]}
+                                            (cljs-ns-head-reply source-file)]
+                                        {:status #{:done}
+                                         :name name
+                                         :requires requires
+                                         :require-macros require-macros
+                                         :use-macros use-macros})))
+              (h msg))))
+        wrap-apply-predicate
+        (fn [h]
+          (fn [{:keys [op transport handle arg] :as msg}]
+            (if (= op "apply-predicate")
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      (let [pred (or (get-in @fn-handle-state [:id->fn handle])
+                                                     (throw (ex-info (str "Unknown predicate handle: " handle)
+                                                                     {:handle handle})))]
+                                        {:status #{:done}
+                                         :result (with-project-operation (boolean (pred arg)))})))
+              (h msg))))
+        handler (-> unknown-op
+                    wrap-apply-predicate
+                    wrap-cljs-ns-head
+                    wrap-analyze-cljs-namespace
+                    wrap-analyze-namespace
+                    wrap-class-name
+                    wrap-resolve-class-sym
+                    wrap-class-rel-batch
+                    wrap-class-rel
+                    wrap-intern-host-classes
+                    wrap-ping)]
+    (start-server :port 0
+                  :transport-fn worker-transport/transit
+                  :handler handler)))
 
 (defn -main
   [& args]
   (project-context/install! (first args))
-  (let [server (start!)]
+  (let [server (project-context/with-project-context (start!))]
     (println (str "SKEPTIC-WORKER-PORT " (:port server)))
     (flush)
     @(promise)))

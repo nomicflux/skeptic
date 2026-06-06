@@ -1,17 +1,24 @@
 (ns skeptic.worker.client
   "Host-side nREPL client: connect to a worker port, send ops, return replies.
-   Uses the Transport protocol directly (t/send + t/recv) for synchronous
+   Uses the Transport protocol directly (`send` + `recv`) for synchronous
    request-response semantics. Does NOT use nrepl.core/client or
    nrepl.core/message — those layer lazy seqs and timeouts designed for
-   interactive REPLs, not RPC."
-  (:require [nrepl.core :as nrepl]
-            [nrepl.misc :refer [uuid]]
-            [nrepl.transport :as t]
-            [skeptic.worker.transport :as worker-transport]))
+   interactive REPLs, not RPC.
+
+   nrepl.* namespaces are NOT required at namespace-load time. The worker
+   loads this namespace via server.clj's :require to get `loopback-conn` and
+   the loopback branch of `ask` — neither of which touches nrepl — and the
+   loopback path is exercised before `with-project-context` is entered. An
+   eager `nrepl.*` require here would intern the wrong nrepl version at
+   worker T0 (Lein's standalone bundle resolves first under the worker's
+   launch classloader); the host-facing functions below defer their nrepl
+   loads via `requiring-resolve`, so the project's pinned nrepl wins."
+  (:require [skeptic.worker.transport :as worker-transport]))
 
 (defn connect
   [port]
-  (let [transport (nrepl/connect :port port :transport-fn worker-transport/transit)]
+  (let [nrepl-connect (requiring-resolve 'nrepl.core/connect)
+        transport (nrepl-connect :port port :transport-fn worker-transport/transit)]
     {:transport transport}))
 
 (defn loopback-conn
@@ -25,12 +32,12 @@
       (contains? status "done")))
 
 (defn- recv-reply
-  "Block on t/recv until we receive a reply with :status containing :done
+  "Block on `recv` until we receive a reply with :status containing :done
    for our request :id. Merge all intermediate replies. If recv returns nil
    the transport is dead — throw naming the op."
-  [transport op id]
+  [t-recv transport op id]
   (loop [merged {}]
-    (let [msg (t/recv transport)]
+    (let [msg (t-recv transport)]
       (when-not msg
         (throw (ex-info (str "Worker transport closed during op \"" op
                              "\" (request id " id "): no reply received. "
@@ -60,11 +67,14 @@
   [conn msg]
   (if (:skeptic.worker/loopback? conn)
     ((:handler conn) msg)
-    (let [id (or (:id msg) (uuid))
+    (let [uuid (requiring-resolve 'nrepl.misc/uuid)
+          t-send (requiring-resolve 'nrepl.transport/send)
+          t-recv (requiring-resolve 'nrepl.transport/recv)
+          id (or (:id msg) (uuid))
           msg (assoc msg :id id)
           transport (:transport conn)]
-      (t/send transport msg)
-      (let [reply (recv-reply transport (:op msg) id)]
+      (t-send transport msg)
+      (let [reply (recv-reply t-recv transport (:op msg) id)]
         (check-no-error! msg reply)
         reply))))
 
