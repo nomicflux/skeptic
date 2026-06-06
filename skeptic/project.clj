@@ -22,7 +22,7 @@
                  [org.clojure/tools.deps     "0.29.1598"]
                  [org.babashka/sci           "0.12.51"]
                  [commons-io                 "2.11.0"]
-                 [com.taoensso/nippy         "3.4.2"]
+                 [com.cognitect/transit-clj  "1.0.333"]
                  [nrepl                      "1.3.1"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}

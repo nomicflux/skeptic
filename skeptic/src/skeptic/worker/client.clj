@@ -11,7 +11,7 @@
 
 (defn connect
   [port]
-  (let [transport (nrepl/connect :port port :transport-fn worker-transport/nippy)]
+  (let [transport (nrepl/connect :port port :transport-fn worker-transport/transit)]
     {:transport transport}))
 
 (defn loopback-conn

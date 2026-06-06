@@ -869,7 +869,7 @@
 (defn start!
   []
   (srv/start-server :port 0
-                    :transport-fn worker-transport/nippy
+                    :transport-fn worker-transport/transit
                     :handler (worker-handler)))
 
 (defn -main

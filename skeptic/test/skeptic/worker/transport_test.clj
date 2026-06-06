@@ -17,8 +17,8 @@
 (defn- with-transport-pair
   [f]
   (let [[a-socket b-socket] (socket-pair)
-        a (transport/nippy a-socket)
-        b (transport/nippy b-socket)]
+        a (transport/transit a-socket)
+        b (transport/transit b-socket)]
     (try
       (f a b)
       (finally
@@ -54,8 +54,8 @@
 
 (deftest clean-close-returns-nil
   (let [[a-socket b-socket] (socket-pair)
-        a (transport/nippy a-socket)
-        b (transport/nippy b-socket)]
+        a (transport/transit a-socket)
+        b (transport/transit b-socket)]
     (try
       (.close ^java.io.Closeable a)
       (is (nil? (nrepl-transport/recv b 1000)))
@@ -66,12 +66,12 @@
   (let [[writer-socket reader-socket] (socket-pair)
         out (DataOutputStream.
              (BufferedOutputStream. (.getOutputStream writer-socket)))
-        reader (transport/nippy reader-socket)]
+        reader (transport/transit reader-socket)]
     (try
       (.writeInt out -1)
       (.flush out)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Negative Nippy frame length"
+                            #"Negative Transit frame length"
                             (nrepl-transport/recv reader 1000)))
       (finally
         (.close writer-socket)
