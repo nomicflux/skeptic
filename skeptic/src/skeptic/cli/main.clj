@@ -152,10 +152,17 @@
                         ;; entry; the worker doesn't want a cwd-relative dir on its
                         ;; launch cp. Keep only .jar files.
                         (filterv #(str/ends-with? % ".jar") (:classpath-roots worker-basis))))
+        ;; Discovered cljs source-paths must be on the worker classpath so
+        ;; `cljs.analyzer/locate-src` → `cljs.util/ns->source` → `io/resource`
+        ;; can resolve sibling required namespaces. For plain deps.edn the
+        ;; basis classpath already covers :paths, so `distinct` dedups; for
+        ;; shadow-cljs-only source dirs not in deps.edn, this is what makes
+        ;; them visible to the analyzer.
+        project-cp (vec (distinct (concat (:classpath-entries project-context) paths)))
         cp (when project-context
              (worker-classpath/worker-classpath-entries
               worker-jars
-              (:classpath-entries project-context)))
+              project-cp))
         result (atom 0)]
     (with-output-redirect (:output opts)
       #(reset! result (run-checker opts root paths cp)))

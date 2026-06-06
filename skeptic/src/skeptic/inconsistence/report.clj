@@ -54,8 +54,12 @@
              (str "Rejected schema: " (disp/ppr-str rejected-schema)))]))
 
 (s/defn exception-error-summary :- s/Str
-  [report :- isch/ExceptionReport]
-  (let [{:keys [phase blame exception-message]} report
+  [report]
+  (let [{:keys [phase blame exception-message report-kind]} report
+        skipped? (= :analysis-skipped report-kind)
+        opening (if skipped?
+                  "Skeptic could not analyze %s; treating as Dyn."
+                  "Skeptic hit an exception while checking %s.")
         subject (case phase
                   :declaration (format "declared schema for %s" (pr-str blame))
                   :read (format "namespace input %s" (pr-str blame))
@@ -65,11 +69,16 @@
                        (str "\n\n"
                             (str/join "\n"
                                       (map colours/yellow detail-lines))))
-        skip-text (case phase
-                    :declaration "Skeptic skipped this declaration and continued with the rest of the namespace."
-                    :read "Skeptic localized this namespace read failure instead of aborting the namespace at the top level."
+        skip-text (cond
+                    skipped?
+                    "Skeptic treats unanalyzable expressions as Dyn and continued with the rest of the namespace."
+                    (= :declaration phase)
+                    "Skeptic skipped this declaration and continued with the rest of the namespace."
+                    (= :read phase)
+                    "Skeptic localized this namespace read failure instead of aborting the namespace at the top level."
+                    :else
                     "Skeptic skipped this expression and continued with the rest of the namespace.")]
-    (format "Skeptic hit an exception while checking %s.\n\n%s%s\n\n%s"
+    (format (str opening "\n\n%s%s\n\n%s")
             subject
             (colours/yellow exception-message)
             (or detail-block "")
@@ -223,6 +232,9 @@
      :exception
      [(exception-error-summary report)]
 
+     :analysis-skipped
+     [(exception-error-summary report)]
+
      :output
      (let [ordered-leaves (ordered-output-leaves report)
            detail-lines (->> ordered-leaves
@@ -268,7 +280,8 @@
   ([report :- isch/Report
     opts :- isch/ReportOpts]
    (let [{:keys [report-kind rule actual-type expected-type cast-summary cast-diagnostics]} report]
-     (when-not (= :exception report-kind)
+     (when-not (or (= :exception report-kind)
+                   (= :analysis-skipped report-kind))
        (let [primary (first cast-diagnostics)
              rule (or (:rule cast-summary) rule (:rule primary))
              actual-type (or (:actual-type cast-summary) actual-type (:actual-type primary))

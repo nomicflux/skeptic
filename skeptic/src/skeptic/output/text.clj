@@ -95,7 +95,8 @@
            expanded-expression exception-class declaration-slot
            rejected-schema]}
    verbose]
-  (if (= :exception report-kind)
+  (if (or (= :exception report-kind)
+           (= :analysis-skipped report-kind))
     (remove nil?
             [(when-let [location-text (format-location location)]
                ["Location: \t\t" location-text])

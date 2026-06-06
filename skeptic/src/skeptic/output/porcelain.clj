@@ -63,6 +63,19 @@
      :messages (mapv strip-ansi errors)}
     opts result))
 
+(defn- analysis-skipped-record
+  [ns result {:keys [phase location blame errors]} opts]
+  (with-debug
+    {:kind "analysis-skipped"
+     :ns (str ns)
+     :phase (some-> phase name)
+     :location (location-record location)
+     :blame (->str blame)
+     :exception_class (some-> (:exception-class result) str)
+     :exception_message (:exception-message result)
+     :messages (mapv strip-ansi errors)}
+    opts result))
+
 (defn- finding-record
   [ns result summary opts]
   (let [{:keys [report-kind location blame-side blame-polarity rule
@@ -89,12 +102,13 @@
       opts result)))
 
 (defn- run-summary-record
-  [errored? {:keys [finding-count exception-count namespace-count
-                    namespaces-with-findings]}]
+  [errored? {:keys [finding-count exception-count analysis-skipped-count
+                    namespace-count namespaces-with-findings]}]
   {:kind "run-summary"
    :errored (boolean errored?)
    :finding_count finding-count
    :exception_count exception-count
+   :analysis_skipped_count (or analysis-skipped-count 0)
    :namespace_count namespace-count
    :namespaces_with_findings namespaces-with-findings})
 
@@ -114,8 +128,9 @@
                                    :message message}))
    :ns-start (s/fn [_ns _source-file _opts :- copts/PrinterOpts])
    :finding (fn [ns result summary opts]
-              (let [record (if (= :exception (:report-kind summary))
-                             (exception-record ns result summary opts)
+              (let [record (case (:report-kind summary)
+                             :exception        (exception-record ns result summary opts)
+                             :analysis-skipped (analysis-skipped-record ns result summary opts)
                              (finding-record ns result summary opts))]
                 (write-line-raw! (if (:debug opts) record (drop-empties record)))))
    :form-debug (s/fn [_ns record _opts :- copts/PrinterOpts]

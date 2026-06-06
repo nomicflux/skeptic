@@ -114,6 +114,7 @@
                 (output/printer opts)
                 totals (atom {:finding-count 0
                               :exception-count 0
+                              :analysis-skipped-count 0
                               :namespace-count (count nss-to-check)
                               :namespaces-with-findings 0
                               :per-namespace-counts {}})]
@@ -137,13 +138,16 @@
                     (if (= :debug-form (:report-kind result))
                       (form-debug ns result printer-opts)
                       (let [summary (inrep/report-summary result report-opts)
-                            exception? (= :exception (:report-kind summary))]
+                            kind (:report-kind summary)
+                            counter-key (case kind
+                                          :exception        :exception-count
+                                          :analysis-skipped :analysis-skipped-count
+                                          :finding-count)]
                         (finding ns result summary printer-opts)
-                        (reset! errored true)
-                        (swap! ns-findings inc)
-                        (swap! totals update
-                               (if exception? :exception-count :finding-count)
-                               inc))))
+                        (when-not (= :analysis-skipped kind)
+                          (reset! errored true)
+                          (swap! ns-findings inc))
+                        (swap! totals update counter-key inc))))
                   (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
                   (when (pos? @ns-findings)
                     (swap! totals update :namespaces-with-findings inc))

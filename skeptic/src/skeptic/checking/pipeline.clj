@@ -1,5 +1,6 @@
 (ns skeptic.checking.pipeline
-  (:require [schema.core :as s]
+  (:require [clojure.edn :as edn]
+            [schema.core :as s]
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
@@ -617,6 +618,39 @@
    :exception-message (or (.getMessage e)
                           (str e))})
 
+(defn- macroexpansion-failure?
+  "An analyzer failure whose ex-data declares :clojure.error/phase :macroexpansion
+   means the expression's macro contract was violated at compile time (e.g. a
+   cljs macro expecting a quoted symbol literal received a runtime local).
+   Such expressions cannot be analyzed; gradual typing demotes them to Dyn
+   rather than treating the analyzer crash as a Skeptic-emitted exception."
+  [^Throwable e]
+  (let [data (ex-data e)]
+    (or (= :macroexpansion (:clojure.error/phase data))
+        (some-> (.getCause e) ex-data :clojure.error/phase (= :macroexpansion)))))
+
+(s/defn analysis-skipped-result :- s/Any
+  [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable
+   lang :- (s/enum :clj :cljs :both)]
+  {:report-kind :analysis-skipped
+   :phase :expression
+   :blame source-form
+   :source-expression (cf/form-source source-form)
+   :location (location-with-source (cf/form-location source-file source-form) :inferred lang)
+   :enclosing-form (enclosing-form ns-sym source-form)
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage e)
+                          (str e))})
+
+(defn- analyzer-failure-result
+  "Route an analyzer-side Throwable to the right report-kind. Macroexpansion
+   failures (e.g. cljs macros rejecting a runtime arg) are gradually-typed
+   as :analysis-skipped; other analyzer crashes remain :exception."
+  [ns-sym source-file source-form e lang]
+  (if (macroexpansion-failure? e)
+    (analysis-skipped-result ns-sym source-file source-form e lang)
+    (expression-exception-result ns-sym source-file source-form e lang)))
+
 (s/defn ^:private resolved-defs-provenance :- {s/Symbol provs/Provenance}
   [resolved-defs :- {s/Symbol aapi/AnalyzedDefEntry}]
   (into {} (map (fn [[sym entry]] [sym (prov/of (:type entry))])) resolved-defs))
@@ -655,7 +689,7 @@
    form-opts          :- {s/Keyword s/Any}]
   (cond
     exception
-    {:results [(expression-exception-result ns source-file source-form exception lang)]
+    {:results [(analyzer-failure-result ns source-file source-form exception lang)]
      :provenance {}}
 
     analysis-skipped?
@@ -677,7 +711,7 @@
                                             (select-keys form-opts [:keep-empty :remove-context :debug])))
          :provenance (resolved-defs-provenance resolved-defs)})
       (catch Exception e
-        {:results [(expression-exception-result ns source-file source-form e lang)]
+        {:results [(analyzer-failure-result ns source-file source-form e lang)]
          :provenance {}}))
 
     :else
@@ -700,7 +734,7 @@
                (check-cached-entry dict ignore-body ns source-file :cljs entry
                                    accessor-summaries form-opts)
                (catch Exception e
-                 {:results [(expression-exception-result ns source-file (:source-form entry) e :cljs)]
+                 {:results [(analyzer-failure-result ns source-file (:source-form entry) e :cljs)]
                   :provenance {}}))]
          (-> acc
              (update :results into form-results)
@@ -734,7 +768,7 @@
                    (check-cached-entry dict ignore-body ns source-file :clj entry
                                        accessor-summaries form-opts)
                    (catch Exception e
-                     {:results [(expression-exception-result ns source-file (:source-form entry) e :clj)]
+                     {:results [(analyzer-failure-result ns source-file (:source-form entry) e :clj)]
                       :provenance {}}))]
              (-> acc
                  (update :results into form-results)
@@ -955,11 +989,15 @@
                                         (wire/apply-form-meta source-form source-form-meta))
                 ast-form-meta    (assoc :ast (wire/apply-ast-form-meta ast ast-form-meta)))]
     (if (contains? entry :exception-message)
-      (-> entry
-          (dissoc :exception-message)
-          (assoc :ast nil :exception (ex-info (or (:exception-message entry)
-                                                  "cljs analyzer error")
-                                              {})))
+      (let [data-str (:exception-data entry)
+            data (when (and (string? data-str) (seq data-str))
+                   (try (edn/read-string {:default (fn [_ v] v)} data-str)
+                        (catch Throwable _ nil)))]
+        (-> entry
+            (dissoc :exception-message :exception-data)
+            (assoc :ast nil :exception (ex-info (or (:exception-message entry)
+                                                    "cljs analyzer error")
+                                                (or data {})))))
       entry)))
 
 (defn- fetch-cljs-heads

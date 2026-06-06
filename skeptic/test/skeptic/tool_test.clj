@@ -94,7 +94,14 @@
         (is (= (.getPath root) (:root @project-context-call)))
         (is (= [:dev :shadow :sci] (:aliases @project-context-call))))
       (testing "the deps entrypoint delegates worker cp assembly to the shared builder"
-        (is (= ["project-cp"] (:project-cp @worker-builder-input)))
+        ;; Discovered cljs source-paths are concatenated into project-cp so the
+        ;; cljs analyzer's resolver (locate-src → util/ns->source → io/resource)
+        ;; can find sibling required namespaces on the worker classpath. For
+        ;; plain deps.edn the basis classpath already covers :paths; distinct
+        ;; dedups. For shadow-cljs source dirs outside the basis, this is what
+        ;; makes them visible to the analyzer.
+        (is (= ["project-cp" (str (io/file root "src"))]
+               (:project-cp @worker-builder-input)))
         (is (vector? (:worker-jars @worker-builder-input))
             "deps entrypoint resolves worker jars via tools.deps before calling worker-classpath-entries")
         (is (seq (:worker-jars @worker-builder-input))

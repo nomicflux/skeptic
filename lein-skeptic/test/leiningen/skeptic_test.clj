@@ -48,7 +48,13 @@
                       0)]
         (is (= 0 (#'sut/run-skeptic project []))))
       (is (= project @classpath-project))
-      (is (= ["project-cp"] (:project-cp @builder-input)))
+      ;; Discovered cljs source-paths are concatenated into project-cp so the
+      ;; cljs analyzer's resolver (locate-src → util/ns->source → io/resource)
+      ;; can find sibling required namespaces. lein's `get-classpath` honors
+      ;; only :source-paths/:test-paths/:resource-paths, so cljsbuild
+      ;; source-paths (and any other discovery contribution) must be added
+      ;; explicitly here.
+      (is (= ["project-cp" src] (:project-cp @builder-input)))
       (is (vector? (:worker-jars @builder-input))
           "lein entrypoint resolves worker jars via lein aether before calling worker-classpath-entries")
       (is (seq (:worker-jars @builder-input))

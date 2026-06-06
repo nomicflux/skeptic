@@ -41,7 +41,16 @@
   (let [paths (:source-paths (cljs-lein/discover-sources project))
         base-cp (vec (leiningen.core.classpath/get-classpath project))
         plugin-jars (resolve-plugin-jars project)
-        project-cp (vec (distinct (concat base-cp plugin-jars)))
+        ;; Skeptic discovers cljs source-paths via cljs-lein/discover-sources
+        ;; (e.g. cljsbuild :builds [].source-paths declares test/cljs that
+        ;; :source-paths/:test-paths do not). lein's `get-classpath` only
+        ;; honors :source-paths/:test-paths/:resource-paths, so cljsbuild
+        ;; source-paths are absent from base-cp. The cljs analyzer's resolver
+        ;; (`cljs.analyzer/locate-src` → `cljs.util/ns->source` → `io/resource`)
+        ;; depends on those paths being on the classpath to find sibling
+        ;; required namespaces. Add discovered source-paths here so worker
+        ;; classpath includes them.
+        project-cp (vec (distinct (concat base-cp plugin-jars paths)))
         worker-jars (resolve-worker-jars)
         worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
         profiling-run (required-var 'skeptic.profiling/run)

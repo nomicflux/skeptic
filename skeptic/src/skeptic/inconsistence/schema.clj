@@ -71,11 +71,23 @@
    (s/optional-key :rejected-schema) s/Any
    (s/optional-key :source-expression) s/Any})
 
+(s/defschema AnalysisSkippedReport
+  {:report-kind (s/eq :analysis-skipped)
+   :phase s/Keyword
+   :blame s/Any
+   :exception-class s/Symbol
+   :exception-message s/Str
+   (s/optional-key :enclosing-form) s/Any
+   (s/optional-key :namespace) s/Symbol
+   (s/optional-key :location) s/Any
+   (s/optional-key :source-expression) s/Any})
+
 (s/defschema Report
   (s/conditional
-   #(= :output    (:report-kind %)) OutputReport
-   #(= :input     (:report-kind %)) InputReport
-   #(= :exception (:report-kind %)) ExceptionReport))
+   #(= :output           (:report-kind %)) OutputReport
+   #(= :input            (:report-kind %)) InputReport
+   #(= :exception        (:report-kind %)) ExceptionReport
+   #(= :analysis-skipped (:report-kind %)) AnalysisSkippedReport))
 
 (s/defschema ReportCtx
   {:expr s/Any

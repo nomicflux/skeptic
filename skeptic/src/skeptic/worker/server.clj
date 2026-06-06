@@ -668,7 +668,14 @@
         base {:source-form (wire/strip-form-meta source-form')
               :source-form-meta (wire/capture-form-meta source-form')}]
     (if exception
-      (assoc base :exception-message (or (.getMessage ^Throwable exception) (str exception)))
+      (assoc base
+             :exception-message (or (.getMessage ^Throwable exception) (str exception))
+             ;; Carry ex-data (and the inner cause's, since cljs.analyzer wraps)
+             ;; as plain data so the host can branch on :clojure.error/phase
+             ;; etc. without losing it through Throwable->wire serialization.
+             :exception-data (safe-pr-str
+                              (merge (some-> ^Throwable (.getCause ^Throwable exception) ex-data)
+                                     (ex-data exception))))
       (let [ast' (handle-project-node ast)]
         (cond-> (assoc base
                        :ast (wire/strip-ast-form-meta ast')
