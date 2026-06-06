@@ -1,135 +1,59 @@
 (ns skeptic.worker.classpath
-  "Shared worker classpath assembly. Entrypoints own project classpath discovery;
-   this namespace owns the Skeptic worker runtime entries required to launch
-   skeptic.worker.server on top of that project classpath."
+  "Worker launch classpath assembly. Skeptic owns its worker runtime as a
+   coordinate declaration in `skeptic.worker.deps/worker-deps`; the lein and
+   deps.edn callers each resolve those coordinates through their own build
+   system and hand the resolved jar list (`worker-jars`) plus the project
+   classpath (`project-classpath-entries`) to `worker-classpath-entries`.
+   The result is a single launch classpath string: project-cp first, worker
+   jars second, Skeptic's own `skeptic.worker.*` source entry tail (so the
+   worker JVM can require its own server namespace at boot)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str])
-  (:import [java.net JarURLConnection]
-           [java.util.jar JarFile]))
+  (:import [java.net JarURLConnection]))
 
-(def ^:private worker-runtime-resources
-  ["clojure/main.clj"
-   "clojure/spec/alpha.clj"
-   "clojure/core/specs/alpha.clj"
-   "skeptic/worker/server.clj"
-   "skeptic/worker/analyzer_clj.clj"
-   "skeptic/worker/analyzer_cljs.clj"
-   "skeptic/worker/client.clj"
-   "skeptic/worker/project_context.clj"
-   "skeptic/worker/transport.clj"
-   "skeptic/worker/wire.clj"
-   "nrepl/server.clj"
-   "nrepl/transport.clj"
-   "cognitect/transit.clj"
-   "com/cognitect/transit/TransitFactory.class"
-   "com/fasterxml/jackson/core/JsonFactory.class"
-   "org/msgpack/MessagePack.class"
-   "javassist/CtClass.class"
-   "clojure/tools/analyzer.clj"
-   "clojure/tools/analyzer/ast.clj"
-   "clojure/tools/analyzer/env.clj"
-   "clojure/tools/analyzer/jvm.clj"
-   "clojure/core/memoize.clj"
-   "clojure/core/cache.clj"
-   "clojure/data/priority_map.clj"
-   "org/objectweb/asm/Type.class"
-   "clojure/tools/reader.clj"
-   "clojure/tools/reader/reader_types.clj"
-   "cljs/analyzer.cljc"
-   "cljs/analyzer/api.cljc"
-   "cljs/compiler.cljc"
-   "cljs/env.cljc"
-   "com/google/javascript/jscomp/Compiler.class"])
+(def ^:private path-separator
+  (System/getProperty "path.separator"))
 
-(def ^:private project-clojure-runtime-resources
-  ["clojure/main.clj"
-   "clojure/core.clj"
-   "clojure/spec/alpha.clj"
-   "clojure/core/specs/alpha.clj"])
-
-(defn- parent-n
-  [^java.io.File f n]
-  (if (zero? n)
-    f
-    (recur (.getParentFile f) (dec n))))
-
-(defn- file-resource-classpath-entry
-  [resource url]
-  (let [resource-file (io/file (.toURI url))
-        segment-count (count (str/split resource #"/"))]
-    (.getPath (parent-n resource-file segment-count))))
-
-(defn- jar-resource-classpath-entry
-  [url]
-  (let [conn (.openConnection url)]
-    (when-not (instance? JarURLConnection conn)
-      (throw (ex-info (str "Unsupported jar resource connection for " url)
-                      {:url (str url)})))
-    (.getPath (io/file (.toURI (.getJarFileURL ^JarURLConnection conn))))))
-
-(defn- resource-classpath-entry
-  [resource]
-  (let [url (or (io/resource resource)
-                (throw (ex-info (str "Could not locate worker runtime resource " resource)
-                                {:resource resource})))]
-    (case (.getProtocol url)
-      "file" (file-resource-classpath-entry resource url)
-      "jar"  (jar-resource-classpath-entry url)
-      (throw (ex-info (str "Unsupported worker runtime resource protocol "
-                           (.getProtocol url))
-                      {:resource resource
-                       :url (str url)})))))
-
-(defn- runtime-classpath-entries
+(defn- skeptic-worker-self-entry
+  "Resolve the classpath entry containing Skeptic's own `skeptic.worker.*`
+   source. The host JVM already has this on its classpath (it IS Skeptic);
+   we find it via `io/resource` on a known worker namespace file and recover
+   the containing jar or directory."
   []
-  (mapv resource-classpath-entry worker-runtime-resources))
-
-(defn- directory-entry-has-resource?
-  [^java.io.File entry resource]
-  (.exists (io/file entry resource)))
-
-(defn- jar-entry-has-resource?
-  [^java.io.File entry resource]
-  (with-open [jar (JarFile. entry)]
-    (some? (.getEntry jar resource))))
-
-(defn- classpath-entry-has-resource?
-  [entry resource]
-  (let [f (io/file entry)]
-    (cond
-      (.isDirectory f) (directory-entry-has-resource? f resource)
-      (.isFile f)      (jar-entry-has-resource? f resource)
-      :else            false)))
-
-(defn- project-resource-classpath-entry
-  [project-classpath-entries resource]
-  (some #(when (classpath-entry-has-resource? % resource) (str %))
-        project-classpath-entries))
-
-(defn- project-clojure-runtime-entries
-  [project-classpath-entries]
-  (vec
-   (distinct
-    (keep #(project-resource-classpath-entry project-classpath-entries %)
-          project-clojure-runtime-resources))))
+  (let [url (or (io/resource "skeptic/worker/server.clj")
+                (throw (ex-info "Could not locate skeptic/worker/server.clj on host classpath"
+                                {})))]
+    (case (.getProtocol url)
+      "file" (let [f (io/file (.toURI url))
+                   segments (count (str/split "skeptic/worker/server.clj" #"/"))]
+               (loop [d f n segments]
+                 (if (zero? n) (.getPath d) (recur (.getParentFile d) (dec n)))))
+      "jar"  (let [conn (.openConnection url)]
+               (when-not (instance? JarURLConnection conn)
+                 (throw (ex-info (str "Unsupported jar resource connection for " url) {})))
+               (.getPath (io/file (.toURI (.getJarFileURL ^JarURLConnection conn)))))
+      (throw (ex-info (str "Unsupported skeptic worker self-entry protocol "
+                           (.getProtocol url))
+                      {:url (str url)})))))
 
 (defn worker-classpath-entries
-  "Return the separated classpaths used to launch the worker JVM.
+  "Assemble the worker JVM launch classpath.
 
-   `project-classpath-entries` is the already-resolved classpath for the project
-   being analyzed. It is deliberately kept out of the JVM launch classpath so
-   project jars cannot provide Skeptic's private worker runtime namespaces
-   (nREPL/Nippy/analyzers/etc.). The worker receives the project classpath
-   separately and installs it as the context loader only around project
-   resolution/analyzer operations.
+   `worker-jars` is the resolved jar list for Skeptic's `:worker`
+   declaration (`skeptic.worker.deps/worker-deps`) — supplied by the caller
+   after asking its own build system to resolve the declaration.
 
-   Project operations run inside skeptic.worker.project-context, which binds the
-   project loader consistently for load, read, macroexpansion, and analysis.
-   Clojure itself is JVM-global, so project Clojure runtime entries must lead
-   the worker boot classpath when present; ProjectContext cannot replace
-   clojure.core after the worker JVM has already loaded it."
-  [project-classpath-entries]
-  (let [project-classpath-entries (vec (map str (or project-classpath-entries [])))]
-    {:runtime (vec (distinct (concat (project-clojure-runtime-entries project-classpath-entries)
-                                     (runtime-classpath-entries))))
-     :project (vec (distinct project-classpath-entries))}))
+   `project-classpath-entries` is the already-resolved classpath for the
+   project being analyzed.
+
+   Returns `{:combined <string>}`. `:combined` is
+   `(distinct (concat project-cp worker-jars [skeptic-self-entry]))` joined
+   by the path-separator. Project-first ordering means the project's pinned
+   versions win on every shared lib via `distinct`'s first-occurrence
+   semantics."
+  [worker-jars project-classpath-entries]
+  (let [worker (vec (map str (or worker-jars [])))
+        project (vec (distinct (map str (or project-classpath-entries []))))
+        skeptic-self (skeptic-worker-self-entry)
+        combined-entries (vec (distinct (concat project worker [skeptic-self])))]
+    {:combined (str/join path-separator combined-entries)}))

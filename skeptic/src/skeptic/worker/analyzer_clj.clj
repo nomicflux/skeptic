@@ -6,14 +6,10 @@
    form ever crosses host->worker (the host sends only a source-file path).
 
    tools.analyzer.* and tools.reader.* are required eagerly at ns-load
-   (worker boot), under the JVM launch classloader, not under a
-   project-context loader. Lazy-loading them inside an op handler caused
-   `clojure.reflect.JavaReflector` to be interned in a sibling classloader
-   from the `Reflector` protocol Var resolved at dispatch, producing
-   `No implementation of method: :do-reflect`. The launch-classpath order
-   already prefers project entries (`worker-classpath-entries` in
+   (worker boot), under the JVM launch classloader. The launch-classpath
+   order already prefers project entries (`worker-classpath-entries` in
    `classpath.clj`), so the project's pinned tools.analyzer version wins
-   without lazy require."
+   via first-occurrence; no lazy require is needed."
   (:require [clojure.java.io :as io]
             [clojure.tools.analyzer :as ta]
             [clojure.tools.analyzer.ast :as ana.ast]

@@ -1,24 +1,18 @@
 (ns skeptic.test-support.worker-opts
-  "Phase 6 test support: `check-project` now spawns a worker per invocation
-   and reads its classpath from `(:worker-classpath opts)`. Production
+  "Test support: `check-project` spawns a worker per invocation and reads its
+   launch classpath from `(:combined (:worker-classpath opts))`. Production
    entrypoints (lein-skeptic, cli/main) compute this through
-   skeptic.worker.classpath after discovering the project classpath; tests
-   funnel through `with-worker-cp` which fills the slot from the host test JVM's
-   own classpath. `:worker-classpath` keeps runtime and project entries
-   separate; the joins into launch strings happen at the spawn site in
-   `core.clj`."
-  (:require [clojure.string :as str]))
+   `skeptic.worker.classpath/worker-classpath-entries`; tests funnel through
+   `with-worker-cp` which fills the slot from the host test JVM's own
+   classpath.")
 
-(def ^:private host-cp-entries
-  (delay (vec (str/split (System/getProperty "java.class.path")
-                         (re-pattern java.io.File/pathSeparator)))))
+(def ^:private host-cp-string
+  (delay (System/getProperty "java.class.path")))
 
 (defn with-worker-cp
   "Returns `opts` augmented with `:worker-classpath` set to the host JVM's
-   classpath for both runtime and project test loaders. No-op if
-   `:worker-classpath` is already set."
+   classpath as the launch cp. No-op if `:worker-classpath` is already set."
   [opts]
   (if (contains? opts :worker-classpath)
     opts
-    (assoc opts :worker-classpath {:runtime @host-cp-entries
-                                   :project @host-cp-entries})))
+    (assoc opts :worker-classpath {:combined @host-cp-string})))

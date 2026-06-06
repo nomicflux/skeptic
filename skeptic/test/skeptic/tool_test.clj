@@ -78,10 +78,10 @@
                                             {:basis ::single-basis
                                              :source-paths [(str (io/file root "src"))]
                                              :classpath-entries ["project-cp"]})
-                    worker-classpath/worker-classpath-entries (fn [project-cp]
-                                                                 (reset! worker-builder-input project-cp)
-                                                                 {:runtime ["runtime-cp"]
-                                                                  :project ["project-cp"]})
+                    worker-classpath/worker-classpath-entries (fn [worker-jars project-cp]
+                                                                 (reset! worker-builder-input {:worker-jars worker-jars
+                                                                                               :project-cp project-cp})
+                                                                 {:combined "combined-cp"})
                     shadow/deps-aliases (fn [_root] [:shadow :sci])
                     profiling/run (fn [_opts _target-dir work-fn] (work-fn))
                     core/check-project (fn [opts _root & source-paths]
@@ -94,9 +94,12 @@
         (is (= (.getPath root) (:root @project-context-call)))
         (is (= [:dev :shadow :sci] (:aliases @project-context-call))))
       (testing "the deps entrypoint delegates worker cp assembly to the shared builder"
-        (is (= ["project-cp"] @worker-builder-input))
-        (is (= {:runtime ["runtime-cp"] :project ["project-cp"]}
-               @captured-worker-cp)))
+        (is (= ["project-cp"] (:project-cp @worker-builder-input)))
+        (is (vector? (:worker-jars @worker-builder-input))
+            "deps entrypoint resolves worker jars via tools.deps before calling worker-classpath-entries")
+        (is (seq (:worker-jars @worker-builder-input))
+            "resolved worker jars must be non-empty (10 worker deps + transitives)")
+        (is (= {:combined "combined-cp"} @captured-worker-cp)))
       (testing "source paths come only from the basis, no shadow-cljs.edn concat"
         (is (= [(str (io/file root "src"))] @captured-paths)))
       (finally

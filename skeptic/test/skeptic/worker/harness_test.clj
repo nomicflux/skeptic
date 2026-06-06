@@ -17,15 +17,18 @@
   (str/join java.io.File/pathSeparator entries))
 
 (defn with-worker
-  "Spawns a worker, runs `f` with a connected client, tears down."
+  "Spawns a worker, runs `f` with a connected client, tears down. Combined
+   launch cp is project-cp first (so project versions win on shared libs),
+   then the host's classpath."
   ([f]
    (with-worker nil f))
   ([project-cp f]
-   (let [cp (System/getProperty "java.class.path")
-        worker (if project-cp
-                 (proc/spawn! cp (cp-string project-cp))
-                 (proc/spawn! cp))
-        conn (wc/connect (:port worker))]
+   (let [host-cp (System/getProperty "java.class.path")
+         combined (if project-cp
+                    (cp-string (concat project-cp [host-cp]))
+                    host-cp)
+         worker (proc/spawn! combined)
+         conn (wc/connect (:port worker))]
      (try
        (f conn)
        (finally

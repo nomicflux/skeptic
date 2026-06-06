@@ -12,9 +12,10 @@
    `skeptic.*` namespace is required from this server: Skeptic's own analysis
    code and Plumatic Schema / Malli stay on the host (B3/B4).
 
-   Change 2.5: nREPL is lazy-loaded inside `start!` under the project-context
-   classloader. The ns form does NOT require any nrepl.* namespace at load
-   time — projects pinning a different nrepl can win their version. The
+   nREPL is lazy-loaded inside `start!` from the worker JVM's single launch
+   classloader (project-cp first, worker jars second). The ns form does NOT
+   require any nrepl.* namespace at load time — projects pinning a different
+   nrepl win their version via first-occurrence on the launch cp. The
    `wrap-*` dispatchers are let-bound inside `start!`, closing over locally
    resolved `nrepl.transport/send`, `nrepl.misc/response-for`, and
    `nrepl.server/{start-server,unknown-op}`. Descriptor metadata is dead
@@ -26,7 +27,6 @@
             [skeptic.worker.analyzer-clj :as wac]
             [skeptic.worker.analyzer-cljs :as wac-cljs]
             [skeptic.worker.client :as worker-client]
-            [skeptic.worker.project-context :as project-context]
             [skeptic.worker.transport :as worker-transport]
             [skeptic.worker.wire :as wire]))
 
@@ -97,12 +97,11 @@
 
 (defmacro ^:private with-project-operation
   [& body]
-  `(project-context/with-project-context
-     (let [bindings# (project-oracle-bindings)]
-       (if (seq bindings#)
-         (with-bindings bindings#
-           ~@body)
-         (do ~@body)))))
+  `(let [bindings# (project-oracle-bindings)]
+     (if (seq bindings#)
+       (with-bindings bindings#
+         ~@body)
+       (do ~@body))))
 
 (defn- resolve-bootstrap-class
   "The ^Class for bootstrap name `nm`: a primitive via its TYPE field, else
@@ -147,7 +146,7 @@
                              (when class-name
                                (or (resolve-bootstrap-class class-name)
                                    (try
-                                     (Class/forName class-name false (project-context/loader))
+                                     (Class/forName class-name false (.getContextClassLoader (Thread/currentThread)))
                                      (catch ClassNotFoundException _ nil)))))
                            [(str sym)
                             (when-not (namespace (symbol sym))
@@ -704,12 +703,13 @@
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
 (defn start!
-  "Lazy-load nREPL inside `with-project-context`, then start a server with an
-   explicit handler chain. Every nREPL Var (`t/send`, `response-for`,
-   `srv/start-server`, `srv/unknown-op`-equivalent) is resolved here under the
-   project-context classloader so a project pinning a different nrepl wins.
-   Wrap-* dispatchers are let-bound inside this fn — they close over locally
-   resolved `t-send` and `resp-for`, never reference a namespace-scoped alias."
+  "Lazy-load nREPL, then start a server with an explicit handler chain. Every
+   nREPL Var (`t/send`, `response-for`, `srv/start-server`,
+   `srv/unknown-op`-equivalent) is resolved here from the worker JVM's launch
+   classloader (project-first) so a project pinning a different nrepl wins
+   via first-occurrence. Wrap-* dispatchers are let-bound inside this fn —
+   they close over locally resolved `t-send` and `resp-for`, never reference
+   a namespace-scoped alias."
   []
   (require 'nrepl.transport)
   (require 'nrepl.server)
@@ -836,9 +836,8 @@
                   :handler handler)))
 
 (defn -main
-  [& args]
-  (project-context/install! (first args))
-  (let [server (project-context/with-project-context (start!))]
+  [& _args]
+  (let [server (start!)]
     (println (str "SKEPTIC-WORKER-PORT " (:port server)))
     (flush)
     @(promise)))

@@ -6,12 +6,14 @@
   project's runtime classpath, so it is intentionally unsupported."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.tools.deps :as deps]
             [schema.core :as s]
             [skeptic.cli.cljs.shadow :as shadow]
             [skeptic.cli.paths :as paths]
             [skeptic.core :as core]
             [skeptic.profiling :as profiling]
-            [skeptic.worker.classpath :as worker-classpath])
+            [skeptic.worker.classpath :as worker-classpath]
+            [skeptic.worker.deps :as worker-deps])
   (:import [java.io File]))
 
 (def deps-cli-options
@@ -141,8 +143,18 @@
                           (paths/project-context root aliases))
         paths (resolve-paths opts root (:source-paths project-context))
         opts (with-selected-source-scope opts project-context)
+        worker-jars (when project-context
+                      (let [worker-basis (deps/create-basis
+                                          {:project nil
+                                           :aliases [:worker]
+                                           :extra {:aliases {:worker {:replace-deps (worker-deps/worker-deps-as-mvn-map)}}}})]
+                        ;; `:project nil` makes tools.deps inject a default "src" dir
+                        ;; entry; the worker doesn't want a cwd-relative dir on its
+                        ;; launch cp. Keep only .jar files.
+                        (filterv #(str/ends-with? % ".jar") (:classpath-roots worker-basis))))
         cp (when project-context
              (worker-classpath/worker-classpath-entries
+              worker-jars
               (:classpath-entries project-context)))
         result (atom 0)]
     (with-output-redirect (:output opts)

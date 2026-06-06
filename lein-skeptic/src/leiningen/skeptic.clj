@@ -11,14 +11,42 @@
   (or (requiring-resolve sym)
       (throw (ex-info (str "Could not resolve " sym) {:sym sym}))))
 
+(defn- resolve-worker-jars
+  "Resolve Skeptic's worker dependency declaration via leiningen's aether
+   wrapper. The declaration lives in `skeptic.worker.deps/worker-deps` —
+   Skeptic owns it as data, lein resolves it as a synthetic project.
+   `resolve-managed-dependencies` falls back to lein's default-repositories
+   when a project map omits `:repositories`."
+  []
+  (let [worker-deps (deref (required-var 'skeptic.worker.deps/worker-deps))
+        synthetic-project {:dependencies worker-deps}]
+    (mapv #(.getAbsolutePath ^java.io.File %)
+          (leiningen.core.classpath/resolve-managed-dependencies
+            :dependencies :managed-dependencies synthetic-project))))
+
+(defn- resolve-plugin-jars
+  "lein's `get-classpath` only walks `:dependencies`; plugin jars resolved
+   from `:plugins` are on lein's own process classpath but never reach the
+   project's runtime classpath. Some projects declare cljs-side libraries
+   under `:plugins` (e.g. `lein-doo` for `doo.runner` test entrypoints);
+   without this augmentation those namespaces are unresolvable when Skeptic
+   analyzes the project's cljs sources."
+  [project]
+  (mapv #(.getAbsolutePath ^java.io.File %)
+        (leiningen.core.classpath/resolve-managed-dependencies
+          :plugins :managed-dependencies project)))
+
 (defn- run-skeptic
   [project args]
   (let [paths (:source-paths (cljs-lein/discover-sources project))
-        project-cp (vec (leiningen.core.classpath/get-classpath project))
+        base-cp (vec (leiningen.core.classpath/get-classpath project))
+        plugin-jars (resolve-plugin-jars project)
+        project-cp (vec (distinct (concat base-cp plugin-jars)))
+        worker-jars (resolve-worker-jars)
         worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
         profiling-run (required-var 'skeptic.profiling/run)
         check-project (required-var 'skeptic.core/check-project)
-        cp (worker-classpath-entries project-cp)
+        cp (worker-classpath-entries worker-jars project-cp)
         {:keys [options summary errors]} (cli-opts/parse args)]
     (cond
       (:help options) (println summary)

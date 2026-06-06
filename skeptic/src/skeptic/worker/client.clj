@@ -7,12 +7,10 @@
 
    nrepl.* namespaces are NOT required at namespace-load time. The worker
    loads this namespace via server.clj's :require to get `loopback-conn` and
-   the loopback branch of `ask` — neither of which touches nrepl — and the
-   loopback path is exercised before `with-project-context` is entered. An
-   eager `nrepl.*` require here would intern the wrong nrepl version at
-   worker T0 (Lein's standalone bundle resolves first under the worker's
-   launch classloader); the host-facing functions below defer their nrepl
-   loads via `requiring-resolve`, so the project's pinned nrepl wins."
+   the loopback branch of `ask` — neither of which touches nrepl. Host-facing
+   functions below defer their nrepl loads via `requiring-resolve`, so the
+   project's pinned nrepl wins via the launch classpath's project-first
+   ordering."
   (:require [skeptic.worker.transport :as worker-transport]))
 
 (defn connect

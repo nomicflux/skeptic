@@ -38,7 +38,8 @@
    :current-ns          (requiring-resolve 'cljs.analyzer.api/current-ns)
    :empty-env           (requiring-resolve 'cljs.analyzer.api/empty-env)
    :forms-seq           (requiring-resolve 'cljs.analyzer.api/forms-seq)
-   :analyze             (requiring-resolve 'cljs.analyzer.api/analyze)})
+   :analyze             (requiring-resolve 'cljs.analyzer.api/analyze)
+   :with-core-cljs      (requiring-resolve 'cljs.compiler/with-core-cljs)})
 
 (defn- empty-state
   [vars]
@@ -121,10 +122,20 @@
   "Inline expansion of `cljs.analyzer.api/with-state` + the
    `(binding [ana/*file-defs* ...])` block from the pre-fix file. The
    `with-state` macro (probe artifact `probes-v2/cljs-sources/v1.12.134/api.cljc:51-55`)
-   expands to `(binding [cljs.env/*compiler* state-atom] ...)`."
+   expands to `(binding [cljs.env/*compiler* state-atom] ...)`.
+
+   Wraps `f` in `cljs.compiler/with-core-cljs` so cljs.core is loaded into
+   the same state the analyzer's resolver consults — without this wrap,
+   `cljs.analyzer/resolve-var` falls back to auto-interned stub Vars for
+   every cljs.core symbol, producing thousands of bogus 'Use of undeclared
+   Var' warnings (verified at plan-write time:
+   `.scratch/phase5-probes/probe_aave_cljs_core_preload.output.txt` —
+   1330 warnings without the wrap, 5 with it, all 5 residual being JS
+   interop forms the analyzer classifies as `:host-field`/`:js-var`)."
   [path f]
   (let [vars  (resolved-ana-vars)
-        state (empty-state vars)]
+        state (empty-state vars)
+        wcc   (:with-core-cljs vars)]
     (with-bindings {(:*compiler*         vars) state
                     (:*file-defs*        vars) (atom #{})
                     (:*unchecked-if*     vars) false
@@ -133,7 +144,7 @@
                     (:*load-macros*      vars) true
                     (:*cljs-ns*          vars) 'cljs.user
                     (:*cljs-file*        vars) path}
-      (f vars state))))
+      (wcc nil (fn [] (f vars state))))))
 
 (defn- analyze-ns-form
   [vars state path source-file]

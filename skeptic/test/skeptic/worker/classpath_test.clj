@@ -2,8 +2,10 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [clojure.tools.deps :as deps]
             [skeptic.worker.classpath :as classpath]
             [skeptic.worker.client :as wc]
+            [skeptic.worker.deps :as worker-deps]
             [skeptic.worker.process :as proc])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -19,9 +21,16 @@
     (doseq [c (.listFiles f)] (delete-recursively! c)))
   (.delete f))
 
-(defn- cp-string
-  [entries]
-  (str/join java.io.File/pathSeparator entries))
+(defn- resolved-worker-jars
+  "Resolve the worker dep declaration via tools.deps for the test. Same path
+   the deps.edn tool entrypoint uses at runtime."
+  []
+  (->> (deps/create-basis
+         {:project nil
+          :aliases [:worker]
+          :extra {:aliases {:worker {:replace-deps (worker-deps/worker-deps-as-mvn-map)}}}})
+       :classpath-roots
+       (filterv #(str/ends-with? % ".jar"))))
 
 (deftest worker-classpath-starts-worker-without-skeptic-schema-or-malli-deps
   (let [dir (temp-dir!)
@@ -30,40 +39,36 @@
     (try
       (.mkdirs (io/file dir "src"))
       (let [project-cp [(.getPath (io/file dir "src"))]
-            {:keys [runtime project]} (classpath/worker-classpath-entries project-cp)]
-        (is (= project-cp project))
-        (is (not-any? #{(first project-cp)} runtime))
-        (is (not-any? #(re-find #"/schema-[^/]+\.jar$" %) runtime))
-        (is (not-any? #(re-find #"/malli-[^/]+\.jar$" %) runtime))
-        (reset! worker (proc/spawn! (cp-string runtime) (cp-string project)))
+            worker-jars (resolved-worker-jars)
+            {:keys [combined]}
+            (classpath/worker-classpath-entries worker-jars project-cp)]
+        (is (string? combined))
+        (is (str/starts-with? combined (first project-cp))
+            "project-cp must come first in combined launch cp")
+        (is (every? #(str/includes? combined %) worker-jars)
+            "every resolved worker-jar must appear in combined launch cp")
+        (is (str/includes? combined "skeptic")
+            "skeptic worker self-entry must be present so the worker JVM can require its own server")
+        (is (not (re-find #"/schema-[^/]+\.jar" combined))
+            "schema is host-only, must not appear in worker launch cp")
+        (is (not (re-find #"/malli-[^/]+\.jar" combined))
+            "malli is host-only, must not appear in worker launch cp")
+        (is (not (re-find #"/taoensso/" combined))
+            "taoensso is project-version-sensitive, must not appear in worker launch cp")
+        (is (re-find #"/transit-clj-[^/]+\.jar" combined)
+            "transit-clj must be present for the worker wire")
+        (is (re-find #"/clojurescript-[^/]+\.jar" combined)
+            "clojurescript must be present so worker can require cljs.analyzer.api")
+        (is (re-find #"/tools\.analyzer\.jvm-[^/]+\.jar" combined)
+            "tools.analyzer.jvm must be present so worker can require analyzer-clj")
+        (is (re-find #"/nrepl-[^/]+\.jar" combined)
+            "nrepl must be present so worker server can start")
+        (reset! worker (proc/spawn! combined))
         (reset! conn (wc/connect (:port @worker)))
         (is (= "ok" (:pong (wc/ask @conn {:op "ping"})))))
       (finally
         (when @conn (wc/disconnect! @conn))
         (when @worker (proc/stop! @worker))
-        (delete-recursively! dir)))))
-
-(deftest worker-runtime-boots-with-project-clojure-runtime
-  (let [dir (temp-dir!)]
-    (try
-      (let [language-dir (io/file dir "language")
-            project-lib-dir (io/file dir "project-lib")]
-        (doseq [resource ["clojure/main.clj"
-                          "clojure/spec/alpha.clj"
-                          "clojure/core/specs/alpha.clj"]]
-          (.mkdirs (.getParentFile (io/file language-dir resource)))
-          (spit (io/file language-dir resource) ""))
-        (.mkdirs (io/file project-lib-dir "taoensso"))
-        (spit (io/file project-lib-dir "taoensso" "encore.cljc") "")
-        (let [language-path (.getPath language-dir)
-              project-lib-path (.getPath project-lib-dir)
-              {:keys [runtime project]}
-              (classpath/worker-classpath-entries [language-path project-lib-path])]
-          (is (some #{language-path} project))
-          (is (some #{project-lib-path} project))
-          (is (= language-path (first runtime)))
-          (is (not-any? #{project-lib-path} runtime))))
-      (finally
         (delete-recursively! dir)))))
 
 (defn- clj-files

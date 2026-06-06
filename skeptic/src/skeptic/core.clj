@@ -54,10 +54,6 @@
        (remove str/blank?)
        (mapv symbol)))
 
-(defn- classpath-string
-  [entries]
-  (str/join java.io.File/pathSeparator (or entries [])))
-
 (s/defn check-project :- s/Int
   [opts :- copts/CheckProjectOpts root :- (s/cond-pre s/Str java.io.File) & paths :- [s/Str]]
   (let [raw-namespaces (:namespace opts)
@@ -94,9 +90,10 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
-        {:keys [runtime project]} (:worker-classpath opts)
-        worker (wproc/spawn! (classpath-string runtime)
-                             (classpath-string project))
+        combined-cp (or (:combined (:worker-classpath opts))
+                        (throw (ex-info "check-project requires :worker-classpath with a :combined launch cp"
+                                        {:opts (keys opts)})))
+        worker (wproc/spawn! combined-cp)
         conn (wc/connect (:port worker))]
     (try
       (let [host-handles (class-oracle/intern-host-classes! conn)]

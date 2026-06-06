@@ -51,8 +51,7 @@
    (s/optional-key :skeptic/type-overrides) {s/Symbol CompiledTypeOverride}
    (s/optional-key :skeptic/source-files) [java.io.File]
    (s/optional-key :skeptic/source-discovery-failures) [s/Any]
-   (s/optional-key :worker-classpath) (s/maybe {:runtime [s/Str]
-                                                :project [s/Str]})})
+   (s/optional-key :worker-classpath) (s/maybe {:combined s/Str})})
 
 (s/defschema Lang (s/enum :clj :cljs :both))
 
