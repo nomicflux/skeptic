@@ -4,6 +4,7 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.match :as am]
             [skeptic.analysis.annotate.test-api :as aat]
+            [skeptic.analysis.call-kinds.assumption :as ck-assumption]
             [skeptic.analysis.calls :as ac]
             [skeptic.examples]
             [skeptic.analysis.class-oracle :as oracle]
@@ -116,7 +117,7 @@
                    :form '(some? (:k (:x x)))
                    :fn {:op :var :form 'some?}
                    :args [target]}
-        assumption (ao/test->assumption tp some-node)]
+        assumption (ck-assumption/call-test-assumption tp some-node)]
     (is (= :path-type-predicate (:kind assumption)))
     (is (= 'x (get-in assumption [:root :sym])))
     (is (= 2 (count (:path assumption))))
@@ -203,7 +204,7 @@
 (deftest region-conjuncts-and-shape-two-some-test
   (testing "let+if and-shape collects each some? conjunct on the truthy side and emits a disjunction of negations on the falsy side"
     (let [root (oc-body 'oc-and-some)
-          {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
+          {:keys [then-conjuncts else-conjuncts]} (ck-assumption/region-conjuncts tp root nil)]
       (is (= 2 (count then-conjuncts)))
       (is (every? #(and (= :type-predicate (:kind %))
                         (= :some? (:pred %))
@@ -221,13 +222,13 @@
 (deftest equality-test-assumptions
   (testing "local equals literal"
     (let [root (oc-body 'oc-eq-local-literal)
-          assumption (ao/test->assumption tp root)]
+          assumption (ck-assumption/call-test-assumption tp root)]
       (is (= :value-equality (:kind assumption)))
       (is (= 'x (get-in assumption [:root :sym])))
       (is (= [:a] (:values assumption)))))
   (testing "literal equals local"
     (let [root (oc-body 'oc-eq-literal-local)
-          assumption (ao/test->assumption tp root)]
+          assumption (ck-assumption/call-test-assumption tp root)]
       (is (= :value-equality (:kind assumption)))
       (is (= 'x (get-in assumption [:root :sym])))
       (is (= [:a] (:values assumption))))))
@@ -298,7 +299,7 @@
 
 (deftest region-conjuncts-and-shape-emits-disjunction
   (let [root (oc-body 'oc-and-pos)
-        {:keys [then-conjuncts else-conjuncts]} (ao/region-conjuncts tp root nil)]
+        {:keys [then-conjuncts else-conjuncts]} (ck-assumption/region-conjuncts tp root nil)]
     (is (= 2 (count then-conjuncts)))
     (is (every? #(and (= :boolean-proposition (:kind %))
                       (true? (:polarity %)))
@@ -457,11 +458,10 @@
 
 (deftest equality-value-assumption-path-shape
   (let [root (oc-body 'oc-eq-path)
-        eq-node (aapi/find-node root #(or (and (= :invoke (aapi/node-op %))
-                                              (some-> (aapi/call-fn-node %) ac/equality-call?))
-                                         (and (= :static-call (aapi/node-op %))
-                                              (ac/static-equality-call? %))))
-        assumption (ao/test->assumption tp eq-node)]
+        eq-node (aapi/find-node root
+                                #(when-let [a (ck-assumption/call-test-assumption tp %)]
+                                   (= :path-value-equality (:kind a))))
+        assumption (ck-assumption/call-test-assumption tp eq-node)]
     (is (= :path-value-equality (:kind assumption)))
     (is (= 'x (get-in assumption [:root :sym])))
     (is (= 2 (count (:path assumption))))
@@ -558,21 +558,21 @@
 
 (deftest some-call-on-var-yields-type-predicate-assumption-test
   (let [root (vn-def 'vn-server-some-call)
-        assumption (ao/test->assumption tp root)]
+        assumption (ck-assumption/call-test-assumption tp root)]
     (is (= :type-predicate (:kind assumption)))
     (is (= :some? (:pred assumption)))
     (is (= 'server (get-in assumption [:root :sym])))))
 
 (deftest when-truthy-on-var-yields-truthy-local-assumption-test
   (let [root (vn-def 'vn-server-root)
-        assumption (ao/test->assumption tp root)]
+        assumption (ck-assumption/call-test-assumption tp root)]
     (is (= :truthy-local (:kind assumption)))
     (is (true? (:polarity assumption)))
     (is (= 'server (get-in assumption [:root :sym])))))
 
 (deftest equality-on-var-yields-value-equality-assumption-test
   (let [root (vn-def 'vn-server-equality)
-        assumption (ao/test->assumption tp root)]
+        assumption (ck-assumption/call-test-assumption tp root)]
     (is (= :value-equality (:kind assumption)))
     (is (= 'server (get-in assumption [:root :sym])))
     (is (= [:foo] (:values assumption)))))
@@ -584,7 +584,7 @@
                      :form '(clojure.string/blank? server-str)
                      :fn {:op :var :form 'clojure.string/blank?}
                      :args [var-targ]}
-        assumption (ao/test->assumption tp invoke-node)]
+        assumption (ck-assumption/call-test-assumption tp invoke-node)]
     (is (= :blank-check (:kind assumption)))
     (is (= 'server-str (get-in assumption [:root :sym])))))
 

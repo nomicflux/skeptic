@@ -5,6 +5,7 @@
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.call-kinds.projection :as ck-projection]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.analysis.bridge.descriptors :as descriptors]
@@ -224,17 +225,10 @@
 
 (defn- get-call-summary
   [param-sym node]
-  (when (or (and (= :invoke (aapi/node-op node))
-                 (ac/get-call? (aapi/call-fn-node node)))
-            (and (= :static-call (aapi/node-op node))
-                 (ac/static-get-call? node)))
-    (let [[target key-node default-node] (aapi/call-args node)
-          key (when (ac/literal-map-key? key-node)
-                (ac/literal-node-value key-node))]
-      (when (and (keyword? key)
-                 target
-                 (aapi/local-node? target)
-                 (= param-sym (:form target)))
+  (when-let [[key target] (ck-projection/literal-key-projection node)]
+    (when (and (aapi/local-node? target)
+               (= param-sym (:form target)))
+      (let [default-node (nth (aapi/call-args node) 2 nil)]
         (cond-> {:kind :unary-map-projection
                  :path [{:value key}]}
           (and (some? default-node)
@@ -308,7 +302,8 @@
                 (when (keyword? value)
                   value))))
           (accessor-summary-from-body [param-sym body]
-            (let [body (aapi/unwrap-with-meta body)]
+            (let [body (aapi/unwrap-with-meta body)
+                  [proj-kw proj-target] (ck-projection/literal-key-projection body)]
               (cond
                 (and (= :local (aapi/node-op body))
                      (= param-sym (aapi/node-form body)))
@@ -325,27 +320,11 @@
                     {:kind :unary-map-projection
                      :path [{:value kw}]}))
 
-                (and (= :invoke (aapi/node-op body))
-                     (ac/get-call? (aapi/call-fn-node body)))
-                (let [[target key-node] (aapi/call-args body)
-                      kw (literal-keyword key-node)]
-                  (when (and kw
-                             target
-                             (aapi/local-node? target)
-                             (= param-sym (:form target)))
-                    {:kind :unary-map-projection
-                     :path [{:value kw}]}))
-
-                (and (= :static-call (aapi/node-op body))
-                     (ac/static-get-call? body))
-                (let [[target key-node] (aapi/call-args body)
-                      kw (literal-keyword key-node)]
-                  (when (and kw
-                             target
-                             (aapi/local-node? target)
-                             (= param-sym (:form target)))
-                    {:kind :unary-map-projection
-                     :path [{:value kw}]}))
+                (and proj-kw
+                     (aapi/local-node? proj-target)
+                     (= param-sym (:form proj-target)))
+                {:kind :unary-map-projection
+                 :path [{:value proj-kw}]}
 
                 :else
                 (or (keyword-get-classifier-summary param-sym body)

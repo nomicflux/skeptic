@@ -3,6 +3,8 @@
             [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.test-api :as aat]
+            [skeptic.analysis.call-kinds.invoke-output :as ck-invoke-output]
+            [skeptic.analysis.call-kinds.static-output :as ck-static]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.class-oracle :as oracle]
             [skeptic.analysis.schema-base :as sb]
@@ -10,7 +12,7 @@
             [skeptic.test-examples.catalog :as catalog]
             [skeptic.test-support.admit :as admit]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.test-helpers :refer [is-type= T]]
+            [skeptic.test-helpers :refer [is-type= T tp]]
             [skeptic.test-support.shared-worker :as shared-worker]
             [skeptic.static-call-examples])
   (:import [java.io File]))
@@ -59,13 +61,26 @@
     (is (= 'already/qualified (ac/qualify-symbol 'foo 'already/qualified)))
     (is (= 'my.ns/x (ac/qualify-symbol 'my.ns 'x)))
     (is (= 'x (ac/qualify-symbol nil 'x))))
-  (testing "call-shape predicates on synthetic fn nodes"
-    (is (ac/merge-call? (aat/test-fn-node 'merge)))
-    (is (ac/contains-call? (aat/test-fn-node 'contains?)))
-    (is (ac/get-call? (aat/test-fn-node 'get)))
-    (is (ac/static-get-call? (aat/test-static-call-node clojure.lang.RT 'get)))
-    (is (ac/static-merge-call? (aat/test-static-call-node clojure.lang.RT 'merge)))
-    (is (ac/static-contains-call? (aat/test-static-call-node clojure.lang.RT 'contains?)))))
+  (testing "behavioral call-kind outcomes through public API"
+    (let [ctx tp
+          marker (T s/Str)
+          m-arg  (aat/test-typed-node :local 'm (T s/Any))
+          k-arg  (aat/test-typed-node :local 'k (T s/Any))]
+      ;; The invoke-output-type kind subsystem recognizes invoke-get,
+      ;; invoke-merge, invoke-contains and dispatches into shared-call,
+      ;; producing a result distinct from the marker default.
+      (is (not= marker
+                (ck-invoke-output/invoke-output-type ctx (aat/test-fn-node 'merge) [m-arg m-arg] marker)))
+      (is (not= marker
+                (ck-invoke-output/invoke-output-type ctx (aat/test-fn-node 'contains?) [m-arg k-arg] marker)))
+      (is (not= marker
+                (ck-invoke-output/invoke-output-type ctx (aat/test-fn-node 'get) [m-arg k-arg] marker)))
+      ;; static-call-output-type returns nil for unknown shapes, non-nil for known.
+      (is (some? (ck-static/static-call-output-type ctx (aat/test-static-call-node clojure.lang.RT 'get) [m-arg k-arg] marker)))
+      (is (some? (ck-static/static-call-output-type ctx (aat/test-static-call-node clojure.lang.RT 'merge) [m-arg m-arg] marker)))
+      (is (some? (ck-static/static-call-output-type ctx (aat/test-static-call-node clojure.lang.RT 'contains?) [m-arg k-arg] marker)))
+      ;; Sanity: unknown clojure.lang.RT method returns nil.
+      (is (nil? (ck-static/static-call-output-type ctx (aat/test-static-call-node clojure.lang.RT 'unknown-method) [m-arg k-arg] marker))))))
 
 (deftest invoke-and-static-application-roots-test
   (testing "do, static-call, and invoke roots"

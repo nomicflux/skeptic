@@ -8,6 +8,7 @@
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
             [skeptic.analysis.annotate.numeric :as numeric]
+            [skeptic.analysis.call-kinds.assumption :as ck-assumption]
             [skeptic.analysis.narrowing :as narrowing]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
@@ -424,7 +425,7 @@
   [{:keys [locals assumptions] :as ctx} :- s/Any node :- aas/AnnotatedNode]
   (runner/call (:recurse-step ctx) ctx (:test node)
    (fn [test-node]
-     (let [regions (ao/if-test-conjuncts ctx test-node locals)
+     (let [regions (ck-assumption/if-test-conjuncts ctx test-node locals)
            then-conjuncts (:then-conjuncts regions)
            envs (ao/branch-local-envs ctx locals assumptions regions)]
        (runner/call (:recurse-step ctx)

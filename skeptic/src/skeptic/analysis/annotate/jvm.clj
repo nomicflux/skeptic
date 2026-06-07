@@ -2,13 +2,11 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.coll :as coll]
-            [skeptic.analysis.annotate.map-projection :as map-projection]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
-            [skeptic.analysis.annotate.shared-call :as shared-call]
-            [skeptic.analysis.annotate.numeric :as numeric]
-            [skeptic.analysis.calls :as ac]
-            [skeptic.analysis.map-ops :as amo]
+            [skeptic.analysis.call-kinds.numeric :as ck-numeric]
+            [skeptic.analysis.call-kinds.projection :as ck-projection]
+            [skeptic.analysis.call-kinds.static-output :as ck-static-output]
             [skeptic.analysis.native-fns :as native-fns]
             [skeptic.analysis.type-ops :as ato]))
 
@@ -23,27 +21,11 @@
           (runner/done
            (assoc node :instance instance :args args :type (or type (aapi/dyn ctx))))))))))
 
-(defn- shared-static-output-type
-  [ctx node args default-output-type]
-  (cond
-    (ac/static-get-call? node) (shared-call/shared-call-output-type ctx :get args default-output-type)
-    (ac/static-merge-call? node) (shared-call/shared-call-output-type ctx :merge args default-output-type)
-    (and (ac/static-assoc-call? node) (>= (count args) 3))
-    (shared-call/shared-call-output-type ctx :assoc args default-output-type)
-    (and (ac/static-dissoc-call? node) (>= (count args) 2))
-    (shared-call/shared-call-output-type ctx :dissoc args default-output-type)
-    (and (ac/static-update-call? node) (>= (count args) 3))
-    (shared-call/shared-call-output-type ctx :update args default-output-type)
-    (ac/static-contains-call? node) (shared-call/shared-call-output-type ctx :contains args default-output-type)
-    (and (= 'seq (:method node)) (= 1 (count args)))
-    (shared-call/shared-call-output-type ctx :seq args default-output-type)
-    :else nil))
-
 (defn- static-native-output-type
   [ctx node args actual-argtypes default-output-type native-info]
   (if native-info
-    (numeric/narrow-static-numbers-output (ato/derive-prov default-output-type)
-                                          node args actual-argtypes native-info)
+    (ck-numeric/static-numeric-narrow-type (ato/derive-prov default-output-type)
+                                           node args actual-argtypes native-info)
     (aapi/dyn ctx)))
 
 (s/defn annotate-static-call :- runner/Step
@@ -57,14 +39,9 @@
                                    (aapi/dyn ctx))
            expected-argtypes (or (:expected-argtypes native-info)
                                  (vec (repeat (count args) (aapi/dyn ctx))))
-           type (or (shared-static-output-type ctx node args default-output-type)
+           type (or (ck-static-output/static-call-output-type ctx node args default-output-type)
                     (static-native-output-type ctx node args actual-argtypes default-output-type native-info))
-           origin (when (and (ac/static-get-call? node)
-                             (<= 2 (count args) 3))
-                    (map-projection/map-key-lookup-origin
-                     ctx (first args)
-                     (ac/get-key-query ctx (second args))
-                     (if (= 3 (count args)) (:type (nth args 2)) amo/no-default)))]
+           origin (ck-projection/static-get-map-key-lookup-origin ctx node args)]
        (runner/done
         (cond-> (assoc node
                        :args args

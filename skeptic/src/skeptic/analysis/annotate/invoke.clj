@@ -2,11 +2,11 @@
   (:require [schema.core :as s]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.map-projection :as map-projection]
-            [skeptic.analysis.annotate.invoke-output :as invoke-output]
-            [skeptic.analysis.annotate.numeric :as numeric]
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.annotate.specialize :as specialize]
+            [skeptic.analysis.call-kinds.invoke-output :as ck-invoke-output]
+            [skeptic.analysis.call-kinds.numeric :as ck-numeric]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.map-ops :as amo]
             [skeptic.analysis.type-ops :as ato]))
@@ -46,10 +46,9 @@
 (defn- finish-invoke
   [ctx node args fn-node]
   (let [call-info (ac/call-info ctx fn-node args)
-        call-sym (ac/resolved-call-sym fn-node)
-        output-type (invoke-output/invoke-output-type ctx fn-node args (:output-type call-info) call-sym)
-        output-type (or (numeric/invoke-integral-math-narrow-type
-                         (ato/derive-prov output-type) call-sym args (mapv :type args))
+        output-type (ck-invoke-output/invoke-output-type ctx fn-node args (:output-type call-info))
+        output-type (or (ck-numeric/invoke-numeric-narrow-type
+                         (ato/derive-prov output-type) fn-node args (mapv :type args))
                         output-type)]
     (runner/done
      (build-invoke-node ctx node fn-node args output-type (:fn-type call-info) (:expected-argtypes call-info)))))

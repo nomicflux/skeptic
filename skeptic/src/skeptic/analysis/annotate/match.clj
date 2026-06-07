@@ -4,6 +4,7 @@
             [skeptic.analysis.annotate.runner :as runner]
             [skeptic.analysis.annotate.schema :as aas]
             [skeptic.analysis.ast-children :as sac]
+            [skeptic.analysis.call-kinds.projection :as ck-projection]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.origin :as ao]
             [skeptic.analysis.origin.schema :as aos]
@@ -56,19 +57,7 @@
 
 (defn- case-get-access-kw-and-target
   [node]
-  (cond
-    (and (aapi/invoke-node? node) (ac/get-call? (:fn node)))
-    (let [[target key-node] (:args node)]
-      (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
-        (let [key (ac/literal-node-value key-node)]
-          (when (keyword? key) [key target]))))
-
-    (and (aapi/static-call-node? node) (ac/static-get-call? node))
-    (let [[target key-node] (:args node)]
-      (when (and (aapi/stable-identity-node? target) (ac/literal-map-key? key-node))
-        (let [key (ac/literal-node-value key-node)]
-          (when (keyword? key) [key target]))))
-    :else nil))
+  (ck-projection/literal-key-projection node))
 
 (s/defn case-kw-and-target :- (s/maybe [s/Any])
   [node :- s/Any]
