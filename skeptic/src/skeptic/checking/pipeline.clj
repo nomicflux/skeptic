@@ -898,29 +898,6 @@
            [(clj-namespace-dict opts ns-sym var-provs form-refs entries)
             (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)])))
 
-(defn- ns-entries
-  "Map ns-sym → the worker's clj-state entries `[{:source-form :ast
-  :malli-schema} …]` (clj-state is keyed by source-file). Empty for a ns whose
-  file produced no entries (read failure / cljs-only). Threaded into discovery,
-  var-provs, and admission so all read the same shipped inert data."
-  [clj-loaded clj-state]
-  (reduce (fn [acc [ns-sym source-file _lang]]
-            (cond-> acc
-              source-file
-              (assoc ns-sym (vec (:entries (get clj-state source-file))))))
-          {}
-          clj-loaded))
-
-(defn project-discovery
-  [clj-loaded ns-entries-map]
-  (reduce (fn [acc [ns-sym source-file _lang]]
-            (if-not source-file
-              acc
-              (let [forms (mapv :source-form (get ns-entries-map ns-sym))]
-                (assoc acc ns-sym (discovery/discover ns-sym forms)))))
-          {}
-          clj-loaded))
-
 (defn- preload-namespaces
   "Tag every discovered namespace with its `lang` and pass it through to
   `:loaded`. The project is NEVER required on the host: each namespace is read
@@ -948,31 +925,59 @@
     source-form-meta (assoc :source-form (wire/apply-form-meta source-form source-form-meta))
     ast-meta         (assoc :ast (wire/apply-form-meta ast ast-meta))))
 
+(defn- process-stream-reply
+  "Handle one intermediate reply from the streaming worker op. Reattaches
+   entry metadata, stores in clj-state, builds ns-entries and discovery
+   for that namespace. Mutates the accumulators in place (atoms)."
+  [clj-state-a clj-failures-a ns-entries-a project-disc-a loaded-index reply]
+  (let [ns-str (:ns-sym reply)
+        [ns-sym source-file] (get loaded-index ns-str)]
+    (if (:load-error reply)
+      (swap! clj-failures-a assoc source-file
+             {:exception (ex-info (str (:load-error reply) ": " (:load-error-message reply)) {})})
+      (let [{:keys [entries read-failure]} reply
+            reattached (if read-failure
+                         {:entries [] :read-failure read-failure}
+                         {:entries (mapv reattach-entry-meta entries)})]
+        (swap! clj-state-a assoc source-file reattached)
+        (let [ns-ents (vec (:entries reattached))]
+          (swap! ns-entries-a assoc ns-sym ns-ents)
+          (let [forms (mapv :source-form ns-ents)]
+            (swap! project-disc-a assoc ns-sym (discovery/discover ns-sym forms))))))))
+
 (defn preload-clj-state!
-  "Analyze every clj/cljc source-file via the WORKER's analyze-namespace op
-  (the worker reads the project's own source on the project classpath; no form
-  crosses host->worker). Returns `{:clj-state {File → {:entries [{:source-form
-  :ast} ...]}} :clj-load-failures {File → {:exception Throwable}}}`. Empty when
-  `conn` is nil. Requires `class-oracle/*worker-conn*` bound for the op call."
+  "Analyze every clj/cljc source-file via the WORKER's streaming
+  analyze-namespaces-stream op. As each namespace's complete entries arrive,
+  immediately reattach metadata, build ns-entries and discovery. Returns
+  `{:clj-state :clj-load-failures :ns-entries-map :project-disc}`. Empty when
+  `conn` is nil."
   [conn loaded]
   (if-not conn
-    {:clj-state {} :clj-load-failures {}}
-    (reduce
-     (fn [acc [ns-sym source-file lang]]
-       (if (and source-file (#{:clj :both} lang))
-         (try
-           (let [{:keys [entries read-failure]} (wc/ask conn {:op "analyze-namespace"
-                                                              :ns (str ns-sym)
-                                                              :source-file (str source-file)})]
-             (assoc-in acc [:clj-state source-file]
-                       (if read-failure
-                         {:entries [] :read-failure read-failure}
-                         {:entries (mapv reattach-entry-meta entries)})))
-           (catch Throwable e
-             (assoc-in acc [:clj-load-failures source-file] {:exception e})))
-         acc))
-     {:clj-state {} :clj-load-failures {}}
-     loaded)))
+    {:clj-state {} :clj-load-failures {} :ns-entries-map {} :project-disc {}}
+    (let [clj-pairs (into []
+                          (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
+                                (map (fn [[ns-sym sf _]] [(str ns-sym) (str sf)])))
+                          loaded)
+          loaded-index (into {}
+                             (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
+                                   (map (fn [[ns-sym sf _]] [(str ns-sym) [ns-sym sf]])))
+                             loaded)
+          clj-state-a (atom {})
+          clj-failures-a (atom {})
+          ns-entries-a (atom {})
+          project-disc-a (atom {})]
+      (when (seq clj-pairs)
+        (wc/ask-streaming conn
+                          {:op "analyze-namespaces-stream"
+                           :namespaces clj-pairs}
+                          (fn [reply]
+                            (process-stream-reply clj-state-a clj-failures-a
+                                                  ns-entries-a project-disc-a
+                                                  loaded-index reply))))
+      {:clj-state @clj-state-a
+       :clj-load-failures @clj-failures-a
+       :ns-entries-map @ns-entries-a
+       :project-disc @project-disc-a})))
 
 (defn- rehydrate-cljs-entry
   "Reshape a cljs analysis entry off the wire into the host's
@@ -1108,7 +1113,6 @@
         (preload-namespaces opts all-discovered-nss)
         load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :load)))
                                  {} load-failures)
-        clj-loaded (filter (fn [[_ _ lang]] (#{:clj :both} lang)) loaded)
         ;; Run cljs analysis before clj namespace preload. CLJ preload requires
         ;; project namespaces and may execute .cljc top-level side effects in the
         ;; worker JVM; cljs macroexpansion must see the project as a cljs build
@@ -1121,12 +1125,12 @@
         ;; Worker clj-state is computed BEFORE discovery/var-provs: discovery and
         ;; admission read the shipped :source-form data, never a host-loaded Var.
         {clj-state         :clj-state
-         clj-load-failures :clj-load-failures}
+         clj-load-failures :clj-load-failures
+         ns-entries-map    :ns-entries-map
+         project-disc      :project-disc}
         (preload-clj-state! (:worker-conn opts) loaded)
         clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
                                      {} clj-load-failures)
-        ns-entries-map (ns-entries clj-loaded clj-state)
-        project-disc (project-discovery clj-loaded ns-entries-map)
         var-provs (project-var-provs opts project-disc ns-entries-map)
         form-refs (with-meta
                     (reduce (fn [m [_ns-sym d]]

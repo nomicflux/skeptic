@@ -232,6 +232,50 @@
       (finally
         (delete-recursively! dir)))))
 
+(deftest ask-streaming-loopback
+  (let [conn (wc/loopback-conn (fn [msg] {:result (:input msg)}))
+        replies (atom [])]
+    (wc/ask-streaming conn {:op "echo" :input 42}
+                      (fn [reply] (swap! replies conj reply)))
+    (testing "loopback calls on-reply once with the handler result"
+      (is (= [{:result 42}] @replies)))))
+
+(deftest ask-streaming-real-transport
+  (with-worker
+    (fn [conn]
+      (let [replies (atom [])]
+        (wc/ask-streaming conn {:op "ping"}
+                          (fn [reply] (swap! replies conj reply)))
+        (testing "ping is a done-only op; on-reply is never called"
+          (is (= [] @replies)))))))
+
+(deftest analyze-namespaces-stream-round-trip
+  (with-worker
+    (fn [conn]
+      (oracle/intern-host-classes! conn)
+      (let [nss [["skeptic.research.projection-fixture"
+                  "test/skeptic/research/projection_fixture.clj"]
+                 ["skeptic.colours"
+                  "src/skeptic/colours.clj"]]
+            replies (atom [])
+            _ (wc/ask-streaming conn
+                               {:op "analyze-namespaces-stream"
+                                :namespaces nss}
+                               (fn [reply] (swap! replies conj reply)))]
+        (testing "on-reply called once per namespace"
+          (is (= 2 (count @replies))))
+        (testing "each reply carries :ns-sym and :entries"
+          (is (every? #(contains? % :ns-sym) @replies))
+          (is (every? #(contains? % :entries) @replies)))
+        (testing "entries match individual analyze-namespace results"
+          (doseq [[ns-str source-file] nss]
+            (let [stream-reply (some #(when (= ns-str (:ns-sym %)) %) @replies)
+                  single-reply (wc/ask conn {:op "analyze-namespace"
+                                             :ns ns-str
+                                             :source-file source-file})]
+              (is (= (count (:entries single-reply))
+                     (count (:entries stream-reply)))))))))))
+
 (deftest analyze-namespace-does-not-duplicate-project-record-class-handles
   (with-worker
     (fn [conn]

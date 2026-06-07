@@ -695,7 +695,7 @@
     (wac-cljs/ns-head (io/file source-file))))
 
 (defn- handle-loopback-message
-  [{:keys [op class-names rel a b triples ns sym source-file handle arg]}]
+  [{:keys [op class-names rel a b triples ns sym source-file handle arg namespaces]}]
   (case op
     "intern-host-classes" {:handles (intern-host-classes-reply class-names)}
     "class-rel" {:result (run-class-rel rel a b)}
@@ -703,6 +703,20 @@
     "resolve-class-sym" {:handle (resolve-sym-to-handle ns sym)}
     "class-name" {:name (class-name-for-handle a)}
     "analyze-namespace" (analyze-namespace-reply ns source-file)
+    "analyze-namespaces-stream"
+    (mapv (fn [[ns-str source-file-str]]
+            (try
+              (let [{:keys [entries read-failure]}
+                    (analyze-namespace-reply ns-str source-file-str)]
+                (cond-> {:ns-sym ns-str :source-file source-file-str}
+                  entries      (assoc :entries entries)
+                  read-failure (assoc :read-failure read-failure)))
+              (catch Throwable e
+                {:ns-sym ns-str
+                 :source-file source-file-str
+                 :load-error (.getName (class e))
+                 :load-error-message (or (.getMessage e) (str e))})))
+          namespaces)
     "apply-predicate" (let [pred (or (get-in @fn-handle-state [:id->fn handle])
                                       (throw (ex-info (str "Unknown predicate handle: " handle)
                                                       {:handle handle})))]
@@ -791,6 +805,26 @@
                                           entries (assoc :entries entries)
                                           read-failure (assoc :read-failure read-failure)))))
               (h msg))))
+        wrap-analyze-namespaces-stream
+        (fn [h]
+          (fn [{:keys [op transport namespaces] :as msg}]
+            (if (= op "analyze-namespaces-stream")
+              (do
+                (doseq [[ns-str source-file-str] namespaces]
+                  (let [reply (try
+                                (let [{:keys [entries read-failure]}
+                                      (analyze-namespace-reply ns-str source-file-str)]
+                                  (cond-> {:ns-sym ns-str :source-file source-file-str}
+                                    entries      (assoc :entries entries)
+                                    read-failure (assoc :read-failure read-failure)))
+                                (catch Throwable e
+                                  {:ns-sym ns-str
+                                   :source-file source-file-str
+                                   :load-error (.getName (class e))
+                                   :load-error-message (or (.getMessage e) (str e))}))]
+                    (send-reply! transport msg reply)))
+                (send-reply! transport msg {:status #{:done}}))
+              (h msg))))
         wrap-analyze-cljs-namespace
         (fn [h]
           (fn [{:keys [op transport source-file] :as msg}]
@@ -831,6 +865,7 @@
                     wrap-apply-predicate
                     wrap-cljs-ns-head
                     wrap-analyze-cljs-namespace
+                    wrap-analyze-namespaces-stream
                     wrap-analyze-namespace
                     wrap-class-name
                     wrap-resolve-class-sym

@@ -76,6 +76,41 @@
         (check-no-error! msg reply)
         reply))))
 
+(defn- recv-streaming
+  "Block on `recv` until `:done`. Each non-done message for our `:id` is
+   passed to `on-reply`. Throws if the transport closes mid-stream."
+  [t-recv transport op id on-reply]
+  (loop []
+    (let [msg (t-recv transport)]
+      (when-not msg
+        (throw (ex-info (str "Worker transport closed during streaming op \"" op
+                             "\" (request id " id ")")
+                        {:op op :id id})))
+      (when (= id (:id msg))
+        (check-no-error! {:op op} msg)
+        (when-not (done-status? (:status msg))
+          (on-reply msg)
+          (recur))))))
+
+(defn ask-streaming
+  "Send `msg` and call `on-reply` for each intermediate reply. Returns nil
+   when the final `:done` message arrives. Loopback: the handler returns a
+   single map; `on-reply` is called once with it."
+  [conn msg on-reply]
+  (if (:skeptic.worker/loopback? conn)
+    (let [reply ((:handler conn) msg)]
+      (if (sequential? reply)
+        (run! on-reply reply)
+        (on-reply reply)))
+    (let [uuid (requiring-resolve 'nrepl.misc/uuid)
+          t-send (requiring-resolve 'nrepl.transport/send)
+          t-recv (requiring-resolve 'nrepl.transport/recv)
+          id (or (:id msg) (uuid))
+          msg (assoc msg :id id)
+          transport (:transport conn)]
+      (t-send transport msg)
+      (recv-streaming t-recv transport (:op msg) id on-reply))))
+
 (defn disconnect!
   [conn]
   (when-not (:skeptic.worker/loopback? conn)
