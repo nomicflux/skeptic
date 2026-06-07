@@ -1,4 +1,4 @@
-(ns skeptic.analysis.schema.cast
+(ns skeptic.analysis.cast.schema-bridge
   (:require [skeptic.analysis.bridge :as ab]
             [skeptic.analysis.cast :as ac]
             [skeptic.analysis.cast.result :as result]))

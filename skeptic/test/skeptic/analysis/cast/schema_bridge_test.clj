@@ -1,7 +1,7 @@
-(ns skeptic.analysis.schema.cast-test
+(ns skeptic.analysis.cast.schema-bridge-test
   (:require [clojure.test :refer [deftest is]]
             [schema.core :as s]
-            [skeptic.analysis.schema.cast :as sut]
+            [skeptic.analysis.cast.schema-bridge :as sut]
             [skeptic.provenance :as prov]))
 
 (def tp (prov/make-provenance :inferred (quote test-sym) (quote skeptic.test) nil [] :clj))
