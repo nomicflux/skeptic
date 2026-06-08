@@ -29,7 +29,7 @@
    args :- [s/Any]]
   (when (and (symbols/static-get? node)
              (<= 2 (count args) 3))
-    (map-projection/map-key-lookup-origin
+    (map-projection/derive-map-key-lookup-origin
      ctx (first args)
      (ac/get-key-query ctx (second args))
      (if (= 3 (count args)) (:type (nth args 2)) amo/no-default))))

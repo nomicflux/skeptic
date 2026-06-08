@@ -295,10 +295,6 @@
            (contains? node :type))
        (not-any? #(contains? node %) legacy-schema-mirror-keys)))
 
-(s/defn strip-derived-types :- s/Any
-  [value :- s/Any]
-  (abr/strip-derived-types value))
-
 (s/defn node-fun-type :- s/Any
   [node :- aas/AnnotatedNode]
   (when (at/fun-type? (:type node))
@@ -353,7 +349,7 @@
                             qualified-name
                             (pr-str (:op value-node))))))
           [qualified-name
-           (strip-derived-types
+           (abr/strip-derived-types
             (cond-> {:type (:type value-node)}
               (:output-type value-node) (assoc :output-type (:output-type value-node))
               (:arglists value-node)    (assoc :arglists (:arglists value-node))

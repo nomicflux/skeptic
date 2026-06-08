@@ -49,7 +49,7 @@
     (or (ao/local-root-origin ctx root-local)
         (ao/root-origin (:form root-local) (or (:type root-local) (aapi/dyn ctx))))))
 
-(s/defn map-key-lookup-origin :- (s/maybe aos/Origin)
+(s/defn derive-map-key-lookup-origin :- (s/maybe aos/Origin)
   [ctx :- s/Any, target-node :- aas/AnnotatedNode, key-query :- s/Any, default-type :- s/Any]
   (let [target-origin (ao/map-key-lookup-origin-value (aapi/node-origin target-node))]
     (if target-origin

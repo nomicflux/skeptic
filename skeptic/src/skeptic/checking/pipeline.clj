@@ -4,7 +4,7 @@
             [skeptic.analysis.annotate :as aa]
             [skeptic.analysis.annotate.api :as aapi]
             [skeptic.analysis.annotate.schema :as aas]
-            [skeptic.analysis.bridge :as ab]
+            [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.call-kinds.projection :as ck-projection]
             [skeptic.analysis.calls :as ac]
             [skeptic.analysis.class-oracle :as class-oracle]
@@ -19,18 +19,14 @@
             [skeptic.checking.form :as cf]
             [skeptic.checking.opts :as copts]
             [skeptic.checking.state :as cstate]
-            [skeptic.cljs.analyzer-driver.schema :as ads]
             [skeptic.cljs.topo :as topo]
             [skeptic.file :as file]
             [skeptic.inconsistence.mismatch :as incm]
             [skeptic.inconsistence.report :as inrep]
             [skeptic.malli-spec.collect :as malli-collect]
-            [skeptic.malli-spec.collect.cljs :as malli-collect-cljs]
             [skeptic.provenance :as prov]
-            [skeptic.schema.collect.cljs :as schema-collect-cljs]
             [skeptic.schema.discovery :as discovery]
             [skeptic.typed-decls :as typed-decls]
-            [skeptic.typed-decls.malli :as typed-decls.malli]
             [skeptic.analysis.predicate-descriptor :as pd]
             [skeptic.worker.client :as wc]
             [skeptic.worker.wire :as wire])
@@ -348,16 +344,8 @@
           summary (def-accessor-summary def-node)]
       (when (and sym entry)
         {:sym sym
-         :entry (aapi/strip-derived-types entry)
+         :entry (abr/strip-derived-types entry)
          :summary summary}))))
-
-(s/defn ^:private require-cljs-per-file :- ads/SourceFileAnalysis
-  [cljs-state  :- {s/Any s/Any}
-   source-file :- s/Any
-   ns-sym      :- s/Symbol]
-  (or (get cljs-state source-file)
-      (throw (ex-info "cljs requires cljs-state with per-file entry for source-file"
-                      {:ns ns-sym :source-file (some-> source-file str)}))))
 
 (s/defn ^:private collect-accessor-summaries-for-ns :- AccessorSummaries
   [dict :- {s/Symbol at/SemanticType}
@@ -427,9 +415,9 @@
                           :location (:location display)
                           :enclosing-form enclosing-form
                           :path nil
-                          :context {:local-vars (ca/local-vars-context body)
-                                    :refs (if (ca/call-node? body)
-                                            (ca/call-refs body)
+                          :context {:local-vars (aapi/local-vars-context body)
+                                    :refs (if (aapi/call-node? body)
+                                            (aapi/call-refs body)
                                             [])}
                           :blame-side (:blame-side report)
                           :blame-polarity (:blame-polarity report)
@@ -489,13 +477,13 @@
      :actual-type (:actual-type primary-group)
      :cast-summary (:cast-summary primary-group)
      :cast-diagnostics (vec (mapcat :cast-diagnostics error-groups))
-     :context {:local-vars (ca/local-vars-context node)
-               :refs (ca/call-refs node)}
+     :context {:local-vars (aapi/local-vars-context node)
+               :refs (aapi/call-refs node)}
      :errors (vec (mapcat :errors error-groups))}))
 
 (s/defn match-s-exprs :- s/Any
   [enclosing-form node :- aas/AnnotatedNode keep-empty :- s/Bool]
-  (when (ca/call-node? node)
+  (when (aapi/call-node? node)
     (let [expected-arglist (vec (aapi/call-expected-argtypes node))
           actual-arglist (vec (aapi/call-actual-argtypes node))]
       (assert (not (or (nil? expected-arglist) (nil? actual-arglist)))
@@ -755,12 +743,6 @@
        {:results [] :provenance {}}
        (or entries [])))))
 
-(defn- native-result []
-  {:dict native-fns/native-fn-dict
-   :provenance native-fns/native-fn-provenance
-   :ignore-body #{}
-   :errors []})
-
 (def ^:private form-ref-roles
   "Roles whose source forms bridge.descriptors/raw->descriptor can normalize.
   Other Plumatic roles (defprotocol, defrecord-class/factory) are discovered
@@ -834,48 +816,6 @@
                          [qsym (prov/make-provenance :malli qsym ns-sym nil [] :clj)]))
                   (malli-collect/malli-admitted-qsyms ns-sym aliases entries))))]
     (merge schema-provs malli-provs)))
-
-(defn- clj-namespace-dict
-  [opts ns-sym var-provs form-refs entries]
-  (binding [ab/*var-provs* var-provs]
-    (let [forms (mapv :source-form entries)
-          aliases (discovery/source-form-aliases forms)
-          schema-result (typed-decls/typed-ns-results opts ns-sym :clj form-refs entries)
-          malli-result (typed-decls.malli/typed-ns-malli-results opts ns-sym :clj aliases entries)]
-      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
-
-(defn- cljs-namespace-dict
-  [opts ns-sym source-file cljs-state var-provs form-refs]
-  (if-not (contains? cljs-state source-file)
-    (let [schema-result (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
-          malli-result  (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})]
-      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))
-    (let [{:keys [ns-ast entries]} (require-cljs-per-file cljs-state source-file ns-sym)
-          top-asts (filterv :op (mapv :ast (filterv :ast (or entries []))))
-          schema-result (if (:plumatic-disable opts)
-                          (typed-decls/convert-collected ns-sym :cljs form-refs {:entries {} :errors []})
-                          (binding [ab/*var-provs* var-provs]
-                            (typed-decls/convert-collected
-                             ns-sym :cljs form-refs
-                             (schema-collect-cljs/ns-schema-results-cljs
-                              ns-ast source-file ns-sym top-asts))))
-          malli-result (if (:malli-disable opts)
-                         (typed-decls.malli/convert-collected ns-sym :cljs {:entries {} :errors []})
-                         (binding [ab/*var-provs* var-provs]
-                           (typed-decls.malli/convert-collected
-                            ns-sym :cljs
-                            (malli-collect-cljs/ns-malli-spec-results-cljs
-                             source-file ns-sym (or entries [])))))]
-      (typed-decls/merge-type-dicts [schema-result malli-result (native-result)]))))
-
-(s/defn namespace-dict :- s/Any
-  [opts ns-sym :- s/Symbol source-file lang cljs-state var-provs form-refs entries]
-  (case lang
-    :clj  (clj-namespace-dict opts ns-sym var-provs form-refs entries)
-    :cljs (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)
-    :both (typed-decls/merge-type-dicts
-           [(clj-namespace-dict opts ns-sym var-provs form-refs entries)
-            (cljs-namespace-dict opts ns-sym source-file cljs-state var-provs form-refs)])))
 
 (defn- preload-namespaces
   "Tag every discovered namespace with its `lang` and pass it through to
@@ -1125,9 +1065,9 @@
         (reduce (fn [acc [ns-sym source-file lang]]
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
-                              (namespace-dict opts ns-sym source-file lang
-                                              cljs-state var-provs form-refs
-                                              (get ns-entries-map ns-sym)))
+                              (typed-decls/namespace-dict opts ns-sym source-file lang
+                                                          cljs-state var-provs form-refs
+                                                          (get ns-entries-map ns-sym)))
                     (catch Throwable e
                       (assoc-in acc [:admission-failures ns-sym]
                                 {:source-file source-file :exception e :phase :admission}))))

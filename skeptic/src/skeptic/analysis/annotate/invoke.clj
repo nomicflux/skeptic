@@ -81,4 +81,4 @@
                   :type type
                   :actual-argtypes [target-type]
                   :expected-argtypes [(aapi/dyn ctx)]
-                  :origin (map-projection/map-key-lookup-origin ctx target query amo/no-default)))))))))
+                  :origin (map-projection/derive-map-key-lookup-origin ctx target query amo/no-default)))))))))
