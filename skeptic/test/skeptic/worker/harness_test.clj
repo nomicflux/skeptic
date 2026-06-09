@@ -232,6 +232,35 @@
       (finally
         (delete-recursively! dir)))))
 
+(deftest analyze-namespace-uses-project-data-readers
+  (let [dir (temp-dir!)
+        src (io/file dir "src")
+        timestamp "2026-06-09T12:34:56Z"]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "data_readers.clj")
+            "{date-time demo.tag-reader/read-date-time}\n")
+      (spit (io/file src "demo" "tag_reader.clj")
+            "(ns demo.tag-reader)
+
+             (defn read-date-time [value]
+               {:date-time value})")
+      (spit (io/file src "demo" "tagged.clj")
+            (str "(ns demo.tagged\n"
+                 "  (:require [demo.tag-reader]))\n\n"
+                 "(def value #date-time \"" timestamp "\")\n"))
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.tagged"
+                                                        :source-file (.getPath (io/file src "demo" "tagged.clj"))})
+                value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
+            (is (nil? read-failure))
+            (is (= {:date-time timestamp} (nth value-form 2))))))
+      (finally
+        (delete-recursively! dir)))))
+
 (deftest ask-streaming-loopback
   (let [conn (wc/loopback-conn (fn [msg] {:result (:input msg)}))
         replies (atom [])]
