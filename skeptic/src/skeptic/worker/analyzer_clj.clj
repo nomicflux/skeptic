@@ -167,16 +167,14 @@
     (assoc :analysis-skipped? true)))
 
 (defn- require-with-reload-retry
-  "Require `ns-sym` once; if the first attempt fails (typically a namespace
-   was partially loaded earlier and its `defn`s were not yet interned when
-   downstream macroexpansion looked them up), retry with `:reload`. The
-   reload forces a fresh, sequential load of the file, which both completes
-   the partial state and is harmless when the first attempt already
-   succeeded."
   [ns-sym]
   (try
     (require ns-sym)
-    (catch Throwable _e
+    (catch Throwable e
+      (println (str "WORKER require of " ns-sym " threw "
+                    (.getName (class e)) ": " (.getMessage e)
+                    " — retrying with :reload-all"))
+      (flush)
       (require ns-sym :reload-all))))
 
 (defn- worker-log

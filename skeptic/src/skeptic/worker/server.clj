@@ -78,7 +78,10 @@
       (select-keys (ns-publics oracle-ns)
                    '[*worker-conn* *host-class-handles* *class-rel-cache* *predicate-cache*
                      intern-host-classes!]))
-    (catch Throwable _
+    (catch Throwable e
+      (println (str "WORKER project-oracle-vars: skeptic.analysis.class-oracle unavailable: "
+                    (.getName (class e)) ": " (.getMessage e)))
+      (flush)
       nil)))
 
 (defn- project-oracle-bindings
@@ -769,7 +772,11 @@
             (catch Throwable send-err
               (try
                 (t-send transport (resp-for msg (error-reply send-err)))
-                (catch Throwable _)))))
+                (catch Throwable final-err
+                  (println (str "WORKER send-reply!: both primary and error-reply sends failed. "
+                                "Primary: " (.getName (class send-err)) ": " (.getMessage send-err)
+                                ". Error-reply: " (.getName (class final-err)) ": " (.getMessage final-err)))
+                  (flush))))))
         send-reply-or-error*
         (fn [transport msg body-fn]
           (let [reply (try (body-fn) (catch Throwable e (error-reply e)))]

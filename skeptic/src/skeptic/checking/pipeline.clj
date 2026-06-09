@@ -941,7 +941,13 @@
       (let [data-str (:exception-data entry)
             data (when (and (string? data-str) (seq data-str))
                    (try (edn/read-string {:default (fn [_ v] v)} data-str)
-                        (catch Throwable _ nil)))]
+                        (catch Throwable e
+                          (binding [*out* *err*]
+                            (println (str "[skeptic cljs-entry] could not parse :exception-data EDN: "
+                                          (.getName (class e)) ": " (.getMessage e)
+                                          " — data was " (pr-str (when (string? data-str)
+                                                                   (subs data-str 0 (min 200 (count data-str))))))))
+                          nil)))]
         (-> entry
             (dissoc :exception-message :exception-data)
             (assoc :ast nil :exception (ex-info (or (:exception-message entry)
