@@ -24,7 +24,7 @@ Examples:
 When `/psp` is used in this repo, each phase's completion gate requires **all three** of the following to pass before the phase can be marked complete:
 
 1. `lein test` — full test suite, zero failures.
-2. `clj-kondo --lint src test` — zero warnings.
+2. `clj-kondo --lint .` — zero warnings.
 3. **Skeptic on self** — `lein with-profile +skeptic-plugin skeptic -p` (after `../script/install-local.sh`) produces zero findings.
 
 ## Project Setup

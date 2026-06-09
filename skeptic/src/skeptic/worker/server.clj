@@ -723,6 +723,16 @@
                         {:result (with-project-operation (boolean (pred arg)))})
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
+(defn- worker-log
+  "Worker-side startup marker. Goes to stdout because the host merges stderr
+   into stdout via redirectErrorStream and reads stdout line-by-line in
+   read-port. The host's read-port surfaces these as `[skeptic worker stdout]`
+   under host `-v`. Unconditional on the worker side: the worker has no flag
+   to honor, and silence is the failure mode we are trying to eliminate."
+  [label]
+  (println (str "WORKER " label))
+  (flush))
+
 (defn start!
   "Lazy-load nREPL, then start a server with an explicit handler chain. Every
    nREPL Var (`t/send`, `response-for`, `srv/start-server`,
@@ -732,8 +742,11 @@
    they close over locally resolved `t-send` and `resp-for`, never reference
    a namespace-scoped alias."
   []
+  (worker-log "requiring nrepl.transport")
   (require 'nrepl.transport)
+  (worker-log "requiring nrepl.server")
   (require 'nrepl.server)
+  (worker-log "requiring nrepl.misc")
   (require 'nrepl.misc)
   (let [t-send (requiring-resolve 'nrepl.transport/send)
         resp-for (requiring-resolve 'nrepl.misc/response-for)
@@ -872,13 +885,17 @@
                     wrap-class-rel-batch
                     wrap-class-rel
                     wrap-intern-host-classes
-                    wrap-ping)]
-    (start-server :port 0
-                  :transport-fn worker-transport/transit
-                  :handler handler)))
+                    wrap-ping)
+        _ (worker-log "starting nrepl server on port 0 (transit transport)")
+        server (start-server :port 0
+                             :transport-fn worker-transport/transit
+                             :handler handler)
+        _ (worker-log (str "nrepl server bound port=" (:port server)))]
+    server))
 
 (defn -main
   [& _args]
+  (worker-log "-main entered")
   (let [server (start!)]
     (println (str "SKEPTIC-WORKER-PORT " (:port server)))
     (flush)

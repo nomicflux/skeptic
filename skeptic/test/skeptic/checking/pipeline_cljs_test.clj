@@ -141,7 +141,7 @@
 
 (defn- with-isolated-worker
   [f]
-  (let [worker (proc/spawn! (System/getProperty "java.class.path"))
+  (let [worker (proc/spawn! (System/getProperty "java.class.path") false)
         conn (wc/connect (:port worker))]
     (try
       (binding [class-oracle/*worker-conn* conn

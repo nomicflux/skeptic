@@ -8,7 +8,7 @@
   (:import [java.io BufferedReader]))
 
 (s/defn ^:private read-port :- s/Int
-  [reader :- BufferedReader]
+  [reader :- BufferedReader verbose? :- s/Bool]
   (loop [lines []]
     (let [line (.readLine reader)]
       (cond
@@ -16,16 +16,25 @@
                                      {:worker-output lines}))
         (str/starts-with? line "SKEPTIC-WORKER-PORT ")
         (Integer/parseInt (subs line (count "SKEPTIC-WORKER-PORT ")))
-        :else (recur (conj lines line))))))
+        :else (do
+                (when verbose?
+                  (binding [*out* *err*]
+                    (println (str "[skeptic worker stdout] " line))
+                    (flush)))
+                (recur (conj lines line)))))))
 
 (s/defn spawn! :- {:proc s/Any :port s/Int}
-  [combined-cp :- s/Str]
+  [combined-cp :- s/Str verbose? :- s/Bool]
   (let [pb (doto (ProcessBuilder. ["java" "-cp" combined-cp
                                    "clojure.main" "-m" "skeptic.worker.server"])
              (.redirectErrorStream true))
+        _ (when verbose?
+            (binding [*out* *err*]
+              (println "[skeptic startup] worker JVM ProcessBuilder.start (waiting for handshake)")
+              (flush)))
         proc (.start pb)
         reader (BufferedReader. (java.io.InputStreamReader. (.getInputStream proc)))]
-    {:proc proc :port (read-port reader)}))
+    {:proc proc :port (read-port reader verbose?)}))
 
 (s/defn stop! :- s/Any
   [{:keys [proc]} :- {:proc s/Any s/Any s/Any}]

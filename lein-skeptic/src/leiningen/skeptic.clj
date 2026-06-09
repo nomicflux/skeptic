@@ -11,16 +11,31 @@
   (or (requiring-resolve sym)
       (throw (ex-info (str "Could not resolve " sym) {:sym sym}))))
 
+(defn- vlog
+  "Emit a `-v`-gated startup marker to stderr (so it appears even when stdout
+   is redirected via -o). Each marker names the host-side step about to run.
+   A user reporting a hang can name the last marker printed; that identifies
+   which synchronous call blocked."
+  [verbose? label]
+  (when verbose?
+    (binding [*out* *err*]
+      (println (str "[skeptic startup] " label))
+      (flush))))
+
 (defn- resolve-worker-jars
   "Resolve Skeptic's worker dependency declaration via leiningen's aether
    wrapper. The declaration lives in `skeptic.worker.deps/worker-deps` —
    Skeptic owns it as data, lein resolves it as a synthetic project.
    The synthetic project inherits the real project's `:repositories` so
    aether knows where to download from."
-  [project]
+  [project verbose?]
   (let [worker-deps (deref (required-var 'skeptic.worker.deps/worker-deps))
         synthetic-project {:dependencies worker-deps
                            :repositories (:repositories project)}]
+    (vlog verbose? (str "resolving worker deps ("
+                        (count worker-deps) " coords) against "
+                        (count (:repositories project)) " repositories: "
+                        (mapv first (:repositories project))))
     (mapv #(.getAbsolutePath ^java.io.File %)
           (leiningen.core.classpath/resolve-managed-dependencies
             :dependencies :managed-dependencies synthetic-project))))
@@ -32,39 +47,52 @@
    under `:plugins` (e.g. `lein-doo` for `doo.runner` test entrypoints);
    without this augmentation those namespaces are unresolvable when Skeptic
    analyzes the project's cljs sources."
-  [project]
+  [project verbose?]
+  (vlog verbose? (str "resolving :plugins as dependencies ("
+                      (count (:plugins project)) " plugins): "
+                      (mapv first (:plugins project))))
   (mapv #(.getAbsolutePath ^java.io.File %)
         (leiningen.core.classpath/resolve-managed-dependencies
           :plugins :managed-dependencies project)))
 
 (defn- run-skeptic
   [project args]
-  (let [paths (:source-paths (cljs-lein/discover-sources project))
-        base-cp (vec (leiningen.core.classpath/get-classpath project))
-        plugin-jars (resolve-plugin-jars project)
-        ;; Skeptic discovers cljs source-paths via cljs-lein/discover-sources
-        ;; (e.g. cljsbuild :builds [].source-paths declares test/cljs that
-        ;; :source-paths/:test-paths do not). lein's `get-classpath` only
-        ;; honors :source-paths/:test-paths/:resource-paths, so cljsbuild
-        ;; source-paths are absent from base-cp. The cljs analyzer's resolver
-        ;; (`cljs.analyzer/locate-src` → `cljs.util/ns->source` → `io/resource`)
-        ;; depends on those paths being on the classpath to find sibling
-        ;; required namespaces. Add discovered source-paths here so worker
-        ;; classpath includes them.
-        project-cp (vec (distinct (concat base-cp plugin-jars paths)))
-        worker-jars (resolve-worker-jars project)
-        worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
-        profiling-run (required-var 'skeptic.profiling/run)
-        check-project (required-var 'skeptic.core/check-project)
-        cp (worker-classpath-entries worker-jars project-cp)
-        {:keys [options summary errors]} (cli-opts/parse args)]
+  (let [{:keys [options summary errors]} (cli-opts/parse args)]
     (cond
       (:help options) (println summary)
       errors          (do (doseq [e errors] (leiningen.core.main/warn e))
                           (leiningen.core.main/warn summary)
                           (leiningen.core.main/abort))
       :else
-      (let [output-path (:output options)
+      (let [verbose? (:verbose options)
+            _ (vlog verbose? "discovering cljs sources")
+            paths (:source-paths (cljs-lein/discover-sources project))
+            _ (vlog verbose? (str "resolving project classpath via lein get-classpath; :dependencies count="
+                                  (count (:dependencies project))))
+            base-cp (vec (leiningen.core.classpath/get-classpath project))
+            _ (vlog verbose? (str "project classpath resolved (" (count base-cp) " entries)"))
+            plugin-jars (resolve-plugin-jars project verbose?)
+            _ (vlog verbose? (str ":plugins resolved (" (count plugin-jars) " entries)"))
+            ;; Skeptic discovers cljs source-paths via cljs-lein/discover-sources
+            ;; (e.g. cljsbuild :builds [].source-paths declares test/cljs that
+            ;; :source-paths/:test-paths do not). lein's `get-classpath` only
+            ;; honors :source-paths/:test-paths/:resource-paths, so cljsbuild
+            ;; source-paths are absent from base-cp. The cljs analyzer's resolver
+            ;; (`cljs.analyzer/locate-src` → `cljs.util/ns->source` → `io/resource`)
+            ;; depends on those paths being on the classpath to find sibling
+            ;; required namespaces. Add discovered source-paths here so worker
+            ;; classpath includes them.
+            project-cp (vec (distinct (concat base-cp plugin-jars paths)))
+            worker-jars (resolve-worker-jars project verbose?)
+            _ (vlog verbose? (str "worker deps resolved (" (count worker-jars) " entries)"))
+            _ (vlog verbose? "loading skeptic.worker.classpath / skeptic.profiling / skeptic.core")
+            worker-classpath-entries (required-var 'skeptic.worker.classpath/worker-classpath-entries)
+            profiling-run (required-var 'skeptic.profiling/run)
+            check-project (required-var 'skeptic.core/check-project)
+            _ (vlog verbose? "assembling worker launch classpath")
+            cp (worker-classpath-entries worker-jars project-cp)
+            _ (vlog verbose? "entering check-project")
+            output-path (:output options)
             writer (when output-path (io/writer output-path))]
         (try
           (binding [*out* (or writer *out*)]

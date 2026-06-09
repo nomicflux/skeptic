@@ -18,7 +18,7 @@
    registers a shutdown hook to stop it. Returns `{:conn :handles}`."
   []
   (let [cp     (System/getProperty "java.class.path")
-        worker (proc/spawn! cp)
+        worker (proc/spawn! cp false)
         conn   (wc/connect (:port worker))]
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. ^Runnable (fn [] (wc/disconnect! conn) (proc/stop! worker))))

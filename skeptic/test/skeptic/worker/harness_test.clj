@@ -27,7 +27,7 @@
          combined (if project-cp
                     (cp-string (concat project-cp [host-cp]))
                     host-cp)
-         worker (proc/spawn! combined)
+         worker (proc/spawn! combined false)
          conn (wc/connect (:port worker))]
      (try
        (f conn)

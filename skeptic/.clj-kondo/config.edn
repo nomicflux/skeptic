@@ -2,4 +2,5 @@
                           ".*research/.*\\.(clj|cljs|cljc)$"
                           ".*dev-resources/*"
                           ".*.clj-kondo/*"
-                          ".*p8[-_]crash[-_]robustness/.*\\.(clj|cljs|cljc)$"]}}
+                          ".*p8[-_]crash[-_]robustness/.*\\.(clj|cljs|cljc)$"
+                          ".*\\.scratch/.*\\.(clj|cljs|cljc)$"]}}

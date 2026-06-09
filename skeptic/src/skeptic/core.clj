@@ -93,8 +93,27 @@
         combined-cp (or (:combined (:worker-classpath opts))
                         (throw (ex-info "check-project requires :worker-classpath with a :combined launch cp"
                                         {:opts (keys opts)})))
-        worker (wproc/spawn! combined-cp)
-        conn (wc/connect (:port worker))]
+        _ (when (:verbose opts)
+            (binding [*out* *err*]
+              (println (str "[skeptic startup] spawning worker JVM (cp length="
+                            (count combined-cp) " chars, entries="
+                            (inc (count (re-seq (re-pattern
+                                                  (java.util.regex.Pattern/quote
+                                                    (System/getProperty "path.separator")))
+                                                combined-cp)))
+                            ")"))
+              (flush)))
+        worker (wproc/spawn! combined-cp (:verbose opts))
+        _ (when (:verbose opts)
+            (binding [*out* *err*]
+              (println (str "[skeptic startup] worker handshake received port=" (:port worker)
+                            "; connecting"))
+              (flush)))
+        conn (wc/connect (:port worker))
+        _ (when (:verbose opts)
+            (binding [*out* *err*]
+              (println "[skeptic startup] worker connection established")
+              (flush)))]
     (try
       (let [host-handles (class-oracle/intern-host-classes! conn)]
         (binding [class-oracle/*worker-conn* conn
