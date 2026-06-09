@@ -869,8 +869,10 @@
   analyze-namespaces-stream op. As each namespace's complete entries arrive,
   immediately reattach metadata, build ns-entries and discovery. Returns
   `{:clj-state :clj-load-failures :ns-entries-map :project-disc}`. Empty when
-  `conn` is nil."
-  [conn loaded]
+  `conn` is nil. Under `verbose?`, each `:starting?` reply prints a
+  `[skeptic analyze clj]` marker — last marker printed names the namespace
+  whose `require`/macroexpansion blocked if the worker hangs."
+  [conn loaded verbose?]
   (if-not conn
     {:clj-state {} :clj-load-failures {} :ns-entries-map {} :project-disc {}}
     (let [clj-pairs (into []
@@ -890,9 +892,15 @@
                           {:op "analyze-namespaces-stream"
                            :namespaces clj-pairs}
                           (fn [reply]
-                            (process-stream-reply clj-state-a clj-failures-a
-                                                  ns-entries-a project-disc-a
-                                                  loaded-index reply))))
+                            (when (and verbose? (:starting? reply))
+                              (binding [*out* *err*]
+                                (println (str "[skeptic analyze clj] " (:ns-sym reply)
+                                              " (" (:source-file reply) ")"))
+                                (flush)))
+                            (when-not (:starting? reply)
+                              (process-stream-reply clj-state-a clj-failures-a
+                                                    ns-entries-a project-disc-a
+                                                    loaded-index reply)))))
       {:clj-state @clj-state-a
        :clj-load-failures @clj-failures-a
        :ns-entries-map @ns-entries-a
@@ -958,7 +966,7 @@
   truthy or `loaded` contains no cljs/cljc sources. The shared state
   is created here and discarded on return; downstream phases consume
   only cached entries."
-  [cljs-disable? conn loaded]
+  [cljs-disable? conn loaded verbose?]
   (if (or cljs-disable? (nil? conn))
     {:cljs-state {} :cljs-load-failures {}}
     (let [ns-sym->file (into {}
@@ -970,6 +978,10 @@
           headed       (into {} (filter (fn [[_ f]] (contains? heads f))) ns-sym->file)
           ordered      (topo/topo-sort-files headed (fn [f] (get heads f)))]
       (reduce (fn [acc f]
+                (when verbose?
+                  (binding [*out* *err*]
+                    (println (str "[skeptic analyze cljs] " f))
+                    (flush)))
                 (try
                   ;; wc/ask returns the raw nREPL reply (carries :id/:session/:status
                   ;; and no :asts). Reshape to the closed SourceFileAnalysis the
@@ -1038,7 +1050,7 @@
         ;; would, before those clj-side effects mutate shared runtime state.
         {cljs-state         :cljs-state
          cljs-load-failures :cljs-load-failures}
-        (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded)
+        (preload-cljs-state! (:cljs-disable opts) (:worker-conn opts) loaded (boolean (:verbose opts)))
         cljs-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :cljs-load)))
                                       {} cljs-load-failures)
         ;; Worker clj-state is computed BEFORE discovery/var-provs: discovery and
@@ -1047,7 +1059,7 @@
          clj-load-failures :clj-load-failures
          ns-entries-map    :ns-entries-map
          project-disc      :project-disc}
-        (preload-clj-state! (:worker-conn opts) loaded)
+        (preload-clj-state! (:worker-conn opts) loaded (boolean (:verbose opts)))
         clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
                                      {} clj-load-failures)
         var-provs (project-var-provs opts project-disc ns-entries-map)
@@ -1061,8 +1073,13 @@
                                            project-disc)})
         user-fn-summaries (reduce-kv (fn [m _ d] (merge m (collect-user-fn-summaries d)))
                                      {} project-disc)
+        verbose? (boolean (:verbose opts))
         {:keys [per-ns-admission admission-failures]}
         (reduce (fn [acc [ns-sym source-file lang]]
+                  (when verbose?
+                    (binding [*out* *err*]
+                      (println (str "[skeptic admission] " ns-sym " (" lang ")"))
+                      (flush)))
                   (try
                     (assoc-in acc [:per-ns-admission ns-sym]
                               (typed-decls/namespace-dict opts ns-sym source-file lang
@@ -1081,18 +1098,23 @@
          (fn [acc [ns-sym source-file lang]]
            (if (and source-file ns-sym (contains? per-ns-admission ns-sym)
                     (#{:clj :both} lang))
-             (try
-               (let [entries (some-> clj-state (get source-file) :entries)
-                     asts (->> entries
-                               (remove #(file/is-ns-block? (:source-form %)))
-                               (keep :ast)
-                               vec)]
-                 (update acc :accessor-summaries
-                         (fn [summaries]
-                           (collect-accessor-summaries-for-ns merged-dict ns-sym asts summaries))))
-               (catch Throwable e
-                 (assoc-in acc [:accessor-failures ns-sym]
-                           {:source-file source-file :exception e :phase :accessors})))
+             (do
+               (when verbose?
+                 (binding [*out* *err*]
+                   (println (str "[skeptic accessors] " ns-sym))
+                   (flush)))
+               (try
+                 (let [entries (some-> clj-state (get source-file) :entries)
+                       asts (->> entries
+                                 (remove #(file/is-ns-block? (:source-form %)))
+                                 (keep :ast)
+                                 vec)]
+                   (update acc :accessor-summaries
+                           (fn [summaries]
+                             (collect-accessor-summaries-for-ns merged-dict ns-sym asts summaries))))
+                 (catch Throwable e
+                   (assoc-in acc [:accessor-failures ns-sym]
+                             {:source-file source-file :exception e :phase :accessors}))))
              acc))
          {:accessor-summaries {} :accessor-failures {}}
          loaded)

@@ -261,15 +261,18 @@
             _ (wc/ask-streaming conn
                                {:op "analyze-namespaces-stream"
                                 :namespaces nss}
-                               (fn [reply] (swap! replies conj reply)))]
-        (testing "on-reply called once per namespace"
-          (is (= 2 (count @replies))))
-        (testing "each reply carries :ns-sym and :entries"
-          (is (every? #(contains? % :ns-sym) @replies))
-          (is (every? #(contains? % :entries) @replies)))
+                               (fn [reply] (swap! replies conj reply)))
+            starting (filterv :starting? @replies)
+            data-replies (filterv #(not (:starting? %)) @replies)]
+        (testing "each namespace produces a :starting? marker then a data reply"
+          (is (= 2 (count starting)))
+          (is (= 2 (count data-replies))))
+        (testing "each data reply carries :ns-sym and :entries"
+          (is (every? #(contains? % :ns-sym) data-replies))
+          (is (every? #(contains? % :entries) data-replies)))
         (testing "entries match individual analyze-namespace results"
           (doseq [[ns-str source-file] nss]
-            (let [stream-reply (some #(when (= ns-str (:ns-sym %)) %) @replies)
+            (let [stream-reply (some #(when (= ns-str (:ns-sym %)) %) data-replies)
                   single-reply (wc/ask conn {:op "analyze-namespace"
                                              :ns ns-str
                                              :source-file source-file})]

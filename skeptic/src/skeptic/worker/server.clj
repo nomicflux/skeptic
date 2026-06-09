@@ -842,6 +842,9 @@
             (if (= op "analyze-namespaces-stream")
               (do
                 (doseq [[ns-str source-file-str] namespaces]
+                  (send-reply! transport msg {:ns-sym ns-str
+                                              :source-file source-file-str
+                                              :starting? true})
                   (let [reply (try
                                 (let [{:keys [entries read-failure]}
                                       (analyze-namespace-reply ns-str source-file-str)]
