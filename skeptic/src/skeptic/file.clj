@@ -16,15 +16,73 @@
   [^File file]
   (rt/source-logging-push-back-reader (io/reader file) 1 (.getPath file)))
 
+(defn- find-ns-form
+  [^File file]
+  (with-open [reader (pushback-reader file)]
+    (loop [form (try-read reader)]
+      (cond
+        (nil? form) nil
+        (is-ns-block? form) form
+        :else (recur (try-read reader))))))
+
 (defn ns-for-clojure-file
   [^File file]
-  [(with-open [reader (pushback-reader file)]
-     (loop [line (try-read reader)]
-       (cond
-         (nil? line) nil
-         (is-ns-block? line) (->> line (drop 1) first)
-         :else (recur (try-read reader)))))
+  [(some-> (find-ns-form file) (->> (drop 1) first))
    file])
+
+(defn- require-clause-ns
+  "The required namespace symbol from one entry in a `(:require ...)` clause.
+   Entries are either bare symbols `foo.bar` or vectors `[foo.bar :as f :refer [x]]`
+   or prefix-lists `[foo [bar :as b] [baz :as bz]]` (where the first element is the
+   prefix and following elements are vectors). Returns the qualified ns symbol, or
+   nil for prefix-lists (which expand to multiple ns-syms — handled by caller)."
+  [entry]
+  (cond
+    (symbol? entry) entry
+    (vector? entry) (when (symbol? (first entry)) (first entry))
+    :else nil))
+
+(defn- expand-prefix-list
+  "A prefix-list `(prefix [a ...] [b ...])` expands to ns-syms `prefix.a`, `prefix.b`.
+   Returns a vector of ns-syms, or nil if `entry` is not a prefix-list."
+  [entry]
+  (when (and (or (list? entry) (vector? entry))
+             (symbol? (first entry))
+             (every? #(or (vector? %) (symbol? %)) (rest entry))
+             (some #(or (vector? %) (list? %)) (rest entry)))
+    (let [prefix (name (first entry))]
+      (vec (keep (fn [sub]
+                   (let [sub-sym (cond (symbol? sub) sub
+                                       (vector? sub) (first sub))]
+                     (when (symbol? sub-sym)
+                       (symbol (str prefix "." (name sub-sym))))))
+                 (rest entry))))))
+
+(defn- require-clause-nses
+  [entry]
+  (or (expand-prefix-list entry)
+      (some-> (require-clause-ns entry) vector)
+      []))
+
+(defn ns-head-for-clojure-file
+  "Read the file's top-level `ns` form and return a head map suitable for
+   topological sorting: `{:name <ns-sym> :requires {<ns-sym> <ns-sym>}
+   :require-macros {} :use-macros {}}`. Bare clj/cljc files have no
+   require-macros/use-macros — those slots stay empty so the shape matches
+   the cljs head shape `topo-sort-files` consumes. Returns nil when the file
+   has no readable `ns` form."
+  [^File file]
+  (when-let [form (find-ns-form file)]
+    (let [ns-sym (some-> form (->> (drop 1) first))
+          body (drop 2 form)
+          require-clauses (->> body
+                               (filter (fn [x] (and (seq? x) (= :require (first x)))))
+                               (mapcat rest))
+          requires-syms (into [] (mapcat require-clause-nses) require-clauses)]
+      {:name ns-sym
+       :requires (into {} (map (fn [s] [s s])) requires-syms)
+       :require-macros {}
+       :use-macros {}})))
 
 (defn- clojure-file?
   [^File file]
