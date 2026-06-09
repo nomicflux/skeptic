@@ -179,6 +179,14 @@
     (catch Throwable _e
       (require ns-sym :reload-all))))
 
+(defn- worker-log
+  "Per-step marker the host's stdout-drain (process.clj/start-stdout-drain!)
+   echoes to host stderr under `-v`. Goes to stdout because stderr is merged
+   into stdout via the worker process's redirectErrorStream."
+  [label]
+  (println (str "WORKER " label))
+  (flush))
+
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
    the namespace first so its refers/aliases/imports resolve (matching the host
@@ -190,7 +198,18 @@
    each raw top-level form with its tools.analyzer.jvm AST (`:const` `:type`
    stripped); the host projects each entry for the wire."
   [ns-sym source-file]
+  (worker-log (str "requiring " ns-sym))
   (require-with-reload-retry ns-sym)
-  (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}]
-    {:entries (mapv (fn [form] (analyze-entry opts form))
-                    (read-top-forms (target-ns ns-sym) source-file))}))
+  (worker-log (str "reading top-forms of " ns-sym))
+  (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}
+        forms (read-top-forms (target-ns ns-sym) source-file)
+        form-count (count forms)
+        _ (worker-log (str "analyzing " form-count " forms in " ns-sym))
+        entries (into [] (map-indexed
+                          (fn [idx form]
+                            (when (zero? (mod idx 50))
+                              (worker-log (str "  " ns-sym " form " idx "/" form-count)))
+                            (analyze-entry opts form)))
+                      forms)]
+    (worker-log (str "done analyzing " ns-sym))
+    {:entries entries}))

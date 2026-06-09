@@ -888,6 +888,10 @@
           ns-entries-a (atom {})
           project-disc-a (atom {})]
       (when (seq clj-pairs)
+        (when verbose?
+          (binding [*out* *err*]
+            (println (str "[skeptic analyze clj] streaming " (count clj-pairs) " namespaces"))
+            (flush)))
         (wc/ask-streaming conn
                           {:op "analyze-namespaces-stream"
                            :namespaces clj-pairs}
@@ -900,7 +904,13 @@
                             (when-not (:starting? reply)
                               (process-stream-reply clj-state-a clj-failures-a
                                                     ns-entries-a project-disc-a
-                                                    loaded-index reply)))))
+                                                    loaded-index reply))))
+        (when verbose?
+          (binding [*out* *err*]
+            (println (str "[skeptic analyze clj] stream complete: "
+                          (count @clj-state-a) " ok, "
+                          (count @clj-failures-a) " load-failures"))
+            (flush))))
       {:clj-state @clj-state-a
        :clj-load-failures @clj-failures-a
        :ns-entries-map @ns-entries-a
