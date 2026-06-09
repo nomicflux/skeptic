@@ -875,21 +875,14 @@
   [conn loaded verbose?]
   (if-not conn
     {:clj-state {} :clj-load-failures {} :ns-entries-map {} :project-disc {}}
-    (let [clj-loaded (filterv (fn [[_ sf lang]] (and sf (#{:clj :both} lang))) loaded)
-          ns-sym->file (into {} (map (fn [[ns-sym sf _]] [ns-sym sf])) clj-loaded)
-          ordered-files (topo/topo-sort-files
-                          ns-sym->file
-                          (fn [^java.io.File f]
-                            (or (file/ns-head-for-clojure-file f)
-                                {:name nil :requires {} :require-macros {} :use-macros {}})))
-          file->ns-sym (into {} (map (fn [[ns-sym sf]] [sf ns-sym])) ns-sym->file)
-          clj-pairs (into [] (keep (fn [f]
-                                     (when-let [ns-sym (file->ns-sym f)]
-                                       [(str ns-sym) (str f)])))
-                          ordered-files)
+    (let [clj-pairs (into []
+                          (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
+                                (map (fn [[ns-sym sf _]] [(str ns-sym) (str sf)])))
+                          loaded)
           loaded-index (into {}
-                             (map (fn [[ns-sym sf _]] [(str ns-sym) [ns-sym sf]]))
-                             clj-loaded)
+                             (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
+                                   (map (fn [[ns-sym sf _]] [(str ns-sym) [ns-sym sf]])))
+                             loaded)
           clj-state-a (atom {})
           clj-failures-a (atom {})
           ns-entries-a (atom {})
