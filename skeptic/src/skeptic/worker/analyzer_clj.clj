@@ -90,12 +90,14 @@
    location. Regex/fn/quote literals read natively here, unlike clojure.edn.
    `*ns*` is bound to the (already-required) source namespace so auto-resolved
    `::keyword`s resolve against it, matching how Clojure loads the file.
-   tools.reader uses a separate data-reader registry, so inherit the project
-   runtime's classpath-discovered readers for this second source read."
+   tools.reader uses separate data-reader Vars, so inherit both registered
+   reader surfaces from the live project runtime for this second source read."
   [tn source-file]
   (binding [*ns* tn
             tr/*data-readers* (merge clojure.core/*data-readers*
-                                     tr/*data-readers*)]
+                                     tr/*data-readers*)
+            tr/*default-data-reader-fn* (or tr/*default-data-reader-fn*
+                                            clojure.core/*default-data-reader-fn*)]
     (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
       (->> (repeatedly #(tr/read {:read-cond :allow :features #{:clj} :eof ::eof} reader))
            (take-while #(not= ::eof %))

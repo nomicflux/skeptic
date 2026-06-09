@@ -232,19 +232,54 @@
       (finally
         (delete-recursively! dir)))))
 
-(deftest analyze-namespace-uses-project-data-readers
+(deftest analyze-namespace-uses-project-runtime-data-readers
   (let [dir (temp-dir!)
         src (io/file dir "src")
         timestamp "2026-06-09T12:34:56Z"]
     (try
       (.mkdirs (io/file src "demo"))
-      (spit (io/file src "data_readers.clj")
-            "{date-time demo.tag-reader/read-date-time}\n")
       (spit (io/file src "demo" "tag_reader.clj")
             "(ns demo.tag-reader)
 
              (defn read-date-time [value]
-               {:date-time value})")
+               {:date-time value})
+
+             (alter-var-root #'clojure.core/*data-readers*
+                             assoc
+                             'date-time
+                             #'read-date-time)")
+      (spit (io/file src "demo" "tagged.clj")
+            (str "(ns demo.tagged\n"
+                 "  (:require [demo.tag-reader]))\n\n"
+                 "(def value #date-time \"" timestamp "\")\n"))
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.tagged"
+                                                        :source-file (.getPath (io/file src "demo" "tagged.clj"))})
+                value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
+            (is (nil? read-failure))
+            (is (= {:date-time timestamp} (nth value-form 2))))))
+      (finally
+        (delete-recursively! dir)))))
+
+(deftest analyze-namespace-uses-project-runtime-default-data-reader
+  (let [dir (temp-dir!)
+        src (io/file dir "src")
+        timestamp "2026-06-09T12:34:56Z"]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "demo" "tag_reader.clj")
+            "(ns demo.tag-reader)
+
+             (defn read-tag [tag value]
+               (if (= 'date-time tag)
+                 {:date-time value}
+                 (throw (ex-info \"Unknown reader tag\" {:tag tag}))))
+
+             (alter-var-root #'clojure.core/*default-data-reader-fn*
+                             (constantly read-tag))")
       (spit (io/file src "demo" "tagged.clj")
             (str "(ns demo.tagged\n"
                  "  (:require [demo.tag-reader]))\n\n"
