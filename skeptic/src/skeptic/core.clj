@@ -90,37 +90,37 @@
                      "in project.clj / deps.edn or pass --paths explicitly.")
             (throw (ex-info "Skeptic could not read one or more source paths."
                             {:failures blocking-failures})))
+        verbose? (boolean (:verbose opts))
+        startup-log (fn [label]
+                      (when verbose?
+                        (binding [*out* *err*]
+                          (println (str "[skeptic startup] " label))
+                          (flush))))
         combined-cp (or (:combined (:worker-classpath opts))
                         (throw (ex-info "check-project requires :worker-classpath with a :combined launch cp"
                                         {:opts (keys opts)})))
-        _ (when (:verbose opts)
-            (binding [*out* *err*]
-              (println (str "[skeptic startup] spawning worker JVM (cp length="
+        _ (startup-log (str "spawning worker JVM (cp length="
                             (count combined-cp) " chars, entries="
                             (inc (count (re-seq (re-pattern
                                                   (java.util.regex.Pattern/quote
                                                     (System/getProperty "path.separator")))
                                                 combined-cp)))
                             ")"))
-              (flush)))
-        worker (wproc/spawn! combined-cp (:verbose opts))
-        _ (when (:verbose opts)
-            (binding [*out* *err*]
-              (println (str "[skeptic startup] worker handshake received port=" (:port worker)
+        worker (wproc/spawn! combined-cp verbose?)
+        _ (startup-log (str "worker handshake received port=" (:port worker)
                             "; connecting"))
-              (flush)))
         conn (wc/connect (:port worker))
-        _ (when (:verbose opts)
-            (binding [*out* *err*]
-              (println "[skeptic startup] worker connection established")
-              (flush)))]
+        _ (startup-log "worker connection established; interning host classes")]
     (try
-      (let [host-handles (class-oracle/intern-host-classes! conn)]
+      (let [host-handles (class-oracle/intern-host-classes! conn)
+            _ (startup-log (str "host classes interned (" (count host-handles) " classes); binding worker context"))]
         (binding [class-oracle/*worker-conn* conn
                   class-oracle/*host-class-handles* host-handles
                   class-oracle/*class-rel-cache* (atom {})
                   class-oracle/*predicate-cache* (atom {})]
+          (startup-log "building project-state (discovers + analyzes every namespace via worker)")
           (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-nss)
+                _ (startup-log (str "project-state built (" (count discovered-nss) " namespaces discovered)"))
                 per-ns-failures (:per-ns-failures project-state)
                 nss-to-check (cond-> discovered-nss
                                (seq requested-namespaces)

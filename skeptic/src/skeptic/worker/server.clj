@@ -105,10 +105,21 @@
 
 (defn- resolve-bootstrap-class
   "The ^Class for bootstrap name `nm`: a primitive via its TYPE field, else
-   `Class/forName`. nil if the name does not resolve."
+   `Class/forName`. nil if the name does not resolve. `Class/forName` can
+   surface a missing or unloadable class as `ClassNotFoundException`,
+   `NoClassDefFoundError` (a transitive supertype/interface is missing on
+   the worker classpath), `ExceptionInInitializerError` (the class's static
+   initializer threw), or other `LinkageError` subclasses. Treat any of them
+   as 'unresolved' so a hostile project class on the worker classpath cannot
+   make `intern-host-classes!` throw — that would escape `wrap-intern-host-classes`
+   with no reply and hang the host's `recv-reply`."
   [nm]
   (or (get primitive-name->class nm)
-      (try (Class/forName nm) (catch ClassNotFoundException _ nil))))
+      (try (Class/forName nm)
+           (catch ClassNotFoundException _ nil)
+           (catch NoClassDefFoundError _ nil)
+           (catch ExceptionInInitializerError _ nil)
+           (catch LinkageError _ nil))))
 
 (defn- intern-host-classes-reply
   "Per-name: resolve the Class; on success intern as integer; skip if unresolved.
@@ -776,35 +787,42 @@
         (fn [h]
           (fn [{:keys [op transport class-names] :as msg}]
             (if (= op "intern-host-classes")
-              (t-send transport (resp-for msg
-                                          :handles (intern-host-classes-reply class-names)
-                                          :status #{:done}))
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      {:handles (intern-host-classes-reply class-names)
+                                       :status #{:done}}))
               (h msg))))
         wrap-class-rel
         (fn [h]
           (fn [{:keys [op transport rel a b] :as msg}]
             (if (= op "class-rel")
-              (t-send transport (resp-for msg :result (run-class-rel rel a b) :status #{:done}))
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      {:result (run-class-rel rel a b) :status #{:done}}))
               (h msg))))
         wrap-class-rel-batch
         (fn [h]
           (fn [{:keys [op transport triples] :as msg}]
             (if (= op "class-rel-batch")
-              (t-send transport (resp-for msg :results (run-class-rel-batch triples) :status #{:done}))
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      {:results (run-class-rel-batch triples) :status #{:done}}))
               (h msg))))
         wrap-resolve-class-sym
         (fn [h]
           (fn [{:keys [op transport ns sym] :as msg}]
             (if (= op "resolve-class-sym")
-              (t-send transport (resp-for msg
-                                          :handle (resolve-sym-to-handle ns sym)
-                                          :status #{:done}))
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      {:handle (resolve-sym-to-handle ns sym) :status #{:done}}))
               (h msg))))
         wrap-class-name
         (fn [h]
           (fn [{:keys [op transport a] :as msg}]
             (if (= op "class-name")
-              (t-send transport (resp-for msg :name (class-name-for-handle a) :status #{:done}))
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      {:name (class-name-for-handle a) :status #{:done}}))
               (h msg))))
         wrap-analyze-namespace
         (fn [h]
