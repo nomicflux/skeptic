@@ -1,7 +1,6 @@
 # ADR 0004 — Load the project as the project, not as a reconstruction of it
 
-- **Status:** Accepted (launch-thread loop shipped in tree; `require`
-  retry removal in progress)
+- **Status:** Accepted (shipped)
 - **Recorded:** 2026-06-09
 - **Supersedes:** the reader-registration fold + dedicated operation
   thread (described in `.scratch/worker-runtime-handoff.md` §2.4, now
@@ -53,11 +52,17 @@ behavior, observed by running it on fixtures, is the spec
   running real `clojure.main` on fixtures (`.scratch/reader-probes/`),
   never to a model of what loading should do.
 - **No Skeptic-added loading behavior.** The project's runtime never
-  retries a failed `require`; `require-with-reload-retry`
-  (`skeptic/src/skeptic/worker/analyzer_clj.clj:175`, retrying with
-  `:reload-all`) can make the worker succeed where the project fails and
-  is being deleted under this rule. The whole worker load path is swept
+  retries a failed `require`; `require-with-reload-retry` (formerly in
+  `skeptic/src/skeptic/worker/analyzer_clj.clj`, retrying with
+  `:reload-all`) could make the worker succeed where the project fails
+  and was deleted under this rule. The whole worker load path is swept
   with the single test: *does the project's own `clojure.main` do this?*
+  Every other candidate passed the sweep: the tools.reader second read
+  inherits the live Clojure reader registries (faithful, not added
+  behavior); the `s/defn` normalization, analyzer passes-opts, and cljs
+  analyzer bindings shape analysis of already-loaded code, not loading;
+  the remaining `require`/`requiring-resolve` call sites are plain lazy
+  loads governed by the project-first classpath.
 
 ## Consequences
 

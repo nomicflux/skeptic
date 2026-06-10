@@ -42,13 +42,19 @@ prof_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' <<<"$prof_line")"
 [[ "$plug_ver" == "$prof_ver" ]] || \
   die ":skeptic-plugin pins lein-skeptic \"$prof_ver\" but plugin project is \"$plug_ver\""
 
-# Production-path reader fixture plugin coordinate.
-reader_fixture_pc="${ROOT}/lein-skeptic/dev-resources/project-runtime-reader/project.clj"
-reader_fixture_line="$(grep 'org.clojars.nomicflux/lein-skeptic' "$reader_fixture_pc" | head -1 || true)"
-[[ -n "$reader_fixture_line" ]] || die "expected lein-skeptic plugin in ${reader_fixture_pc}"
-reader_fixture_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' <<<"$reader_fixture_line")"
-[[ "$plug_ver" == "$reader_fixture_ver" ]] || \
-  die "reader fixture pins lein-skeptic \"$reader_fixture_ver\" but plugin is \"$plug_ver\""
+# Production-path fixture plugin coordinates: every dev-resources fixture
+# that pins lein-skeptic must pin the current plugin version.
+fixture_count=0
+for fixture_pc in "${ROOT}"/lein-skeptic/dev-resources/*/project.clj; do
+  [[ -f "$fixture_pc" ]] || continue
+  fixture_line="$(grep 'org.clojars.nomicflux/lein-skeptic' "$fixture_pc" | head -1 || true)"
+  [[ -n "$fixture_line" ]] || die "expected lein-skeptic plugin in ${fixture_pc}"
+  fixture_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' <<<"$fixture_line")"
+  [[ "$plug_ver" == "$fixture_ver" ]] || \
+    die "fixture ${fixture_pc} pins lein-skeptic \"$fixture_ver\" but plugin is \"$plug_ver\""
+  fixture_count=$((fixture_count + 1))
+done
+[[ "$fixture_count" -ge 1 ]] || die "no dev-resources fixture project.clj found"
 
 # (defproject skeptic "VERSION" in root project.clj
 root_line="$(grep -m1 '^(defproject skeptic ' "$ROOT_PC" || true)"

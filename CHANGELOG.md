@@ -76,6 +76,11 @@ All notable changes to this project will be documented in this file.
   reports child startup output on launch failure, waits for startup without
   an arbitrary timeout, and preserves the original analysis exception across
   cleanup failures.
+- The worker no longer retries a failed namespace `require` with
+  `:reload-all`. The project's own runtime never retries a require, and
+  the retry could make analysis succeed on source the project itself
+  cannot load. A require failure now propagates exactly as the project's
+  own `clojure.main` raises it.
 - Plumatic Schema map schemas using non-keyword required keys
   (e.g. `{(s/required-key "a") s/Int}`) now check correctly: correct
   call sites are no longer flagged with a spurious unexpected-key

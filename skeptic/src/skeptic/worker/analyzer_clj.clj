@@ -172,17 +172,6 @@
     (class-declaration-form? form)
     (assoc :analysis-skipped? true)))
 
-(defn- require-with-reload-retry
-  [ns-sym]
-  (try
-    (require ns-sym)
-    (catch Throwable e
-      (println (str "WORKER require of " ns-sym " threw "
-                    (.getName (class e)) ": " (.getMessage e)
-                    " — retrying with :reload-all"))
-      (flush)
-      (require ns-sym :reload-all))))
-
 (defn- worker-log
   "Per-step marker the host's stdout-drain (process.clj/start-stdout-drain!)
    echoes to host stderr under `-v`. Goes to stdout because stderr is merged
@@ -203,7 +192,7 @@
    stripped); the host projects each entry for the wire."
   [ns-sym source-file]
   (worker-log (str "requiring " ns-sym))
-  (require-with-reload-retry ns-sym)
+  (require ns-sym)
   (worker-log (str "reading top-forms of " ns-sym))
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}
         forms (read-top-forms (target-ns ns-sym) source-file)
