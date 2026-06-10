@@ -143,6 +143,7 @@
                  (wproc/spawn! (or combined-cp
                                    (throw (ex-info "missing worker classpath"
                                                    {:opts (keys opts)})))
+                               (str root)
                                verbose?))]
     (startup-log (str "worker handshake received port=" (:port worker)
                       "; connecting"))

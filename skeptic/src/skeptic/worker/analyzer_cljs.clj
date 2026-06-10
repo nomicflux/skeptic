@@ -41,10 +41,28 @@
    :analyze             (requiring-resolve 'cljs.analyzer.api/analyze)
    :with-core-cljs      (requiring-resolve 'cljs.compiler/with-core-cljs)})
 
+(defonce ^:private node-modules-provides
+  ;; The project's own npm resolution substrate: the identical walk
+  ;; `cljs.closure/handle-js-modules` feeds `:node-module-index` from
+  ;; (closure.clj:2870-2916 — `index-node-modules-dir` is a pure JVM
+  ;; file-seq + package.json parse, no Node invocation). Computed once per
+  ;; worker; the worker's cwd is the project root by the spawn contract, so
+  ;; the default \"node_modules\" path is the project's. Empty when the
+  ;; project has none — then string requires are admitted only via the
+  ;; per-ns-form seeding, and symbol/transitive npm requires fail exactly
+  ;; as the project's own build would without installed modules.
+  (delay
+    (if (.isDirectory (io/file "node_modules"))
+      (let [index-dir (requiring-resolve 'cljs.closure/index-node-modules-dir)]
+        (into #{} (mapcat :provides) (index-dir {})))
+      #{})))
+
 (defn- empty-state
   [vars]
   (let [state ((:empty-state vars))]
     (swap! state assoc-in [:options :spec-skip-macros] true)
+    (when-let [provides (seq @node-modules-provides)]
+      (swap! state update :node-module-index (fnil into #{}) provides))
     state))
 
 (defn- walk-ast

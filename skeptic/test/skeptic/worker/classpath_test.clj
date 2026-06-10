@@ -63,7 +63,7 @@
             "tools.analyzer.jvm must be present so worker can require analyzer-clj")
         (is (re-find #"/nrepl-[^/]+\.jar" combined)
             "nrepl must be present so worker server can start")
-        (reset! worker (proc/spawn! combined false))
+        (reset! worker (proc/spawn! combined (System/getProperty "user.dir") false))
         (reset! conn (wc/connect (:port @worker)))
         (is (= "ok" (:pong (wc/ask @conn {:op "ping"})))))
       (finally

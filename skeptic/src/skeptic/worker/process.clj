@@ -4,6 +4,7 @@
    a single launch classpath assembled by `skeptic.worker.classpath` —
    project-cp first, worker jars second, Skeptic's own worker source tail."
   (:require [schema.core :as s]
+            [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.io BufferedReader]))
 
@@ -51,9 +52,16 @@
     t))
 
 (s/defn spawn! :- {:proc s/Any :port s/Int}
-  [combined-cp :- s/Str verbose? :- s/Bool]
+  "Launch the worker JVM with `root` as its working directory. The worker's
+   cwd is the project root by contract: relative project state — the
+   `node_modules` walk that feeds the cljs analyzer's `:node-module-index`,
+   relative paths in project config — resolves against it, exactly as it
+   does under the project's own build. The Lein entrypoint sets the same
+   directory through lein's eval-in machinery."
+  [combined-cp :- s/Str root :- s/Str verbose? :- s/Bool]
   (let [pb (doto (ProcessBuilder. ["java" "-cp" combined-cp
                                    "clojure.main" "-m" "skeptic.worker.server"])
+             (.directory (io/file root))
              (.redirectErrorStream true))
         _ (when verbose?
             (binding [*out* *err*]

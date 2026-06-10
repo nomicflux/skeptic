@@ -11,5 +11,5 @@
 
 (deftest spawn-takes-single-combined-classpath
   (let [arglists (:arglists (meta #'process/spawn!))]
-    (is (= '([combined-cp verbose?])
+    (is (= '([combined-cp root verbose?])
            (map #(mapv (comp symbol name) %) arglists)))))

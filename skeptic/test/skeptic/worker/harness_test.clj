@@ -23,15 +23,19 @@
 (defn with-worker
   "Spawns a worker, runs `f` with a connected client, tears down. Combined
    launch cp is project-cp first (so project versions win on shared libs),
-   then the host's classpath."
+   then the host's classpath. `root` is the worker's working directory —
+   the fixture project's root when the test needs project-relative state
+   (a node_modules dir), the test JVM's cwd otherwise."
   ([f]
    (with-worker nil f))
   ([project-cp f]
+   (with-worker project-cp (System/getProperty "user.dir") f))
+  ([project-cp root f]
    (let [host-cp (System/getProperty "java.class.path")
          combined (if project-cp
                     (cp-string (concat project-cp [host-cp]))
                     host-cp)
-         worker (proc/spawn! combined false)
+         worker (proc/spawn! combined root false)
          conn (wc/connect (:port worker))]
      (try
        (f conn)
@@ -384,6 +388,33 @@
             (let [t (value/type-of-value th/tp
                                          (wire/opaque-sentinel "no.such.ClassZZZ" "?"))]
               (is (at/dyn-type? t)))))))))
+
+(def ^:private npm-project-dir
+  (io/file "dev-resources/skeptic/cljs_fixtures/npm_project"))
+
+(deftest npm-requires-resolve-through-the-projects-node-modules
+  ;; The worker seeds :node-module-index from the project's own node_modules
+  ;; (the same walk cljs.closure/handle-js-modules uses), so every
+  ;; analyze-deps acceptance route holds: direct string requires, subpath
+  ;; strings ("react-dom/client"), string requires reached TRANSITIVELY
+  ;; (analyze-deps internally analyzing demo.b), and symbol-form npm
+  ;; requires ([react :as r]) — none of which per-ns-form seeding alone
+  ;; covers. Worker cwd = the fixture project root, per the spawn contract.
+  (let [root (.getAbsolutePath npm-project-dir)
+        src  (.getAbsolutePath (io/file npm-project-dir "src"))
+        a    (.getAbsolutePath (io/file npm-project-dir "src/demo/a.cljs"))
+        sym  (.getAbsolutePath (io/file npm-project-dir "src/demo/sym_npm.cljs"))]
+    (with-worker [src] root
+      (fn [conn]
+        (testing "ns-head on a file whose require chain reaches npm modules"
+          (is (= "demo.a" (str (:name (wc/ask conn {:op "cljs-ns-head"
+                                                    :source-file a}))))))
+        (testing "full analysis through direct, subpath, and transitive npm requires"
+          (is (seq (:entries (wc/ask conn {:op "analyze-cljs-namespace"
+                                           :source-file a})))))
+        (testing "symbol-form npm require"
+          (is (seq (:entries (wc/ask conn {:op "analyze-cljs-namespace"
+                                           :source-file sym})))))))))
 
 (deftest analyze-namespace-loads-a-source-file-once
   (let [dir (temp-dir!)

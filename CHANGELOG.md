@@ -81,14 +81,23 @@ All notable changes to this project will be documented in this file.
   the retry could make analysis succeed on source the project itself
   cannot load. A require failure now propagates exactly as the project's
   own `clojure.main` raises it.
-- ClojureScript files with string (npm) requires —
-  `(:require ["react" :as react])`, subpaths like `"react-dom/client"`
-  included — now analyze instead of failing admission with
-  `No such namespace: react`. The worker registers each ns form's string
-  requires in the analyzer's `:node-module-index` before analysis,
-  matching how the project's own npm-aware build admits them; npm values
-  remain `Dyn` for checking. Bodies using the npm aliases are still
-  fully checked.
+- ClojureScript npm requires now resolve the way the project's own
+  build resolves them: the worker indexes the project's `node_modules`
+  directory (the same walk `cljs.closure/handle-js-modules` feeds the
+  analyzer's `:node-module-index` from) into every analysis state. This
+  admits all four require shapes — direct strings
+  (`(:require ["react" :as react])`), subpath strings
+  (`"react-dom/client"`), string requires reached **transitively**
+  (a required namespace's own npm requires, which the analyzer resolves
+  internally), and symbol-form npm requires (`[react :as r]`). The
+  worker JVM's working directory is now the project root on every
+  entrypoint (it already was under Leiningen; the deps.edn spawn sets
+  it explicitly, fixing `:project-dir` runs), so the walk sees the
+  project's modules. Without a `node_modules` directory, each ns form's
+  own string requires are still admitted via direct seeding; transitive
+  and symbol-form npm requires then fail exactly as the project's own
+  build would without installed modules. npm values remain `Dyn` for
+  checking; bodies using npm aliases are fully checked.
 - ClojureScript admission failures now report the actual underlying
   exception (e.g. the analyzer's `No such namespace: …`) instead of a
   placeholder `cljs admission failed for this source-file` with no
