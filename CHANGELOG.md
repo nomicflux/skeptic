@@ -81,6 +81,17 @@ All notable changes to this project will be documented in this file.
   the retry could make analysis succeed on source the project itself
   cannot load. A require failure now propagates exactly as the project's
   own `clojure.main` raises it.
+- Host↔worker transport failures are loud and immediate instead of
+  silent or repetitive. A reply arriving for a foreign request id —
+  previously skipped by single-reply receives and a silent end of
+  streaming receives, leaving the run to finish "green" on partial
+  results — now throws with the stray message attached. The worker's
+  bulk-analysis stream aborts at the first namespace whose reply cannot
+  be sent (naming it) instead of analyzing every remaining namespace
+  into a dead socket and printing a send failure for each. A socket
+  read timeout no longer masquerades as end-of-stream, and transport
+  closes are logged to stderr so the order of connection teardown is
+  visible in worker output.
 - Plumatic Schema map schemas using non-keyword required keys
   (e.g. `{(s/required-key "a") s/Int}`) now check correctly: correct
   call sites are no longer flagged with a spurious unexpected-key
