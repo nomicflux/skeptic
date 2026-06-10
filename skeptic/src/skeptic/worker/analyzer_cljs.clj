@@ -102,6 +102,42 @@
   (let [warnings-var (:*cljs-warnings* vars)]
     {warnings-var (zipmap (keys @warnings-var) (repeat false))}))
 
+(defn- ns-form-string-requires
+  "String libs in an ns form's `:require`/`:require-macros`/`:use` clauses —
+   npm/js requires like `[\"react\" :as react]` or a bare `\"react\"`."
+  [ns-form]
+  (->> ns-form
+       (filter seq?)
+       (mapcat (fn [clause]
+                 (when (#{:require :require-macros :use} (first clause))
+                   (rest clause))))
+       (keep (fn [spec]
+               (cond
+                 (string? spec) spec
+                 (and (vector? spec) (string? (first spec))) (first spec))))))
+
+(defn- js-lib-root
+  "`cljs.analyzer/lib&sublib` semantics (analyzer.cljc:823-829): a lib of the
+   form `foo$bar` indexes under `foo`; anything else — including npm subpaths
+   like `react-dom/client` — indexes under its full name."
+  [s]
+  (if-let [[_ lib _] (re-matches #"(.*)\$(.*)" s)]
+    lib
+    s))
+
+(defn- seed-js-requires!
+  "Register the ns form's string requires in the compiler state's
+   `:node-module-index` before the ns form is analyzed.
+   `cljs.analyzer/analyze-deps` accepts a dep when `node-module-dep?` finds
+   `(first (lib&sublib dep))` in that index (clojurescript 1.11.132
+   analyzer.cljc:858-864, 2731-2735), exactly how the project's own npm-aware
+   build admits them; `missing-use?` consults the same index so member uses
+   pass too. Nothing about an npm module enters the type domain — uses come
+   back as `:js`-op nodes typed as Dyn."
+  [state ns-form]
+  (when-let [roots (seq (map js-lib-root (ns-form-string-requires ns-form)))]
+    (swap! state update :node-module-index (fnil into #{}) roots)))
+
 (defn- analyze-source-entry
   [vars state base-env source-form]
   (let [env (assoc base-env
@@ -154,7 +190,9 @@
                           (when (and (seq? form) (= 'ns (first form))) form))
                         ((:forms-seq vars) r path))]
       (if ns-form
-        (analyze-source-entry vars state base-env ns-form)
+        (do
+          (seed-js-requires! state ns-form)
+          (analyze-source-entry vars state base-env ns-form))
         (throw (ex-info "cljs source has no (ns ...) form" {:source-file path}))))))
 
 (defn ns-head
@@ -184,7 +222,8 @@
                 (let [source-form (first s)
                       ns-form? (and (seq? source-form) (= 'ns (first source-form)))]
                   (if ns-form?
-                    (let [ns-ast (analyze-source-entry vars state base-env source-form)]
+                    (let [_ (seed-js-requires! state source-form)
+                          ns-ast (analyze-source-entry vars state base-env source-form)]
                       (recur (next s) ns-ast entries))
                     (let [result (analyze-source-entry-result vars state
                                                               (assoc base-env :ns ns-ast)

@@ -70,6 +70,24 @@
             "baz.cljc identical findings under both passes should dedup to one")
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
 
+(def ^:private uses-npm-file
+  (File. "dev-resources/skeptic/cljs_fixtures/uses_npm.cljs"))
+
+(deftest string-npm-requires-are-admitted-and-checked
+  ;; `["react" :as react]` / `["react-dom/client" :as rdom]` resolve through
+  ;; the project build's node_modules, which the analyzer can't see; the
+  ;; worker seeds :node-module-index from the ns form so admission matches
+  ;; the project's own build. The body using the npm alias must still be
+  ;; CHECKED — the schema mismatch inside `render` proves analysis ran.
+  (let [npm-ns 'skeptic.cljs-fixtures.uses-npm
+        ps (psup/project-state-for-nses {npm-ns uses-npm-file})
+        {:keys [results]} (pipeline/check-namespace ps npm-ns uses-npm-file
+                                                    {:remove-context true})]
+    (is (empty? (read-exceptions results)))
+    (let [f (input-finding results)]
+      (is (some? f) "the body using the npm alias should produce its finding")
+      (is (= :cljs (get-in f [:location :lang]))))))
+
 (def ^:private broken-require-file
   (File. "dev-resources/skeptic/cljs_fixtures/broken_require.cljs"))
 

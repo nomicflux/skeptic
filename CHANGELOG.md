@@ -81,6 +81,14 @@ All notable changes to this project will be documented in this file.
   the retry could make analysis succeed on source the project itself
   cannot load. A require failure now propagates exactly as the project's
   own `clojure.main` raises it.
+- ClojureScript files with string (npm) requires —
+  `(:require ["react" :as react])`, subpaths like `"react-dom/client"`
+  included — now analyze instead of failing admission with
+  `No such namespace: react`. The worker registers each ns form's string
+  requires in the analyzer's `:node-module-index` before analysis,
+  matching how the project's own npm-aware build admits them; npm values
+  remain `Dyn` for checking. Bodies using the npm aliases are still
+  fully checked.
 - ClojureScript admission failures now report the actual underlying
   exception (e.g. the analyzer's `No such namespace: …`) instead of a
   placeholder `cljs admission failed for this source-file` with no
