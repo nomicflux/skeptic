@@ -62,6 +62,12 @@
       (finally
         (.close ^java.io.Closeable b)))))
 
+(deftest timeout-throws-instead-of-masquerading-as-eof
+  (with-transport-pair
+    (fn [_a b]
+      (is (thrown? java.net.SocketTimeoutException
+                   (nrepl-transport/recv b 50))))))
+
 (deftest negative-frame-length-is-rejected
   (let [[writer-socket reader-socket] (socket-pair)
         out (DataOutputStream.

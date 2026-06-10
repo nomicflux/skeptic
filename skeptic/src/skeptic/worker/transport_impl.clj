@@ -22,4 +22,8 @@
 
   java.io.Closeable
   (close [_]
+    (when-not (.isClosed socket)
+      (binding [*out* *err*]
+        (println (str "skeptic TransitTransport closed: " socket))
+        (flush)))
     (.close socket)))

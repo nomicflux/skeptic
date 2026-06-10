@@ -793,7 +793,8 @@
                   (println (str "WORKER send-reply!: both primary and error-reply sends failed. "
                                 "Primary: " (.getName (class send-err)) ": " (.getMessage send-err)
                                 ". Error-reply: " (.getName (class final-err)) ": " (.getMessage final-err)))
-                  (flush))))))
+                  (flush)
+                  (throw final-err))))))
         send-reply-or-error*
         (fn [transport msg body-fn]
           (let [reply (try (body-fn) (catch Throwable e (error-reply e)))]
@@ -868,27 +869,36 @@
                                           entries (assoc :entries entries)
                                           read-failure (assoc :read-failure read-failure)))))
               (h msg))))
+        stream-namespace!
+        (fn [transport msg [ns-str source-file-str]]
+          (try
+            (send-reply! transport msg {:ns-sym ns-str
+                                        :source-file source-file-str
+                                        :starting? true})
+            (let [reply (try
+                          (let [{:keys [entries read-failure]}
+                                (analyze-namespace-reply ns-str source-file-str)]
+                            (cond-> {:ns-sym ns-str :source-file source-file-str}
+                              entries      (assoc :entries entries)
+                              read-failure (assoc :read-failure read-failure)))
+                          (catch Throwable e
+                            {:ns-sym ns-str
+                             :source-file source-file-str
+                             :load-error (.getName (class e))
+                             :load-error-message (or (.getMessage e) (str e))}))]
+              (send-reply! transport msg reply))
+            (catch Throwable e
+              (println (str "WORKER analyze-namespaces-stream: aborting stream at " ns-str
+                            ": " (.getName (class e)) ": " (.getMessage e)))
+              (flush)
+              (throw e))))
         wrap-analyze-namespaces-stream
         (fn [h]
           (fn [{:keys [op transport namespaces] :as msg}]
             (if (= op "analyze-namespaces-stream")
               (do
-                (doseq [[ns-str source-file-str] namespaces]
-                  (send-reply! transport msg {:ns-sym ns-str
-                                              :source-file source-file-str
-                                              :starting? true})
-                  (let [reply (try
-                                (let [{:keys [entries read-failure]}
-                                      (analyze-namespace-reply ns-str source-file-str)]
-                                  (cond-> {:ns-sym ns-str :source-file source-file-str}
-                                    entries      (assoc :entries entries)
-                                    read-failure (assoc :read-failure read-failure)))
-                                (catch Throwable e
-                                  {:ns-sym ns-str
-                                   :source-file source-file-str
-                                   :load-error (.getName (class e))
-                                   :load-error-message (or (.getMessage e) (str e))}))]
-                    (send-reply! transport msg reply)))
+                (doseq [pair namespaces]
+                  (stream-namespace! transport msg pair))
                 (send-reply! transport msg {:status #{:done}}))
               (h msg))))
         wrap-analyze-cljs-namespace

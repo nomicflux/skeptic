@@ -29,6 +29,17 @@
   (or (contains? status :done)
       (contains? status "done")))
 
+(defn- check-expected-id!
+  "The connection is a synchronous RPC link: exactly one request is in
+   flight, so every reply must carry its id. A reply for any other id is
+   protocol corruption — throw with the stray message so the source is
+   visible immediately."
+  [op id msg context]
+  (when-not (= id (:id msg))
+    (throw (ex-info (str "Worker reply for foreign request id during op \"" op
+                         "\" (request id " id ", reply id " (:id msg) ")")
+                    (merge {:op op :id id :stray-message msg} context)))))
+
 (defn- recv-reply
   "Block on `recv` until we receive a reply with :status containing :done
    for our request :id. Merge all intermediate replies. If recv returns nil
@@ -41,12 +52,11 @@
                              "\" (request id " id "): no reply received. "
                              "The worker JVM may have crashed.")
                         {:op op :id id :partial-reply merged})))
-      (if (= id (:id msg))
-        (let [merged' (merge merged msg)]
-          (if (done-status? (:status msg))
-            merged'
-            (recur merged')))
-        (recur merged)))))
+      (check-expected-id! op id msg {:partial-reply merged})
+      (let [merged' (merge merged msg)]
+        (if (done-status? (:status msg))
+          merged'
+          (recur merged'))))))
 
 (defn- check-no-error!
   [msg reply]
@@ -78,7 +88,9 @@
 
 (defn- recv-streaming
   "Block on `recv` until `:done`. Each non-done message for our `:id` is
-   passed to `on-reply`. Throws if the transport closes mid-stream."
+   passed to `on-reply`. Throws if the transport closes mid-stream or a
+   reply arrives for any other id — the stream must end at `:done` or an
+   exception, never silently."
   [t-recv transport op id on-reply]
   (loop []
     (let [msg (t-recv transport)]
@@ -86,11 +98,11 @@
         (throw (ex-info (str "Worker transport closed during streaming op \"" op
                              "\" (request id " id ")")
                         {:op op :id id})))
-      (when (= id (:id msg))
-        (check-no-error! {:op op} msg)
-        (when-not (done-status? (:status msg))
-          (on-reply msg)
-          (recur))))))
+      (check-expected-id! op id msg nil)
+      (check-no-error! {:op op} msg)
+      (when-not (done-status? (:status msg))
+        (on-reply msg)
+        (recur)))))
 
 (defn ask-streaming
   "Send `msg` and call `on-reply` for each intermediate reply. Returns nil

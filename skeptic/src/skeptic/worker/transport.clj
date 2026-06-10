@@ -7,7 +7,7 @@
   (:require [cognitect.transit :as transit])
   (:import [java.io BufferedInputStream BufferedOutputStream DataInputStream
             DataOutputStream EOFException ByteArrayInputStream ByteArrayOutputStream]
-           [java.net Socket SocketTimeoutException]))
+           [java.net Socket]))
 
 (defn read-message
   [^DataInputStream in]
@@ -22,12 +22,15 @@
     (catch EOFException _ nil)))
 
 (defn read-message-with-timeout
+  "nREPL's recv-with-timeout contract returns nil on timeout, but nil is
+   also the EOF signal that ends nREPL's handle loop and closes the
+   connection — a slow peer must stay distinguishable from a closed one,
+   so the SocketTimeoutException propagates instead."
   [^Socket socket ^DataInputStream in timeout]
   (let [old-timeout (.getSoTimeout socket)]
     (try
       (.setSoTimeout socket (int timeout))
       (read-message in)
-      (catch SocketTimeoutException _ nil)
       (finally (.setSoTimeout socket old-timeout)))))
 
 (defn write-message
