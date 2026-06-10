@@ -8,7 +8,11 @@
             [clojure.string :as str]
             [skeptic.worker.process :as proc]
             [skeptic.worker.client :as wc]
-            [skeptic.analysis.class-oracle :as oracle])
+            [skeptic.worker.wire :as wire]
+            [skeptic.analysis.class-oracle :as oracle]
+            [skeptic.analysis.types :as at]
+            [skeptic.analysis.value :as value]
+            [skeptic.test-helpers :as th])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -327,6 +331,59 @@
             (is (= timestamp (nth value-form 2))))))
       (finally
         (delete-recursively! dir)))))
+
+(deftest analyze-namespace-sentinels-reader-produced-objects-with-readable-prints
+  ;; The joda DateTime reproduction: a data reader puts a live object into the
+  ;; form, and the object's print-method emits a readable form, so a pr-str
+  ;; round-trip predicate would call it plain while the transit marshaller has
+  ;; no handler for it ("Not supported: class X"). The wire-safe leaf whitelist
+  ;; must sentinel it — analysis succeeds, the value crosses as its class.
+  (let [dir (temp-dir!)
+        src (io/file dir "src")]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "data_readers.clj")
+            "{demo/opq demo.opaque-reader/parse}")
+      (spit (io/file src "demo" "opaque_reader.clj")
+            (str "(ns demo.opaque-reader (:import [java.time Instant]))\n\n"
+                 "(defn parse [s] (Instant/parse s))\n\n"
+                 "(defmethod print-method Instant [_ w]\n"
+                 "  (.write w \":readable-print-probe\"))\n"))
+      (spit (io/file src "demo" "tagged_opaque.clj")
+            (str "(ns demo.tagged-opaque (:require [demo.opaque-reader]))\n\n"
+                 "(def value #demo/opq \"2026-06-10T00:00:00Z\")\n"))
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [{:keys [entries read-failure]}
+                (wc/ask conn {:op "analyze-namespace"
+                              :ns "demo.tagged-opaque"
+                              :source-file (.getPath (io/file src "demo" "tagged_opaque.clj"))})
+                sentinels (->> entries
+                               (mapcat #(tree-seq coll? seq %))
+                               (filter wire/nonedn?))]
+            (is (nil? read-failure))
+            (is (seq entries))
+            (testing "the reader-produced Instant crossed as a projection sentinel"
+              (is (seq sentinels))
+              (is (every? #(oracle/handle? (wire/nonedn-class %)) sentinels))))))
+      (finally
+        (delete-recursively! dir)))))
+
+(deftest opaque-sentinel-types-by-resolved-class-name
+  (with-worker
+    (fn [conn]
+      (let [m (oracle/intern-host-classes! conn)]
+        (binding [oracle/*worker-conn* conn
+                  oracle/*host-class-handles* m
+                  oracle/*class-rel-cache* (atom {})]
+          (testing "a backstop sentinel types as its named class"
+            (let [t (value/type-of-value th/tp
+                                         (wire/opaque-sentinel "java.lang.Long" "1"))]
+              (is (at/type=? (at/->GroundT th/tp :int 'Int) t))))
+          (testing "an unresolvable class name types as Dyn"
+            (let [t (value/type-of-value th/tp
+                                         (wire/opaque-sentinel "no.such.ClassZZZ" "?"))]
+              (is (at/dyn-type? t)))))))))
 
 (deftest analyze-namespace-loads-a-source-file-once
   (let [dir (temp-dir!)

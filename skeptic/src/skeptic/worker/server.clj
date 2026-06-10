@@ -21,8 +21,7 @@
    resolved `nrepl.transport/send`, `nrepl.misc/response-for`, and
    `nrepl.server/{start-server,unknown-op}`. Descriptor metadata is dead
    code under the explicit handler thread and has been removed."
-  (:require [clojure.edn :as edn]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [clojure.java.io :as io]
             [skeptic.worker.analyzer-clj :as wac]
@@ -270,7 +269,17 @@
     (instance? clojure.lang.IRecord v) false
     (map? v) (every? (fn [[k mv]] (and (edn-safe? k) (edn-safe? mv))) v)
     (coll? v) (every? edn-safe? v)
-    :else (try (= (pr-str v) (pr-str (edn/read-string (pr-str v)))) (catch Exception _ false))))
+    ;; Leaves beyond the plain types above are wire-safe only when transit's
+    ;; default handlers carry them with their class intact (probe:
+    ;; .scratch/load-as-project/transit-leaf-probe.output.txt). A pr-str
+    ;; round-trip is NOT the test: a project print-method that emits a
+    ;; readable form (joda DateTime as #inst) makes a live object look
+    ;; plain while the marshaller still has no handler for it. Date is
+    ;; exact-class because transit returns subclasses (sql.Timestamp) as
+    ;; java.util.Date, which would lie to host-side class typing.
+    :else (or (char? v)
+              (instance? java.util.UUID v)
+              (= java.util.Date (class v)))))
 
 (defn- nonedn-sentinel [v]
   (wire/nonedn-sentinel (intern-class! (class v) :uuid)))

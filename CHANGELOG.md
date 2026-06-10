@@ -81,6 +81,20 @@ All notable changes to this project will be documented in this file.
   the retry could make analysis succeed on source the project itself
   cannot load. A require failure now propagates exactly as the project's
   own `clojure.main` raises it.
+- Runtime objects that data readers place into analyzed source (e.g. a
+  `#date-time` tagged literal producing a joda `DateTime`) no longer
+  kill analysis with the marshaller's
+  `Not supported: class org.joda.time.DateTime`. Wire safety for value
+  leaves is now decided by the transit-verified leaf set (char, UUID,
+  exact `java.util.Date`, plus plain EDN scalars and collections), not
+  by a pr-str round-trip — a project `print-method` that emits a
+  readable form had made live objects look plain while the marshaller
+  had no handler for them. Such values cross as class-carrying opaque
+  sentinels and are typed by their class at call sites. A transit
+  default-handler backstop additionally converts anything that slips
+  past projection into a class-name-plus-print sentinel instead of
+  throwing, logging one stderr line per value so projection gaps stay
+  visible without failing the run.
 - Host↔worker transport failures are loud and immediate instead of
   silent or repetitive. A reply arriving for a foreign request id —
   previously skipped by single-reply receives and a silent end of

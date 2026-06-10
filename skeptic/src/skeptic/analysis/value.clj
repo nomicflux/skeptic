@@ -141,7 +141,12 @@
                                                      value)
     (set? value) (let [element (collection-element-type prov value)]
                    (at/->SetT (prov/with-refs prov [(prov/of element)]) #{element} true))
-    (wire/nonedn? value) (class->type prov (wire/nonedn-class value))
+    (wire/nonedn? value) (if-let [klass (or (wire/nonedn-class value)
+                                            (some->> (wire/opaque-class-name value)
+                                                     symbol
+                                                     (oracle/resolve-class-sym 'clojure.core)))]
+                           (class->type prov klass)
+                           (at/Dyn prov))
     (map? value) (map-value-type prov value)
     (oracle/handle? value) (class->type prov java.lang.Class)
     :else (class->type prov (class value))))

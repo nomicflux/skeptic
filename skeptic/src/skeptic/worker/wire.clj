@@ -4,10 +4,16 @@
    nREPL, tools.analyzer, or other worker-classpath dependency, so the host may
    require it without re-coupling to worker-only code.
 
-   The non-EDN sentinel: a raw analyzer-AST `:val`/`:form`/`:raw-forms` leaf that
-   is not EDN-readable (regex Pattern, fn object, Var, Namespace) is shipped as
-   `{::nonedn true ::class <class-handle>}`. The host types it by its class via
-   the carried handle; it never inspects the original value.
+   The non-EDN sentinel: a raw analyzer-AST `:val`/`:form`/`:raw-forms` leaf
+   outside the wire-safe set (plain EDN scalars/colls plus the transit-carried
+   leaves: char, UUID, exact java.util.Date) is shipped as
+   `{::nonedn true ::class <class-handle>}` — regex Patterns, fn objects, Vars,
+   Namespaces, and any project-runtime object a data reader produced (a joda
+   DateTime from a tagged literal). The host types it by its class via the
+   carried handle; it never inspects the original value. The transport's
+   default-handler backstop ships anything that slips past projection as
+   `{::nonedn true ::class-name <name> ::string <print>}` — same host typing,
+   name resolved to a handle lazily.
 
    Form metadata: the worker captures the host-read meta keys off each form into
    a plain data vector in `clojure.walk/postwalk` order (`capture-form-meta`);
@@ -21,15 +27,35 @@
   [class-handle]
   {::nonedn true ::class class-handle})
 
+(defn opaque-sentinel
+  "Build a non-EDN sentinel from the transit default-handler backstop: it
+   carries the value's class NAME and guarded print string, never a handle —
+   the marshaller cannot intern handles. The host resolves the name to a
+   handle lazily (class-oracle `resolve-class-sym`) when it types the value."
+  [class-name string]
+  {::nonedn true ::class-name class-name ::string string})
+
 (defn nonedn?
-  "True when `v` is a non-EDN sentinel map."
+  "True when `v` is a non-EDN sentinel map (projection- or backstop-built)."
   [v]
   (and (map? v) (true? (::nonedn v))))
 
 (defn nonedn-class
-  "The class handle carried by a non-EDN sentinel."
+  "The class handle carried by a projection-built non-EDN sentinel; nil on a
+   backstop sentinel."
   [v]
   (::class v))
+
+(defn opaque-class-name
+  "The class name string carried by a backstop sentinel; nil on a
+   projection-built sentinel."
+  [v]
+  (::class-name v))
+
+(defn opaque-string
+  "The guarded print string carried by a backstop sentinel."
+  [v]
+  (::string v))
 
 (def form-meta-keys
   "The form-metadata keys the host reads back off received `:form`/`:source-form`

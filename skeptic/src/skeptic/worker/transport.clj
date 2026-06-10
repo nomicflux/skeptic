@@ -4,10 +4,39 @@
    `skeptic.worker.transport-impl`, which is required lazily on first
    `transit` call so neither nrepl.transport nor the deftype's Protocol
    symbol resolves at this namespace's load time."
-  (:require [cognitect.transit :as transit])
+  (:require [cognitect.transit :as transit]
+            [skeptic.worker.wire :as wire])
   (:import [java.io BufferedInputStream BufferedOutputStream DataInputStream
             DataOutputStream EOFException ByteArrayInputStream ByteArrayOutputStream]
            [java.net Socket]))
+
+(defn- guarded-print-str
+  [o]
+  (try
+    (pr-str o)
+    (catch Throwable _
+      (str "<unprintable " (.getName (class o)) ">"))))
+
+(def ^:private opaque-tag "skeptic-opaque")
+
+(def ^:private opaque-write-handler
+  "Backstop for any value with no transit handler: instead of the marshaller
+   throwing `Not supported: class X` and killing the op, the value crosses as
+   its class name plus a guarded print string, and one stderr line names the
+   class so a projection gap stays visible without failing the run."
+  (transit/write-handler
+   (fn [_] opaque-tag)
+   (fn [o]
+     (let [class-name (.getName (class o))]
+       (binding [*out* *err*]
+         (println (str "skeptic transit: opaque value crossed wire: " class-name))
+         (flush))
+       {:class class-name :string (guarded-print-str o)}))))
+
+(def ^:private opaque-read-handler
+  (transit/read-handler
+   (fn [{:keys [class string]}]
+     (wire/opaque-sentinel class string))))
 
 (defn read-message
   [^DataInputStream in]
@@ -18,7 +47,8 @@
       (let [bytes (byte-array n)]
         (.readFully in bytes)
         (let [bais (ByteArrayInputStream. bytes)]
-          (transit/read (transit/reader bais :msgpack)))))
+          (transit/read (transit/reader bais :msgpack
+                                        {:handlers {opaque-tag opaque-read-handler}})))))
     (catch EOFException _ nil)))
 
 (defn read-message-with-timeout
@@ -36,7 +66,9 @@
 (defn write-message
   [^DataOutputStream out msg]
   (let [baos (ByteArrayOutputStream.)]
-    (transit/write (transit/writer baos :msgpack) msg)
+    (transit/write (transit/writer baos :msgpack
+                                   {:default-handler opaque-write-handler})
+                   msg)
     (let [bytes (.toByteArray baos)]
       (locking out
         (.writeInt out (alength bytes))

@@ -1,7 +1,8 @@
 (ns skeptic.worker.transport-test
   (:require [clojure.test :refer [deftest is testing]]
             [nrepl.transport :as nrepl-transport]
-            [skeptic.worker.transport :as transport])
+            [skeptic.worker.transport :as transport]
+            [skeptic.worker.wire :as wire])
   (:import [java.io BufferedOutputStream DataOutputStream]
            [java.net ServerSocket Socket]
            [java.util Arrays]))
@@ -61,6 +62,32 @@
       (is (nil? (nrepl-transport/recv b 1000)))
       (finally
         (.close ^java.io.Closeable b)))))
+
+(deftest unknown-object-crosses-as-opaque-sentinel
+  (with-transport-pair
+    (fn [a b]
+      (nrepl-transport/send a {:v (java.time.Instant/parse "2026-06-10T00:00:00Z")
+                               :tag :probe})
+      (let [reply (nrepl-transport/recv b 1000)
+            v (:v reply)]
+        (testing "the rest of the message survives"
+          (is (= :probe (:tag reply))))
+        (testing "the unsupported value arrives as a backstop sentinel"
+          (is (wire/nonedn? v))
+          (is (= "java.time.Instant" (wire/opaque-class-name v)))
+          (is (string? (wire/opaque-string v))))))))
+
+(deftest transit-carried-leaves-round-trip-with-class-intact
+  (with-transport-pair
+    (fn [a b]
+      (let [msg {:char \a
+                 :date (java.util.Date. 0)
+                 :uuid (java.util.UUID/fromString "0d12a84f-c80e-4046-b4ab-dfc5795a05e1")}]
+        (nrepl-transport/send a msg)
+        (let [reply (nrepl-transport/recv b 1000)]
+          (is (= msg reply))
+          (is (= java.util.Date (class (:date reply))))
+          (is (= java.lang.Character (class (:char reply)))))))))
 
 (deftest timeout-throws-instead-of-masquerading-as-eof
   (with-transport-pair
