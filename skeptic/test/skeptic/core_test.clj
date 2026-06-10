@@ -14,7 +14,9 @@
             [skeptic.provenance :as prov]
             [skeptic.analysis.class-oracle :as class-oracle]
             [skeptic.test-support.shared-worker :as shared-worker]
-            [skeptic.test-support.worker-opts :refer [with-worker-cp]])
+            [skeptic.test-support.worker-opts :refer [with-worker-cp]]
+            [skeptic.worker.client :as wc]
+            [skeptic.worker.process :as wproc])
   (:import [java.io File]
            [java.nio.file Files]))
 
@@ -422,6 +424,59 @@
   (->> (str/split-lines s)
        (remove str/blank?)
        (mapv #(json/read-str % :key-fn keyword))))
+
+(deftest run-with-cleanup-invokes-failing-cleanup-once-after-success
+  (let [cleanup-calls (atom 0)
+        cleanup-error (ex-info "cleanup failed" {})
+        thrown (try
+                 (#'sut/run-with-cleanup
+                  (fn [] ::result)
+                  (fn []
+                    (swap! cleanup-calls inc)
+                    (throw cleanup-error)))
+                 nil
+                 (catch Throwable e
+                   e))]
+    (is (identical? cleanup-error thrown))
+    (is (= 1 @cleanup-calls))))
+
+(deftest check-project-stops-worker-when-connect-fails-without-masking-primary
+  (let [primary (ex-info "connect failed" {})
+        cleanup (ex-info "stop failed" {})
+        stopped? (atom false)
+        thrown
+        (with-redefs [file/discover-clojure-files (fn [_] {:files [] :failures []})
+                      wc/connect (fn [_] (throw primary))
+                      wproc/stop! (fn [_]
+                                   (reset! stopped? true)
+                                   (throw cleanup))]
+          (try
+            (sut/check-project {:worker-spawn (fn [_] {:port 4242})} "." ".")
+            nil
+            (catch Throwable e
+              e)))]
+    (is (identical? primary thrown))
+    (is @stopped?)
+    (is (= [cleanup] (vec (.getSuppressed ^Throwable thrown))))))
+
+(deftest check-project-preserves-analysis-error-across-disconnect-and-stop-errors
+  (let [primary (ex-info "analysis failed" {})
+        disconnect-error (ex-info "disconnect failed" {})
+        stop-error (ex-info "stop failed" {})
+        thrown
+        (with-redefs [file/discover-clojure-files (fn [_] {:files [] :failures []})
+                      wc/connect (fn [_] ::conn)
+                      class-oracle/intern-host-classes! (fn [_] (throw primary))
+                      wc/disconnect! (fn [_] (throw disconnect-error))
+                      wproc/stop! (fn [_] (throw stop-error))]
+          (try
+            (sut/check-project {:worker-spawn (fn [_] {:port 4242})} "." ".")
+            nil
+            (catch Throwable e
+              e)))]
+    (is (identical? primary thrown))
+    (is (= [disconnect-error stop-error]
+           (vec (.getSuppressed ^Throwable thrown))))))
 
 (deftest check-project-porcelain-clean-run-emits-run-summary
   (let [source-file (java.io.File. "test/skeptic/fixtures/example_ns.clj")]

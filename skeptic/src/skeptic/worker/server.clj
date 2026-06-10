@@ -1,8 +1,9 @@
 (ns skeptic.worker.server
-  "Worker-side nREPL server. Runs in the spawned JVM on Skeptic's private
-   worker runtime and answers host requests on demand. Project classpath
-   entries are installed as a separate context loader around project-resolution
-   operations. Plan 2 Phase 1.5 adds the handle-table machinery: every Class
+  "Worker-side nREPL server. Runs in the spawned JVM on the combined
+   project-first launch classpath and answers host requests on demand. Project
+   operations run on the clojure.main launch thread, so project code loads
+   exactly as the project's own runtime loads it — Skeptic adds no reader-Var
+   or loading machinery. Plan 2 Phase 1.5 adds the handle-table machinery: every Class
    operand on the wire is an opaque handle (integer for bootstrap-interned
    host-runtime classes; UUID-string for project classes). Worker is sole owner
    of `Class/forName`, `.isAssignableFrom`, `instance?`, and class equality.
@@ -28,13 +29,19 @@
             [skeptic.worker.analyzer-cljs :as wac-cljs]
             [skeptic.worker.client :as worker-client]
             [skeptic.worker.transport :as worker-transport]
-            [skeptic.worker.wire :as wire]))
+            [skeptic.worker.wire :as wire])
+  (:import [java.util.concurrent LinkedBlockingQueue]))
 
 (defonce ^:private handle-state
   (atom {:next-id 0 :id->class {} :class->id {}}))
 
 (defonce ^:private fn-handle-state
   (atom {:next-id 0 :id->fn {} :fn->id {}}))
+
+(def ^:dynamic *project-operation-thread* false)
+
+(defonce ^:private project-operation-submit
+  (atom nil))
 
 (defn- intern-class!
   "Returns the existing handle for `c` if interned, else mints a new one. When
@@ -98,13 +105,22 @@
         *class-rel-cache* (assoc *class-rel-cache* (atom {}))
         *predicate-cache* (assoc *predicate-cache* (atom {}))))))
 
+(defn- run-project-operation
+  [f]
+  (cond
+    *project-operation-thread* (f)
+    @project-operation-submit (@project-operation-submit f)
+    :else (f)))
+
 (defmacro ^:private with-project-operation
   [& body]
-  `(let [bindings# (project-oracle-bindings)]
-     (if (seq bindings#)
-       (with-bindings bindings#
-         ~@body)
-       (do ~@body))))
+  `(run-project-operation
+    (fn []
+      (let [bindings# (project-oracle-bindings)]
+        (if (seq bindings#)
+          (with-bindings bindings#
+            ~@body)
+          (do ~@body))))))
 
 (defn- resolve-bootstrap-class
   "The ^Class for bootstrap name `nm`: a primitive via its TYPE field, else
@@ -738,11 +754,11 @@
     (throw (ex-info (str "Unsupported worker loopback op: " op) {:op op}))))
 
 (defn- worker-log
-  "Worker-side startup marker. Goes to stdout because the host merges stderr
-   into stdout via redirectErrorStream and reads stdout line-by-line in
-   read-port. The host's read-port surfaces these as `[skeptic worker stdout]`
-   under host `-v`. Unconditional on the worker side: the worker has no flag
-   to honor, and silence is the failure mode we are trying to eliminate."
+  "Worker-side startup marker. Goes to stdout because both launch paths drain
+   that stream: direct launch reads the port handshake there, while the Lein
+   launcher captures it independently from porcelain output. Each host
+   surfaces the line on stderr under `-v`. Unconditional on the worker side:
+   the worker has no flag to honor."
   [label]
   (println (str "WORKER " label))
   (flush))
@@ -754,8 +770,9 @@
    classloader (project-first) so a project pinning a different nrepl wins
    via first-occurrence. Wrap-* dispatchers are let-bound inside this fn —
    they close over locally resolved `t-send` and `resp-for`, never reference
-   a namespace-scoped alias."
-  []
+   a namespace-scoped alias. The shutdown callback is mandatory so a successful
+   shutdown reply always corresponds to an actual server stop request."
+  [request-shutdown!]
   (worker-log "requiring nrepl.transport")
   (require 'nrepl.transport)
   (worker-log "requiring nrepl.server")
@@ -789,6 +806,14 @@
           (fn [{:keys [op transport] :as msg}]
             (if (= op "ping")
               (t-send transport (resp-for msg :pong "ok" :status #{:done}))
+              (h msg))))
+        wrap-shutdown
+        (fn [h]
+          (fn [{:keys [op transport] :as msg}]
+            (if (= op "shutdown")
+              (do
+                (t-send transport (resp-for msg :status #{:done}))
+                (request-shutdown!))
               (h msg))))
         wrap-intern-host-classes
         (fn [h]
@@ -903,6 +928,7 @@
                                          :result (with-project-operation (boolean (pred arg)))})))
               (h msg))))
         handler (-> unknown-op
+                    wrap-shutdown
                     wrap-apply-predicate
                     wrap-cljs-ns-head
                     wrap-analyze-cljs-namespace
@@ -921,10 +947,59 @@
         _ (worker-log (str "nrepl server bound port=" (:port server)))]
     server))
 
+(def ^:private shutdown-marker ::shutdown)
+
+(defn- install-project-operation-queue!
+  []
+  (let [queue (LinkedBlockingQueue.)]
+    (reset! project-operation-submit
+            (fn [f]
+              (let [reply (promise)]
+                (.put queue [f reply])
+                (let [{:keys [value error]} @reply]
+                  (if error
+                    (throw error)
+                    value)))))
+    queue))
+
+(defn- run-project-operation-loop!
+  [^LinkedBlockingQueue queue]
+  (binding [*project-operation-thread* true]
+    (loop []
+      (let [request (.take queue)]
+        (when-not (= shutdown-marker request)
+          (let [[f reply] request]
+            (try
+              (deliver reply {:value (f)})
+              (catch Throwable e
+                (deliver reply {:error e}))))
+          (recur))))))
+
+(defn run-worker!
+  "Start the worker and run the project-operation loop on this thread — the
+   `clojure.main` launch thread the project's own boot set up, where lein's
+   prep, `:global-vars`, and `:injections` already ran. Project code loads
+   exactly as the project's own runtime loads it: Skeptic adds no reader-Var
+   machinery, so every registration mechanism behaves as it does under the
+   project's own `clojure.main` (observed in `.scratch/reader-probes/`).
+   nREPL handler threads enqueue project operations onto this thread's queue.
+   `announce-port!` is called with the bound port once the server is up: the
+   owned Lein subprocess writes a port-file, direct launch prints the stdout
+   handshake line."
+  [announce-port!]
+  (worker-log "run-worker! entered")
+  (let [queue (install-project-operation-queue!)
+        request-shutdown! #(.put queue shutdown-marker)
+        server (start! request-shutdown!)]
+    (announce-port! (:port server))
+    (try
+      (run-project-operation-loop! queue)
+      (finally
+        (reset! project-operation-submit nil)
+        ((requiring-resolve 'nrepl.server/stop-server) server)))))
+
 (defn -main
   [& _args]
-  (worker-log "-main entered")
-  (let [server (start!)]
-    (println (str "SKEPTIC-WORKER-PORT " (:port server)))
-    (flush)
-    @(promise)))
+  (run-worker! (fn [port]
+                 (println (str "SKEPTIC-WORKER-PORT " port))
+                 (flush))))

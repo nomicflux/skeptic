@@ -118,9 +118,21 @@ environment refine `n` before the multiplication was annotated?
 Analysis runs in a separate worker JVM. The host process is what users
 invoke (`lein skeptic`, `clj -T:skeptic check`); it runs admission, the
 cast engine, the bridge, the pipeline, projection, and output. The worker
-runs the analyzer against the **project's own classpath**, so the
-project's pinned versions of Clojure, Plumatic Schema, Malli, and
-`tools.analyzer` drive the AST shape — not Skeptic's.
+runs the analyzer inside the **project's own runtime**, so the project's
+pinned versions of Clojure, Plumatic Schema, Malli, and `tools.analyzer`
+drive the AST shape — not Skeptic's.
+
+Both entrypoints build the worker classpath project-first: the project's
+classpath entries, then Skeptic's separately resolved worker runtime
+(`skeptic.worker.deps/worker-deps`). Lein additionally prepares the active
+project and launches an owned subprocess from Lein's project JVM command,
+appending that runtime tail to its classpath argument — Skeptic's
+coordinates never enter the project's `:dependencies`. That preserves
+project profiles and injections, including bespoke data-reader
+registration. Project operations execute on the `clojure.main` launch
+thread itself, so reader registrations behave exactly as they do under
+the project's own runtime — `data_readers.clj` and injection `set!`s
+included, with no Skeptic-side reader machinery.
 
 A contributor whose change crosses this boundary should be sure which
 side owns the work:
@@ -137,8 +149,10 @@ side owns the work:
 
 When the analyzer behaves differently from the host's expectations,
 suspect a classpath ordering bug first: the worker classpath is
-project-first, so a stray host entry resolving ahead of a project entry
-is a wrong-jar collision, not a version mismatch.
+project-first on both entrypoints, so a stray Skeptic entry resolving
+ahead of a project entry is a wrong-jar collision, not a version
+mismatch. Also check that analysis stayed on the project operation
+thread; moving it elsewhere loses registered runtime state.
 
 For changes to discovery, admission, or output, the worker is rarely
 involved. For changes to AST shape, def discovery, source location, or
@@ -163,7 +177,8 @@ between the helper and production.
 - `skeptic/provenance.clj:merge-provenances` - provenance source ranking.
 - `skeptic/analysis/types.clj:type=?` - semantic Type equality.
 - `skeptic/checking/pipeline.clj:check-namespace` - production namespace path.
-- `skeptic/worker/classpath.clj` - project-first worker classpath construction.
-- `skeptic/worker/process.clj` - worker JVM spawn.
+- `lein-skeptic/src/leiningen/skeptic.clj` - prepared Lein project runtime, owned worker process, and child-stream routing.
+- `skeptic/worker/classpath.clj` - project-first worker classpath construction (both entrypoints).
+- `skeptic/worker/process.clj` - direct worker JVM spawn used by the deps.edn path and tests.
 - `skeptic/worker/analyzer_clj.clj`, `skeptic/worker/analyzer_cljs.clj` - in-worker analyzer entrypoints.
 - `skeptic/worker/{server,client,transport,wire}.clj` - host↔worker transport.

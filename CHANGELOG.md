@@ -64,6 +64,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Leiningen analysis now runs the worker inside the project's prepared
+  runtime: the plugin launches an owned subprocess from Lein's project JVM
+  command (profiles, injections, global-vars, and jvm-opts included) with
+  Skeptic's separately resolved worker runtime appended after the project's
+  classpath entries. Project analysis operations execute on the
+  `clojure.main` launch thread itself, so registered readers behave exactly
+  as they do under the project's own runtime — `data_readers.clj` and
+  injection `set!`s included, with no Skeptic-side reader machinery.
+  The plugin keeps worker output off porcelain stdout,
+  reports child startup output on launch failure, waits for startup without
+  an arbitrary timeout, and preserves the original analysis exception across
+  cleanup failures.
 - Plumatic Schema map schemas using non-keyword required keys
   (e.g. `{(s/required-key "a") s/Int}`) now check correctly: correct
   call sites are no longer flagged with a spurious unexpected-key

@@ -232,7 +232,13 @@
       (finally
         (delete-recursively! dir)))))
 
-(deftest analyze-namespace-uses-project-runtime-data-readers
+(deftest analyze-namespace-matches-project-runtime-for-alter-var-root-data-readers
+  ;; Observed project-runtime behavior (.scratch/reader-probes/probe1.output.txt):
+  ;; plain `clojure.main` rejects this fixture with "No reader function for tag
+  ;; date-time" — each `load` captures *data-readers* at file entry, so a
+  ;; sibling require's alter-var-root registration is invisible to this file's
+  ;; tagged literal. The worker loads the project as the project and reports
+  ;; the same failure.
   (let [dir (temp-dir!)
         src (io/file dir "src")
         timestamp "2026-06-09T12:34:56Z"]
@@ -254,17 +260,21 @@
                  "(def value #date-time \"" timestamp "\")\n"))
       (with-worker [(.getPath src)]
         (fn [conn]
-          (let [{:keys [entries read-failure]} (wc/ask conn
-                                                       {:op "analyze-namespace"
-                                                        :ns "demo.tagged"
-                                                        :source-file (.getPath (io/file src "demo" "tagged.clj"))})
-                value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
-            (is (nil? read-failure))
-            (is (= {:date-time timestamp} (nth value-form 2))))))
+          (is (thrown-with-msg?
+               clojure.lang.ExceptionInfo
+               #"No reader function for tag date-time"
+               (wc/ask conn {:op "analyze-namespace"
+                             :ns "demo.tagged"
+                             :source-file (.getPath (io/file src "demo" "tagged.clj"))})))))
       (finally
         (delete-recursively! dir)))))
 
-(deftest analyze-namespace-uses-project-runtime-default-data-reader
+(deftest analyze-namespace-matches-project-runtime-for-alter-var-root-default-data-reader
+  ;; Observed project-runtime behavior (.scratch/reader-probes/probe3.output.txt):
+  ;; plain `clojure.main` rejects this fixture with "No reader function for tag
+  ;; date-time" — the sibling require's *default-data-reader-fn* registration is
+  ;; invisible to this file's load. The worker loads the project as the project
+  ;; and reports the same failure.
   (let [dir (temp-dir!)
         src (io/file dir "src")
         timestamp "2026-06-09T12:34:56Z"]
@@ -286,13 +296,60 @@
                  "(def value #date-time \"" timestamp "\")\n"))
       (with-worker [(.getPath src)]
         (fn [conn]
+          (is (thrown-with-msg?
+               clojure.lang.ExceptionInfo
+               #"No reader function for tag date-time"
+               (wc/ask conn {:op "analyze-namespace"
+                             :ns "demo.tagged"
+                             :source-file (.getPath (io/file src "demo" "tagged.clj"))})))))
+      (finally
+        (delete-recursively! dir)))))
+
+(deftest analyze-namespace-uses-classpath-data-readers-file
+  (let [dir (temp-dir!)
+        src (io/file dir "src")
+        timestamp "2026-06-09T12:34:56Z"]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "data_readers.clj")
+            "{date-time clojure.core/identity}")
+      (spit (io/file src "demo" "tagged.clj")
+            (str "(ns demo.tagged)\n\n"
+                 "(def value #date-time \"" timestamp "\")\n"))
+      (with-worker [(.getPath src)]
+        (fn [conn]
           (let [{:keys [entries read-failure]} (wc/ask conn
                                                        {:op "analyze-namespace"
                                                         :ns "demo.tagged"
                                                         :source-file (.getPath (io/file src "demo" "tagged.clj"))})
                 value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
             (is (nil? read-failure))
-            (is (= {:date-time timestamp} (nth value-form 2))))))
+            (is (= timestamp (nth value-form 2))))))
+      (finally
+        (delete-recursively! dir)))))
+
+(deftest analyze-namespace-loads-a-source-file-once
+  (let [dir (temp-dir!)
+        src (io/file dir "src")]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "demo" "evaluate_once.clj")
+            "(ns demo.evaluate-once)
+
+             (def evaluation-count
+               (let [current (ns-resolve *ns* 'evaluation-count)]
+                 (inc (if (and current (bound? current)) @current 0))))
+
+             (when (> evaluation-count 1)
+               (throw (ex-info \"source evaluated more than once\"
+                               {:evaluation-count evaluation-count})))")
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [request {:op "analyze-namespace"
+                         :ns "demo.evaluate-once"
+                         :source-file (.getPath (io/file src "demo" "evaluate_once.clj"))}]
+            (is (seq (:entries (wc/ask conn request))))
+            (is (seq (:entries (wc/ask conn request)))))))
       (finally
         (delete-recursively! dir)))))
 

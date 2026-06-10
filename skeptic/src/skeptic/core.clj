@@ -54,6 +54,34 @@
        (remove str/blank?)
        (mapv symbol)))
 
+(defn- run-with-cleanup
+  [work cleanup]
+  (let [outcome (try
+                  {:value (work)}
+                  (catch Throwable e
+                    {:error e}))]
+    (if-let [primary (:error outcome)]
+      (do
+        (try
+          (cleanup)
+          (catch Throwable cleanup-error
+            (.addSuppressed primary cleanup-error)))
+        (throw primary))
+      (do
+        (cleanup)
+        (:value outcome)))))
+
+(defn- with-worker-connection
+  [worker startup-log work]
+  (run-with-cleanup
+   (fn []
+     (let [conn (wc/connect (:port worker))]
+       (startup-log "worker connection established; interning host classes")
+       (run-with-cleanup
+        #(work conn)
+        #(wc/disconnect! conn))))
+   #(wproc/stop! worker)))
+
 (s/defn check-project :- s/Int
   [opts :- copts/CheckProjectOpts root :- (s/cond-pre s/Str java.io.File) & paths :- [s/Str]]
   (let [raw-namespaces (:namespace opts)
@@ -96,22 +124,31 @@
                         (binding [*out* *err*]
                           (println (str "[skeptic startup] " label))
                           (flush))))
-        combined-cp (or (:combined (:worker-classpath opts))
-                        (throw (ex-info "check-project requires :worker-classpath with a :combined launch cp"
-                                        {:opts (keys opts)})))
-        _ (startup-log (str "spawning worker JVM (cp length="
-                            (count combined-cp) " chars, entries="
-                            (inc (count (re-seq (re-pattern
-                                                  (java.util.regex.Pattern/quote
-                                                    (System/getProperty "path.separator")))
-                                                combined-cp)))
-                            ")"))
-        worker (wproc/spawn! combined-cp verbose?)
-        _ (startup-log (str "worker handshake received port=" (:port worker)
-                            "; connecting"))
-        conn (wc/connect (:port worker))
-        _ (startup-log "worker connection established; interning host classes")]
-    (try
+        worker-spawn (:worker-spawn opts)
+        combined-cp (:combined (:worker-classpath opts))
+        _ (when-not (or worker-spawn combined-cp)
+            (throw (ex-info "check-project requires :worker-spawn or :worker-classpath"
+                            {:opts (keys opts)})))
+        _ (if worker-spawn
+            (startup-log "spawning worker through project runtime")
+            (startup-log (str "spawning worker JVM (cp length="
+                              (count combined-cp) " chars, entries="
+                              (inc (count (re-seq (re-pattern
+                                                    (java.util.regex.Pattern/quote
+                                                      (System/getProperty "path.separator")))
+                                                  combined-cp)))
+                              ")")))
+        worker (if worker-spawn
+                 (worker-spawn verbose?)
+                 (wproc/spawn! (or combined-cp
+                                   (throw (ex-info "missing worker classpath"
+                                                   {:opts (keys opts)})))
+                               verbose?))]
+    (startup-log (str "worker handshake received port=" (:port worker)
+                      "; connecting"))
+    (with-worker-connection
+      worker startup-log
+      (fn [conn]
       (let [host-handles (class-oracle/intern-host-classes! conn)
             _ (startup-log (str "host classes interned (" (count host-handles) " classes); binding worker context"))]
         (binding [class-oracle/*worker-conn* conn
@@ -172,7 +209,4 @@
                     (swap! totals update :namespaces-with-findings inc))
                   (ns-end ns @ns-findings printer-opts)))
               (run-end @errored @totals printer-opts)
-              (if @errored 1 0)))))
-      (finally
-        (wc/disconnect! conn)
-        (wproc/stop! worker)))))
+              (if @errored 1 0)))))))))

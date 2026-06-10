@@ -28,12 +28,12 @@
                                      ((resolve 'schema.core/set-fn-validation!) true))]}
              :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc7"]]}
              ;; Skeptic's worker runtime dependency declaration. The lein-skeptic
-             ;; plugin path merges this profile onto the project and resolves
-             ;; its `:dependencies` via aether; the resolved jar list is handed
-             ;; to the worker spawn as the runtime-cp tail of the launch
-             ;; classpath. deps.edn declares the SAME coordinates under the
-             ;; `:worker` alias for the `clj -T:skeptic check` path. The 10
-             ;; coordinates are the namespaces F1's walk identified as
+             ;; plugin resolves the same coordinates from
+             ;; `skeptic.worker.deps/worker-deps` via lein's aether wrapper and
+             ;; appends the resolved jar list as the runtime-cp tail of the
+             ;; worker launch classpath. deps.edn declares the SAME coordinates
+             ;; under the `:worker` alias for the `clj -T:skeptic check` path.
+             ;; The 10 coordinates are the namespaces F1's walk identified as
              ;; load-bearing for the worker JVM.
              :worker {:dependencies [[org.clojure/clojure             "1.12.0"]
                                      [org.clojure/clojurescript       "1.11.132"]

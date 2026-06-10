@@ -66,5 +66,7 @@
     {:proc proc :port port}))
 
 (s/defn stop! :- s/Any
-  [{:keys [proc]} :- {:proc s/Any s/Any s/Any}]
-  (.destroy ^Process proc))
+  [{:keys [proc stop-fn]} :- {s/Keyword s/Any}]
+  (if stop-fn
+    (stop-fn)
+    (.destroy ^Process proc)))

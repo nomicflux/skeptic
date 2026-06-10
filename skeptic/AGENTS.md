@@ -38,7 +38,7 @@ When `/psp` is used in this repo, each phase's completion gate requires **all th
 
 Primary execution path:
 
-- `leiningen.skeptic`: Leiningen plugin entrypoint. Parses CLI flags (via the shared `skeptic.cli.options` vector), selects the Skeptic profile, and runs the checker in the target project.
+- `leiningen.skeptic`: Leiningen plugin entrypoint. Parses CLI flags (via the shared `skeptic.cli.options` vector), prepares the active project, launches an owned worker subprocess from Lein's project JVM command with Skeptic's separately resolved worker runtime appended to the classpath (project entries first; Skeptic's coordinates never enter the project's `:dependencies`), and runs the checker against that worker. Project profiles, injections, dynamic reader bindings, and registered data readers remain authoritative.
 - `skeptic.tool`: deps.edn tool entrypoint exposed at `clj -T:skeptic check`. One-line wrapper over `skeptic.cli.main/check-project`.
 - `skeptic.cli.main`: library-pure deps.edn driver. `check-project` does the real work for the `-T` tool path. The legacy `-M` (`-main`/`run-cli`) and `-X` (`run`) entrypoints intentionally refuse with a redirect message — those invocations are not hermetic because they would load the client project on Skeptic's runtime classpath.
 - `skeptic.core`: top-level checker/report printer. Discovers namespaces, invokes per-namespace checking, formats output.
@@ -47,7 +47,7 @@ Primary execution path:
 Source namespace families (open one of these files when you need to know what's inside):
 
 - `skeptic.cli.*`: runner layer for deps.edn / Clojure CLI. `skeptic.cli.options` owns the shared CLI option vector, used by both `leiningen.skeptic` and `skeptic.cli.main`. `skeptic.cli.cljs.{deps,lein,shadow}` implement project-layout-specific cljs source discovery returning the shared `DiscoverySources` shape in `skeptic.cli.cljs.discover`. **Rule:** project-metadata reading and CLI parsing live only under `skeptic.cli.*`; library namespaces never read project layout — they receive paths as arguments.
-- `skeptic.worker.*`: worker JVM that runs analysis against the project's own classpath. Host code lives outside this family and never analyzes project source directly. `skeptic.worker.classpath` builds the `(concat project-cp runtime-entries)` classpath (project entries first, so the project's pinned versions of Clojure, Plumatic Schema, Malli, and tools.analyzer win over Skeptic's). `skeptic.worker.process` spawns the worker JVM; `skeptic.worker.{server,client,transport,wire}` carry the host↔worker nREPL transport with explicit teardown and non-EDN sentinel handling; `skeptic.worker.{analyzer_clj,analyzer_cljs}` are the in-worker analyzer entrypoints that read project source by path and project annotated AST data back over the wire; `skeptic.worker.project_context` holds project-state hand-off. See **Worker Runtime Isolation** below for the contract.
+- `skeptic.worker.*`: worker JVM that runs analysis in the project's runtime. Host code lives outside this family and never analyzes project source directly. Both entrypoints build the launch classpath as `(concat project-cp runtime-entries)` through `skeptic.worker.classpath`, resolving `skeptic.worker.deps/worker-deps` with their own build system (tools.deps for deps.edn, lein's aether wrapper for Lein). The deps.edn entrypoint spawns via `skeptic.worker.process`; the Lein entrypoint owns a subprocess created from Lein's prepared project JVM command with that runtime tail appended. `skeptic.worker.{server,client,transport,wire}` carry the host↔worker nREPL transport with explicit teardown and non-EDN sentinel handling; `skeptic.worker.{analyzer_clj,analyzer_cljs}` are the in-worker analyzer entrypoints that read project source by path and project annotated AST data back over the wire; `skeptic.worker.project_context` holds project-state hand-off. See **Worker Runtime Isolation** below for the contract.
 - `skeptic.cljs.*`: ClojureScript loading and admission helpers. `analyzer-driver` exposes stateless cljs analyzer entrypoints via `cljs.analyzer.api` (no compiler state threaded across calls). `schema-interpreter` interprets post-macroexpansion Plumatic Schema bodies in a sci sandbox.
 - `skeptic.checking.*`: checking-time orchestration — AST/form/opts/state helpers consumed by the pipeline.
 - `skeptic.schema`, `skeptic.schema.collect[.cljs]`, `skeptic.typed-decls[.malli]`: declaration admission pipeline. Reads var metadata, admits raw Plumatic/Malli declarations, converts admitted descriptions into typed entries via `schema->type` / `malli-spec->type`.
@@ -170,12 +170,11 @@ Each Provenance also carries a `:lang` field — one of `:clj`, `:cljs`, or `#{:
 
 ## Worker Runtime Isolation
 
-Analysis runs in a separate worker JVM whose classpath is built from the
-**project's own** deps basis. Host code (everything the user invokes —
-`leiningen.skeptic`, `skeptic.tool`, `skeptic.cli.main`, `skeptic.core`,
-the checking pipeline, the cast engine, the bridge) runs on Skeptic's
-own classpath. The worker JVM is what reads project source and emits
-analyzer ASTs.
+Analysis runs in a separate worker JVM inside the **project's own**
+runtime. Host code (`leiningen.skeptic`, `skeptic.tool`,
+`skeptic.cli.main`, `skeptic.core`, the checking pipeline, the cast
+engine, the bridge) remains outside the project analyzer. The worker JVM
+is what reads project source and emits analyzer ASTs.
 
 The boundary exists so the project's pinned versions of Clojure,
 Plumatic Schema, Malli, `tools.analyzer`, and any other library drive
@@ -184,12 +183,35 @@ longer collide with the project's.
 
 The contract is strict and load-bearing:
 
-- **Worker classpath is project-first.** `skeptic.worker.classpath`
-  builds `(concat project-cp runtime-entries)` so the project's
-  Clojure / schema / malli / tools.analyzer entries are resolved
-  ahead of Skeptic's runtime entries. A symbol present in both
-  Clojures is a wrong-jar bug, not a version mismatch; treat it as a
-  classpath ordering failure.
+- **Worker classpath is project-first; the worker runtime is resolved
+  separately.** Both entrypoints build the launch classpath as
+  `(concat project-cp runtime-entries)` through
+  `skeptic.worker.classpath` — deps.edn resolves
+  `skeptic.worker.deps/worker-deps` via tools.deps, Lein via its aether
+  wrapper, and the Lein path starts from Lein's prepared project JVM
+  command (profiles, injections, global-vars, jvm-opts, env). Skeptic's
+  coordinates never enter the project's `:dependencies`: dependency
+  mediation must not blend Skeptic's graph with the project's, because
+  mediated versions vary per project and per machine. A symbol present
+  in both Clojures is a wrong-jar bug, not a version mismatch; treat it
+  as a classpath ordering failure.
+- **Project code loads as the project.** Lein project profiles and
+  injections run before `run-worker!`, which then runs every project
+  analysis operation on the `clojure.main` launch thread itself. Skeptic
+  adds no reader-Var machinery — no fold, no dedicated operation thread,
+  no merges — so every registration mechanism (`data_readers.clj`,
+  injection `set!`s, `alter-var-root`) behaves exactly as it does under
+  the project's own `clojure.main` boot; the observed runtime behavior is
+  the spec (`.scratch/reader-probes/`). Analyzer fallback rereads run on
+  the same thread and consult the same registries; Skeptic does not
+  evaluate project source to reconstruct reader state.
+- **The host owns the worker process.** The Lein plugin drains both
+  child streams itself, forwards them only to host stderr under `-v`,
+  captures startup output for failure diagnostics, and never lets
+  worker chatter enter porcelain stdout. Startup waits for either the
+  port handshake or process exit, with no arbitrary elapsed-time
+  cutoff. Teardown requests shutdown and forcibly terminates the owned
+  process if the request fails or the child does not exit.
 - **Worker reads its own source.** The host sends paths over the
   wire, never forms. The bulk `analyze-namespace` op opens the file
   inside the worker and returns the projected AST. There is no
