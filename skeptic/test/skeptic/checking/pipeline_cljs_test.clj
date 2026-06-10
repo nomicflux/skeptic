@@ -70,6 +70,25 @@
             "baz.cljc identical findings under both passes should dedup to one")
         (is (= #{:clj :cljs} (get-in (first inputs) [:location :lang])))))))
 
+(def ^:private broken-require-file
+  (File. "dev-resources/skeptic/cljs_fixtures/broken_require.cljs"))
+
+(deftest cljs-admission-failure-carries-the-underlying-cause
+  ;; A .cljs file whose ns form cannot be analyzed (unresolvable require)
+  ;; must surface the worker's real exception in the finding — not a
+  ;; minted placeholder with no cause.
+  (let [broken-ns 'skeptic.cljs-fixtures.broken-require
+        ps (psup/project-state-allowing-failures broken-ns broken-require-file)
+        {:keys [results]} (pipeline/check-namespace ps broken-ns broken-require-file
+                                                    {:remove-context true})
+        exceptions (read-exceptions results)]
+    (is (= 1 (count exceptions)))
+    (let [e (first exceptions)]
+      (testing "the finding is attributed to the cljs pass"
+        (is (= :cljs (get-in e [:location :lang]))))
+      (testing "the message names the actual failure"
+        (is (str/includes? (:exception-message e) "no.such.namespace-zzz"))))))
+
 (deftest cljs-malli-registration-is-admitted-through-production-path
   ;; `g` is admitted via the `m/=>` registration channel; `h` via the
   ;; `:malli/schema` var-meta channel. Both must carry :malli provenance —

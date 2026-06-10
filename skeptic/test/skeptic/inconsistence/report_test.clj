@@ -217,7 +217,7 @@
     (is (str/includes? error "Exception class: clojure.lang.ExceptionInfo"))
     (is (str/includes? error "Declaration slot: :output"))
     (is (str/includes? error "Rejected schema: #\"^[a-z]+$\""))
-    (is (str/includes? error "continued with the rest of the namespace"))))
+    (is (str/includes? error "Call sites were checked as if this var had no declaration."))))
 
 (deftest output-summary-omits-redundant-in-when-focus-equals-expression
   (let [summary (sut/report-summary

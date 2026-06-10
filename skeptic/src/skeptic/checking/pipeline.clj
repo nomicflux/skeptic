@@ -561,12 +561,12 @@
     (vec (concat debug-records filtered))))
 
 (s/defn read-exception-result :- s/Any
-  [source-file e :- Throwable]
+  [source-file lang :- (s/enum :clj :cljs) e :- Throwable]
   {:report-kind :exception
    :phase :read
    :blame (cf/source-file-path source-file)
    :source-expression nil
-   :location {:file (cf/source-file-path source-file) :source :inferred :lang :clj}
+   :location {:file (cf/source-file-path source-file) :source :inferred :lang lang}
    :enclosing-form nil
    :exception-class (symbol (.getName (class e)))
    :exception-message (or (.getMessage e)
@@ -692,6 +692,7 @@
    source-file        :- (s/maybe (s/cond-pre File s/Str))
    accessor-summaries :- AccessorSummaries
    cljs-state         :- {s/Any s/Any}
+   cljs-failure       :- (s/maybe Throwable)
    form-opts          :- {s/Keyword s/Any}]
   (if-let [entries (some-> cljs-state (get source-file) :entries)]
     (reduce
@@ -709,9 +710,12 @@
      {:results [] :provenance {}}
      entries)
     {:results [(read-exception-result
-                source-file
-                (ex-info "cljs admission failed for this source-file"
-                         {:ns ns :source-file (some-> source-file str)}))]
+                source-file :cljs
+                (or cljs-failure
+                    (ex-info (str "no cljs analysis state for this source-file: "
+                                  "the cljs preload recorded neither entries nor "
+                                  "a failure — a Skeptic invariant violation")
+                             {:ns ns :source-file (some-> source-file str)})))]
      :provenance {}}))
 
 (s/defn ^:private clj-read-pass-results :- CljsPassResults
@@ -724,7 +728,7 @@
    form-opts          :- {s/Keyword s/Any}]
   (let [{:keys [entries read-failure]} (some-> clj-state (get source-file))]
     (if read-failure
-      {:results [(read-exception-result source-file (ex-info read-failure {}))]
+      {:results [(read-exception-result source-file :clj (ex-info read-failure {}))]
        :provenance {}}
       (reduce
        (fn [acc entry]
@@ -1200,9 +1204,9 @@
                    (first group)))))))
 
 (defn- read-pass-results
-  [dict ignore-body ns source-file accessor-summaries cljs-state clj-state lang form-opts]
+  [dict ignore-body ns source-file accessor-summaries cljs-state cljs-failure clj-state lang form-opts]
   (if (= :cljs lang)
-    (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state form-opts)
+    (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state cljs-failure form-opts)
     (clj-read-pass-results dict ignore-body ns source-file accessor-summaries clj-state form-opts)))
 
 (s/defn check-ns :- s/Any
@@ -1212,6 +1216,7 @@
         lang (lang-of-namespace-source form-opts ns source-file)
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
+        cljs-failure (get-in (:per-ns-failures project-state) [source-file :exception])
         clj-state (:clj-state project-state)
         pass-results (binding [ac/*user-fn-path-predicate-summaries*
                                (or (:user-fn-summaries project-state) {})]
@@ -1219,7 +1224,8 @@
                                ;; The read pass consumes worker-shipped ASTs via
                                ;; clj-state/cljs-state; no host project-ns binding.
                                (read-pass-results dict ignore-body ns source-file
-                                                  accessor-summaries cljs-state clj-state pass-lang
+                                                  accessor-summaries cljs-state cljs-failure
+                                                  clj-state pass-lang
                                                   form-opts))
                              passes))
         form-findings (vec (mapcat :results pass-results))

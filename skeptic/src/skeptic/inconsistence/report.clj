@@ -71,13 +71,13 @@
                                       (map colours/yellow detail-lines))))
         skip-text (cond
                     skipped?
-                    "Skeptic treats unanalyzable expressions as Dyn and continued with the rest of the namespace."
+                    "The rest of the namespace was checked."
                     (= :declaration phase)
-                    "Skeptic skipped this declaration and continued with the rest of the namespace."
+                    "Call sites were checked as if this var had no declaration."
                     (= :read phase)
-                    "Skeptic localized this namespace read failure instead of aborting the namespace at the top level."
+                    "Checking of this file was aborted."
                     :else
-                    "Skeptic skipped this expression and continued with the rest of the namespace.")]
+                    "This expression was not checked; the rest of the namespace was.")]
     (format (str opening "\n\n%s%s\n\n%s")
             subject
             (colours/yellow exception-message)

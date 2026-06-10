@@ -81,6 +81,14 @@ All notable changes to this project will be documented in this file.
   the retry could make analysis succeed on source the project itself
   cannot load. A require failure now propagates exactly as the project's
   own `clojure.main` raises it.
+- ClojureScript admission failures now report the actual underlying
+  exception (e.g. the analyzer's `No such namespace: …`) instead of a
+  placeholder `cljs admission failed for this source-file` with no
+  cause, and the finding's `lang` is `cljs` instead of `clj`. Exception
+  findings also state the factual consequence for checking coverage
+  ("Checking of this file was aborted.", "Call sites were checked as if
+  this var had no declaration.") instead of narrating Skeptic's
+  error-routing.
 - Runtime objects that data readers place into analyzed source (e.g. a
   `#date-time` tagged literal producing a joda `DateTime`) no longer
   kill analysis with the marshaller's
