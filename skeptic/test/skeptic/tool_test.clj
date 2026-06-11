@@ -57,6 +57,26 @@
       (finally
         (delete-recursively! dir)))))
 
+(deftest tool-check-cljs-is-opt-in
+  (let [dir (temp-dir!)
+        captured (atom nil)
+        run-tool! (fn [arg-map]
+               (with-redefs [profiling/run (fn [_opts _target-dir work-fn] (work-fn))
+                             core/check-project (fn [opts _root & _source-paths]
+                                                  (reset! captured opts)
+                                                  0)]
+                 (is (= 0 (main/check-project arg-map)))))]
+    (try
+      (testing "without :cljs-enable, the tool passes :cljs-disable true"
+        (run-tool! {:project-dir (.getPath dir) :paths "src"})
+        (is (true? (:cljs-disable @captured))))
+      (testing ":cljs-enable true becomes :cljs-disable false; :cljs-enable never escapes"
+        (run-tool! {:project-dir (.getPath dir) :paths "src" :cljs-enable true})
+        (is (false? (:cljs-disable @captured)))
+        (is (not (contains? @captured :cljs-enable))))
+      (finally
+        (delete-recursively! dir)))))
+
 (deftest tool-check-discovery-and-classpath-share-one-basis
   ;; The project resolves under one alias set: the user --alias plus the
   ;; deps.edn aliases its shadow-cljs.edn declares as its deps source. Both

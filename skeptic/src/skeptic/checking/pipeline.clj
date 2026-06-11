@@ -74,7 +74,8 @@
 (defn lang-of-source-file
   "`.cljs` → :cljs. `.cljc` → :both. Anything else (.clj or no source-file) → :clj.
 
-  Two-arity form applies `--cljs-disable`: `:cljs` and `:both` collapse to
+  Two-arity form applies `:cljs-disable` (set unless `--cljs-enable` was
+  passed): `:cljs` and `:both` collapse to
   `:clj` (i.e. drop the `:cljs` reader-conditional branch from `.cljc`).
   Pure `.cljs` files are expected to be filtered at the discovery layer in
   `core/check-project` before reaching here."
@@ -843,7 +844,8 @@
   `:cljs-load-failure`. Returns {:loaded [[ns-sym source-file lang] ...]
   :load-failures {}} — the host-load failure map is always empty now.
 
-  `opts` carries `--cljs-disable`; when set, `.cljc` files store `lang :clj`
+  `opts` carries `:cljs-disable` (set unless `--cljs-enable` was passed);
+  when set, `.cljc` files store `lang :clj`
   in the triple so downstream passes drop the cljs branch."
   [opts nss-with-source-files]
   (reduce (fn [acc [ns-sym source-file]]

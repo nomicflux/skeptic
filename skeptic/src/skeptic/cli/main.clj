@@ -56,12 +56,14 @@
                             (symbol? %) (str %)
                             (keyword? %) (name %)
                             :else %)]
-    (cond-> opts
-      (contains? opts :alias)
-      (update :alias #(mapv normalize-alias (sequentialize %)))
+    (-> (cond-> opts
+          (contains? opts :alias)
+          (update :alias #(mapv normalize-alias (sequentialize %)))
 
-      (contains? opts :namespace)
-      (update :namespace #(mapv normalize-string (sequentialize %))))))
+          (contains? opts :namespace)
+          (update :namespace #(mapv normalize-string (sequentialize %))))
+        (assoc :cljs-disable (not (:cljs-enable opts)))
+        (dissoc :cljs-enable))))
 
 (defn- has-file?
   [root name]

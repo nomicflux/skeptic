@@ -19,12 +19,13 @@ All notable changes to this project will be documented in this file.
   diverging); and the primitive leaves `:double`, `:float`,
   `:qualified-keyword`, and `:qualified-symbol`. Sequence/regex
   combinators outside the `:=>` head remain experimental.
-- ClojureScript source-file support. Skeptic discovers `.cljs` and
-  `.cljc` files in deps.edn, Leiningen, and Shadow-CLJS projects and
-  admits Plumatic Schema (`s/defn` / `s/def` / `s/defschema`) and
-  Malli (`:malli/schema`) declarations on cljs vars. `.cljc` files
-  are admitted twice (once per host language); identical findings
-  from both passes are deduped with `lang` set to `["clj","cljs"]`.
+- ClojureScript source-file support (experimental, opt-in via
+  `--cljs-enable`). Skeptic discovers `.cljs` and `.cljc` files in
+  deps.edn, Leiningen, and Shadow-CLJS projects and admits Plumatic
+  Schema (`s/defn` / `s/def` / `s/defschema`) and Malli
+  (`:malli/schema`) declarations on cljs vars. `.cljc` files are
+  admitted twice (once per host language); identical findings from
+  both passes are deduped with `lang` set to `["clj","cljs"]`.
 - `clj -T:skeptic check` deps.edn tool entrypoint, so Skeptic is now
   usable from a `deps.edn` `:tools/usage` alias in addition to the
   Leiningen plugin. Supported tool arg-map keys include `:project-dir`,
@@ -37,10 +38,11 @@ All notable changes to this project will be documented in this file.
   `tools.analyzer`, and any other library are what drive checking.
   Skeptic's own declared dependency versions no longer collide with
   the project's.
-- `--cljs-disable` flag to skip ClojureScript admission entirely. With
-  the flag set, `.cljs` files are dropped and `.cljc` files are
-  admitted as `:clj`-only — the `:cljs` reader-conditional branch is
-  discarded.
+- `--cljs-enable` flag (deps.edn tool arg-map key: `:cljs-enable true`)
+  to turn on ClojureScript admission. ClojureScript support is
+  experimental and off by default: without the flag, `.cljs` files are
+  dropped and `.cljc` files are admitted as `:clj`-only — the `:cljs`
+  reader-conditional branch is discarded.
 - `--plumatic-disable` and `--malli-disable` flags to switch off either
   intake stream entirely. A disabled stream contributes no entries and
   no findings whose source matches that stream. `--plumatic-disable`

@@ -110,7 +110,8 @@ Options:
   instead of the default human-readable output. See [Output](#output) below.
 - `--plumatic-disable`: skip Plumatic Schema intake.
 - `--malli-disable`: skip Malli intake.
-- `--cljs-disable`: skip Clojurescript analysis.
+- `--cljs-enable`: turn on ClojureScript analysis (experimental; off by
+  default).
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
   stdout. Works with text and `-p` JSONL output.
@@ -289,16 +290,15 @@ After this, call sites of `infof` are checked as returning `nil`.
 
 ## ClojureScript support
 
-Skeptic loads and admits ClojureScript source files alongside Clojure.
-It discovers `.cljs` and `.cljc` files in deps.edn, Leiningen, and
-Shadow-CLJS projects.
+ClojureScript support is experimental and off by default: `.cljs` files
+are skipped and `.cljc` files are admitted as `:clj`-only — the `:cljs`
+reader-conditional branch is discarded.
 
-`.cljc` files are admitted twice — once with `:clj` reader-conditional
-features active and once with `:cljs`.
-
-Pass `--cljs-disable` to skip cljs admission entirely. With the flag
-set, `.cljs` files are dropped and `.cljc` files are admitted as
-`:clj`-only — the `:cljs` reader-conditional branch is discarded.
+Pass `--cljs-enable` (Leiningen) or `:cljs-enable true` (deps.edn tool)
+to load and admit ClojureScript source files alongside Clojure. Skeptic
+then discovers `.cljs` and `.cljc` files in deps.edn, Leiningen, and
+Shadow-CLJS projects, and `.cljc` files are admitted twice — once with
+`:clj` reader-conditional features active and once with `:cljs`.
 
 ## Malli support
 
