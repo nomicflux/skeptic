@@ -9,7 +9,8 @@
   (:import [java.io DataInputStream DataOutputStream]
            [java.net Socket]))
 
-(deftype TransitTransport [^Socket socket
+(deftype TransitTransport [verbose?
+                           ^Socket socket
                            ^DataInputStream in
                            ^DataOutputStream out]
   nrepl-transport/Transport
@@ -22,7 +23,7 @@
 
   java.io.Closeable
   (close [_]
-    (when-not (.isClosed socket)
+    (when (and verbose? (not (.isClosed socket)))
       (binding [*out* *err*]
         (println (str "skeptic TransitTransport closed: " socket))
         (flush)))

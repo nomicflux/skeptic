@@ -36,7 +36,7 @@
                     (cp-string (concat project-cp [host-cp]))
                     host-cp)
          worker (proc/spawn! combined root false)
-         conn (wc/connect (:port worker))]
+         conn (wc/connect false (:port worker))]
      (try
        (f conn)
        (finally

@@ -64,7 +64,7 @@
         (is (re-find #"/nrepl-[^/]+\.jar" combined)
             "nrepl must be present so worker server can start")
         (reset! worker (proc/spawn! combined (System/getProperty "user.dir") false))
-        (reset! conn (wc/connect (:port @worker)))
+        (reset! conn (wc/connect false (:port @worker)))
         (is (= "ok" (:pong (wc/ask @conn {:op "ping"})))))
       (finally
         (when @conn (wc/disconnect! @conn))

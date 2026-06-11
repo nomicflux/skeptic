@@ -79,15 +79,17 @@
 (defonce ^:private transport-impl-loaded
   (delay
     (require 'skeptic.worker.transport-impl)
-    (requiring-resolve 'skeptic.worker.transport-impl/->TransitTransport)))
+    (resolve 'skeptic.worker.transport-impl/->TransitTransport)))
 
 (defn transit
   "nREPL transport-fn using Transit+msgpack payloads framed by a 4-byte
    length prefix. The Transport protocol implementation lives in
    `skeptic.worker.transport-impl`, lazy-required on first call so this
-   namespace can be loaded before nrepl.transport is on the classpath."
-  [^Socket socket]
+   namespace can be loaded before nrepl.transport is on the classpath.
+   `verbose?` gates the stderr line printed when the transport closes."
+  [verbose? ^Socket socket]
   (let [ctor @transport-impl-loaded]
-    (ctor socket
+    (ctor verbose?
+          socket
           (DataInputStream. (BufferedInputStream. (.getInputStream socket)))
           (DataOutputStream. (BufferedOutputStream. (.getOutputStream socket))))))

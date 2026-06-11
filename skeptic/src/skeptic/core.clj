@@ -72,10 +72,10 @@
         (:value outcome)))))
 
 (defn- with-worker-connection
-  [worker startup-log work]
+  [verbose? worker startup-log work]
   (run-with-cleanup
    (fn []
-     (let [conn (wc/connect (:port worker))]
+     (let [conn (wc/connect verbose? (:port worker))]
        (startup-log "worker connection established; interning host classes")
        (run-with-cleanup
         #(work conn)
@@ -148,7 +148,7 @@
     (startup-log (str "worker handshake received port=" (:port worker)
                       "; connecting"))
     (with-worker-connection
-      worker startup-log
+      verbose? worker startup-log
       (fn [conn]
       (let [host-handles (class-oracle/intern-host-classes! conn)
             _ (startup-log (str "host classes interned (" (count host-handles) " classes); binding worker context"))]

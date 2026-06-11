@@ -22,24 +22,27 @@
     true))
 
 (defn- resolved-ana-vars
+  "Plain `resolve` after `ensure-cljs-loaded!`: `requiring-resolve` does not
+   exist before Clojure 1.10, and this namespace compiles on the project's
+   pinned Clojure (1.8 floor)."
   []
   @ensure-cljs-loaded!
-  {:*compiler*          (requiring-resolve 'cljs.env/*compiler*)
-   :*file-defs*         (requiring-resolve 'cljs.analyzer/*file-defs*)
-   :*unchecked-if*      (requiring-resolve 'cljs.analyzer/*unchecked-if*)
-   :*unchecked-arrays*  (requiring-resolve 'cljs.analyzer/*unchecked-arrays*)
-   :*analyze-deps*      (requiring-resolve 'cljs.analyzer/*analyze-deps*)
-   :*load-macros*       (requiring-resolve 'cljs.analyzer/*load-macros*)
-   :*cljs-ns*           (requiring-resolve 'cljs.analyzer/*cljs-ns*)
-   :*cljs-file*         (requiring-resolve 'cljs.analyzer/*cljs-file*)
-   :*cljs-warnings*     (requiring-resolve 'cljs.analyzer/*cljs-warnings*)
-   :empty-state         (requiring-resolve 'cljs.analyzer.api/empty-state)
-   :find-ns             (requiring-resolve 'cljs.analyzer.api/find-ns)
-   :current-ns          (requiring-resolve 'cljs.analyzer.api/current-ns)
-   :empty-env           (requiring-resolve 'cljs.analyzer.api/empty-env)
-   :forms-seq           (requiring-resolve 'cljs.analyzer.api/forms-seq)
-   :analyze             (requiring-resolve 'cljs.analyzer.api/analyze)
-   :with-core-cljs      (requiring-resolve 'cljs.compiler/with-core-cljs)})
+  {:*compiler*          (resolve 'cljs.env/*compiler*)
+   :*file-defs*         (resolve 'cljs.analyzer/*file-defs*)
+   :*unchecked-if*      (resolve 'cljs.analyzer/*unchecked-if*)
+   :*unchecked-arrays*  (resolve 'cljs.analyzer/*unchecked-arrays*)
+   :*analyze-deps*      (resolve 'cljs.analyzer/*analyze-deps*)
+   :*load-macros*       (resolve 'cljs.analyzer/*load-macros*)
+   :*cljs-ns*           (resolve 'cljs.analyzer/*cljs-ns*)
+   :*cljs-file*         (resolve 'cljs.analyzer/*cljs-file*)
+   :*cljs-warnings*     (resolve 'cljs.analyzer/*cljs-warnings*)
+   :empty-state         (resolve 'cljs.analyzer.api/empty-state)
+   :find-ns             (resolve 'cljs.analyzer.api/find-ns)
+   :current-ns          (resolve 'cljs.analyzer.api/current-ns)
+   :empty-env           (resolve 'cljs.analyzer.api/empty-env)
+   :forms-seq           (resolve 'cljs.analyzer.api/forms-seq)
+   :analyze             (resolve 'cljs.analyzer.api/analyze)
+   :with-core-cljs      (resolve 'cljs.compiler/with-core-cljs)})
 
 (defonce ^:private node-modules-provides
   ;; The project's own npm resolution substrate: the identical walk
@@ -53,7 +56,8 @@
   ;; as the project's own build would without installed modules.
   (delay
     (if (.isDirectory (io/file "node_modules"))
-      (let [index-dir (requiring-resolve 'cljs.closure/index-node-modules-dir)]
+      (let [index-dir (do (require 'cljs.closure)
+                          (resolve 'cljs.closure/index-node-modules-dir))]
         (into #{} (mapcat :provides) (index-dir {})))
       #{})))
 

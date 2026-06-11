@@ -253,7 +253,7 @@
 (defn- edn-safe?
   [v]
   (cond
-    (or (nil? v) (boolean? v) (number? v) (string? v) (keyword? v) (symbol? v)) true
+    (or (nil? v) (instance? Boolean v) (number? v) (string? v) (keyword? v) (symbol? v)) true
     ;; A Class can print as a readable symbol, but Nippy preserves the actual
     ;; Class object. It must cross only through the worker's opaque handle model.
     (class? v) false
@@ -437,7 +437,7 @@
   [active value]
   (cond
     (nil? value) {:tag :nil}
-    (or (boolean? value) (number? value) (string? value) (keyword? value) (symbol? value))
+    (or (instance? Boolean value) (number? value) (string? value) (keyword? value) (symbol? value))
     {:tag :literal :value value}
 
     (class? value)
@@ -546,7 +546,7 @@
                  (not (opaque-var? v))
                  (bound? v)
                  (not (fn? @v))
-                 (not (or (boolean? @v)
+                 (not (or (instance? Boolean @v)
                           (number? @v)
                           (string? @v)
                           (keyword? @v)
@@ -788,9 +788,9 @@
   (require 'nrepl.server)
   (worker-log "requiring nrepl.misc")
   (require 'nrepl.misc)
-  (let [t-send (requiring-resolve 'nrepl.transport/send)
-        resp-for (requiring-resolve 'nrepl.misc/response-for)
-        start-server (requiring-resolve 'nrepl.server/start-server)
+  (let [t-send (resolve 'nrepl.transport/send)
+        resp-for (resolve 'nrepl.misc/response-for)
+        start-server (resolve 'nrepl.server/start-server)
         send-reply!
         (fn [transport msg reply]
           (try
@@ -961,7 +961,9 @@
                     wrap-ping)
         _ (worker-log "starting nrepl server on port 0 (transit transport)")
         server (start-server :port 0
-                             :transport-fn worker-transport/transit
+                             ;; worker output is drained by the host and only
+                             ;; forwarded under -v, so verbose? is always true here
+                             :transport-fn #(worker-transport/transit true %)
                              :handler handler)
         _ (worker-log (str "nrepl server bound port=" (:port server)))]
     server))
@@ -1015,7 +1017,7 @@
       (run-project-operation-loop! queue)
       (finally
         (reset! project-operation-submit nil)
-        ((requiring-resolve 'nrepl.server/stop-server) server)))))
+        ((resolve 'nrepl.server/stop-server) server)))))
 
 (defn -main
   [& _args]

@@ -181,7 +181,7 @@
   (let [worker (proc/spawn! (System/getProperty "java.class.path")
                             (System/getProperty "user.dir")
                             false)
-        conn (wc/connect (:port worker))]
+        conn (wc/connect false (:port worker))]
     (try
       (binding [class-oracle/*worker-conn* conn
                 class-oracle/*host-class-handles* (class-oracle/intern-host-classes! conn)

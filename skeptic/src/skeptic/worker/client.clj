@@ -8,15 +8,24 @@
    nrepl.* namespaces are NOT required at namespace-load time. The worker
    loads this namespace via server.clj's :require to get `loopback-conn` and
    the loopback branch of `ask` — neither of which touches nrepl. Host-facing
-   functions below defer their nrepl loads via `requiring-resolve`, so the
+   functions below defer their nrepl loads via `nrepl-resolve`, so the
    project's pinned nrepl wins via the launch classpath's project-first
    ordering."
   (:require [skeptic.worker.transport :as worker-transport]))
 
+(defn- nrepl-resolve
+  "Lazy require + resolve. Not `requiring-resolve`: that does not exist
+   before Clojure 1.10, and this namespace compiles in the worker JVM on the
+   project's pinned Clojure (1.8 floor)."
+  [sym]
+  (require (symbol (namespace sym)))
+  (resolve sym))
+
 (defn connect
-  [port]
-  (let [nrepl-connect (requiring-resolve 'nrepl.core/connect)
-        transport (nrepl-connect :port port :transport-fn worker-transport/transit)]
+  [verbose? port]
+  (let [nrepl-connect (nrepl-resolve 'nrepl.core/connect)
+        transport (nrepl-connect :port port
+                                 :transport-fn #(worker-transport/transit verbose? %))]
     {:transport transport}))
 
 (defn loopback-conn
@@ -75,9 +84,9 @@
   [conn msg]
   (if (:skeptic.worker/loopback? conn)
     ((:handler conn) msg)
-    (let [uuid (requiring-resolve 'nrepl.misc/uuid)
-          t-send (requiring-resolve 'nrepl.transport/send)
-          t-recv (requiring-resolve 'nrepl.transport/recv)
+    (let [uuid (nrepl-resolve 'nrepl.misc/uuid)
+          t-send (nrepl-resolve 'nrepl.transport/send)
+          t-recv (nrepl-resolve 'nrepl.transport/recv)
           id (or (:id msg) (uuid))
           msg (assoc msg :id id)
           transport (:transport conn)]
@@ -114,9 +123,9 @@
       (if (sequential? reply)
         (run! on-reply reply)
         (on-reply reply)))
-    (let [uuid (requiring-resolve 'nrepl.misc/uuid)
-          t-send (requiring-resolve 'nrepl.transport/send)
-          t-recv (requiring-resolve 'nrepl.transport/recv)
+    (let [uuid (nrepl-resolve 'nrepl.misc/uuid)
+          t-send (nrepl-resolve 'nrepl.transport/send)
+          t-recv (nrepl-resolve 'nrepl.transport/recv)
           id (or (:id msg) (uuid))
           msg (assoc msg :id id)
           transport (:transport conn)]

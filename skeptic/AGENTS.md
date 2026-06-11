@@ -236,6 +236,14 @@ The contract is strict and load-bearing:
   `ns-resolve` also resolves classes via `Class/forName`, which
   hits sibling-class collisions on the project classpath. Use the
   intern table.
+- **Worker-side source compiles on the project's pinned Clojure —
+  floor is 1.8.** Every namespace the worker loads
+  (`skeptic.worker.{server,analyzer-clj,analyzer-cljs,client,transport,transport-impl,wire}`)
+  and the Lein-side init form compile under Clojure 1.8, because the
+  project's Clojure wins via project-first ordering. No
+  `requiring-resolve` (1.10) — use explicit `require` plus `resolve`.
+  No 1.9+ predicates (`boolean?`, `any?`, `seqable?`, `ident?`,
+  `pos-int?`, ...) — use `instance?` checks.
 
 `s/defn` is normalized to `defn` inside the worker before analysis,
 so the `:def` node is visible to def-discovery; the raw form is kept

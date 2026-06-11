@@ -1,5 +1,6 @@
 (ns skeptic.worker.transport-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [nrepl.transport :as nrepl-transport]
             [skeptic.worker.transport :as transport]
             [skeptic.worker.wire :as wire])
@@ -18,8 +19,8 @@
 (defn- with-transport-pair
   [f]
   (let [[a-socket b-socket] (socket-pair)
-        a (transport/transit a-socket)
-        b (transport/transit b-socket)]
+        a (transport/transit false a-socket)
+        b (transport/transit false b-socket)]
     (try
       (f a b)
       (finally
@@ -55,13 +56,31 @@
 
 (deftest clean-close-returns-nil
   (let [[a-socket b-socket] (socket-pair)
-        a (transport/transit a-socket)
-        b (transport/transit b-socket)]
+        a (transport/transit false a-socket)
+        b (transport/transit false b-socket)]
     (try
       (.close ^java.io.Closeable a)
       (is (nil? (nrepl-transport/recv b 1000)))
       (finally
         (.close ^java.io.Closeable b)))))
+
+(deftest close-message-printed-only-when-verbose
+  (testing "verbose? false closes silently"
+    (let [[a-socket b-socket] (socket-pair)
+          a (transport/transit false a-socket)
+          err (java.io.StringWriter.)]
+      (binding [*err* err]
+        (.close ^java.io.Closeable a))
+      (.close b-socket)
+      (is (= "" (str err)))))
+  (testing "verbose? true announces the close on stderr"
+    (let [[a-socket b-socket] (socket-pair)
+          a (transport/transit true a-socket)
+          err (java.io.StringWriter.)]
+      (binding [*err* err]
+        (.close ^java.io.Closeable a))
+      (.close b-socket)
+      (is (str/includes? (str err) "skeptic TransitTransport closed")))))
 
 (deftest unknown-object-crosses-as-opaque-sentinel
   (with-transport-pair
@@ -99,7 +118,7 @@
   (let [[writer-socket reader-socket] (socket-pair)
         out (DataOutputStream.
              (BufferedOutputStream. (.getOutputStream writer-socket)))
-        reader (transport/transit reader-socket)]
+        reader (transport/transit false reader-socket)]
     (try
       (.writeInt out -1)
       (.flush out)

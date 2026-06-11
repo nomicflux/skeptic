@@ -118,7 +118,7 @@
   ;; transport, so a raw reflect.Method would throw here if projection leaked it.
   (let [cp (System/getProperty "java.class.path")
         worker (proc/spawn! cp (System/getProperty "user.dir") false)
-        conn (wc/connect (:port worker))]
+        conn (wc/connect false (:port worker))]
     (try
       (let [{:keys [entries]} (wc/ask conn
                                       {:op "analyze-namespace"

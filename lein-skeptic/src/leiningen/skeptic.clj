@@ -257,7 +257,7 @@
    acknowledged the request, false when it could not be delivered."
   [port verbose?]
   (try
-    (let [conn (worker-client/connect port)]
+    (let [conn (worker-client/connect verbose? port)]
       (try
         (worker-client/ask conn {:op "shutdown"})
         true

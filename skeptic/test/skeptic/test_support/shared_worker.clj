@@ -19,7 +19,7 @@
   []
   (let [cp     (System/getProperty "java.class.path")
         worker (proc/spawn! cp (System/getProperty "user.dir") false)
-        conn   (wc/connect (:port worker))]
+        conn   (wc/connect false (:port worker))]
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. ^Runnable (fn [] (wc/disconnect! conn) (proc/stop! worker))))
     {:conn conn :handles (oracle/intern-host-classes! conn)}))

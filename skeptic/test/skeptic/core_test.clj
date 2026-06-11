@@ -446,7 +446,7 @@
         stopped? (atom false)
         thrown
         (with-redefs [file/discover-clojure-files (fn [_] {:files [] :failures []})
-                      wc/connect (fn [_] (throw primary))
+                      wc/connect (fn [_ _] (throw primary))
                       wproc/stop! (fn [_]
                                    (reset! stopped? true)
                                    (throw cleanup))]
@@ -465,7 +465,7 @@
         stop-error (ex-info "stop failed" {})
         thrown
         (with-redefs [file/discover-clojure-files (fn [_] {:files [] :failures []})
-                      wc/connect (fn [_] ::conn)
+                      wc/connect (fn [_ _] ::conn)
                       class-oracle/intern-host-classes! (fn [_] (throw primary))
                       wc/disconnect! (fn [_] (throw disconnect-error))
                       wproc/stop! (fn [_] (throw stop-error))]
