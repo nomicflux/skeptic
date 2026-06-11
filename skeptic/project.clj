@@ -1,4 +1,4 @@
-(defproject org.clojars.nomicflux/skeptic "0.9.0-rc7"
+(defproject org.clojars.nomicflux/skeptic "0.9.0-rc8"
   :description "Static type checking for Clojure projects that use Plumatic Schema"
   :url "https://github.com/nomicflux/skeptic"
   :license {:name "MIT License"
@@ -26,7 +26,7 @@
                  [nrepl                      "1.3.1"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}
-             :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc7"]]}
+             :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc8"]]}
              ;; Skeptic's worker runtime dependency declaration. The lein-skeptic
              ;; plugin resolves the same coordinates from
              ;; `skeptic.worker.deps/worker-deps` via lein's aether wrapper and

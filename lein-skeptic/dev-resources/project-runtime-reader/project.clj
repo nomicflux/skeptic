@@ -11,4 +11,4 @@
                (throw (ex-info "Unknown reader tag" {:tag tag})))))]}
    :test {}
    :skeptic-plugin
-   {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc7"]]}})
+   {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc8"]]}})
