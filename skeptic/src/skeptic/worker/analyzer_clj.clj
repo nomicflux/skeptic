@@ -22,6 +22,48 @@
   (assoc ana.jvm/default-passes-opts
          :validate/wrong-tag-handler (fn [t _ast] {t Object})))
 
+(defn- stub-class-definition-parse
+  "ana.jvm's parse of `deftype*` evals a method-less skeleton class under the
+   record's FIXED class name (`-deftype`), replacing the loaded class in the
+   shared DynamicClassLoader cache; lazy constant-pool resolution then hands
+   the skeleton to code from the original load. The namespace is required
+   before analysis, so the real class already exists — analyze the form as a
+   nil constant instead. `reify*` keeps the default parse: its analysis class
+   name is gensym'd and collides with nothing."
+  [form env]
+  (if (and (seq? form) (= 'deftype* (first form)))
+    (ana.jvm/parse '(quote nil) env)
+    (ana.jvm/parse form env)))
+
+(defn- gen-interface-form?
+  "Name check BEFORE resolution: ns-resolve on arbitrary heads would
+   class-probe dotted symbols like (Foo. x), the known sibling-collision
+   hazard. Only a head literally named gen-interface gets resolved."
+  [form env]
+  (let [head (when (seq? form) (first form))]
+    (and (symbol? head)
+         (= "gen-interface" (name head))
+         (= #'clojure.core/gen-interface
+            (ns-resolve (or (some-> (:ns env) find-ns) *ns*) head)))))
+
+(defn- stub-gen-interface-macroexpand-1
+  "clojure.core/gen-interface loads the interface class at MACROEXPANSION
+   time; every defprotocol expansion contains one, so expanding it during
+   analysis re-defines the protocol's interface under its fixed name. The
+   interface already exists (require-before-analyze), so such forms expand
+   to nil; everything else takes ana.jvm's expansion."
+  [form env]
+  (if (gen-interface-form? form env)
+    '(quote nil)
+    (ana.jvm/macroexpand-1 form env)))
+
+(def ^:private analysis-class-safety-bindings
+  "tools.analyzer's pluggable parse/macroexpand-1, overridden through
+   ana.jvm/analyze's documented :bindings extension point, so analysis never
+   (re)defines a class in the live worker runtime."
+  {#'ta/parse stub-class-definition-parse
+   #'ta/macroexpand-1 stub-gen-interface-macroexpand-1})
+
 (defn- synthetic-binding-node
   [idx sym]
   {:op :binding :form sym :name sym :local :let
@@ -81,7 +123,8 @@
       (fn []
         (binding [*ns* tn]
           (normalize-raw-ast
-           (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts})))))))
+           (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts
+                                      :bindings analysis-class-safety-bindings})))))))
 
 (defn- read-top-forms
   "Read every top-level form of `source-file` with tools.reader's
@@ -115,42 +158,60 @@
        (= "defn" (name sym))
        (#{"s" "schema.core"} (namespace sym))))
 
-(defn- strip-schema-argvec
-  [argvec]
-  (with-form-meta
-    argvec
-    (loop [[x & more] argvec acc []]
-      (cond
-        (nil? x)  (vec acc)
-        (= x ':-) (recur (next more) acc)
-        :else     (recur more (conj acc x))))))
+(defn- schema-macros-parsers
+  "The project's own s/defn grammar fns, resolved at runtime from the live
+   schema.macros (the worker carries no static schema dependency; explicit
+   require + resolve, Clojure 1.8 floor). nil when the project has no
+   plumatic schema on its classpath."
+  []
+  (try
+    (require 'schema.macros)
+    (let [normalized (resolve 'schema.macros/normalized-defn-args)
+          process (resolve 'schema.macros/process-arrow-schematized-args)
+          split-rest (resolve 'schema.macros/split-rest-arg)]
+      (when (and normalized process split-rest)
+        {:normalized-defn-args normalized
+         :process-args process
+         :split-rest-arg split-rest}))
+    (catch Throwable _ nil)))
 
-(defn- strip-schema-method
-  [decl]
+(defn- clean-argvec
+  "Strip :- annotations from one arg vector with schema's own parsers, in the
+   composition process-fn-arity uses: process the flat vector, then let
+   split-rest-arg recurse into an annotated rest-destructure."
+  [{:keys [process-args split-rest-arg]} argvec]
+  (let [[regular rest-arg] (split-rest-arg nil (process-args nil argvec))]
+    (with-form-meta argvec
+      (if rest-arg (conj (vec regular) '& rest-arg) (vec regular)))))
+
+(defn- clean-arity
+  [parsers decl]
   (let [[args & body] decl]
-    (with-form-meta decl (list* (strip-schema-argvec args) body))))
+    (with-form-meta decl (list* (clean-argvec parsers args) body))))
 
 (defn- strip-schema-defn
-  [form]
-  (let [[_defn-sym name & more] form
-        more (if (= ':- (first more)) (nnext more) more)
-        [docstring more] (if (string? (first more)) [(first more) (next more)] [nil more])
-        [attr-map more] (if (map? (first more)) [(first more) (next more)] [nil more])
+  [parsers form]
+  (let [[name & more] ((:normalized-defn-args parsers) nil (rest form))
         decls (if (vector? (first more))
-                [(with-form-meta (first more) (list* (strip-schema-argvec (first more)) (next more)))]
-                (map strip-schema-method more))]
+                [(clean-arity parsers more)]
+                (map #(clean-arity parsers %) more))]
     (with-form-meta form
-      (list* 'defn name (concat (when docstring [docstring]) (when attr-map [attr-map]) decls)))))
+      (list* 'defn (vary-meta name dissoc :schema) decls))))
 
 (defn- normalize-check-form
-  "Rewrite an `s/defn` / `schema.core/defn` form into a plain `defn` by stripping
-   `:- T` schema annotations from the head, return position, and arg vectors, so
+  "Rewrite an `s/defn` / `schema.core/defn` form into a plain `defn` so
    `ana.jvm/analyze` produces a root `:def` node (matching the in-process
-   pre-cutover analysis contract). Non-`s/defn` forms pass through unchanged.
-   Pure symbol/list surgery: no schema.core dependency, worker-safe."
+   pre-cutover analysis contract). Head parsing (name, :- output, docstring,
+   attr-map) and argvec stripping run on schema.macros' own grammar fns from
+   the project runtime — the worker does not reimplement the s/defn grammar.
+   Passing env nil matches the real macro's top-level clj expansion (&env is
+   nil there). Non-`s/defn` forms, and projects without schema.macros, pass
+   through unchanged."
   [form]
   (if (and (seq? form) (schema-defn-symbol? (first form)))
-    (strip-schema-defn form)
+    (if-let [parsers (schema-macros-parsers)]
+      (strip-schema-defn parsers form)
+      form)
     form))
 
 (def ^:private class-declaration-head-names
@@ -167,7 +228,9 @@
   [opts form]
   (cond-> {:source-form form}
     (not (class-declaration-form? form))
-    (assoc :ast (analyze (normalize-check-form form) opts))
+    (assoc :ast (analyze (binding [*ns* (target-ns (:ns opts))]
+                           (normalize-check-form form))
+                         opts))
 
     (class-declaration-form? form)
     (assoc :analysis-skipped? true)))

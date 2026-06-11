@@ -153,5 +153,10 @@
       (ascs/cast-ok source-type target-type :fun-fn-pred)
       (ascs/cast-fail source-type target-type :fun-fn-pred polarity :mismatch))
 
+    ;; An opaque predicate target cannot disprove a structured source: no
+    ;; proveable inconsistency, so the cast holds (Dyn-like permissiveness).
+    (at/adapter-leaf-type? target-type)
+    (ascs/cast-ok source-type target-type :opaque-predicate)
+
     :else
     (ascs/cast-fail source-type target-type :mismatch polarity :mismatch)))

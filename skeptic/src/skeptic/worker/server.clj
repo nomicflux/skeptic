@@ -367,7 +367,8 @@
    ["clojure.core$nil_QMARK_" 'clojure.core/nil?]
    ["clojure.core$number_QMARK_" 'clojure.core/number?]
    ["clojure.core$pos_QMARK_" 'clojure.core/pos?]
-   ["clojure.core$neg_QMARK_" 'clojure.core/neg?]])
+   ["clojure.core$neg_QMARK_" 'clojure.core/neg?]
+   ["clojure.core$map_QMARK_" 'clojure.core/map?]])
 
 (defn- core-fn-symbol
   [class-name]

@@ -11,13 +11,21 @@
 (deftest predicate?-test
   (is (predicates/predicate? 'clojure.core/string?))
   (is (predicates/predicate? 'string?))
+  (is (predicates/predicate? 'map?))
   (is (not (predicates/predicate? 'clojure.core/some?)))
   (is (not (predicates/predicate? 'foo))))
 
 (deftest resolve-predicate-symbol-test
   (is (= 'clojure.core/string? (predicates/resolve-predicate-symbol 'string?)))
   (is (= 'clojure.core/string? (predicates/resolve-predicate-symbol 'clojure.core/string?)))
+  (is (= 'clojure.core/map? (predicates/resolve-predicate-symbol 'map?--4367))
+      "direct-linked fn-name counters must not defeat recognition")
   (is (nil? (predicates/resolve-predicate-symbol 'foo))))
+
+(deftest demunged-predicate-symbol-test
+  (is (= 'map? (predicates/demunged-predicate-symbol 'map?--4367)))
+  (is (= 'clojure.core/map? (predicates/demunged-predicate-symbol 'clojure.core/map?--4367)))
+  (is (= 'map? (predicates/demunged-predicate-symbol 'map?))))
 
 (deftest resolve-predicate-symbol-output-schema-is-maybe-symbol
   (let [fs (s/fn-schema predicates/resolve-predicate-symbol)
@@ -48,4 +56,10 @@
            (predicates/witness-type 'clojure.core/pos? p))))
     (testing "nil? matches (s/eq nil) shape"
       (is (= (ato/exact-value-type p nil)
-             (predicates/witness-type 'clojure.core/nil? p))))))
+             (predicates/witness-type 'clojure.core/nil? p))))
+    (testing "map? -> open map of Dyn -> Dyn"
+      (let [w (predicates/witness-type 'clojure.core/map? p)]
+        (is (at/map-type? w))
+        (is (= 1 (count (:entries w))))
+        (is (every? (fn [[k v]] (and (at/dyn-type? k) (at/dyn-type? v)))
+                    (:entries w)))))))

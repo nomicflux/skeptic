@@ -72,3 +72,19 @@
                                        :target-type
                                        :children
                                        :reason]))))
+
+(deftest map-and-set-as-function-test
+  ;; Maps cast against function targets as (=> union-of-value-types
+  ;; union-of-key-types); sets as (=> Bool union-of-member-types). Dependent
+  ;; functions are not modeled; empty unions follow union-type (Dyn).
+  (let [empty-map-ok (sut/check-cast (at/->MapT tp {})
+                                     (T (s/=> (s/maybe (s/=> s/Any s/Any)) s/Any)))
+        map-ok (sut/check-cast (T {:a s/Int}) (T (s/=> s/Int s/Keyword)))
+        map-bad-output (sut/check-cast (T {:a s/Str}) (T (s/=> s/Int s/Keyword)))
+        set-ok (sut/check-cast (T #{s/Keyword}) (T (s/=> s/Bool s/Keyword)))
+        set-bad-output (sut/check-cast (T #{s/Keyword}) (T (s/=> s/Str s/Keyword)))]
+    (is (:ok? empty-map-ok))
+    (is (:ok? map-ok))
+    (is (not (:ok? map-bad-output)))
+    (is (:ok? set-ok))
+    (is (not (:ok? set-bad-output)))))

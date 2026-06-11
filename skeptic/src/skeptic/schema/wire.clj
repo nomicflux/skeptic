@@ -3,6 +3,7 @@
   (:require [clojure.string :as str]
             [schema.core :as s]
             [skeptic.analysis.class-oracle :as oracle]
+            [skeptic.analysis.predicates :as predicates]
             [skeptic.analysis.schema-base :as sb]
             [skeptic.worker.client :as wc]))
 
@@ -76,8 +77,17 @@
 (defn- decode-one
   [{:keys [schema name optional?]}]
   (if optional?
-    (s/one schema name optional?)
+    (s/optional schema name)
     (s/one schema name)))
+
+(defn- demunged-pred-name
+  "schema.utils/fn-name derives predicate names from fn class names; under
+   direct linking those carry the compiler's __NNNN counter, so (s/pred map?)
+   names itself map?--4367. Strip the counter so the name reads as written."
+  [pred-name]
+  (if (symbol? pred-name)
+    (predicates/demunged-predicate-symbol pred-name)
+    pred-name))
 
 (defn- decode-record-fields
   [fields]
@@ -86,7 +96,7 @@
         fields))
 
 (defn- decode-record
-  [{:keys [class fields] :as encoded}]
+  [{:keys [class fields]}]
   (let [decoded-fields (decode-record-fields fields)]
     (case class
     "schema.core.FnSchema"
@@ -137,7 +147,7 @@
     (let [pred-sym (decoded-fn-symbol (:p? fields))]
       (or (when pred-sym (get predicate-symbol->schema pred-sym))
           (if (contains? decoded-fields :pred-name)
-            (s/pred (:p? decoded-fields) (:pred-name decoded-fields))
+            (s/pred (:p? decoded-fields) (demunged-pred-name (:pred-name decoded-fields)))
             (s/pred (:p? decoded-fields)))))
 
     "schema.core.Recursive"
@@ -155,8 +165,10 @@
     "schema.utils.RequiredKey"
     (s/required-key (:k decoded-fields))
 
-    (throw (ex-info "Unsupported encoded Plumatic schema record"
-                    {:class class :encoded encoded})))))
+    ;; Total decode: a record outside the vocabulary (s/protocol, any
+    ;; project-defined Schema implementation) proves nothing about call sites,
+    ;; so it admits as Any carrying the record's class name for display.
+    (s/named s/Any (symbol class)))))
 
 (defn decode-schema
   [encoded]

@@ -87,6 +87,12 @@
       (and (at/fun-type? source-type) (at/fun-type? target-type))
       (fun/check-function-cast child-run source-type target-type opts)
 
+      (and (at/map-type? source-type) (at/fun-type? target-type))
+      (fun/check-function-cast child-run (fun/map-as-function source-type) target-type opts)
+
+      (and (at/set-type? source-type) (at/fun-type? target-type))
+      (fun/check-function-cast child-run (fun/set-as-function source-type) target-type opts)
+
       (and (at/map-type? source-type) (at/map-type? target-type))
       (cmap/check-map-cast child-run source-type target-type opts)
 

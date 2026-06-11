@@ -3,7 +3,28 @@
             [skeptic.analysis.bridge.render :as abr]
             [skeptic.analysis.cast.schema :as csch]
             [skeptic.analysis.cast.support :as ascs]
-            [skeptic.analysis.types :as at]))
+            [skeptic.analysis.type-ops :as ato]
+            [skeptic.analysis.types :as at]
+            [skeptic.provenance :as prov]))
+
+(s/defn map-as-function :- at/SemanticType
+  "A map called as a function looks up its argument:
+   (=> union-of-value-types union-of-key-types). Really a dependent function;
+   not modeled yet. Empty unions follow union-type's convention (Dyn)."
+  [map-type :- at/SemanticType]
+  (let [p (prov/of map-type)
+        entries (:entries map-type)
+        input (ato/union-type p (keys entries))
+        output (ato/union-type p (vals entries))]
+    (at/->FunT p [(at/->FnMethodT p [input] output 1 false '[k])])))
+
+(s/defn set-as-function :- at/SemanticType
+  "A set called as a function tests membership:
+   (=> Bool union-of-member-types)."
+  [set-type :- at/SemanticType]
+  (let [p (prov/of set-type)
+        input (ato/union-type p (:members set-type))]
+    (at/->FunT p [(at/->FnMethodT p [input] (at/->GroundT p :bool 'Bool) 1 false '[k])])))
 
 (defn- domain-request
   [idx target-input source-input opts]

@@ -56,3 +56,25 @@
     (is (not (:ok? (sut/check-cast maybe-obj int-g))))
     (is (avc/value-satisfies-type? [1 2 3] (T [s/Int])))
     (is (not (avc/value-satisfies-type? [1 2 3] (T [(s/one s/Int 'a) (s/one s/Int 'b)]))))))
+
+(deftest opaque-predicate-target-test
+  ;; An unrecognized (s/pred ...) admits as an adapter leaf; it cannot disprove
+  ;; a structured source, so the cast holds instead of reporting a mismatch
+  ;; (regression: map literals flagged against (s/pred map?)-style params).
+  (let [opaque (T (s/pred some? 'some?))
+        map-src (T {:age s/Num :vegan? s/Bool})
+        vec-src (T [s/Int])]
+    (is (at/adapter-leaf-type? opaque))
+    (is (= :opaque-predicate (:rule (sut/check-cast map-src opaque))))
+    (is (:ok? (sut/check-cast map-src opaque)))
+    (is (:ok? (sut/check-cast vec-src opaque)))))
+
+(deftest pred-map?-witness-test
+  ;; (s/pred map?) resolves through the predicate registry (demunged of the
+  ;; direct-linking __NNNN counter) to an open-map witness: maps fit, a
+  ;; non-map ground is a proveable mismatch.
+  (let [target (T (s/pred map?))
+        map-src (T {:age s/Num :vegan? s/Bool})]
+    (is (at/map-type? target))
+    (is (:ok? (sut/check-cast map-src target)))
+    (is (not (:ok? (sut/check-cast (T s/Str) target))))))

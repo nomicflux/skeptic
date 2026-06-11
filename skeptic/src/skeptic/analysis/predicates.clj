@@ -4,7 +4,8 @@
     - native_fns: each predicate is typed Dyn -> Bool when invoked
     - bridge admission: (s/pred f) and Malli's bare-predicate-as-schema
       both convert to the predicate's witness type."
-  (:require [schema.core :as s]
+  (:require [clojure.string :as str]
+            [schema.core :as s]
             [skeptic.analysis.types :as at]
             [skeptic.analysis.type-ops :as ato]
             [skeptic.provenance :as prov]
@@ -19,19 +20,28 @@
    'clojure.core/pos?     (fn [p] (at/NumericDyn p))
    'clojure.core/neg?     (fn [p] (at/NumericDyn p))
    'clojure.core/boolean? (fn [p] (at/->GroundT p :bool 'Bool))
-   'clojure.core/nil?     (fn [p] (ato/exact-value-type p nil))})
+   'clojure.core/nil?     (fn [p] (ato/exact-value-type p nil))
+   'clojure.core/map?     (fn [p] (at/->MapT p {(at/Dyn p) (at/Dyn p)}))})
 
 (def predicate-symbols (set (keys witness-builders)))
 
 (def ^:private bare->qualified
   (into {} (map (fn [q] [(symbol (name q)) q])) predicate-symbols))
 
+(s/defn demunged-predicate-symbol :- s/Symbol
+  "Strip the Clojure compiler's __NNNN class-name counter that
+   schema.utils/fn-name leaves on direct-linked predicate names
+   (map?--4367 -> map?)."
+  [sym :- s/Symbol]
+  (symbol (namespace sym) (str/replace (name sym) #"--\d+$" "")))
+
 (s/defn resolve-predicate-symbol :- (s/maybe s/Symbol)
   [sym :- s/Symbol]
-  (cond
-    (contains? witness-builders sym) sym
-    (contains? bare->qualified sym) (get bare->qualified sym)
-    :else nil))
+  (let [sym (demunged-predicate-symbol sym)]
+    (cond
+      (contains? witness-builders sym) sym
+      (contains? bare->qualified sym) (get bare->qualified sym)
+      :else nil)))
 
 (defn predicate?
   [sym]
