@@ -64,6 +64,17 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- One failing namespace no longer costs the rest of the run, and is no
+  longer a warning on a green exit. A namespace that fails to load,
+  admit, or process — on the worker or the host — surfaces as a loud
+  per-namespace `exception` finding carrying the full cause chain
+  (`errored: true`, exit 1), while every other namespace still gets
+  complete analysis. Previously such namespaces (and every namespace
+  requiring them) were silently skipped via `ns-discovery-warning` with
+  a green exit. Host-side failures processing one namespace's analyzer
+  reply are localized the same way. The run only aborts outright on
+  transport death or wire-protocol corruption, where no further result
+  can be trusted.
 - Leiningen analysis now runs the worker inside the project's prepared
   runtime: the plugin launches an owned subprocess from Lein's project JVM
   command (profiles, injections, global-vars, and jvm-opts included) with

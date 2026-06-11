@@ -725,11 +725,25 @@
    source-file        :- (s/maybe (s/cond-pre File s/Str))
    accessor-summaries :- AccessorSummaries
    clj-state          :- {s/Any s/Any}
+   clj-failure        :- (s/maybe Throwable)
    form-opts          :- {s/Keyword s/Any}]
-  (let [{:keys [entries read-failure]} (some-> clj-state (get source-file))]
-    (if read-failure
+  (let [{:keys [entries read-failure] :as state-entry} (some-> clj-state (get source-file))]
+    (cond
+      read-failure
       {:results [(read-exception-result source-file :clj (ex-info read-failure {}))]
        :provenance {}}
+
+      (nil? state-entry)
+      {:results [(read-exception-result
+                  source-file :clj
+                  (or clj-failure
+                      (ex-info (str "no clj analysis state for this source-file: "
+                                    "the worker stream recorded neither entries "
+                                    "nor a failure — a Skeptic invariant violation")
+                               {:ns ns :source-file (some-> source-file str)})))]
+       :provenance {}}
+
+      :else
       (reduce
        (fn [acc entry]
          (if (file/is-ns-block? (:source-form entry))
@@ -858,15 +872,24 @@
     (if (:load-error reply)
       (swap! clj-failures-a assoc source-file
              {:exception (ex-info (str (:load-error reply) ": " (:load-error-message reply)) {})})
-      (let [{:keys [entries read-failure]} reply
-            reattached (if read-failure
-                         {:entries [] :read-failure read-failure}
-                         {:entries (mapv reattach-entry-meta entries)})]
-        (swap! clj-state-a assoc source-file reattached)
-        (let [ns-ents (vec (:entries reattached))]
-          (swap! ns-entries-a assoc ns-sym ns-ents)
-          (let [forms (mapv :source-form ns-ents)]
-            (swap! project-disc-a assoc ns-sym (discovery/discover ns-sym forms))))))))
+      (try
+        (let [{:keys [entries read-failure]} reply
+              reattached (if read-failure
+                           {:entries [] :read-failure read-failure}
+                           {:entries (mapv reattach-entry-meta entries)})]
+          (swap! clj-state-a assoc source-file reattached)
+          (let [ns-ents (vec (:entries reattached))]
+            (swap! ns-entries-a assoc ns-sym ns-ents)
+            (let [forms (mapv :source-form ns-ents)]
+              (swap! project-disc-a assoc ns-sym (discovery/discover ns-sym forms)))))
+        (catch Throwable e
+          ;; Host-side processing of one namespace's reply (meta reattachment,
+          ;; discovery) failed: record it as that namespace's failure — it
+          ;; surfaces as an exception finding — and keep consuming the stream
+          ;; so every other namespace still gets full analysis.
+          (swap! clj-state-a dissoc source-file)
+          (swap! clj-failures-a assoc source-file
+                 {:exception e :phase :reply-processing}))))))
 
 (defn preload-clj-state!
   "Analyze every clj/cljc source-file via the WORKER's streaming
@@ -1080,7 +1103,8 @@
          ns-entries-map    :ns-entries-map
          project-disc      :project-disc}
         (preload-clj-state! (:worker-conn opts) loaded (boolean (:verbose opts)))
-        clj-load-failures (reduce-kv (fn [m k v] (assoc m k (assoc v :phase :clj-load)))
+        clj-load-failures (reduce-kv (fn [m k v]
+                                       (assoc m k (update v :phase #(or % :clj-load))))
                                      {} clj-load-failures)
         var-provs (project-var-provs opts project-disc ns-entries-map)
         form-refs (with-meta
@@ -1204,19 +1228,29 @@
                    (first group)))))))
 
 (defn- read-pass-results
-  [dict ignore-body ns source-file accessor-summaries cljs-state cljs-failure clj-state lang form-opts]
+  [dict ignore-body ns source-file accessor-summaries cljs-state cljs-failure clj-state clj-failure lang form-opts]
   (if (= :cljs lang)
     (cljs-read-pass-results dict ignore-body ns source-file accessor-summaries cljs-state cljs-failure form-opts)
-    (clj-read-pass-results dict ignore-body ns source-file accessor-summaries clj-state form-opts)))
+    (clj-read-pass-results dict ignore-body ns source-file accessor-summaries clj-state clj-failure form-opts)))
 
 (s/defn check-ns :- s/Any
   [project-state ns :- s/Symbol source-file form-opts]
+  (when-let [{:keys [^Throwable exception]} (get (:per-ns-failures project-state) ns)]
+    ;; An ns-keyed failure (admission, accessors) means nothing was admitted
+    ;; for this namespace — the passes cannot run. Rethrow the recorded cause;
+    ;; `check-namespace` surfaces it as this namespace's exception finding and
+    ;; every other namespace still gets full analysis.
+    (throw exception))
   (let [{:keys [dict ignore-body accessor-summaries errors provenance]}
         (prepare-namespace project-state ns source-file)
         lang (lang-of-namespace-source form-opts ns source-file)
         passes (case lang :both [:clj :cljs] [lang])
         cljs-state (:cljs-state project-state)
-        cljs-failure (get-in (:per-ns-failures project-state) [source-file :exception])
+        file-failure (get (:per-ns-failures project-state) source-file)
+        cljs-failure (when (= :cljs-load (:phase file-failure))
+                       (:exception file-failure))
+        clj-failure (when (#{:clj-load :reply-processing} (:phase file-failure))
+                      (:exception file-failure))
         clj-state (:clj-state project-state)
         pass-results (binding [ac/*user-fn-path-predicate-summaries*
                                (or (:user-fn-summaries project-state) {})]
@@ -1225,7 +1259,7 @@
                                ;; clj-state/cljs-state; no host project-ns binding.
                                (read-pass-results dict ignore-body ns source-file
                                                   accessor-summaries cljs-state cljs-failure
-                                                  clj-state pass-lang
+                                                  clj-state clj-failure pass-lang
                                                   form-opts))
                              passes))
         form-findings (vec (mapcat :results pass-results))

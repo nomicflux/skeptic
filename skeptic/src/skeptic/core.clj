@@ -159,11 +159,9 @@
           (startup-log "building project-state (discovers + analyzes every namespace via worker)")
           (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-nss)
                 _ (startup-log (str "project-state built (" (count discovered-nss) " namespaces discovered)"))
-                per-ns-failures (:per-ns-failures project-state)
                 nss-to-check (cond-> discovered-nss
                                (seq requested-namespaces)
                                (select-keys requested-namespaces))
-                checkable-nss (apply dissoc nss-to-check (keys per-ns-failures))
                 printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
                 report-opts {:explain-full (boolean (:explain-full opts))}
                 form-opts opts
@@ -178,16 +176,8 @@
             (run-start printer-opts nss-to-check)
             (doseq [failure failures]
               (discovery-warn printer-opts (failure->info failure)))
-            (doseq [[ns-sym {:keys [source-file ^Throwable exception phase]}] per-ns-failures]
-              (discovery-warn printer-opts
-                              {:path (str source-file)
-                               :message (str "Skeptic skipped namespace " ns-sym
-                                             " (phase " (name phase) "): "
-                                             (.getName (class exception))
-                                             ": "
-                                             (or (.getMessage exception) (str exception)))}))
             (let [errored (atom false)]
-              (doseq [[ns source-file] checkable-nss]
+              (doseq [[ns source-file] nss-to-check]
                 (ns-start ns source-file printer-opts)
                 (let [ns-findings (atom 0)
                       {:keys [results]} (checking/check-namespace project-state ns source-file form-opts)]

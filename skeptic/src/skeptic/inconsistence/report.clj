@@ -63,6 +63,7 @@
         subject (case phase
                   :declaration (format "declared schema for %s" (pr-str blame))
                   :read (format "namespace input %s" (pr-str blame))
+                  :load (format "namespace %s" (pr-str blame))
                   (format "expression %s" (colours/magenta (disp/ppr-str blame) true)))
         detail-lines (exception-detail-lines report)
         detail-block (when (seq detail-lines)
@@ -76,6 +77,8 @@
                     "Call sites were checked as if this var had no declaration."
                     (= :read phase)
                     "Checking of this file was aborted."
+                    (= :load phase)
+                    "Checking of this namespace was aborted; the rest of the project was checked."
                     :else
                     "This expression was not checked; the rest of the namespace was.")]
     (format (str opening "\n\n%s%s\n\n%s")

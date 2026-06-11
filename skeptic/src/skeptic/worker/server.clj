@@ -894,7 +894,7 @@
                             {:ns-sym ns-str
                              :source-file source-file-str
                              :load-error (.getName (class e))
-                             :load-error-message (or (.getMessage e) (str e))}))]
+                             :load-error-message (chain-messages e)}))]
               (send-reply! transport msg reply))
             (catch Throwable e
               (println (str "WORKER analyze-namespaces-stream: aborting stream at " ns-str
