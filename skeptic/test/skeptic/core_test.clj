@@ -684,3 +684,39 @@
       (finally
         (doseq [f (reverse (file-seq tmp))]
           (.delete f))))))
+
+(deftest check-project-checks-dual-file-namespace-the-project-loads
+  ;; One namespace provided by two files: dual.clj defines a public macro,
+  ;; dual.cljc a private variant. The project's own require resolves the .clj
+  ;; (AOT class when strictly newer, else .clj, else .cljc), so the consumer
+  ;; namespace compiles and the project's own tests are green. Skeptic must
+  ;; check this project cleanly: a namespace definition selected any other way
+  ;; makes every consumer compile against a definition the project never
+  ;; loads ("var: #'dualload.dual/dmac is not public", :read phase).
+  (let [tmp (.toFile (Files/createTempDirectory "skeptic-dual-file"
+                                                (into-array java.nio.file.attribute.FileAttribute [])))
+        src-dir (File. tmp "src")
+        pkg-dir (File. src-dir "dualload")]
+    (try
+      (.mkdirs pkg-dir)
+      (spit (File. pkg-dir "dual.clj")
+            "(ns dualload.dual)\n(defmacro dmac [] :pub)\n")
+      (spit (File. pkg-dir "dual.cljc")
+            "(ns dualload.dual)\n(defmacro ^:private dmac [] :priv)\n")
+      (spit (File. pkg-dir "consumer.clj")
+            "(ns dualload.consumer\n  (:require [dualload.dual]))\n(defn use-dual [] (dualload.dual/dmac))\n")
+      (let [src-path (.getCanonicalPath src-dir)
+            worker-cp (str src-path File/pathSeparator
+                           (System/getProperty "java.class.path"))
+            out (with-out-str
+                  (sut/check-project {:porcelain true
+                                      :worker-classpath {:combined worker-cp}}
+                                     (.getCanonicalPath tmp)
+                                     src-path))
+            lines (parse-jsonl out)
+            exceptions (filterv #(= "exception" (:kind %)) lines)]
+        (is (= [] exceptions))
+        (is (false? (:errored (last lines)))))
+      (finally
+        (doseq [f (reverse (file-seq tmp))]
+          (.delete f))))))
