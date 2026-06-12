@@ -173,21 +173,34 @@
 (defn- load-top-forms
   "Load `source-file` exactly as the project's own require would — read one
    form, evaluate it, read the next — capturing each raw form with its
-   :source/:line/:column metadata. The evaluation between reads is what makes
-   load-time reader registrations (a set! of *data-readers* at the top of the
-   file) visible to the file's own later tagged literals; a cold re-read
-   after the load cannot see them, because the load's binding frame has
-   popped (.scratch/reader-probes/ probe4 vs probe5)."
+   :source/:line/:column metadata. Two readers walk the file in lockstep:
+   Clojure's own reader yields the form that is EVALUATED (what Compiler.load
+   compiles — line/column metadata only; evaluating the source-logged twin
+   compiles its :source strings into the constant initializer and can blow
+   the JVM's 64KB method limit on large literal files, observed on reitit's
+   core_test.cljc), tools.reader's source-logging reader yields the CAPTURED
+   twin. Both reads of form N happen before form N evaluates, so the
+   evaluation between steps makes load-time reader registrations (a set! of
+   *data-readers* at the top of the file) visible to the file's own later
+   tagged literals; a cold re-read after the load cannot see them, because
+   the load's binding frame has popped (.scratch/reader-probes/ probe4 vs
+   probe5)."
   [source-file]
   (with-bindings (compiler-load-bindings (str source-file)
                                          (.getName (io/file source-file)))
-    (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
+    (with-open [eval-rdr (clojure.lang.LineNumberingPushbackReader. (io/reader source-file))
+                capture-rdr (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
       (loop [forms []]
-        (let [form (read-one-form reader)]
-          (if (= ::eof form)
-            forms
-            (do (eval form)
-                (recur (conj forms form)))))))))
+        (let [eval-form (read {:read-cond :allow :eof ::eof} eval-rdr)
+              form (read-one-form capture-rdr)]
+          (cond
+            (and (= ::eof eval-form) (= ::eof form)) forms
+            (or (= ::eof eval-form) (= ::eof form))
+            (throw (ex-info "lockstep readers disagree on form count"
+                            {:source-file (str source-file)
+                             :forms-captured (count forms)}))
+            :else (do (eval eval-form)
+                      (recur (conj forms form)))))))))
 
 (defn- namespace-loaded?
   [ns-sym]

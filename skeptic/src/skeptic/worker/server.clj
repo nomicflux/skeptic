@@ -189,19 +189,24 @@
                 (intern-class! ^Class v :uuid))))))))
 
 (defn- reader-error-cause
-  "If `e` or any of its causes is a tools.reader exception (a known
-   phase-localized analyzer failure — unbalanced delimiter, EOF inside a form,
-   etc.), return that Throwable. nil for any other failure kind. This is the
-   ONLY catch-and-encode allowed in `analyze-namespace-reply`: a reader error
-   on one source-file is a per-namespace finding (the pipeline routes it as a
-   `:clj-load` finding so other namespaces still run), not a transport-level
-   exception. Every other Throwable propagates and the wrap-* boundary
-   converts it to a loud `:exception-class` reply."
+  "If `e` or any of its causes is a reader exception — tools.reader's (tagged
+   ex-data `:type :reader-exception`) or Clojure's own
+   `LispReader$ReaderException` (the capturing load's eval reader is Clojure's
+   reader) — return that Throwable: a known phase-localized failure such as an
+   unbalanced delimiter, EOF inside a form, or an unreadable tagged literal.
+   nil for any other failure kind. This is the ONLY catch-and-encode allowed
+   in `analyze-namespace-reply`: a reader error on one source-file is a
+   per-namespace finding (the pipeline routes it as a `:clj-load` finding so
+   other namespaces still run), not a transport-level exception. Every other
+   Throwable propagates and the wrap-* boundary converts it to a loud
+   `:exception-class` reply."
   [^Throwable e]
   (->> (iterate #(.getCause ^Throwable %) e)
        (take-while some?)
        (some (fn [^Throwable c]
-               (when (= :reader-exception (:type (ex-data c))) c)))))
+               (when (or (= :reader-exception (:type (ex-data c)))
+                         (instance? clojure.lang.LispReader$ReaderException c))
+                 c)))))
 
 (defn- analyze-namespace-reply
   "Returns either `{:entries ...}` on success or `{:read-failure <msg>}` when a
