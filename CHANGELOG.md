@@ -33,16 +33,11 @@ All notable changes to this project will be documented in this file.
   additional deps.edn aliases when resolving the project's basis).
   `clojure -M:skeptic` and `clj -X:skeptic` print a message redirecting
   to the `-T` form.
-- Analysis now runs against the **project's own classpath**: the
+- Analysis now runs against the project's own classpath: the
   project's pinned versions of Clojure, Plumatic Schema, Malli,
   `tools.analyzer`, and any other library are what drive checking.
   Skeptic's own declared dependency versions no longer collide with
   the project's.
-- `--cljs-enable` flag (deps.edn tool arg-map key: `:cljs-enable true`)
-  to turn on ClojureScript admission. ClojureScript support is
-  experimental and off by default: without the flag, `.cljs` files are
-  dropped and `.cljc` files are admitted as `:clj`-only — the `:cljs`
-  reader-conditional branch is discarded.
 - `--plumatic-disable` and `--malli-disable` flags to switch off either
   intake stream entirely. A disabled stream contributes no entries and
   no findings whose source matches that stream. `--plumatic-disable`
@@ -66,84 +61,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- One failing namespace no longer costs the rest of the run, and is no
-  longer a warning on a green exit. A namespace that fails to load,
-  admit, or process — on the worker or the host — surfaces as a loud
-  per-namespace `exception` finding carrying the full cause chain
-  (`errored: true`, exit 1), while every other namespace still gets
-  complete analysis. Previously such namespaces (and every namespace
-  requiring them) were silently skipped via `ns-discovery-warning` with
-  a green exit. Host-side failures processing one namespace's analyzer
-  reply are localized the same way. The run only aborts outright on
-  transport death or wire-protocol corruption, where no further result
-  can be trusted.
-- Leiningen analysis now runs the worker inside the project's prepared
-  runtime: the plugin launches an owned subprocess from Lein's project JVM
-  command (profiles, injections, global-vars, and jvm-opts included) with
-  Skeptic's separately resolved worker runtime appended after the project's
-  classpath entries. Project analysis operations execute on the
-  `clojure.main` launch thread itself, so registered readers behave exactly
-  as they do under the project's own runtime — `data_readers.clj` and
-  injection `set!`s included, with no Skeptic-side reader machinery.
-  The plugin keeps worker output off porcelain stdout,
-  reports child startup output on launch failure, waits for startup without
-  an arbitrary timeout, and preserves the original analysis exception across
-  cleanup failures.
-- The worker no longer retries a failed namespace `require` with
-  `:reload-all`. The project's own runtime never retries a require, and
-  the retry could make analysis succeed on source the project itself
-  cannot load. A require failure now propagates exactly as the project's
-  own `clojure.main` raises it.
-- ClojureScript npm requires now resolve the way the project's own
-  build resolves them: the worker indexes the project's `node_modules`
-  directory (the same walk `cljs.closure/handle-js-modules` feeds the
-  analyzer's `:node-module-index` from) into every analysis state. This
-  admits all four require shapes — direct strings
-  (`(:require ["react" :as react])`), subpath strings
-  (`"react-dom/client"`), string requires reached **transitively**
-  (a required namespace's own npm requires, which the analyzer resolves
-  internally), and symbol-form npm requires (`[react :as r]`). The
-  worker JVM's working directory is now the project root on every
-  entrypoint (it already was under Leiningen; the deps.edn spawn sets
-  it explicitly, fixing `:project-dir` runs), so the walk sees the
-  project's modules. Without a `node_modules` directory, each ns form's
-  own string requires are still admitted via direct seeding; transitive
-  and symbol-form npm requires then fail exactly as the project's own
-  build would without installed modules. npm values remain `Dyn` for
-  checking; bodies using npm aliases are fully checked.
-- ClojureScript admission failures now report the actual underlying
-  exception (e.g. the analyzer's `No such namespace: …`) instead of a
-  placeholder `cljs admission failed for this source-file` with no
-  cause, and the finding's `lang` is `cljs` instead of `clj`. Exception
-  findings also state the factual consequence for checking coverage
-  ("Checking of this file was aborted.", "Call sites were checked as if
-  this var had no declaration.") instead of narrating Skeptic's
-  error-routing.
-- Runtime objects that data readers place into analyzed source (e.g. a
-  `#date-time` tagged literal producing a joda `DateTime`) no longer
-  kill analysis with the marshaller's
-  `Not supported: class org.joda.time.DateTime`. Wire safety for value
-  leaves is now decided by the transit-verified leaf set (char, UUID,
-  exact `java.util.Date`, plus plain EDN scalars and collections), not
-  by a pr-str round-trip — a project `print-method` that emits a
-  readable form had made live objects look plain while the marshaller
-  had no handler for them. Such values cross as class-carrying opaque
-  sentinels and are typed by their class at call sites. A transit
-  default-handler backstop additionally converts anything that slips
-  past projection into a class-name-plus-print sentinel instead of
-  throwing, logging one stderr line per value so projection gaps stay
-  visible without failing the run.
-- Host↔worker transport failures are loud and immediate instead of
-  silent or repetitive. A reply arriving for a foreign request id —
-  previously skipped by single-reply receives and a silent end of
-  streaming receives, leaving the run to finish "green" on partial
-  results — now throws with the stray message attached. The worker's
-  bulk-analysis stream aborts at the first namespace whose reply cannot
-  be sent (naming it) instead of analyzing every remaining namespace
-  into a dead socket and printing a send failure for each. A socket
-  read timeout no longer masquerades as end-of-stream, and transport
-  closes are logged to stderr so the order of connection teardown is
-  visible in worker output.
 - Plumatic Schema map schemas using non-keyword required keys
   (e.g. `{(s/required-key "a") s/Int}`) now check correctly: correct
   call sites are no longer flagged with a spurious unexpected-key

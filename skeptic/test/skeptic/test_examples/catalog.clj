@@ -11,6 +11,7 @@
             [skeptic.test-examples.fixture-flags]
             [skeptic.test-examples.java-callable]
             [skeptic.test-examples.malli-contracts]
+            [skeptic.test-examples.map-set-as-function]
             [skeptic.test-examples.nullability-xns-schema]
             [skeptic.test-examples.nullability]
             [skeptic.test-examples.origin-cases]
@@ -41,6 +42,7 @@
    :origin-cases
    :fixture-flags
    :java-callable
+   :map-set-as-function
    :predicate-examples
    :var-narrowing])
 
@@ -82,6 +84,8 @@
                    :file (File. "test/skeptic/test_examples/java_callable.clj")}
    :malli-contracts {:ns 'skeptic.test-examples.malli-contracts
                      :file (File. "test/skeptic/test_examples/malli_contracts.clj")}
+   :map-set-as-function {:ns 'skeptic.test-examples.map-set-as-function
+                         :file (File. "test/skeptic/test_examples/map_set_as_function.clj")}
    :predicate-examples {:ns 'skeptic.test-examples.predicate-examples
                         :file (File. "test/skeptic/test_examples/predicate_examples.clj")}
    :var-narrowing {:ns 'skeptic.test-examples.var-narrowing

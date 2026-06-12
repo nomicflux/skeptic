@@ -19,12 +19,12 @@
     (at/->FunT p [(at/->FnMethodT p [input] output 1 false '[k])])))
 
 (s/defn set-as-function :- at/SemanticType
-  "A set called as a function tests membership:
-   (=> Bool union-of-member-types)."
+  "A set called as a function looks up its argument, returning it on a hit
+   and nil on a miss: (=> (maybe union-of-member-types) union-of-member-types)."
   [set-type :- at/SemanticType]
   (let [p (prov/of set-type)
         input (ato/union-type p (:members set-type))]
-    (at/->FunT p [(at/->FnMethodT p [input] (at/->GroundT p :bool 'Bool) 1 false '[k])])))
+    (at/->FunT p [(at/->FnMethodT p [input] (at/->MaybeT p input) 1 false '[k])])))
 
 (defn- domain-request
   [idx target-input source-input opts]

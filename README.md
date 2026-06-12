@@ -295,10 +295,8 @@ are skipped and `.cljc` files are admitted as `:clj`-only — the `:cljs`
 reader-conditional branch is discarded.
 
 Pass `--cljs-enable` (Leiningen) or `:cljs-enable true` (deps.edn tool)
-to load and admit ClojureScript source files alongside Clojure. Skeptic
-then discovers `.cljs` and `.cljc` files in deps.edn, Leiningen, and
-Shadow-CLJS projects, and `.cljc` files are admitted twice — once with
-`:clj` reader-conditional features active and once with `:cljs`.
+to load and admit ClojureScript source files alongside Clojure. `.cljc` files are 
+admitted twice — once with `:clj` reader-conditional features active and once with `:cljs`.
 
 ## Malli support
 
