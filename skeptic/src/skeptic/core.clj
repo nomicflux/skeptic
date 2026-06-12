@@ -31,10 +31,10 @@
             paths)))
 
 (defn- blocking-discovery-failures
-  [requested-namespaces discovered-nss failures]
+  [requested-namespaces discovered-pairs failures]
   (cond
     (empty? failures) []
-    (seq requested-namespaces) (if (every? (set (keys discovered-nss))
+    (seq requested-namespaces) (if (every? (set (map first discovered-pairs))
                                             requested-namespaces)
                                  []
                                  failures)
@@ -95,15 +95,18 @@
         files (if (:cljs-disable opts)
                 (remove #(str/ends-with? (.getName ^java.io.File %) ".cljs") files)
                 files)
-        discovered-nss (try (->> files
-                                 (map file/ns-for-clojure-file)
-                                 (remove (comp nil? first))
-                                 (into {}))
-                            (catch Exception e
-                              (println "Couldn't get namespaces: " e)
-                              (throw e)))
+        ;; Pairs, never a map: one namespace may be declared by several files
+        ;; (.clj alongside .cljc). Which file defines it is the project's own
+        ;; load's decision, made in the worker — never a host-side collapse.
+        discovered-pairs (try (->> files
+                                   (map file/ns-for-clojure-file)
+                                   (remove (comp nil? first))
+                                   (into []))
+                              (catch Exception e
+                                (println "Couldn't get namespaces: " e)
+                                (throw e)))
         blocking-failures (blocking-discovery-failures requested-namespaces
-                                                       discovered-nss
+                                                       discovered-pairs
                                                        failures)
         _ (when (seq blocking-failures)
             (doseq [failure blocking-failures]
@@ -157,11 +160,14 @@
                   class-oracle/*class-rel-cache* (atom {})
                   class-oracle/*predicate-cache* (atom {})]
           (startup-log "building project-state (discovers + analyzes every namespace via worker)")
-          (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-nss)
-                _ (startup-log (str "project-state built (" (count discovered-nss) " namespaces discovered)"))
-                nss-to-check (cond-> discovered-nss
-                               (seq requested-namespaces)
-                               (select-keys requested-namespaces))
+          (let [project-state (checking/project-state (assoc opts :worker-conn conn) discovered-pairs)
+                _ (startup-log (str "project-state built (" (count discovered-pairs) " files discovered)"))
+                requested (if (seq requested-namespaces)
+                            (filterv (comp (set requested-namespaces) first) discovered-pairs)
+                            discovered-pairs)
+                shadowed-files (or (:shadowed-files project-state) {})
+                shadowed (filterv (fn [[_ sf]] (contains? shadowed-files sf)) requested)
+                nss-to-check (vec (remove (fn [[_ sf]] (contains? shadowed-files sf)) requested))
                 printer-opts (select-keys opts [:verbose :debug :analyzer :explain-full :show-context])
                 report-opts {:explain-full (boolean (:explain-full opts))}
                 form-opts opts
@@ -176,6 +182,13 @@
             (run-start printer-opts nss-to-check)
             (doseq [failure failures]
               (discovery-warn printer-opts (failure->info failure)))
+            (doseq [[ns-sym sf] shadowed]
+              (discovery-warn printer-opts
+                              {:path (str sf)
+                               :message (str "namespace " ns-sym " is defined by "
+                                             (str/join ", " (:defined-by (get shadowed-files sf)))
+                                             " on the project's classpath; the project never"
+                                             " loads this file and it was not checked")}))
             (let [errored (atom false)]
               (doseq [[ns source-file] nss-to-check]
                 (ns-start ns source-file printer-opts)

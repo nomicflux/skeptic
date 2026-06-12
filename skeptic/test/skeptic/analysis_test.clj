@@ -146,7 +146,7 @@
 (defn- project-state-of
   [ns-sym]
   (checking/project-state (worker-opts)
-                          {ns-sym (fixture-file-for-ns ns-sym)}))
+                          [[ns-sym (fixture-file-for-ns ns-sym)]]))
 
 (defn- accessor-summaries-of
   [ns-sym]

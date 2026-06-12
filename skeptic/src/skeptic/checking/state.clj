@@ -11,6 +11,7 @@
    project-discovery
    var-provs
    user-fn-summaries
+   shadowed-files
    worker-conn])
 
 (s/defschema ProjectStateSchema (s/pred (partial instance? ProjectState) 'ProjectState))

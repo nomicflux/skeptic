@@ -67,7 +67,7 @@
   (let [{:keys [dict per-ns]} (pipeline/project-state
                                 {:plumatic-disable true
                                  :worker-conn oracle/*worker-conn*}
-                                {fixture-ns fixture-file})
+                                [[fixture-ns fixture-file]])
         ns-provs (get-in per-ns [fixture-ns :provenance])]
     (testing "Plumatic-only qsyms absent from merged dict"
       (doseq [sym plumatic-only-syms]
@@ -87,7 +87,7 @@
   (let [{:keys [dict per-ns]} (pipeline/project-state
                                 {:malli-disable true
                                  :worker-conn oracle/*worker-conn*}
-                                {fixture-ns fixture-file})
+                                [[fixture-ns fixture-file]])
         ns-provs (get-in per-ns [fixture-ns :provenance])]
     (testing "Malli-only qsyms absent from merged dict"
       (doseq [sym malli-only-syms]
@@ -108,7 +108,7 @@
                          {:plumatic-disable true
                           :malli-disable true
                           :worker-conn oracle/*worker-conn*}
-                         {fixture-ns fixture-file})]
+                         [[fixture-ns fixture-file]])]
     (doseq [sym (concat plumatic-only-syms malli-only-syms [cross-stream-sym])]
       (is (not (contains? dict sym))
           (str sym " should be absent when both intakes are disabled")))))

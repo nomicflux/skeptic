@@ -79,7 +79,7 @@
   (delay
     (sut/project-state
      (worker-opts)
-     (into {} (map (juxt :ns :file)) (vals catalog/fixture-envs)))))
+     (into [] (map (juxt :ns :file)) (vals catalog/fixture-envs)))))
 
 (defn- assert-no-per-ns-failures!
   "Pipeline phases (cljs-load, clj-load, admission, accessors, load) catch per-
@@ -103,12 +103,12 @@
 
 (defn project-state-for
   [ns-sym source-file]
-  (doto (sut/project-state (worker-opts) {ns-sym source-file})
+  (doto (sut/project-state (worker-opts) [[ns-sym source-file]])
     assert-no-per-ns-failures!))
 
 (defn project-state-for-nses
   [ns->file]
-  (doto (sut/project-state (worker-opts) ns->file)
+  (doto (sut/project-state (worker-opts) (vec ns->file))
     assert-no-per-ns-failures!))
 
 (defn project-state-allowing-failures
@@ -117,7 +117,7 @@
    Bypasses `assert-no-per-ns-failures!`. Do not use as a general escape hatch
    for unexpected failures — those should remain loud through `project-state-for`."
   [ns-sym source-file]
-  (sut/project-state (worker-opts) {ns-sym source-file}))
+  (sut/project-state (worker-opts) [[ns-sym source-file]]))
 
 (def ^:private check-ns-cache
   "Per-(ns-sym, opts) cache of `check-ns` results against the shared

@@ -257,8 +257,8 @@
     (fn [_conn]
       (let [ps (pipeline/project-state
                 {:worker-conn class-oracle/*worker-conn*}
-                {p15-registry-side-effect-ns p15-registry-side-effect-file
-                 p15-malli-mx-ns p15-malli-mx-file})
+                [[p15-registry-side-effect-ns p15-registry-side-effect-file]
+                 [p15-malli-mx-ns p15-malli-mx-file]])
             {:keys [results]} (pipeline/check-namespace ps p15-malli-mx-ns p15-malli-mx-file
                                                         {:remove-context true})]
         (is (contains? (:cljs-state ps) p15-malli-mx-file))
@@ -268,7 +268,7 @@
 (deftest shadow-preload-cljc-is-treated-as-cljs-only
   (let [opts {:worker-conn class-oracle/*worker-conn*
               :cljs-only-namespaces #{p16-shadow-preload-ns}}
-        ps (pipeline/project-state opts {p16-shadow-preload-ns p16-shadow-preload-file})
+        ps (pipeline/project-state opts [[p16-shadow-preload-ns p16-shadow-preload-file]])
         {:keys [results]} (pipeline/check-namespace ps p16-shadow-preload-ns p16-shadow-preload-file
                                                     {:remove-context true
                                                      :cljs-only-namespaces #{p16-shadow-preload-ns}})]

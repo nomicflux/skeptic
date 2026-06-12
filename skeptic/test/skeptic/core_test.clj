@@ -346,7 +346,7 @@
        (fn []
       (let [proj-state (checking/project-state {:remove-context true
                                                 :worker-conn class-oracle/*worker-conn*}
-                                                {'skeptic.check-project-best-effort-examples source-file})
+                                                [['skeptic.check-project-best-effort-examples source-file]])
             {:keys [results]} (checking/check-namespace proj-state
                                                         'skeptic.check-project-best-effort-examples
                                                         source-file
@@ -710,6 +710,7 @@
                            (System/getProperty "java.class.path"))
             out (with-out-str
                   (sut/check-project {:porcelain true
+                                      :cljs-disable true
                                       :worker-classpath {:combined worker-cp}}
                                      (.getCanonicalPath tmp)
                                      src-path))

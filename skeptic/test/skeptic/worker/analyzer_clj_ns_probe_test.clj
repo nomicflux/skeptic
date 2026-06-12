@@ -92,7 +92,7 @@
 (deftest analyze-source-file-reflect-probe
   (require 'skeptic.provenance)
   (let [file (io/file "src/skeptic/provenance.clj")
-        result (wac/analyze-source-file 'skeptic.provenance file)
+        result (wac/analyze-source-file 'skeptic.provenance file false)
         asts (map :ast (:entries result))
         slots (distinct (mapcat reflect-slots asts))
         src-forms (map :source-form (:entries result))
@@ -135,7 +135,7 @@
   ;; projection output.
   (require 'skeptic.provenance)
   (let [file (io/file "src/skeptic/provenance.clj")
-        {:keys [entries]} (wac/analyze-source-file 'skeptic.provenance file)
+        {:keys [entries]} (wac/analyze-source-file 'skeptic.provenance file false)
         project-entry @#'server/project-entry
         projected (mapv #(project-entry 'skeptic.provenance %) entries)
         printed (binding [*print-readably* true *print-length* nil *print-level* nil]
@@ -158,7 +158,7 @@
   ;; alone is discovered. This probe pins the root-op divergence.
   (require 'skeptic.test-examples.structural-cases)
   (let [file (io/file "test/skeptic/test_examples/structural_cases.clj")
-        {:keys [entries]} (wac/analyze-source-file 'skeptic.test-examples.structural-cases file)
+        {:keys [entries]} (wac/analyze-source-file 'skeptic.test-examples.structural-cases file false)
         op+name (map (fn [{:keys [ast]}] [(:op ast) (:name ast)]) entries)
         sdefn-root (some (fn [[op name]] (when (= 'sc-let-if-shape name) op)) op+name)]
     (println "structural-cases entries [op name]:" (pr-str op+name))

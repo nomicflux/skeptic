@@ -867,13 +867,24 @@
 (defn- process-stream-reply
   "Handle one intermediate reply from the streaming worker op. Reattaches
    entry metadata, stores in clj-state, builds ns-entries and discovery
-   for that namespace. Mutates the accumulators in place (atoms)."
-  [clj-state-a clj-failures-a ns-entries-a project-disc-a loaded-index reply]
-  (let [ns-str (:ns-sym reply)
-        [ns-sym source-file] (get loaded-index ns-str)]
-    (if (:load-error reply)
+   for that namespace. A `:shadowed-by` reply (the loaded runtime says
+   another file defines this namespace) is recorded in `shadowed-a` and
+   contributes no entries: its text is not the namespace's definition.
+   Mutates the accumulators in place (atoms). Replies are correlated by
+   `:source-file` — one namespace may arrive from several files, and each
+   file's reply must land on its own clj-state entry."
+  [clj-state-a clj-failures-a ns-entries-a project-disc-a shadowed-a loaded-index reply]
+  (let [[ns-sym source-file] (get loaded-index (:source-file reply))]
+    (cond
+      (:load-error reply)
       (swap! clj-failures-a assoc source-file
              {:exception (ex-info (str (:load-error reply) ": " (:load-error-message reply)) {})})
+
+      (:shadowed-by reply)
+      (swap! shadowed-a assoc source-file
+             {:ns ns-sym :defined-by (vec (:shadowed-by reply))})
+
+      :else
       (try
         (let [{:keys [entries read-failure]} reply
               reattached (if read-failure
@@ -896,26 +907,38 @@
 (defn preload-clj-state!
   "Analyze every clj/cljc source-file via the WORKER's streaming
   analyze-namespaces-stream op. As each namespace's complete entries arrive,
-  immediately reattach metadata, build ns-entries and discovery. Returns
-  `{:clj-state :clj-load-failures :ns-entries-map :project-disc}`. Empty when
-  `conn` is nil. Under `verbose?`, each `:starting?` reply prints a
-  `[skeptic analyze clj]` marker — last marker printed names the namespace
-  whose `require`/macroexpansion blocked if the worker hangs."
+  immediately reattach metadata, build ns-entries and discovery. A namespace
+  discovered from more than one file is flagged on the wire so the worker can
+  report files the project's own load does not select (`:shadowed-files`,
+  source-file → {:ns :defined-by}). Returns
+  `{:clj-state :clj-load-failures :ns-entries-map :project-disc
+  :shadowed-files}`. Empty when `conn` is nil. Under `verbose?`, each
+  `:starting?` reply prints a `[skeptic analyze clj]` marker — last marker
+  printed names the namespace whose `require`/macroexpansion blocked if the
+  worker hangs."
   [conn loaded verbose?]
   (if-not conn
-    {:clj-state {} :clj-load-failures {} :ns-entries-map {} :project-disc {}}
-    (let [clj-pairs (into []
-                          (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
-                                (map (fn [[ns-sym sf _]] [(str ns-sym) (str sf)])))
-                          loaded)
+    {:clj-state {} :clj-load-failures {} :ns-entries-map {} :project-disc {}
+     :shadowed-files {}}
+    (let [clj-triples (into []
+                            (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
+                            loaded)
+          duplicate-nss (->> clj-triples
+                             (map first)
+                             frequencies
+                             (keep (fn [[ns-sym n]] (when (< 1 n) ns-sym)))
+                             set)
+          clj-pairs (mapv (fn [[ns-sym sf _]]
+                            [(str ns-sym) (str sf) (contains? duplicate-nss ns-sym)])
+                          clj-triples)
           loaded-index (into {}
-                             (comp (filter (fn [[_ sf lang]] (and sf (#{:clj :both} lang))))
-                                   (map (fn [[ns-sym sf _]] [(str ns-sym) [ns-sym sf]])))
-                             loaded)
+                             (map (fn [[ns-sym sf _]] [(str sf) [ns-sym sf]]))
+                             clj-triples)
           clj-state-a (atom {})
           clj-failures-a (atom {})
           ns-entries-a (atom {})
-          project-disc-a (atom {})]
+          project-disc-a (atom {})
+          shadowed-a (atom {})]
       (when (seq clj-pairs)
         (when verbose?
           (binding [*out* *err*]
@@ -933,17 +956,19 @@
                             (when-not (:starting? reply)
                               (process-stream-reply clj-state-a clj-failures-a
                                                     ns-entries-a project-disc-a
-                                                    loaded-index reply))))
+                                                    shadowed-a loaded-index reply))))
         (when verbose?
           (binding [*out* *err*]
             (println (str "[skeptic analyze clj] stream complete: "
                           (count @clj-state-a) " ok, "
-                          (count @clj-failures-a) " load-failures"))
+                          (count @clj-failures-a) " load-failures, "
+                          (count @shadowed-a) " shadowed"))
             (flush))))
       {:clj-state @clj-state-a
        :clj-load-failures @clj-failures-a
        :ns-entries-map @ns-entries-a
-       :project-disc @project-disc-a})))
+       :project-disc @project-disc-a
+       :shadowed-files @shadowed-a})))
 
 (defn- rehydrate-cljs-entry
   "Reshape a cljs analysis entry off the wire into the host's
@@ -1103,11 +1128,16 @@
         {clj-state         :clj-state
          clj-load-failures :clj-load-failures
          ns-entries-map    :ns-entries-map
-         project-disc      :project-disc}
+         project-disc      :project-disc
+         shadowed-files    :shadowed-files}
         (preload-clj-state! (:worker-conn opts) loaded (boolean (:verbose opts)))
         clj-load-failures (reduce-kv (fn [m k v]
                                        (assoc m k (update v :phase #(or % :clj-load))))
                                      {} clj-load-failures)
+        ;; A shadowed file's text is not its namespace's definition; admission
+        ;; and accessor collection run only over the files the project's own
+        ;; load selects.
+        loaded (vec (remove (fn [[_ sf _]] (contains? shadowed-files sf)) loaded))
         var-provs (project-var-provs opts project-disc ns-entries-map)
         form-refs (with-meta
                     (reduce (fn [m [_ns-sym d]]
@@ -1172,7 +1202,7 @@
         per-ns-failures (merge load-failures admission-failures accessor-failures cljs-load-failures clj-load-failures)]
     (cstate/->ProjectState enriched-dict accessor-summaries per-ns per-ns-failures
                            cljs-state clj-state project-disc var-provs user-fn-summaries
-                           (:worker-conn opts)))))
+                           shadowed-files (:worker-conn opts)))))
 
 (defn- prepare-namespace
   [project-state ns-sym _source-file]

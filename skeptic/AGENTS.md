@@ -195,22 +195,27 @@ The contract is strict and load-bearing:
   mediated versions vary per project and per machine. A symbol present
   in both Clojures is a wrong-jar bug, not a version mismatch; treat it
   as a classpath ordering failure.
-- **Project code loads as the project.** Lein project profiles and
-  injections run before `run-worker!`, which then runs every project
-  analysis operation on the `clojure.main` launch thread itself. Skeptic
-  adds no reader-Var machinery — no fold, no dedicated operation thread,
-  no merges — so every registration mechanism (`data_readers.clj`,
-  injection `set!`s, `alter-var-root`) behaves exactly as it does under
-  the project's own `clojure.main` boot; the observed runtime behavior is
-  the spec (`.scratch/reader-probes/`). The worker performs the first
-  load of every checked file itself — one pass, read a form, evaluate
-  it, read the next (`load-top-forms`) — so captured forms read under
-  exactly the reader state the project's own load gives them, including
-  a mid-file `set!` of `*data-readers*` (probe4/probe5: visible during
-  the file's own load, gone to any later cold re-read). A namespace an
-  earlier require already pulled in is never re-evaluated; its source is
-  re-read without evaluation on the same thread, against the same
-  registries.
+- **Project code loads as the project: the worker only ever loads a
+  checked namespace via the project's own `(require ns)`.** Lein project
+  profiles and injections run before `run-worker!`, which then runs every
+  project analysis operation on the `clojure.main` launch thread itself.
+  Clojure's require resolves the namespace against the classpath (AOT
+  `__init.class` when strictly newer, else `.clj`, else `.cljc`) exactly
+  as the project's own boot would, and a namespace an earlier require
+  already pulled in is not re-evaluated. Skeptic never selects or
+  evaluates a namespace's defining file itself — a namespace provided by
+  several files is the require's decision, observed afterwards from the
+  loaded vars' `:file` metadata (`.scratch/loader-probes/`). Capture is
+  reading, never loading: after require, the worker re-reads the source
+  text without evaluation on the same thread, against the runtime's own
+  registries (`data_readers.clj`, injection `set!`s, `alter-var-root`).
+  A tagged literal whose tag no registration resolves at re-read time
+  (e.g. one registered by a mid-file `set!` of `*data-readers*`, which
+  is local to the load's own binding frame — probe4/probe5 in
+  `.scratch/reader-probes/`) reads as its `tagged-literal` placeholder:
+  an unknown value, typed Dyn, never a skeptic error on a file the
+  project loads fine. A file the project's own load rejects fails inside
+  require and surfaces as that namespace's finding.
 - **The host owns the worker process.** The Lein plugin drains both
   child streams itself, forwards them only to host stderr under `-v`,
   captures startup output for failure diagnostics, and never lets
@@ -222,11 +227,17 @@ The contract is strict and load-bearing:
   wire, never forms. The bulk `analyze-namespace` op opens the file
   inside the worker and returns the projected AST. The streaming op
   orders requested namespaces dependency-first (ns decls parsed with
-  tools.namespace), so no checked file's first load happens as a
-  dependent's transitive require — the capturing load is the first
-  load. There is no round-trip op that takes a form on the host,
-  ships it to the worker, and ships back an AST — that shape was
-  deliberately removed and must not return.
+  tools.namespace), so a broken namespace's load failure is attributed
+  to that namespace itself rather than to the first dependent whose
+  transitive require pulls it in. The host never collapses discovery to
+  one file per namespace: every discovered `[ns file]` pair streams to
+  the worker, duplicates flagged on the wire; the worker answers a
+  flagged file that the loaded runtime says another file defines with
+  `:shadowed-by`, and the host reports it as an `ns-discovery-warning`
+  instead of checking text the project never loads. There is no
+  round-trip op that takes a form on the host, ships it to the worker,
+  and ships back an AST — that shape was deliberately removed and must
+  not return.
 - **Skeptic, schema, malli, and admission are host-only.** The
   worker never runs `schema->type`, `malli-spec->type`, the cast
   engine, the bridge, or any `skeptic.*` analysis namespace.

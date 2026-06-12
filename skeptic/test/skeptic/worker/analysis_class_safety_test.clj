@@ -14,7 +14,8 @@
         proto-before (clojure.lang.RT/classForName
                       "skeptic.test_examples.wrapped_record.WrappedProto")]
     (wac/analyze-source-file 'skeptic.test-examples.wrapped-record
-                             (io/file "test/skeptic/test_examples/wrapped_record.clj"))
+                             (io/file "test/skeptic/test_examples/wrapped_record.clj")
+                             false)
     (is (identical? rec-before
                     (clojure.lang.RT/classForName
                      "skeptic.test_examples.wrapped_record.WrappedRec")))

@@ -27,7 +27,7 @@
 
 (defn- fixture-project-state
   []
-  (pipeline/project-state {:worker-conn oracle/*worker-conn*} {fixture-ns fixture-file}))
+  (pipeline/project-state {:worker-conn oracle/*worker-conn*} [[fixture-ns fixture-file]]))
 
 (defn- analysis-env
   []

@@ -188,18 +188,30 @@
               (when (class? v)
                 (intern-class! ^Class v :uuid))))))))
 
+(defn- chain-messages
+  "Each cause's message joined with ` <- `, deepest cause first. cljs.analyzer
+   wraps the inner cause's real message inside an outer ExceptionInfo whose own
+   `.getMessage` is nil; without walking the chain the host sees only nil."
+  [^Throwable e]
+  (->> (iterate #(.getCause ^Throwable %) e)
+       (take-while some?)
+       (map #(or (.getMessage ^Throwable %) (str %)))
+       (remove str/blank?)
+       distinct
+       reverse
+       (str/join " <- ")))
+
 (defn- reader-error-cause
   "If `e` or any of its causes is a reader exception — tools.reader's (tagged
    ex-data `:type :reader-exception`) or Clojure's own
-   `LispReader$ReaderException` (the capturing load's eval reader is Clojure's
-   reader) — return that Throwable: a known phase-localized failure such as an
-   unbalanced delimiter, EOF inside a form, or an unreadable tagged literal.
-   nil for any other failure kind. This is the ONLY catch-and-encode allowed
-   in `analyze-namespace-reply`: a reader error on one source-file is a
-   per-namespace finding (the pipeline routes it as a `:clj-load` finding so
-   other namespaces still run), not a transport-level exception. Every other
-   Throwable propagates and the wrap-* boundary converts it to a loud
-   `:exception-class` reply."
+   `LispReader$ReaderException` — return that Throwable: a known
+   phase-localized failure such as an unbalanced delimiter, EOF inside a
+   form, or an unreadable tagged literal. nil for any other failure kind.
+   This is the ONLY catch-and-encode allowed in `analyze-namespace-reply`: a
+   reader error on one source-file is a per-namespace finding (the pipeline
+   routes it as a `:clj-load` finding so other namespaces still run), not a
+   transport-level exception. Every other Throwable propagates and the
+   wrap-* boundary converts it to a loud `:exception-class` reply."
   [^Throwable e]
   (->> (iterate #(.getCause ^Throwable %) e)
        (take-while some?)
@@ -208,22 +220,43 @@
                          (instance? clojure.lang.LispReader$ReaderException c))
                  c)))))
 
+(defn- read-source-failure?
+  "True when `e`'s cause chain carries Clojure's own load reporting a reader
+   failure: `Compiler.load` rethrows a `LispReader` error as a
+   CompilerException tagged `:clojure.error/phase :read-source` — what the
+   project's own require produces on a file it cannot read (e.g. a tagged
+   literal with no registered reader). On Clojure 1.8 `ex-data` is nil here
+   and this never matches; such a failure still surfaces as the namespace's
+   `:load-error` on the streaming path."
+  [^Throwable e]
+  (->> (iterate #(.getCause ^Throwable %) e)
+       (take-while some?)
+       (some (fn [^Throwable c]
+               (= :read-source (:clojure.error/phase (ex-data c)))))
+       boolean))
+
 (defn- analyze-namespace-reply
-  "Returns either `{:entries ...}` on success or `{:read-failure <msg>}` when a
-   tools.reader exception fires (a known phase-localized failure). Any other
-   Throwable propagates, hits the wrap-* boundary, and surfaces as a loud
-   `:exception-class` wire reply."
-  [ns source-file]
+  "Returns `{:entries ...}` on success, `{:shadowed-by [paths]}` when the
+   loaded runtime says another file defines this namespace (only probed under
+   `duplicate-ns?`), or `{:read-failure <msg>}` when a reader exception fires
+   (a known phase-localized failure — including one thrown by the project's
+   own `require` of the namespace). Any other Throwable propagates, hits the
+   wrap-* boundary, and surfaces as a loud `:exception-class` wire reply."
+  [ns source-file duplicate-ns?]
   (try
-    (let [projected (with-project-operation
-                      (let [ns-sym (symbol ns)
-                            {:keys [entries]} (wac/analyze-source-file ns-sym (io/file source-file))]
-                        (mapv #(project-entry ns-sym %) entries)))]
-      {:entries projected})
+    (with-project-operation
+      (let [ns-sym (symbol ns)
+            {:keys [entries shadowed-by]}
+            (wac/analyze-source-file ns-sym (io/file source-file) duplicate-ns?)]
+        (if shadowed-by
+          {:shadowed-by (mapv str shadowed-by)}
+          {:entries (mapv #(project-entry ns-sym %) entries)})))
     (catch Throwable e
       (if-let [re (reader-error-cause e)]
         {:read-failure (or (.getMessage ^Throwable re) (str re))}
-        (throw e)))))
+        (if (read-source-failure? e)
+          {:read-failure (chain-messages e)}
+          (throw e))))))
 
 (defn- ns-decl-deps
   "Namespace dependencies parsed from the file's ns declaration with
@@ -238,13 +271,13 @@
     (catch Throwable _ nil)))
 
 (defn- dependency-ordered-pairs
-  "Reorder the requested [ns-str source-file] pairs so dependencies among the
-   checked namespaces come before their dependents: the worker performs the
-   FIRST load of every checked file itself (the capturing load in
-   `skeptic.worker.analyzer-clj`), instead of a dependent's transitive require
-   getting there first and discarding load-time reader state. Order among
-   unrelated namespaces is the request order. A require cycle cannot load
-   under Clojure; here it simply keeps request order."
+  "Reorder the requested [ns-str source-file & _] tuples so dependencies among
+   the checked namespaces come before their dependents: the worker `require`s
+   each checked namespace, so dependency order attributes a broken
+   namespace's load failure to that namespace itself rather than to the first
+   dependent whose transitive require pulls it in. Order among unrelated
+   namespaces is the request order. A require cycle cannot load under
+   Clojure; here it simply keeps request order."
   [pairs]
   (let [file-of (reduce (fn [m [ns-str sf]]
                           (if (contains? m ns-str) m (assoc m ns-str sf)))
@@ -708,19 +741,6 @@
       schema-var-prov (assoc :plumatic-var-prov schema-var-prov)
       plumatic-schema (assoc :plumatic-schema plumatic-schema))))
 
-(defn- chain-messages
-  "Each cause's message joined with ` <- `, deepest cause first. cljs.analyzer
-   wraps the inner cause's real message inside an outer ExceptionInfo whose own
-   `.getMessage` is nil; without walking the chain the host sees only nil."
-  [^Throwable e]
-  (->> (iterate #(.getCause ^Throwable %) e)
-       (take-while some?)
-       (map #(or (.getMessage ^Throwable %) (str %)))
-       (remove str/blank?)
-       distinct
-       reverse
-       (str/join " <- ")))
-
 (defn- safe-pr-str
   "pr-str that never throws. Used for `ex-data` payloads which may carry values
    `pr-str` itself rejects (raw Class objects, Vars, regex Patterns, etc.). A
@@ -787,15 +807,16 @@
     "class-rel-batch" {:results (run-class-rel-batch triples)}
     "resolve-class-sym" {:handle (resolve-sym-to-handle ns sym)}
     "class-name" {:name (class-name-for-handle a)}
-    "analyze-namespace" (analyze-namespace-reply ns source-file)
+    "analyze-namespace" (analyze-namespace-reply ns source-file false)
     "analyze-namespaces-stream"
-    (mapv (fn [[ns-str source-file-str]]
+    (mapv (fn [[ns-str source-file-str duplicate-ns?]]
             (try
-              (let [{:keys [entries read-failure]}
-                    (analyze-namespace-reply ns-str source-file-str)]
+              (let [{:keys [entries read-failure shadowed-by]}
+                    (analyze-namespace-reply ns-str source-file-str (boolean duplicate-ns?))]
                 (cond-> {:ns-sym ns-str :source-file source-file-str}
                   entries      (assoc :entries entries)
-                  read-failure (assoc :read-failure read-failure)))
+                  read-failure (assoc :read-failure read-failure)
+                  shadowed-by  (assoc :shadowed-by shadowed-by)))
               (catch Throwable e
                 {:ns-sym ns-str
                  :source-file source-file-str
@@ -919,23 +940,24 @@
               (send-reply-or-error* transport msg
                                     (fn []
                                       (let [{:keys [entries read-failure]}
-                                            (analyze-namespace-reply ns source-file)]
+                                            (analyze-namespace-reply ns source-file false)]
                                         (cond-> {:status #{:done}}
                                           entries (assoc :entries entries)
                                           read-failure (assoc :read-failure read-failure)))))
               (h msg))))
         stream-namespace!
-        (fn [transport msg [ns-str source-file-str]]
+        (fn [transport msg [ns-str source-file-str duplicate-ns?]]
           (try
             (send-reply! transport msg {:ns-sym ns-str
                                         :source-file source-file-str
                                         :starting? true})
             (let [reply (try
-                          (let [{:keys [entries read-failure]}
-                                (analyze-namespace-reply ns-str source-file-str)]
+                          (let [{:keys [entries read-failure shadowed-by]}
+                                (analyze-namespace-reply ns-str source-file-str (boolean duplicate-ns?))]
                             (cond-> {:ns-sym ns-str :source-file source-file-str}
                               entries      (assoc :entries entries)
-                              read-failure (assoc :read-failure read-failure)))
+                              read-failure (assoc :read-failure read-failure)
+                              shadowed-by  (assoc :shadowed-by shadowed-by)))
                           (catch Throwable e
                             {:ns-sym ns-str
                              :source-file source-file-str

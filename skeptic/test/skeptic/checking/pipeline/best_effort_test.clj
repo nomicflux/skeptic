@@ -21,8 +21,8 @@
 
 (deftest one-broken-namespace-does-not-cost-the-others
   (let [ps (pipeline/project-state {:worker-conn class-oracle/*worker-conn*}
-                                   {broken-ns broken-file
-                                    healthy-ns healthy-file})
+                                   [[broken-ns broken-file]
+                                    [healthy-ns healthy-file]])
         broken (pipeline/check-namespace ps broken-ns broken-file
                                          {:remove-context true})
         healthy (pipeline/check-namespace ps healthy-ns healthy-file

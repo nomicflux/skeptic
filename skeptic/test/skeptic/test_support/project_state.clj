@@ -19,7 +19,7 @@
   accessor-summaries) the same way production's `pipeline/project-state` does,
   so callers see the same dict shape that downstream analysis assumes."
   [ns-sym source-file]
-  (let [ps (pipeline/project-state {:worker-conn oracle/*worker-conn*} {ns-sym source-file})
+  (let [ps (pipeline/project-state {:worker-conn oracle/*worker-conn*} [[ns-sym source-file]])
         per-ns-entry (get-in ps [:per-ns ns-sym])
         failure (get-in ps [:per-ns-failures ns-sym])]
     (when failure
