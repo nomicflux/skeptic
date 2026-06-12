@@ -64,6 +64,34 @@ behavior, observed by running it on fixtures, is the spec
   the remaining `require`/`requiring-resolve` call sites are plain lazy
   loads governed by the project-first classpath.
 
+## Amendment — 2026-06-12: the loader itself swept under the rule
+
+The capturing loader — two readers walking the file in lockstep with an
+eval between reads, under hand-pushed `Compiler.load` thread bindings —
+was itself a reconstruction of Clojure's load, and it carried the
+reconstruction failure shape: the host selected a namespace's defining
+file by directory-walk order (last-wins `ns → file` map), so a namespace
+provided by two files (`.clj` alongside `.cljc`) was evaluated from the
+file the project never loads, and every consumer compiled against it
+(`:read`-phase `var: #'x is not public` on a repo green under its own
+tests). Both are deleted.
+
+Loading a checked namespace is now only ever the project's own
+`(require ns)`: the classpath decides which file defines the namespace
+(AOT class when strictly newer, else `.clj`, else `.cljc`), exactly as
+the project's boot does. Capture is reading, never loading: the source
+text is re-read without evaluation after the require. A tagged literal
+whose tag no live registration resolves at re-read time (a mid-file
+`set!` registration is local to the load's own binding frame —
+probe4/probe5) reads as its `tagged-literal` placeholder: an unknown
+value typed Dyn, never an error on a file the project loads fine. A file
+the project's own load rejects fails inside require and surfaces as that
+namespace's finding. Host discovery never collapses one namespace to one
+file; a file the loaded runtime's var `:file` metadata says is not the
+namespace's definition is reported as an `ns-discovery-warning`, not
+checked as text the project never loads
+(`.scratch/loader-probes/probe1.clj`).
+
 ## Consequences
 
 - Reader registration coverage is derived from the runtime, not
