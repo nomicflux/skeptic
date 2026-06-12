@@ -202,9 +202,15 @@ The contract is strict and load-bearing:
   no merges — so every registration mechanism (`data_readers.clj`,
   injection `set!`s, `alter-var-root`) behaves exactly as it does under
   the project's own `clojure.main` boot; the observed runtime behavior is
-  the spec (`.scratch/reader-probes/`). Analyzer fallback rereads run on
-  the same thread and consult the same registries; Skeptic does not
-  evaluate project source to reconstruct reader state.
+  the spec (`.scratch/reader-probes/`). The worker performs the first
+  load of every checked file itself — one pass, read a form, evaluate
+  it, read the next (`load-top-forms`) — so captured forms read under
+  exactly the reader state the project's own load gives them, including
+  a mid-file `set!` of `*data-readers*` (probe4/probe5: visible during
+  the file's own load, gone to any later cold re-read). A namespace an
+  earlier require already pulled in is never re-evaluated; its source is
+  re-read without evaluation on the same thread, against the same
+  registries.
 - **The host owns the worker process.** The Lein plugin drains both
   child streams itself, forwards them only to host stderr under `-v`,
   captures startup output for failure diagnostics, and never lets
@@ -214,10 +220,13 @@ The contract is strict and load-bearing:
   process if the request fails or the child does not exit.
 - **Worker reads its own source.** The host sends paths over the
   wire, never forms. The bulk `analyze-namespace` op opens the file
-  inside the worker and returns the projected AST. There is no
-  round-trip op that takes a form on the host, ships it to the
-  worker, and ships back an AST — that shape was deliberately
-  removed and must not return.
+  inside the worker and returns the projected AST. The streaming op
+  orders requested namespaces dependency-first (ns decls parsed with
+  tools.namespace), so no checked file's first load happens as a
+  dependent's transitive require — the capturing load is the first
+  load. There is no round-trip op that takes a form on the host,
+  ships it to the worker, and ships back an AST — that shape was
+  deliberately removed and must not return.
 - **Skeptic, schema, malli, and admission are host-only.** The
   worker never runs `schema->type`, `malli-spec->type`, the cast
   engine, the bridge, or any `skeptic.*` analysis namespace.

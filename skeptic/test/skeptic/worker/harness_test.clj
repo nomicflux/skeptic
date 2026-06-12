@@ -246,7 +246,8 @@
   ;; date-time" — each `load` captures *data-readers* at file entry, so a
   ;; sibling require's alter-var-root registration is invisible to this file's
   ;; tagged literal. The worker loads the project as the project and reports
-  ;; the same failure.
+  ;; the same failure, as the per-namespace :read-failure finding (a reader
+  ;; error on one source file never aborts the other namespaces).
   (let [dir (temp-dir!)
         src (io/file dir "src")
         timestamp "2026-06-09T12:34:56Z"]
@@ -268,12 +269,12 @@
                  "(def value #date-time \"" timestamp "\")\n"))
       (with-worker [(.getPath src)]
         (fn [conn]
-          (is (thrown-with-msg?
-               clojure.lang.ExceptionInfo
-               #"No reader function for tag date-time"
-               (wc/ask conn {:op "analyze-namespace"
-                             :ns "demo.tagged"
-                             :source-file (.getPath (io/file src "demo" "tagged.clj"))})))))
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.tagged"
+                                                        :source-file (.getPath (io/file src "demo" "tagged.clj"))})]
+            (is (re-find #"No reader function for tag date-time" (str read-failure)))
+            (is (empty? entries)))))
       (finally
         (delete-recursively! dir)))))
 
@@ -282,7 +283,7 @@
   ;; plain `clojure.main` rejects this fixture with "No reader function for tag
   ;; date-time" — the sibling require's *default-data-reader-fn* registration is
   ;; invisible to this file's load. The worker loads the project as the project
-  ;; and reports the same failure.
+  ;; and reports the same failure, as the per-namespace :read-failure finding.
   (let [dir (temp-dir!)
         src (io/file dir "src")
         timestamp "2026-06-09T12:34:56Z"]
@@ -304,12 +305,12 @@
                  "(def value #date-time \"" timestamp "\")\n"))
       (with-worker [(.getPath src)]
         (fn [conn]
-          (is (thrown-with-msg?
-               clojure.lang.ExceptionInfo
-               #"No reader function for tag date-time"
-               (wc/ask conn {:op "analyze-namespace"
-                             :ns "demo.tagged"
-                             :source-file (.getPath (io/file src "demo" "tagged.clj"))})))))
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.tagged"
+                                                        :source-file (.getPath (io/file src "demo" "tagged.clj"))})]
+            (is (re-find #"No reader function for tag date-time" (str read-failure)))
+            (is (empty? entries)))))
       (finally
         (delete-recursively! dir)))))
 
@@ -333,6 +334,80 @@
                 value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
             (is (nil? read-failure))
             (is (= timestamp (nth value-form 2))))))
+      (finally
+        (delete-recursively! dir)))))
+
+(def ^:private inline-set-reader-source
+  "A file that registers a data reader for its own later forms: the set!
+   mutates the load's *data-readers* binding frame, so the tagged literal
+   below it reads through #'read-date-time — but only while this file's own
+   load is on the stack (.scratch/reader-probes/probe4: plain clojure.main
+   accepts this; probe5: a post-require cold re-read does not)."
+  (fn [ns-name timestamp]
+    (str "(ns " ns-name ")\n\n"
+         "(defn read-date-time [value]\n"
+         "  {:date-time value})\n\n"
+         "(set! clojure.core/*data-readers*\n"
+         "      (assoc clojure.core/*data-readers* 'date-time #'read-date-time))\n\n"
+         "(def value #date-time \"" timestamp "\")\n")))
+
+(deftest analyze-namespace-matches-project-runtime-for-in-file-set-data-readers
+  ;; Observed project-runtime behavior (.scratch/reader-probes/probe4.output.txt):
+  ;; plain `clojure.main` accepts this fixture — load interleaves read and eval,
+  ;; so the set! registration is visible to the same file's later tagged
+  ;; literal. The worker must read the file identically: the captured `value`
+  ;; form holds the reader's product, and there is no read failure.
+  (let [dir (temp-dir!)
+        src (io/file dir "src")
+        timestamp "2026-06-09T12:34:56Z"]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "demo" "inline_set.clj")
+            (inline-set-reader-source "demo.inline-set" timestamp))
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [{:keys [entries read-failure]} (wc/ask conn
+                                                       {:op "analyze-namespace"
+                                                        :ns "demo.inline-set"
+                                                        :source-file (.getPath (io/file src "demo" "inline_set.clj"))})
+                value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
+            (is (nil? read-failure))
+            (is (= {:date-time timestamp} (nth value-form 2))))))
+      (finally
+        (delete-recursively! dir)))))
+
+(deftest analyze-namespaces-stream-loads-dependencies-first
+  ;; demo.alpha requires demo.zeta; the stream asks in discovery order
+  ;; (dependent first). The worker must perform the first load of every
+  ;; checked file itself — dependency order — so demo.zeta's in-file set!
+  ;; registration is captured during zeta's own load instead of being lost
+  ;; to alpha's transitive require.
+  (let [dir (temp-dir!)
+        src (io/file dir "src")
+        timestamp "2026-06-09T12:34:56Z"]
+    (try
+      (.mkdirs (io/file src "demo"))
+      (spit (io/file src "demo" "zeta.clj")
+            (inline-set-reader-source "demo.zeta" timestamp))
+      (spit (io/file src "demo" "alpha.clj")
+            "(ns demo.alpha\n  (:require [demo.zeta]))\n\n(def alpha-value demo.zeta/value)\n")
+      (with-worker [(.getPath src)]
+        (fn [conn]
+          (let [replies (atom [])
+                _ (wc/ask-streaming conn
+                                    {:op "analyze-namespaces-stream"
+                                     :namespaces [["demo.alpha" (.getPath (io/file src "demo" "alpha.clj"))]
+                                                  ["demo.zeta" (.getPath (io/file src "demo" "zeta.clj"))]]}
+                                    (fn [reply] (swap! replies conj reply)))
+                data-reply (fn [ns-str]
+                             (some #(when (and (= ns-str (:ns-sym %)) (not (:starting? %))) %)
+                                   @replies))
+                zeta-reply (data-reply "demo.zeta")
+                alpha-reply (data-reply "demo.alpha")]
+            (is (nil? (:load-error zeta-reply)))
+            (is (nil? (:read-failure zeta-reply)))
+            (is (seq (:entries zeta-reply)))
+            (is (seq (:entries alpha-reply))))))
       (finally
         (delete-recursively! dir)))))
 

@@ -126,25 +126,79 @@
            (ana.jvm/analyze form env {:passes-opts skeptic-passes-opts
                                       :bindings analysis-class-safety-bindings})))))))
 
-(defn- read-top-forms
-  "Read every top-level form of `source-file` with tools.reader's
-   source-logging reader (reader conditionals on the :clj branch), so each
-   form carries :source/:line/:column metadata the host needs for blame and
-   location. Regex/fn/quote literals read natively here, unlike clojure.edn.
-   `*ns*` is bound to the (already-required) source namespace so auto-resolved
-   `::keyword`s resolve against it, matching how Clojure loads the file.
-   tools.reader uses separate data-reader Vars, so inherit both registered
-   reader surfaces from the live project runtime for this second source read."
-  [tn source-file]
-  (binding [*ns* tn
-            tr/*data-readers* (merge clojure.core/*data-readers*
+(defn- read-one-form
+  "One top-level form via tools.reader (reader conditionals on the :clj
+   branch). Regex/fn/quote literals read natively here, unlike clojure.edn.
+   tools.reader keeps its own data-reader Vars; mirror clojure.core's CURRENT
+   values on every read so a registration evaluated earlier in this load (a
+   set! of *data-readers* mid-file) is visible to the next form, exactly as
+   it is to Clojure's own load."
+  [reader]
+  (binding [tr/*data-readers* (merge clojure.core/*data-readers*
                                      tr/*data-readers*)
             tr/*default-data-reader-fn* (or tr/*default-data-reader-fn*
                                             clojure.core/*default-data-reader-fn*)]
+    (tr/read {:read-cond :allow :features #{:clj} :eof ::eof} reader)))
+
+(defn- read-top-forms
+  "Read every top-level form of `source-file` with tools.reader's
+   source-logging reader, so each form carries :source/:line/:column metadata
+   the host needs for blame and location. The path for namespaces an earlier
+   require already loaded: the source is re-read without evaluation, with
+   `*ns*` bound to the loaded namespace so auto-resolved `::keyword`s resolve
+   against it. Load-frame-local reader registrations are gone by now;
+   `load-top-forms` is the path that sees them."
+  [tn source-file]
+  (binding [*ns* tn]
     (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
-      (->> (repeatedly #(tr/read {:read-cond :allow :features #{:clj} :eof ::eof} reader))
+      (->> (repeatedly #(read-one-form reader))
            (take-while #(not= ::eof %))
            doall))))
+
+(defn- compiler-load-bindings
+  "The thread bindings Compiler.load pushes around a file load: a fresh
+   DynamicClassLoader, source path/name, and the reader/compiler dynamics
+   whose in-file set!s must stay local to this load (a set! never escapes the
+   file's own load — .scratch/reader-probes/ probe2)."
+  [source-path source-name]
+  {clojure.lang.Compiler/LOADER (clojure.lang.RT/makeClassLoader)
+   clojure.lang.Compiler/SOURCE_PATH source-path
+   clojure.lang.Compiler/SOURCE source-name
+   #'*ns* *ns*
+   #'*read-eval* *read-eval*
+   #'*data-readers* *data-readers*
+   #'*unchecked-math* *unchecked-math*
+   #'*warn-on-reflection* *warn-on-reflection*})
+
+(defn- load-top-forms
+  "Load `source-file` exactly as the project's own require would — read one
+   form, evaluate it, read the next — capturing each raw form with its
+   :source/:line/:column metadata. The evaluation between reads is what makes
+   load-time reader registrations (a set! of *data-readers* at the top of the
+   file) visible to the file's own later tagged literals; a cold re-read
+   after the load cannot see them, because the load's binding frame has
+   popped (.scratch/reader-probes/ probe4 vs probe5)."
+  [source-file]
+  (with-bindings (compiler-load-bindings (str source-file)
+                                         (.getName (io/file source-file)))
+    (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
+      (loop [forms []]
+        (let [form (read-one-form reader)]
+          (if (= ::eof form)
+            forms
+            (do (eval form)
+                (recur (conj forms form)))))))))
+
+(defn- namespace-loaded?
+  [ns-sym]
+  (contains? (loaded-libs) ns-sym))
+
+(defn- mark-namespace-loaded!
+  "What require records after a successful load, so a later project require
+   of this namespace does not re-evaluate the file `load-top-forms` just
+   evaluated."
+  [ns-sym]
+  (dosync (commute @#'clojure.core/*loaded-libs* conj ns-sym)))
 
 (defn- with-form-meta
   [original rewritten]
@@ -243,10 +297,27 @@
   (println (str "WORKER " label))
   (flush))
 
+(defn- source-top-forms
+  "The file's top-level forms, by the path that matches the project's runtime
+   state: a namespace nothing has loaded yet gets the capturing load — the
+   worker performs the project's own load of the file, so load-time reader
+   registrations are visible to the forms being captured — and is then
+   recorded as loaded; a namespace some earlier require already pulled in is
+   not re-evaluated, its source is re-read without evaluation."
+  [ns-sym source-file]
+  (if (namespace-loaded? ns-sym)
+    (do (worker-log (str "reading top-forms of already-loaded " ns-sym))
+        (read-top-forms (target-ns ns-sym) source-file))
+    (do (worker-log (str "loading " ns-sym))
+        (let [forms (load-top-forms source-file)]
+          (mark-namespace-loaded! ns-sym)
+          forms))))
+
 (defn analyze-source-file
-  "Analyze every top-level form of `source-file` in namespace `ns-sym`. Loads
-   the namespace first so its refers/aliases/imports resolve (matching the host
-   pipeline's require-before-analyze contract). Each form is normalized
+  "Analyze every top-level form of `source-file` in namespace `ns-sym`. The
+   namespace's first load is performed by the worker itself, capturing forms
+   as that load reads them (see `source-top-forms`), so refers/aliases/imports
+   resolve and load-time reader state is honored. Each form is normalized
    (`s/defn` -> plain `defn`) before analysis so the AST root is the `:def`
    node def-discovery expects; the raw read form is kept as `:source-form` for
    host-side blame/location. The worker reads its own source; no form crosses
@@ -254,11 +325,8 @@
    each raw top-level form with its tools.analyzer.jvm AST (`:const` `:type`
    stripped); the host projects each entry for the wire."
   [ns-sym source-file]
-  (worker-log (str "requiring " ns-sym))
-  (require ns-sym)
-  (worker-log (str "reading top-forms of " ns-sym))
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}
-        forms (read-top-forms (target-ns ns-sym) source-file)
+        forms (source-top-forms ns-sym source-file)
         form-count (count forms)
         _ (worker-log (str "analyzing " form-count " forms in " ns-sym))
         entries (into [] (map-indexed

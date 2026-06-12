@@ -7,6 +7,7 @@
         org.clojure/data.json          {:mvn/version "2.5.1"}
         org.clojure/tools.analyzer     {:mvn/version "1.2.2"}
         org.clojure/tools.analyzer.jvm {:mvn/version "1.4.0-beta1"}
+        org.clojure/tools.namespace    {:mvn/version "1.5.1"}
         org.clojure/tools.cli          {:mvn/version "1.0.214"}
         org.clojure/tools.deps         {:mvn/version "0.29.1598"}
         org.babashka/sci               {:mvn/version "0.12.51"}
@@ -18,10 +19,10 @@
   ;; resolves this alias via `tools.deps/create-basis {:aliases [:worker]}`
   ;; and hands the resolved classpath roots to the worker spawn as the
   ;; runtime-cp tail of the launch classpath. project.clj's :worker profile
-  ;; declares the SAME coordinates for the lein-skeptic plugin path. The 10
-  ;; coordinates are the namespaces F1's walk identified as load-bearing for
-  ;; the worker JVM: clojure, clojurescript, tools.analyzer(.jvm),
-  ;; tools.reader, core.cache/memoize, data.priority-map, transit-clj, nrepl.
+  ;; declares the SAME coordinates for the lein-skeptic plugin path. The 11
+  ;; coordinates are the namespaces load-bearing for the worker JVM: clojure,
+  ;; clojurescript, tools.analyzer(.jvm), tools.reader, tools.namespace,
+  ;; core.cache/memoize, data.priority-map, transit-clj, nrepl.
   ;; :replace-deps (not :extra-deps) so resolution starts FROM the worker
   ;; coordinate list, not Skeptic's host deps + worker deps merged.
   :worker
@@ -31,6 +32,7 @@
     org.clojure/tools.analyzer      {:mvn/version "1.2.2"}
     org.clojure/tools.analyzer.jvm  {:mvn/version "1.4.0-beta1"}
     org.clojure/tools.reader        {:mvn/version "1.6.0"}
+    org.clojure/tools.namespace     {:mvn/version "1.5.1"}
     org.clojure/core.cache          {:mvn/version "1.2.249"}
     org.clojure/core.memoize        {:mvn/version "1.2.273"}
     org.clojure/data.priority-map   {:mvn/version "1.2.1"}

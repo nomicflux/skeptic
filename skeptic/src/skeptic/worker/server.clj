@@ -24,6 +24,7 @@
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [clojure.java.io :as io]
+            [clojure.tools.namespace.parse :as tns-parse]
             [skeptic.worker.analyzer-clj :as wac]
             [skeptic.worker.analyzer-cljs :as wac-cljs]
             [skeptic.worker.client :as worker-client]
@@ -218,6 +219,45 @@
       (if-let [re (reader-error-cause e)]
         {:read-failure (or (.getMessage ^Throwable re) (str re))}
         (throw e)))))
+
+(defn- ns-decl-deps
+  "Namespace dependencies parsed from the file's ns declaration with
+   tools.namespace's own grammar (prefix lists, vectors, :require/:use).
+   nil when the file has no readable ns declaration — the pair then keeps
+   its request position."
+  [source-file]
+  (try
+    (with-open [rdr (java.io.PushbackReader. (io/reader (io/file (str source-file))))]
+      (when-let [decl (tns-parse/read-ns-decl rdr)]
+        (tns-parse/deps-from-ns-decl decl)))
+    (catch Throwable _ nil)))
+
+(defn- dependency-ordered-pairs
+  "Reorder the requested [ns-str source-file] pairs so dependencies among the
+   checked namespaces come before their dependents: the worker performs the
+   FIRST load of every checked file itself (the capturing load in
+   `skeptic.worker.analyzer-clj`), instead of a dependent's transitive require
+   getting there first and discarding load-time reader state. Order among
+   unrelated namespaces is the request order. A require cycle cannot load
+   under Clojure; here it simply keeps request order."
+  [pairs]
+  (let [file-of (reduce (fn [m [ns-str sf]]
+                          (if (contains? m ns-str) m (assoc m ns-str sf)))
+                        {} pairs)
+        deps-of (fn [ns-str]
+                  (->> (ns-decl-deps (get file-of ns-str))
+                       (map str)
+                       (filter file-of)))
+        visit (fn visit [[seen order] ns-str]
+                (if (contains? seen ns-str)
+                  [seen order]
+                  (let [[seen' order'] (reduce visit
+                                               [(conj seen ns-str) order]
+                                               (deps-of ns-str))]
+                    [seen' (conj order' ns-str)])))
+        [_ ordered] (reduce visit [#{} []] (map first pairs))
+        rank (into {} (map-indexed (fn [i n] [n i]) ordered))]
+    (vec (sort-by (fn [[ns-str _]] (get rank ns-str)) pairs))))
 
 (defn- class-name-for-handle
   "The canonical name of the Class behind handle `a`, or nil if not interned.
@@ -907,7 +947,7 @@
           (fn [{:keys [op transport namespaces] :as msg}]
             (if (= op "analyze-namespaces-stream")
               (do
-                (doseq [pair namespaces]
+                (doseq [pair (dependency-ordered-pairs namespaces)]
                   (stream-namespace! transport msg pair))
                 (send-reply! transport msg {:status #{:done}}))
               (h msg))))

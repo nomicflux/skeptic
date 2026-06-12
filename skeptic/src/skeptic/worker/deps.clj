@@ -5,9 +5,10 @@
      - `leiningen.skeptic` resolves it via leiningen's aether wrapper.
      - `skeptic.cli.main` resolves it via tools.deps.
 
-   The 10 coordinates are the namespaces F1's walk identified as load-bearing
-   for the worker JVM: clojure, clojurescript, tools.analyzer(.jvm),
-   tools.reader, core.cache/memoize, data.priority-map, transit-clj, nrepl.
+   The 11 coordinates are the namespaces load-bearing for the worker JVM:
+   clojure, clojurescript, tools.analyzer(.jvm), tools.reader,
+   tools.namespace (ns-decl parsing for dependency-ordered loading),
+   core.cache/memoize, data.priority-map, transit-clj, nrepl.
    Whatever each build system transitively resolves from this set is the
    worker's runtime universe under that build system.
 
@@ -26,6 +27,7 @@
     [org.clojure/tools.analyzer      "1.2.2"]
     [org.clojure/tools.analyzer.jvm  "1.4.0-beta1"]
     [org.clojure/tools.reader        "1.6.0"]
+    [org.clojure/tools.namespace     "1.5.1"]
     [org.clojure/core.cache          "1.2.249"]
     [org.clojure/core.memoize        "1.2.273"]
     [org.clojure/data.priority-map   "1.2.1"]
