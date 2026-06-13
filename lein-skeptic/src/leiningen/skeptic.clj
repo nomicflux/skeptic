@@ -1,15 +1,11 @@
 (ns leiningen.skeptic
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [leiningen.core.classpath]
             [leiningen.core.eval]
             [leiningen.core.main]
             [schema.core]
-            [skeptic.cli.cljs.lein :as cljs-lein]
             [skeptic.cli.options :as cli-opts]
-            [skeptic.worker.classpath :as worker-classpath]
-            [skeptic.worker.client :as worker-client])
-  (:import [java.util.concurrent TimeUnit]))
+            [skeptic.worker.client :as worker-client]))
 
 (defn- required-var
   [sym]
@@ -17,244 +13,86 @@
       (throw (ex-info (str "Could not resolve " sym) {:sym sym}))))
 
 (defn- vlog
-  "Emit a `-v`-gated startup marker to stderr (so it appears even when stdout
-   is redirected via -o). Each marker names the host-side step about to run.
-   A user reporting a hang can name the last marker printed; that identifies
-   which synchronous call blocked."
   [verbose? label]
   (when verbose?
     (binding [*out* *err*]
       (println (str "[skeptic startup] " label))
       (flush))))
 
-(defn- resolve-worker-jars
-  "Resolve Skeptic's worker dependency declaration via leiningen's aether
-   wrapper. The declaration lives in `skeptic.worker.deps/worker-deps` —
-   Skeptic owns it as data, lein resolves it as a synthetic project.
-   The synthetic project inherits the real project's `:repositories` so
-   aether knows where to download from."
-  [project verbose?]
-  (let [worker-deps (deref (required-var 'skeptic.worker.deps/worker-deps))
-        synthetic-project {:dependencies worker-deps
-                           :repositories (:repositories project)}]
-    (vlog verbose? (str "resolving worker deps ("
-                        (count worker-deps) " coords) against "
-                        (count (:repositories project)) " repositories: "
-                        (mapv first (:repositories project))))
-    (mapv #(.getAbsolutePath ^java.io.File %)
-          (leiningen.core.classpath/resolve-managed-dependencies
-            :dependencies :managed-dependencies synthetic-project))))
+(defn- project-with-worker-deps
+  "Augment the project's :dependencies with Skeptic's worker runtime coords so
+   Lein's own resolver builds the worker classpath. The user's :dependencies
+   are not replaced — Lein merges via standard dependency resolution; the
+   project's pinned versions for shared libs win via Aether's nearest-direct
+   rule. This is the only project-map mutation Skeptic performs; profile
+   composition, classpath construction, prep, injections, and global-vars are
+   all Lein's via eval-in-project."
+  [project]
+  (let [worker-deps (deref (required-var 'skeptic.worker.deps/worker-deps))]
+    (update project :dependencies (fnil into []) worker-deps)))
 
-(defn- resolve-plugin-jars
-  "lein's `get-classpath` only walks `:dependencies`; plugin jars resolved
-   from `:plugins` are on lein's own process classpath but never reach the
-   project's runtime classpath. Some projects declare cljs-side libraries
-   under `:plugins` (e.g. `lein-doo` for `doo.runner` test entrypoints);
-   without this augmentation those namespaces are unresolvable when Skeptic
-   analyzes the project's cljs sources."
-  [project verbose?]
-  (vlog verbose? (str "resolving :plugins as dependencies ("
-                      (count (:plugins project)) " plugins): "
-                      (mapv first (:plugins project))))
-  (mapv #(.getAbsolutePath ^java.io.File %)
-        (leiningen.core.classpath/resolve-managed-dependencies
-          :plugins :managed-dependencies project)))
-
-(defn- worker-project
-  "The project as launched for the worker JVM. Discovered cljs source-paths
-   (e.g. cljsbuild :builds source-paths) are added so lein's classpath
-   construction and prep include them; the cljs analyzer's resolver
-   (`cljs.analyzer/locate-src` → `cljs.util/ns->source` → `io/resource`)
-   needs them on the worker classpath to find sibling required namespaces.
-   The project's `:dependencies` are never touched: Skeptic's worker runtime
-   is resolved separately and appended to the launch classpath, so dependency
-   mediation never blends Skeptic's graph with the project's."
-  [project paths]
-  (update project :source-paths #(vec (distinct (concat % paths)))))
-
-(defn- project-worker-form
-  [project port-file]
+(defn- worker-form
+  "The form eval-in-project evaluates in the project JVM. eval-in-project
+   itself wraps this with (set! *warn-on-reflection*), :global-vars, and
+   :injections — Skeptic does not duplicate that wrapping."
+  [port-file]
   (let [port-path (.getPath ^java.io.File port-file)]
     `(do
-       (set! ~'*warn-on-reflection* ~(:warn-on-reflection project))
-       ~@(map (fn [[k v]] `(set! ~k ~v)) (:global-vars project))
        (require 'skeptic.worker.server)
-       ~@(:injections project)
        (skeptic.worker.server/run-worker!
         (fn [port#] (spit ~port-path (str port#)))))))
 
-(def ^:private bootclasspath-prefix "-Xbootclasspath/a:")
-
-(defn- augment-classpath-arg
-  [prev arg combine]
-  (cond
-    (= "-classpath" prev) (combine arg)
-    (str/starts-with? arg bootclasspath-prefix)
-    (str bootclasspath-prefix (combine (subs arg (count bootclasspath-prefix))))
-    :else arg))
-
-(defn- worker-launch-command
-  "Lein's project JVM command for `form`, with Skeptic's worker runtime
-   appended to the classpath argument. Lein's own classpath (project entries)
-   stays first; `worker-classpath-entries` appends resolved `:plugins` jars,
-   the separately resolved worker jars, and Skeptic's worker source entry.
-   The project's pinned versions win on every shared lib via first-occurrence,
-   and Skeptic's coordinates never enter the project's dependency graph."
-  [project form worker-jars plugin-jars]
-  (let [command (mapv str (leiningen.core.eval/shell-command project form))
-        separator (java.util.regex.Pattern/quote java.io.File/pathSeparator)
-        combine (fn [cp]
-                  (:combined (worker-classpath/worker-classpath-entries
-                              worker-jars
-                              (concat (str/split cp (re-pattern separator))
-                                      plugin-jars))))]
-    (mapv #(augment-classpath-arg %1 %2 combine) (cons nil command) command)))
-
-(defn- configure-process-builder!
-  [^ProcessBuilder pb project]
-  (.directory pb (io/file (:root project)))
-  (let [env (.environment pb)
-        overrides leiningen.core.eval/*env*]
-    (when (:replace (meta overrides))
-      (.clear env))
-    (.remove env "DRIP_INIT")
-    (.remove env "DRIP_INIT_CLASS")
-    (doseq [[k v] overrides]
-      (let [k (if (keyword? k) (name k) (str k))]
-        (if (nil? v)
-          (.remove env k)
-          (.put env k (str v))))))
-  pb)
-
-(defn- remember-line
-  [lines line]
-  (swap! lines
-         (fn [current]
-           (let [next-lines (conj current line)]
-             (if (> (count next-lines) 200)
-               (subvec next-lines (- (count next-lines) 200))
-               next-lines)))))
-
-(defn- start-output-drain!
-  [stream label verbose? lines]
-  (let [thread
+(defn- start-worker-thread!
+  "eval-in-project blocks until the form returns, but Skeptic's worker form
+   is a runloop. Run it on a dedicated thread so the plugin's main thread can
+   drive checking through the worker's nREPL port. The thread carries the
+   eval-in-project's outcome (normal return or Throwable) for inspection
+   after shutdown."
+  [project form verbose?]
+  (let [outcome (atom nil)
+        thread
         (Thread.
          ^Runnable
          (fn []
            (try
-             (with-open [reader (io/reader stream)]
-               (doseq [line (line-seq reader)]
-                 (remember-line lines line)
-                 (when verbose?
-                   (.println System/err (str "[skeptic worker " label "] " line))
-                   (.flush System/err))))
-             (catch Throwable _))))]
+             (vlog verbose? "eval-in-project: invoking worker form")
+             (leiningen.core.eval/eval-in-project project form)
+             (reset! outcome {:value :returned})
+             (catch Throwable e
+               (reset! outcome {:error e})))))]
     (.setDaemon thread true)
-    (.setName thread (str "skeptic-project-worker-" label "-drain"))
+    (.setName thread "skeptic-worker-eval-in-project")
     (.start thread)
-    thread))
-
-(defn- remove-shutdown-hook!
-  [hook]
-  (when hook
-    (try
-      (.removeShutdownHook (Runtime/getRuntime) ^Thread hook)
-      (catch IllegalStateException _)
-      (catch Throwable _))))
-
-(defn- join-output-drains!
-  [{:keys [stdout-drain stderr-drain]}]
-  (doseq [^Thread thread [stdout-drain stderr-drain]]
-    (when thread
-      (try
-        (.join thread 1000)
-        (catch InterruptedException _
-          (.interrupt (Thread/currentThread)))))))
-
-(defn- process-output
-  [{:keys [stdout-lines stderr-lines]}]
-  {:worker-stdout @stdout-lines
-   :worker-stderr @stderr-lines})
-
-(defn- process-output-message
-  [{:keys [worker-stdout worker-stderr]}]
-  (let [sections (cond-> []
-                   (seq worker-stdout)
-                   (conj (str "Worker stdout:\n" (str/join "\n" worker-stdout)))
-                   (seq worker-stderr)
-                   (conj (str "Worker stderr:\n" (str/join "\n" worker-stderr))))]
-    (when (seq sections)
-      (str "\n" (str/join "\n" sections)))))
-
-(defn- terminate-project-process!
-  [{:keys [^Process proc shutdown-hook] :as process-state}]
-  (when (.isAlive proc)
-    (.destroy proc)
-    (when-not (.waitFor proc 1000 TimeUnit/MILLISECONDS)
-      (.destroyForcibly proc)
-      (.waitFor proc 1000 TimeUnit/MILLISECONDS)))
-  (join-output-drains! process-state)
-  (remove-shutdown-hook! shutdown-hook))
-
-(defn- owned-process-state
-  [^Process proc verbose?]
-  (let [stdout-lines (atom [])
-        stderr-lines (atom [])
-        shutdown-hook (Thread. ^Runnable
-                               (fn []
-                                 (when (.isAlive proc)
-                                   (.destroy proc))))]
-    (.setName shutdown-hook "skeptic-project-worker-shutdown")
-    (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
-    {:proc proc
-     :stdout-lines stdout-lines
-     :stderr-lines stderr-lines
-     :stdout-drain (start-output-drain! (.getInputStream proc)
-                                        "stdout" verbose? stdout-lines)
-     :stderr-drain (start-output-drain! (.getErrorStream proc)
-                                        "stderr" verbose? stderr-lines)
-     :shutdown-hook shutdown-hook}))
-
-(defn- start-project-process!
-  [project port-file verbose?]
-  (binding [*out* *err*]
-    (leiningen.core.eval/prep project))
-  (when (:warn-on-reflection project)
-    (binding [*out* *err*]
-      (leiningen.core.main/info "Reflection warning, lein-skeptic worker.")))
-  (let [worker-jars (resolve-worker-jars project verbose?)
-        plugin-jars (resolve-plugin-jars project verbose?)
-        form (project-worker-form project port-file)
-        command (worker-launch-command project form worker-jars plugin-jars)
-        pb (configure-process-builder! (ProcessBuilder. ^java.util.List command)
-                                       project)]
-    (owned-process-state (.start pb) verbose?)))
+    {:thread thread :outcome outcome}))
 
 (defn- wait-for-worker-port
-  [port-file {:keys [^Process proc] :as process-state}]
+  [port-file {:keys [outcome]}]
   (loop []
     (let [contents (when (.exists ^java.io.File port-file)
                      (str/trim (slurp port-file)))]
       (cond
         (seq contents) (Integer/parseInt contents)
-        (not (.isAlive proc))
-        (do
-          (join-output-drains! process-state)
-          (let [output (process-output process-state)]
-            (throw (ex-info
-                    (str "project-runtime worker failed before port handshake"
-                         (process-output-message output))
-                    (merge {:exit-code (.exitValue proc)
-                            :port-file (.getPath ^java.io.File port-file)}
-                           output)))))
+
+        @outcome
+        (let [{:keys [error]} @outcome]
+          (throw (ex-info
+                  (if error
+                    (str "worker eval-in-project failed before port handshake: "
+                         (.getName (class error)) ": " (.getMessage error))
+                    "worker eval-in-project returned before port handshake")
+                  {:port-file (.getPath ^java.io.File port-file)
+                   :outcome @outcome}
+                  (when error error))))
+
         :else
         (do
           (Thread/sleep 10)
           (recur))))))
 
 (defn- request-worker-shutdown!
-  "Ask the worker to stop via the shutdown op. Returns true when the worker
-   acknowledged the request, false when it could not be delivered."
+  "Ask the worker to stop via the shutdown op. The worker's run-worker!
+   loop exits cleanly on receipt; eval-in-project's thread then returns
+   normally."
   [port verbose?]
   (try
     (let [conn (worker-client/connect verbose? port)]
@@ -265,38 +103,44 @@
           (worker-client/disconnect! conn))))
     (catch Throwable e
       (vlog verbose?
-            (str "worker shutdown request failed; terminating owned process: "
+            (str "worker shutdown request failed: "
                  (.getName (class e)) ": " (.getMessage e)))
       false)))
 
 (defn- stop-project-worker!
-  [port-file process-state port verbose?]
+  [port-file {:keys [^Thread thread]} port verbose?]
   (try
     (when (request-worker-shutdown! port verbose?)
-      (let [^Process proc (:proc process-state)]
-        (when (.isAlive proc)
-          (.waitFor proc 10000 TimeUnit/MILLISECONDS))))
+      (.join thread 10000))
     (finally
-      (terminate-project-process! process-state)
+      (when (.isAlive thread)
+        (.interrupt thread)
+        (.join thread 1000))
       (.delete ^java.io.File port-file))))
 
 (defn- spawn-project-worker!
-  [project paths verbose?]
+  "Launch the worker JVM via Lein's eval-in-project on a dedicated thread.
+   Lein owns: classpath, profile composition, prep, injections, global-vars,
+   jvm-opts. Skeptic owns: the request that the worker form runs, with the
+   worker runtime coords added to :dependencies via project-with-worker-deps."
+  [project verbose?]
   (let [port-file (java.io.File/createTempFile "skeptic-project-worker-" ".port")
         _ (.delete port-file)
-        launch-project (worker-project project paths)]
+        launch-project (project-with-worker-deps project)
+        form (worker-form port-file)]
     (try
-      (let [process-state (start-project-process! launch-project port-file verbose?)]
+      (let [eval-state (start-worker-thread! launch-project form verbose?)]
         (try
-          (let [port (wait-for-worker-port port-file process-state)]
-            (vlog verbose? (str "project-runtime worker handshake received port=" port))
-            (assoc process-state
+          (let [port (wait-for-worker-port port-file eval-state)]
+            (vlog verbose? (str "worker handshake received port=" port))
+            (assoc eval-state
                    :port port
                    :stop-fn #(stop-project-worker!
-                              port-file process-state port verbose?)))
+                              port-file eval-state port verbose?)))
           (catch Throwable e
             (try
-              (terminate-project-process! process-state)
+              (when (.isAlive ^Thread (:thread eval-state))
+                (.interrupt ^Thread (:thread eval-state)))
               (catch Throwable cleanup-error
                 (.addSuppressed e cleanup-error)))
             (throw e))))
@@ -313,13 +157,8 @@
                           (leiningen.core.main/warn summary)
                           (leiningen.core.main/abort))
       :else
-      (let [verbose? (:verbose options)
-            _ (vlog verbose? "discovering cljs sources")
-            paths (:source-paths (cljs-lein/discover-sources project))
-            _ (vlog verbose? "loading skeptic.profiling / skeptic.core")
+      (let [check-project (required-var 'skeptic.core/check-project)
             profiling-run (required-var 'skeptic.profiling/run)
-            check-project (required-var 'skeptic.core/check-project)
-            _ (vlog verbose? "entering check-project")
             output-path (:output options)
             writer (when output-path (io/writer output-path))]
         (try
@@ -327,13 +166,12 @@
             (schema.core/without-fn-validation
               (profiling-run options (str (:root project) "/target")
                 (fn []
-                  (apply check-project
-                         (assoc options
-                                :worker-spawn
-                                (fn [worker-verbose?]
-                                  (spawn-project-worker! project paths worker-verbose?)))
-                         (:root project)
-                         paths)))))
+                  (check-project
+                   (assoc options
+                          :worker-spawn
+                          (fn [worker-verbose?]
+                            (spawn-project-worker! project worker-verbose?)))
+                   (:root project))))))
           (finally
             (when writer
               (.flush writer)

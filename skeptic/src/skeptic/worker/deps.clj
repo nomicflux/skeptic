@@ -5,12 +5,13 @@
      - `leiningen.skeptic` resolves it via leiningen's aether wrapper.
      - `skeptic.cli.main` resolves it via tools.deps.
 
-   The 11 coordinates are the namespaces load-bearing for the worker JVM:
-   clojure, clojurescript, tools.analyzer(.jvm), tools.reader,
-   tools.namespace (ns-decl parsing for dependency-ordered loading),
-   core.cache/memoize, data.priority-map, transit-clj, nrepl.
-   Whatever each build system transitively resolves from this set is the
-   worker's runtime universe under that build system.
+   The coordinates are the namespaces load-bearing for the worker JVM:
+   skeptic itself (the worker server/transport code), clojure,
+   clojurescript, tools.analyzer(.jvm), tools.reader, tools.namespace
+   (ns-decl parsing for dependency-ordered loading), core.cache/memoize,
+   data.priority-map, transit-clj, nrepl. Whatever each build system
+   transitively resolves from this set is the worker's runtime universe
+   under that build system.
 
    `skeptic/project.clj`'s `:worker` profile and `skeptic/deps.edn`'s
    `:worker` alias mirror this vector for ad-hoc invocations like
@@ -22,7 +23,8 @@
    leiningen.core.classpath/resolve-managed-dependencies via a synthetic
    project map. Deps.edn-shape: converted to a {coord {:mvn/version v}} map
    for tools.deps/create-basis."
-  '[[org.clojure/clojure             "1.12.0"]
+  '[[org.clojars.nomicflux/skeptic   "0.9.0-rc8"]
+    [org.clojure/clojure             "1.12.0"]
     [org.clojure/clojurescript       "1.11.132"]
     [org.clojure/tools.analyzer      "1.2.2"]
     [org.clojure/tools.analyzer.jvm  "1.4.0-beta1"]
