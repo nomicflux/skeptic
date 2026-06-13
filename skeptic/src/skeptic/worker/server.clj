@@ -38,6 +38,48 @@
 (defonce ^:private fn-handle-state
   (atom {:next-id 0 :id->fn {} :fn->id {}}))
 
+(defn- bultitude-fn
+  "Resolve a bultitude.core fn explicitly. require+resolve (no
+   requiring-resolve, which is 1.10+; the worker must compile under the
+   project's pinned Clojure, floor 1.8)."
+  [sym]
+  (require 'bultitude.core)
+  (or (resolve sym)
+      (throw (ex-info (str "could not resolve " sym) {:sym sym}))))
+
+(defn- locate-ns-source-file
+  "Resolve `ns-sym` against `root` to its on-disk source file. bultitude's
+   `path-for` returns a classpath-relative path like `foo/bar.clj`; the
+   actual file may be a `.clj` or `.cljc` under `root`. Returns the
+   absolute path string, or nil when neither extension exists."
+  [^java.io.File root ns-sym]
+  (let [path-for (bultitude-fn 'bultitude.core/path-for)
+        clj-file (io/file root (path-for ns-sym "clj"))
+        cljc-file (io/file root (path-for ns-sym "cljc"))]
+    (cond
+      (.isFile clj-file) (.getAbsolutePath clj-file)
+      (.isFile cljc-file) (.getAbsolutePath cljc-file)
+      :else nil)))
+
+(defn- discover-source-namespaces-reply
+  "Enumerate the namespaces under each path in `paths` using bultitude. Each
+   path is treated as a single classpath root. Returns
+   `{:pairs [{:ns-sym \"...\" :source-file \"abs/path\"} ...]}`, one entry per
+   discovered (ns-sym, source-file) pair. A namespace declared in more than one
+   root produces one pair per root; the host treats the pair list as the
+   discovery's whole truth."
+  [paths]
+  (let [namespaces-on-cp (bultitude-fn 'bultitude.core/namespaces-on-classpath)
+        pairs (vec (for [path paths
+                         :let [root (io/file path)]
+                         :when (.isDirectory root)
+                         ns-sym (namespaces-on-cp :classpath [root]
+                                                  :ignore-unreadable? false)
+                         :let [src (locate-ns-source-file root ns-sym)]
+                         :when src]
+                     {:ns-sym (str ns-sym) :source-file src}))]
+    {:pairs pairs}))
+
 (def ^:dynamic *project-operation-thread* false)
 
 (defonce ^:private project-operation-submit
@@ -1014,9 +1056,19 @@
                                         {:status #{:done}
                                          :result (with-project-operation (boolean (pred arg)))})))
               (h msg))))
+        wrap-discover-source-namespaces
+        (fn [h]
+          (fn [{:keys [op transport paths] :as msg}]
+            (if (= op "discover-source-namespaces")
+              (send-reply-or-error* transport msg
+                                    (fn []
+                                      (let [{:keys [pairs]} (discover-source-namespaces-reply paths)]
+                                        {:pairs pairs :status #{:done}})))
+              (h msg))))
         handler (-> unknown-op
                     wrap-shutdown
                     wrap-apply-predicate
+                    wrap-discover-source-namespaces
                     wrap-cljs-ns-head
                     wrap-analyze-cljs-namespace
                     wrap-analyze-namespaces-stream

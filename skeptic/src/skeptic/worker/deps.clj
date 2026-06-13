@@ -34,7 +34,8 @@
     [org.clojure/core.memoize        "1.2.273"]
     [org.clojure/data.priority-map   "1.2.1"]
     [com.cognitect/transit-clj       "1.0.333"]
-    [nrepl                           "1.3.1"]])
+    [nrepl                           "1.3.1"]
+    [bultitude                       "0.2.8"]])
 
 (defn worker-deps-as-mvn-map
   "Convert `worker-deps` to the {coord {:mvn/version v}} shape tools.deps

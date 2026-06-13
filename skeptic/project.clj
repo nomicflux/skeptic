@@ -24,7 +24,8 @@
                  [org.babashka/sci           "0.12.51"]
                  [commons-io                 "2.11.0"]
                  [com.cognitect/transit-clj  "1.0.333"]
-                 [nrepl                      "1.3.1"]]
+                 [nrepl                      "1.3.1"]
+                 [bultitude                  "0.2.8"]]
   :profiles {:dev {:injections [(do (require 'schema.core)
                                      ((resolve 'schema.core/set-fn-validation!) true))]}
              :skeptic-plugin {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc8"]]}
@@ -46,4 +47,5 @@
                                      [org.clojure/core.memoize        "1.2.273"]
                                      [org.clojure/data.priority-map   "1.2.1"]
                                      [com.cognitect/transit-clj       "1.0.333"]
-                                     [nrepl                           "1.3.1"]]}})
+                                     [nrepl                           "1.3.1"]
+                                     [bultitude                       "0.2.8"]]}})
