@@ -82,6 +82,21 @@
         #(wc/disconnect! conn))))
    #(wproc/stop! worker)))
 
+(defn- worker-discover-pairs
+  "Ask the worker to enumerate namespaces under `discovery-paths` using its
+   own bultitude-on-classpath scoped to those paths. The host never walks
+   the filesystem under this path: the worker is the project's own runtime,
+   and its discovery scope is exactly the paths the project map declared.
+   Returns a vector of [ns-sym source-file] tuples mirroring the
+   host-discovery shape."
+  [conn discovery-paths]
+  (let [reply (wc/ask conn {:op "discover-source-namespaces"
+                            :paths (vec discovery-paths)})]
+    (->> (:pairs reply)
+         (map (fn [{:keys [ns-sym source-file]}]
+                [(symbol ns-sym) (io/file source-file)]))
+         (into []))))
+
 (s/defn check-project :- s/Int
   [opts :- copts/CheckProjectOpts root :- (s/cond-pre s/Str java.io.File) & paths :- [s/Str]]
   (let [raw-namespaces (:namespace opts)
@@ -90,7 +105,16 @@
         raw-config (config/load-raw-config root)
         type-overrides (config/compile-overrides (:type-overrides raw-config))
         opts (assoc opts :skeptic/config raw-config :skeptic/type-overrides type-overrides)
-        {:keys [files failures]} (discover-project-files opts root paths)
+        ;; Discovery splits on path source. When :skeptic/discovery-paths is
+        ;; set (lein plugin propagates :source-paths ∪ :test-paths there), the
+        ;; worker enumerates namespaces against the project's own runtime and
+        ;; the host does not walk. Otherwise (deps.edn entry, test-only
+        ;; :skeptic/source-files), the host walks `paths`.
+        discovery-paths (:skeptic/discovery-paths opts)
+        host-walks? (not (seq discovery-paths))
+        {:keys [files failures]} (if host-walks?
+                                   (discover-project-files opts root paths)
+                                   {:files [] :failures []})
         files (remove #(config/path-excluded? root (:exclude-files raw-config) %) files)
         files (if (:cljs-disable opts)
                 (remove #(str/ends-with? (.getName ^java.io.File %) ".cljs") files)
@@ -98,16 +122,18 @@
         ;; Pairs, never a map: one namespace may be declared by several files
         ;; (.clj alongside .cljc). Which file defines it is the project's own
         ;; load's decision, made in the worker — never a host-side collapse.
-        discovered-pairs (try (->> files
-                                   (map file/ns-for-clojure-file)
-                                   (remove (comp nil? first))
-                                   (into []))
-                              (catch Exception e
-                                (println "Couldn't get namespaces: " e)
-                                (throw e)))
-        blocking-failures (blocking-discovery-failures requested-namespaces
-                                                       discovered-pairs
-                                                       failures)
+        host-discovered-pairs (when host-walks?
+                                (try (->> files
+                                          (map file/ns-for-clojure-file)
+                                          (remove (comp nil? first))
+                                          (into []))
+                                     (catch Exception e
+                                       (println "Couldn't get namespaces: " e)
+                                       (throw e))))
+        blocking-failures (when host-walks?
+                            (blocking-discovery-failures requested-namespaces
+                                                         host-discovered-pairs
+                                                         failures))
         _ (when (seq blocking-failures)
             (doseq [failure blocking-failures]
               (println "Skeptic could not read source path:"
@@ -154,7 +180,12 @@
       verbose? worker startup-log
       (fn [conn]
       (let [host-handles (class-oracle/intern-host-classes! conn)
-            _ (startup-log (str "host classes interned (" (count host-handles) " classes); binding worker context"))]
+            _ (startup-log (str "host classes interned (" (count host-handles) " classes); binding worker context"))
+            discovered-pairs (if host-walks?
+                               host-discovered-pairs
+                               (do (startup-log (str "asking worker to discover namespaces under "
+                                                     (count discovery-paths) " paths"))
+                                   (worker-discover-pairs conn discovery-paths)))]
         (binding [class-oracle/*worker-conn* conn
                   class-oracle/*host-class-handles* host-handles
                   class-oracle/*class-rel-cache* (atom {})

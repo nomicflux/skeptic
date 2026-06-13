@@ -160,7 +160,9 @@
       (let [check-project (required-var 'skeptic.core/check-project)
             profiling-run (required-var 'skeptic.profiling/run)
             output-path (:output options)
-            writer (when output-path (io/writer output-path))]
+            writer (when output-path (io/writer output-path))
+            discovery-paths (vec (concat (:source-paths project)
+                                         (:test-paths project)))]
         (try
           (binding [*out* (or writer *out*)]
             (schema.core/without-fn-validation
@@ -170,7 +172,8 @@
                    (assoc options
                           :worker-spawn
                           (fn [worker-verbose?]
-                            (spawn-project-worker! project worker-verbose?)))
+                            (spawn-project-worker! project worker-verbose?))
+                          :skeptic/discovery-paths discovery-paths)
                    (:root project))))))
           (finally
             (when writer
