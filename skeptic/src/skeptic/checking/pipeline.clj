@@ -610,53 +610,15 @@
    :exception-message (or (.getMessage e)
                           (str e))})
 
-(defn- per-form-compile-time-recovery?
-  "True when the entry's exception was reconstructed from a worker-side load
-   or analyzer-pass failure on a single top-level form (best-effort recovery,
-   project-faithful-load). The `:skeptic.recovery/per-form-compile-time` tag
-   is set by `reattach-entry-meta` on these reconstructions."
-  [^Throwable e]
-  (boolean (:skeptic.recovery/per-form-compile-time (ex-data e))))
-
-(s/defn compile-time-exception-result :- s/Any
-  "Per-form compile-time exception observed in the project's own load or in
-   the analyzer pass. Reframed (output facet logical): this is a project
-   finding, not a skeptic-internal error. Wire `:report-kind :exception`
-   stays unchanged; the `:per-form-compile-time? true` flag tells the output
-   layer to use the reframed prose. The exception class on the wire is the
-   class the worker reported (carried in ex-data), not the reconstructed
-   `ExceptionInfo` wrapper."
-  [ns-sym :- (s/maybe s/Symbol) source-file source-form e :- Throwable
-   lang :- (s/enum :clj :cljs :both)]
-  (let [data (ex-data e)
-        wire-class (:exception-class data)
-        wire-message (:exception-message data)]
-    {:report-kind :exception
-     :phase :expression
-     :per-form-compile-time? true
-     :blame source-form
-     :source-expression (cf/form-source source-form)
-     :location (location-with-source (cf/form-location source-file source-form) :inferred lang)
-     :enclosing-form (enclosing-form ns-sym source-form)
-     :exception-class (symbol (or wire-class (.getName (class e))))
-     :exception-message (or wire-message (.getMessage e) (str e))}))
-
 (defn- analyzer-failure-result
-  "Route an analyzer-side Throwable to the right report-kind. Per-form
-   compile-time recovery (load or analyzer-pass exception caught
-   worker-side) routes to `compile-time-exception-result` so output reframes
-   the prose as a project finding. Macroexpansion failures (e.g. cljs
-   macros rejecting a runtime arg) are gradually-typed as
-   `:analysis-skipped`; other analyzer crashes remain `:exception`."
+  "Route an analyzer-side Throwable to the right report-kind. Macroexpansion
+   failures (e.g. cljs macros rejecting a runtime arg, or a per-form
+   compile-time exception caught worker-side and reconstructed with the
+   :macroexpansion phase tag) are gradually-typed as :analysis-skipped;
+   other analyzer crashes remain :exception."
   [ns-sym source-file source-form e lang]
-  (cond
-    (per-form-compile-time-recovery? e)
-    (compile-time-exception-result ns-sym source-file source-form e lang)
-
-    (macroexpansion-failure? e)
+  (if (macroexpansion-failure? e)
     (analysis-skipped-result ns-sym source-file source-form e lang)
-
-    :else
     (expression-exception-result ns-sym source-file source-form e lang)))
 
 (s/defn ^:private resolved-defs-provenance :- {s/Symbol provs/Provenance}
@@ -901,11 +863,10 @@
    shape. See `skeptic.worker.wire/apply-form-meta`.
 
    When the worker shipped a per-form `:exception-class`/`:exception-message`
-   (best-effort recovery, project-faithful-load), reconstruct a Throwable and
-   stash it under `:exception` so `check-cached-entry`'s existing exception
-   arm produces the finding. The reconstructed exception's class name is
-   preserved in the `ex-info` message so output reporting can surface it as
-   the project's compile-time error."
+   (best-effort recovery, project-faithful-load), reconstruct a Throwable
+   tagged with `:clojure.error/phase :macroexpansion` so the existing
+   `analyzer-failure-result` routing demotes the offending form to Dyn via
+   `analysis-skipped-result`."
   [{:keys [source-form source-form-meta ast ast-meta
            exception-class exception-message exception-data] :as entry}]
   (cond-> (dissoc entry :source-form-meta :ast-meta
@@ -913,10 +874,10 @@
     source-form-meta (assoc :source-form (wire/apply-form-meta source-form source-form-meta))
     ast-meta         (assoc :ast (wire/apply-form-meta ast ast-meta))
     exception-class  (assoc :exception (ex-info (str exception-class ": " exception-message)
-                                                {:exception-class exception-class
+                                                {:clojure.error/phase :macroexpansion
+                                                 :exception-class exception-class
                                                  :exception-message exception-message
-                                                 :exception-data exception-data
-                                                 :skeptic.recovery/per-form-compile-time true}))))
+                                                 :exception-data exception-data}))))
 
 (defn- process-stream-reply
   "Handle one intermediate reply from the streaming worker op. Reattaches

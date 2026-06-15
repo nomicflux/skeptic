@@ -55,14 +55,10 @@
 
 (s/defn exception-error-summary :- s/Str
   [report]
-  (let [{:keys [phase blame exception-message report-kind per-form-compile-time?]} report
+  (let [{:keys [phase blame exception-message report-kind]} report
         skipped? (= :analysis-skipped report-kind)
-        opening (cond
-                  per-form-compile-time?
-                  "A compile-time error was raised while analyzing %s:"
-                  skipped?
+        opening (if skipped?
                   "Skeptic could not analyze %s; treating as Dyn."
-                  :else
                   "Skeptic hit an exception while checking %s.")
         subject (case phase
                   :declaration (format "declared schema for %s" (pr-str blame))
@@ -75,8 +71,6 @@
                             (str/join "\n"
                                       (map colours/yellow detail-lines))))
         skip-text (cond
-                    per-form-compile-time?
-                    "Treated as Dyn; the rest of the namespace was checked."
                     skipped?
                     "The rest of the namespace was checked."
                     (= :declaration phase)

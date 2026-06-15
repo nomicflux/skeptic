@@ -1,10 +1,9 @@
 (ns skeptic.checking.pipeline.per-form-recovery-test
   "Best-effort recovery (project-faithful-load logical): a top-level form
    that throws at load time or during analysis does NOT abort the namespace.
-   The form's value is treated as Dyn, the rest of the namespace is checked,
-   and the exception surfaces as a per-form-compile-time finding. The `ns`
-   form is the documented exception: a failure there still aborts the
-   namespace with one finding."
+   The form is demoted via the existing :analysis-skipped path; the rest of
+   the namespace is still checked. The `ns` form is the documented exception:
+   a failure there aborts the namespace with one :exception finding."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [skeptic.analysis.class-oracle :as class-oracle]
@@ -22,10 +21,8 @@
 (defn- exceptions-of [results]
   (filterv #(= :exception (:report-kind %)) results))
 
-(defn- per-form-recovery-of [results]
-  (filterv #(and (= :exception (:report-kind %))
-                 (:per-form-compile-time? %))
-           results))
+(defn- analysis-skipped-of [results]
+  (filterv #(= :analysis-skipped (:report-kind %)) results))
 
 (defn- check-one [ns-sym source-file]
   (let [ps (pipeline/project-state {:worker-conn class-oracle/*worker-conn*}
@@ -41,91 +38,65 @@
      :second  (pipeline/check-namespace ps second-ns second-file
                                         {:remove-context true})}))
 
-(deftest t1-private-var-consumer-yields-per-form-finding-and-continues
-  ;; Consumer references a cross-namespace private var. Compiler raises
-  ;; "var: #'X is not public" on that form. The form becomes a per-form
-  ;; finding; the neighbor s/defn in the same file is still analyzed.
+(deftest t1-private-var-consumer-yields-skipped-finding-and-continues
   (let [owner-ns 'skeptic.clj-fixtures.per-form-recovery.private-owner
         consumer-ns 'skeptic.clj-fixtures.per-form-recovery.private-consumer
         owner-file (file-for "private_owner.clj")
         consumer-file (file-for "private_consumer.clj")
         {:keys [primary]} (check-two consumer-ns consumer-file owner-ns owner-file)
-        recovered (per-form-recovery-of (:results primary))]
-    (testing "exactly one per-form-compile-time finding is emitted"
-      (is (= 1 (count recovered)))
-      (is (str/includes? (str (:exception-message (first recovered)))
+        skipped (analysis-skipped-of (:results primary))]
+    (testing "exactly one analysis-skipped finding is emitted"
+      (is (= 1 (count skipped)))
+      (is (str/includes? (str (:exception-message (first skipped)))
                          "not public")))
     (testing "the rest of the namespace is still analyzed (no namespace abort)"
-      (let [other-exceptions (filterv #(and (= :exception (:report-kind %))
-                                            (not (:per-form-compile-time? %)))
-                                      (:results primary))]
-        (is (empty? other-exceptions)
-            "the namespace must not produce a wholesale abort exception finding")))))
+      (is (empty? (exceptions-of (:results primary)))
+          "the namespace must not produce a wholesale abort exception finding"))))
 
-(deftest t2-def-throws-then-reference-resolves-to-dyn
-  ;; (def boom (throw ...)) fails. (def downstream-of-boom boom) references
-  ;; the var that was never interned; under best-effort that reference is
-  ;; Dyn-typed, so no additional cascading finding is produced for it.
+(deftest t2-def-throws-then-reference
   (let [ns-sym 'skeptic.clj-fixtures.per-form-recovery.def-throws
         source-file (file-for "def_throws.clj")
         results (:results (check-one ns-sym source-file))
-        recovered (per-form-recovery-of results)]
-    (testing "one per-form finding for the throwing def"
-      (is (<= 1 (count recovered)))
-      (is (some #(str/includes? (str (:exception-message %)) "boom-def") recovered)))))
+        skipped (analysis-skipped-of results)]
+    (is (<= 1 (count skipped)))
+    (is (some #(str/includes? (str (:exception-message %)) "boom-def") skipped))))
 
 (deftest t3-bare-side-effecting-throw
-  ;; (throw ...) at top level: no symbol interned, no Dyn binding, just
-  ;; one per-form finding pinned to the throw, with :report-kind :exception
-  ;; and :per-form-compile-time? true (wire kind stays exception; the reframe
-  ;; is in classification, not in the wire kind). The neighbor defn after the
-  ;; throw is still analyzed.
   (let [ns-sym 'skeptic.clj-fixtures.per-form-recovery.bare-throws
         source-file (file-for "bare_throws.clj")
         results (:results (check-one ns-sym source-file))
-        recovered (per-form-recovery-of results)
-        finding (first recovered)]
-    (is (= 1 (count recovered)))
+        skipped (analysis-skipped-of results)
+        finding (first skipped)]
+    (is (= 1 (count skipped)))
     (is (str/includes? (str (:exception-message finding)) "bare-boom"))
-    (is (= :exception (:report-kind finding)))
-    (is (true? (:per-form-compile-time? finding)))))
+    (is (= :analysis-skipped (:report-kind finding)))))
 
 (deftest t4-ns-form-failure-aborts-the-namespace
-  ;; A failing `ns` form (here: `:import` of a non-existent class) has no
-  ;; usable namespace context for downstream forms. Documented exception:
-  ;; the namespace aborts with ONE finding pinned to the ns form. The
-  ;; finding is NOT marked per-form-compile-time? (it is the namespace-level
-  ;; abort path, not the per-form recovery path).
   (let [ns-sym 'skeptic.clj-fixtures.per-form-recovery.ns-throws
         source-file (file-for "ns_throws.clj")
         results (:results (check-one ns-sym source-file))
         exceptions (exceptions-of results)
-        recovered (per-form-recovery-of results)]
+        skipped (analysis-skipped-of results)]
     (is (= 1 (count exceptions))
         "the failing ns form aborts the namespace with one finding")
-    (is (empty? recovered)
+    (is (empty? skipped)
         "ns-form abort is the namespace-level path, not per-form recovery")))
 
 (deftest t5-two-consecutive-failures-then-healthy-form
-  ;; Two throws in a row; each is its own per-form finding. The defn after
-  ;; them is still analyzed.
   (let [ns-sym 'skeptic.clj-fixtures.per-form-recovery.two-consecutive
         source-file (file-for "two_consecutive.clj")
         results (:results (check-one ns-sym source-file))
-        recovered (per-form-recovery-of results)
-        messages (map (comp str :exception-message) recovered)]
-    (is (= 2 (count recovered)))
+        skipped (analysis-skipped-of results)
+        messages (map (comp str :exception-message) skipped)]
+    (is (= 2 (count skipped)))
     (is (some #(str/includes? % "first-boom") messages))
     (is (some #(str/includes? % "second-boom") messages))))
 
 (deftest t6-throwable-not-exception-is-caught
-  ;; `(throw (Error. ...))` raises a `java.lang.Error`, not `java.lang.Exception`.
-  ;; The catch is `Throwable`, so it still becomes a per-form finding.
   (let [ns-sym 'skeptic.clj-fixtures.per-form-recovery.throwable-error
         source-file (file-for "throwable_error.clj")
         results (:results (check-one ns-sym source-file))
-        recovered (per-form-recovery-of results)]
-    (is (= 1 (count recovered)))
-    (is (str/includes? (str (:exception-message (first recovered)))
+        skipped (analysis-skipped-of results)]
+    (is (= 1 (count skipped)))
+    (is (str/includes? (str (:exception-message (first skipped)))
                        "error-subclass-boom"))))
-
