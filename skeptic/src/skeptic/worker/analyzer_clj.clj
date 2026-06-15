@@ -147,13 +147,16 @@
    require already loaded: the source is re-read without evaluation, with
    `*ns*` bound to the loaded namespace so auto-resolved `::keyword`s resolve
    against it. Load-frame-local reader registrations are gone by now;
-   `load-top-forms` is the path that sees them."
+   `load-top-forms` is the path that sees them. Returns the same entry shape
+   as `load-top-forms` so `analyze-source-file` consumes a uniform sequence:
+   each entry is `{:source-form form}` (re-read has no eval, so no
+   `:exception` slot ever appears here)."
   [tn source-file]
   (binding [*ns* tn]
     (with-open [reader (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
       (->> (repeatedly #(read-one-form reader))
            (take-while #(not= ::eof %))
-           doall))))
+           (mapv (fn [form] {:source-form form}))))))
 
 (defn- compiler-load-bindings
   "The thread bindings Compiler.load pushes around a file load: a fresh
@@ -184,23 +187,39 @@
    *data-readers* at the top of the file) visible to the file's own later
    tagged literals; a cold re-read after the load cannot see them, because
    the load's binding frame has popped (.scratch/reader-probes/ probe4 vs
-   probe5)."
+   probe5).
+
+   Best-effort recovery (project-faithful-load logical): an exception raised
+   by `(eval form-N)` is caught and recorded as a load-time exception on the
+   captured entry; the loop continues with form N+1 against the runtime state
+   actually present after N's failure. The first form (the `ns` form) is the
+   documented exception: a failure there re-throws so the namespace aborts
+   wholesale — without the `ns` form succeeding, subsequent forms have no
+   usable namespace context."
   [source-file]
   (with-bindings (compiler-load-bindings (str source-file)
                                          (.getName (io/file source-file)))
     (with-open [eval-rdr (clojure.lang.LineNumberingPushbackReader. (io/reader source-file))
                 capture-rdr (rt/source-logging-push-back-reader (io/reader source-file) 1 (str source-file))]
-      (loop [forms []]
+      (loop [entries []]
         (let [eval-form (read {:read-cond :allow :eof ::eof} eval-rdr)
               form (read-one-form capture-rdr)]
           (cond
-            (and (= ::eof eval-form) (= ::eof form)) forms
+            (and (= ::eof eval-form) (= ::eof form)) entries
             (or (= ::eof eval-form) (= ::eof form))
             (throw (ex-info "lockstep readers disagree on form count"
                             {:source-file (str source-file)
-                             :forms-captured (count forms)}))
-            :else (do (eval eval-form)
-                      (recur (conj forms form)))))))))
+                             :forms-captured (count entries)}))
+            :else
+            (let [ns-form? (zero? (count entries))
+                  entry (try
+                          (eval eval-form)
+                          {:source-form form}
+                          (catch Throwable e
+                            (if ns-form?
+                              (throw e)
+                              {:source-form form :exception e})))]
+              (recur (conj entries entry)))))))))
 
 (defn- namespace-loaded?
   [ns-sym]
@@ -292,15 +311,28 @@
            (contains? class-declaration-head-names (name head))))))
 
 (defn- analyze-entry
-  [opts form]
-  (cond-> {:source-form form}
-    (not (class-declaration-form? form))
-    (assoc :ast (analyze (binding [*ns* (target-ns (:ns opts))]
-                           (normalize-check-form form))
-                         opts))
+  "Analyze one captured entry. A load-time `:exception` on the input entry
+   propagates as-is (no analysis attempted; downstream produces a finding).
+   An analysis-phase exception is caught and recorded as an `:exception` on
+   the returned entry — the rest of the namespace keeps being analyzed
+   (project-faithful-load best-effort)."
+  [opts {:keys [source-form exception] :as entry}]
+  (cond
+    exception
+    entry
 
-    (class-declaration-form? form)
-    (assoc :analysis-skipped? true)))
+    (class-declaration-form? source-form)
+    (assoc entry :analysis-skipped? true)
+
+    :else
+    (try
+      (assoc entry
+             :ast
+             (analyze (binding [*ns* (target-ns (:ns opts))]
+                        (normalize-check-form source-form))
+                      opts))
+      (catch Throwable e
+        (assoc entry :exception e)))))
 
 (defn- worker-log
   "Per-step marker the host's stdout-drain (process.clj/start-stdout-drain!)
@@ -316,15 +348,16 @@
    worker performs the project's own load of the file, so load-time reader
    registrations are visible to the forms being captured — and is then
    recorded as loaded; a namespace some earlier require already pulled in is
-   not re-evaluated, its source is re-read without evaluation."
+   not re-evaluated, its source is re-read without evaluation. Returns a
+   uniform sequence of entries `{:source-form ..., optional :exception ...}`."
   [ns-sym source-file]
   (if (namespace-loaded? ns-sym)
     (do (worker-log (str "reading top-forms of already-loaded " ns-sym))
         (read-top-forms (target-ns ns-sym) source-file))
     (do (worker-log (str "loading " ns-sym))
-        (let [forms (load-top-forms source-file)]
+        (let [entries (load-top-forms source-file)]
           (mark-namespace-loaded! ns-sym)
-          forms))))
+          entries))))
 
 (defn analyze-source-file
   "Analyze every top-level form of `source-file` in namespace `ns-sym`. The
@@ -336,17 +369,21 @@
    host-side blame/location. The worker reads its own source; no form crosses
    the wire. Returns `{:entries [{:source-form form :ast ast} ...]}` pairing
    each raw top-level form with its tools.analyzer.jvm AST (`:const` `:type`
-   stripped); the host projects each entry for the wire."
+   stripped); an entry may carry `:exception` instead of `:ast` when the
+   form's load-time eval or analyzer pass threw — host-side, the pipeline
+   emits a finding for that entry and continues with the rest of the
+   namespace. The `ns` form's load failure is the documented exception:
+   `source-top-forms` re-throws it so the namespace aborts wholesale."
   [ns-sym source-file _duplicate-ns?]
   (let [opts {:locals {} :ns ns-sym :source-file (str source-file)}
-        forms (source-top-forms ns-sym source-file)
-        form-count (count forms)
-        _ (worker-log (str "analyzing " form-count " forms in " ns-sym))
+        loaded-entries (source-top-forms ns-sym source-file)
+        entry-count (count loaded-entries)
+        _ (worker-log (str "analyzing " entry-count " forms in " ns-sym))
         entries (into [] (map-indexed
-                          (fn [idx form]
+                          (fn [idx loaded-entry]
                             (when (zero? (mod idx 50))
-                              (worker-log (str "  " ns-sym " form " idx "/" form-count)))
-                            (analyze-entry opts form)))
-                      forms)]
+                              (worker-log (str "  " ns-sym " form " idx "/" entry-count)))
+                            (analyze-entry opts loaded-entry)))
+                      loaded-entries)]
     (worker-log (str "done analyzing " ns-sym))
     {:entries entries}))

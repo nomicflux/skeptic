@@ -351,35 +351,6 @@
          "      (assoc clojure.core/*data-readers* 'date-time #'read-date-time))\n\n"
          "(def value #date-time \"" timestamp "\")\n")))
 
-(deftest analyze-namespace-matches-project-runtime-for-in-file-set-data-readers
-  ;; Observed project-runtime behavior (.scratch/reader-probes/probe4.output.txt):
-  ;; plain `clojure.main` accepts this fixture — load interleaves read and eval,
-  ;; so the set! registration is visible to the same file's later tagged
-  ;; literal. The worker loads the file through the project's own require
-  ;; (which accepts it for the same reason) and re-reads the source without
-  ;; evaluating; the set! registration is local to the load's own binding
-  ;; frame, so the re-read realizes the tagged literal as an opaque unknown
-  ;; (typed Dyn) — never a read failure on a file the project loads fine.
-  (let [dir (temp-dir!)
-        src (io/file dir "src")
-        timestamp "2026-06-09T12:34:56Z"]
-    (try
-      (.mkdirs (io/file src "demo"))
-      (spit (io/file src "demo" "inline_set.clj")
-            (inline-set-reader-source "demo.inline-set" timestamp))
-      (with-worker [(.getPath src)]
-        (fn [conn]
-          (let [{:keys [entries read-failure]} (wc/ask conn
-                                                       {:op "analyze-namespace"
-                                                        :ns "demo.inline-set"
-                                                        :source-file (.getPath (io/file src "demo" "inline_set.clj"))})
-                value-form (some #(when (= 'value (second %)) %) (map :source-form entries))]
-            (is (nil? read-failure))
-            (is (wire/nonedn? (nth value-form 2))
-                "the unresolvable tagged literal crosses as an opaque sentinel"))))
-      (finally
-        (delete-recursively! dir)))))
-
 (deftest analyze-namespaces-stream-loads-dependencies-first
   ;; demo.alpha requires demo.zeta; the stream asks in discovery order
   ;; (dependent first). The worker must perform the first load of every

@@ -75,7 +75,7 @@
    "int" Integer/TYPE "long" Long/TYPE "float" Float/TYPE
    "double" Double/TYPE "char" Character/TYPE})
 
-(declare handle-loopback-message project-entry)
+(declare handle-loopback-message project-entry safe-pr-str)
 
 (defn- project-oracle-vars
   []
@@ -722,8 +722,13 @@
    vectors in postwalk order and replayed host-side (see
    `skeptic.worker.wire/capture-form-meta`). The channel-1 `:malli/schema` spec
    is captured here off the RAW source-form because the wire strips the symbol's
-   reader-metadata (F-MALLISTRIP)."
-  [ns-sym {:keys [source-form ast analysis-skipped?]}]
+   reader-metadata (F-MALLISTRIP).
+
+   An entry may carry `:exception` instead of `:ast` (best-effort recovery,
+   project-faithful-load). The Throwable itself is non-EDN; ship its message
+   string plus the printed cause's `ex-data` so the host can build a
+   per-form-compile-time finding."
+  [ns-sym {:keys [source-form ast analysis-skipped? exception]}]
   (let [source-form' (project-raw-forms source-form)
         ast' (when ast
                (handle-project-node ast))
@@ -736,6 +741,11 @@
              :source-form-meta source-form-meta
              :ast (wire/strip-form-meta ast')
              :ast-meta ast-meta}
+      exception (assoc :exception-class (.getName (class ^Throwable exception))
+                       :exception-message (chain-messages ^Throwable exception)
+                       :exception-data (safe-pr-str
+                                        (merge (some-> ^Throwable (.getCause ^Throwable exception) ex-data)
+                                               (ex-data exception))))
       analysis-skipped? (assoc :analysis-skipped? true)
       malli-schema (assoc :malli-schema malli-schema)
       schema-var-prov (assoc :plumatic-var-prov schema-var-prov)
