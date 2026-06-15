@@ -34,7 +34,7 @@ When `/psp` is used in this repo, each phase's completion gate requires **all th
 3. The plugin lives in `../lein-skeptic` and is published as **`org.clojars.nomicflux/lein-skeptic`** on Clojars. For local development without Clojars, run `../script/install-local.sh` (cleans the local m2 cache for skeptic and `lein install`s both `skeptic` and `lein-skeptic`), then `lein with-profile +skeptic-plugin skeptic -p` from this folder (the `:skeptic-plugin` profile pins **`org.clojars.nomicflux/lein-skeptic`** to match that install). **Always use `-p` / `--porcelain`** — the default ANSI text report is for humans; agents must consume JSONL findings, never grep coloured output.
 4. Linting is performed via `clj-kondo --lint <dir>`
 
-## Namespace Map
+## Namespace Map (DESCRIPTIVE, NOT NORMATIVE)
 
 Primary execution path:
 
