@@ -5,4 +5,4 @@
   {:dev {}
    :test {}
    :skeptic-plugin
-   {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc8"]]}})
+   {:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc9"]]}})
