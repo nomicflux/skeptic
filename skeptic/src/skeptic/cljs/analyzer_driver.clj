@@ -14,9 +14,23 @@
   (:require [schema.core :as s]
             [skeptic.classloader-fix]
             [skeptic.analysis.annotate.schema :as aas]
-            [skeptic.cljs.analyzer-driver.schema :as ads]
-            [cljs.analyzer.api :as ana-api]
-            [cljs.compiler]))
+            [skeptic.cljs.analyzer-driver.schema :as ads]))
+
+(defonce ^:private ensure-cljs-loaded!
+  (delay
+    (require 'cljs.env)
+    (require 'cljs.analyzer)
+    (require 'cljs.analyzer.api)
+    (require 'cljs.compiler)
+    true))
+
+(defn- resolved-cljs-vars
+  []
+  @ensure-cljs-loaded!
+  {:*cljs-warnings* (resolve 'cljs.analyzer/*cljs-warnings*)
+   :empty-state     (resolve 'cljs.analyzer.api/empty-state)
+   :empty-env       (resolve 'cljs.analyzer.api/empty-env)
+   :analyze         (resolve 'cljs.analyzer.api/analyze)})
 
 (s/defn ^:private normalize-cljs-node :- ads/RawCljsAst
   [n :- ads/RawCljsAst]
@@ -43,7 +57,7 @@
    validator was out-of-date. `do-macroexpand-check`
    (`analyzer.cljc:4252`) honors this option."
   []
-  (let [state (ana-api/empty-state)]
+  (let [state (@(:empty-state (resolved-cljs-vars)))]
     (swap! state assoc-in [:options :spec-skip-macros] true)
     state))
 
@@ -99,8 +113,11 @@
   analysis in one file-local compiler state."
   [ns-ast :- aas/AnnotatedNode
    form   :- s/Any]
-  (ana-api/no-warn
-   (-> (ana-api/analyze (assoc (ana-api/empty-env) :ns ns-ast)
-                        form
-                        (:name ns-ast))
-       strip-cljs-type)))
+  (let [{:keys [*cljs-warnings* empty-env analyze]} (resolved-cljs-vars)
+        no-warnings (zipmap (keys @*cljs-warnings*) (repeat false))]
+    (with-bindings* {*cljs-warnings* no-warnings}
+      (fn []
+        (-> (@analyze (assoc (@empty-env) :ns ns-ast)
+                     form
+                     (:name ns-ast))
+            strip-cljs-type)))))
