@@ -733,7 +733,8 @@
 
       (sb/pred? schema)
       (let [pred-sym (sb/de-pred schema)
-            qualified (predicates/resolve-predicate-symbol pred-sym)]
+            qualified (when (symbol? pred-sym)
+                        (predicates/resolve-predicate-symbol pred-sym))]
         (if qualified
           (import-result (predicates/witness-type qualified prov))
           (adapter-leaf-import-type prov schema)))

@@ -452,7 +452,7 @@
   [class-name]
   (or (get core-fn-class->symbol class-name)
       (some (fn [[fragment sym]]
-              (when (str/includes? class-name fragment) sym))
+              (when (<= 0 (.indexOf ^String class-name ^String fragment)) sym))
             core-fn-class-fragments)))
 
 (defn- intern-fn!
