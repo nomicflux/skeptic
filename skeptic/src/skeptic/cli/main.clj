@@ -170,6 +170,68 @@
       #(reset! result (run-checker opts root paths cp)))
     @result))
 
+(defn- launcher-worker-spawn
+  "Build a :worker-spawn fn for an externally-managed worker. The launcher
+   (running in lein) already spawned the worker JVM and obtained its port;
+   the host JVM connects to the already-running worker via nrepl client.
+   The synthetic :proc is nil and :stop-fn is a no-op because the launcher
+   (not the host) owns the worker process lifecycle."
+  [worker-port]
+  (fn [_verbose?]
+    {:proc    nil
+     :port    worker-port
+     :stop-fn (constantly nil)}))
+
+(defn check-from-launcher
+  "Hermetic-host entrypoint invoked from the lein-skeptic launcher.
+
+   The launcher writes a single EDN map to this process's stdin:
+     {:root   <project root absolute path>
+      :paths  [<source-path> ...]
+      :worker {:port <int>}
+      :args   [<raw CLI args>]}
+
+   The launcher does NOT parse CLI flags; this entrypoint parses
+   `:args` via the canonical skeptic.cli.options vector. That keeps
+   CLI evolution entirely host-side: new flags need only a Skeptic
+   release, not a lein-skeptic release.
+
+   The launcher (not the host) spawned the worker JVM and built its
+   classpath; the host JVM only connects to the already-running
+   worker via nrepl client. The synthetic :worker-spawn fn returned
+   by `launcher-worker-spawn` keeps `skeptic.core/check-project`'s
+   existing dispatch path unchanged.
+
+   Returns the int exit code from check-project; the launcher's host
+   JVM exits with this value."
+  []
+  (let [edn-input    (slurp *in*)
+        {:keys [root paths worker args]
+         :as   payload} (read-string edn-input)
+        _            (when-not (and root paths worker (some? args))
+                       (binding [*out* *err*]
+                         (println "skeptic.cli.main/check-from-launcher: missing required keys in stdin EDN")
+                         (println "got keys:" (vec (keys payload))))
+                       (System/exit 2))
+        worker-port  (or (:port worker)
+                         (do (binding [*out* *err*]
+                               (println "skeptic.cli.main/check-from-launcher: :worker map missing :port"))
+                             (System/exit 2)))
+        ;; Parse args via the canonical CLI options vector. Resolve at
+        ;; call time to avoid load-time dependency on cli.options from
+        ;; the legacy -M/-X paths.
+        parse        (requiring-resolve 'skeptic.cli.options/parse)
+        {:keys [options errors]} (parse (vec args))
+        _            (when (seq errors)
+                       (binding [*out* *err*]
+                         (doseq [e errors] (println e)))
+                       (System/exit 2))
+        opts         (assoc options :worker-spawn (launcher-worker-spawn worker-port))
+        result       (atom 0)]
+    (with-output-redirect (:output opts)
+      #(reset! result (run-checker opts root paths nil)))
+    @result))
+
 (defn run-cli
   "Legacy -M entrypoint. Always returns 1 because -M is not hermetic."
   [_args]

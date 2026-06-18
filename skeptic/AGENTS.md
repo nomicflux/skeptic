@@ -33,21 +33,24 @@ When `/psp` is used in this repo, each phase's completion gate requires **all th
 2. Tests are run via `lein test`
 3. The plugin lives in `../lein-skeptic` and is published as **`org.clojars.nomicflux/lein-skeptic`** on Clojars. For local development without Clojars, run `../script/install-local.sh` (cleans the local m2 cache for skeptic and `lein install`s both `skeptic` and `lein-skeptic`), then `lein with-profile +skeptic-plugin skeptic -p` from this folder (the `:skeptic-plugin` profile pins **`org.clojars.nomicflux/lein-skeptic`** to match that install). **Always use `-p` / `--porcelain`** — the default ANSI text report is for humans; agents must consume JSONL findings, never grep coloured output.
 4. Linting is performed via `clj-kondo --lint <dir>`
+5. **Including test sources on the deps.edn path:** `clj -T:skeptic check` reads sources from the active deps.edn basis only. `:paths` is always on; test paths are not, unless an alias declares them as `:extra-paths`. To cover test code, pass the alias that adds the test path: `clj -T:skeptic check :alias :test`. The Leiningen path picks up `:test-paths` automatically.
+6. **Projects pinned below Clojure 1.7:** the worker's floor is Clojure 1.7. Targets that pin an older Clojure in their `:dev` profile (e.g. fnhouse pins 1.6.0) need a profile that brings Clojure up to 1.7+ for the Skeptic run: `lein with-profile -dev,+1.7 skeptic`. Use whichever profile the project provides that pins Clojure ≥ 1.7.
 
 ## Namespace Map (DESCRIPTIVE, NOT NORMATIVE)
 
 Primary execution path:
 
-- `leiningen.skeptic`: Leiningen plugin entrypoint. Parses CLI flags (via the shared `skeptic.cli.options` vector), prepares the active project, launches an owned worker subprocess from Lein's project JVM command with Skeptic's separately resolved worker runtime appended to the classpath (project entries first; Skeptic's coordinates never enter the project's `:dependencies`), and runs the checker against that worker. Project profiles, injections, dynamic reader bindings, and registered data readers remain authoritative.
+- `leiningen.skeptic`: Leiningen plugin entrypoint. Zero-transitive hermetic-host launcher. Owns no Skeptic, schema, malli, nrepl, or transit code on its own classpath — it `:require`s only `leiningen.core.*`, `clojure.java.io`, and `clojure.string`. Resolves Skeptic host-deps and worker-deps via aether against a synthetic project at task time (those resolutions never enter lein's plugin-tree mediation, so `:pedantic? :abort` projects load cleanly), then spawns two subprocesses: the worker JVM (built from `leiningen.core.eval/shell-command project worker-form` with `-classpath` augmented to `project-cp ++ plugin-jars ++ worker-jars ++ skeptic-self`) and the host JVM (built with only the aether-resolved host-deps jars as `-cp`). The host JVM is told the worker's nREPL port via stdin EDN. Project profiles, injections, dynamic reader bindings, and registered data readers remain authoritative on the worker side; the host side carries only Skeptic's pinned versions.
 - `skeptic.tool`: deps.edn tool entrypoint exposed at `clj -T:skeptic check`. One-line wrapper over `skeptic.cli.main/check-project`.
-- `skeptic.cli.main`: library-pure deps.edn driver. `check-project` does the real work for the `-T` tool path. The legacy `-M` (`-main`/`run-cli`) and `-X` (`run`) entrypoints intentionally refuse with a redirect message — those invocations are not hermetic because they would load the client project on Skeptic's runtime classpath.
+- `skeptic.cli.main`: library-pure deps.edn driver. `check-project` does the real work for the `-T` tool path. `check-from-launcher` is the hermetic-host entrypoint invoked by `leiningen.skeptic`: it reads `{:root :paths :worker :args}` as EDN on stdin, parses `:args` via `skeptic.cli.options`, synthesizes a `:worker-spawn` fn whose returned worker map names the externally-managed nREPL port, and calls `skeptic.core/check-project`. The legacy `-M` (`-main`/`run-cli`) and `-X` (`run`) entrypoints intentionally refuse with a redirect message — those invocations are not hermetic because they would load the client project on Skeptic's runtime classpath.
 - `skeptic.core`: top-level checker/report printer. Discovers namespaces, invokes per-namespace checking, formats output.
 - `skeptic.checking.pipeline`: main per-namespace pipeline. Reads forms, annotates analyzer ASTs, compares inferred vs declared types, emits results.
 
 Source namespace families (open one of these files when you need to know what's inside):
 
-- `skeptic.cli.*`: runner layer for deps.edn / Clojure CLI. `skeptic.cli.options` owns the shared CLI option vector, used by both `leiningen.skeptic` and `skeptic.cli.main`. `skeptic.cli.cljs.{deps,lein,shadow}` implement project-layout-specific cljs source discovery returning the shared `DiscoverySources` shape in `skeptic.cli.cljs.discover`. **Rule:** project-metadata reading and CLI parsing live only under `skeptic.cli.*`; library namespaces never read project layout — they receive paths as arguments.
-- `skeptic.worker.*`: worker JVM that runs analysis in the project's runtime. Host code lives outside this family and never analyzes project source directly. Both entrypoints build the launch classpath as `(concat project-cp runtime-entries)` through `skeptic.worker.classpath`, resolving `skeptic.worker.deps/worker-deps` with their own build system (tools.deps for deps.edn, lein's aether wrapper for Lein). The deps.edn entrypoint spawns via `skeptic.worker.process`; the Lein entrypoint owns a subprocess created from Lein's prepared project JVM command with that runtime tail appended. `skeptic.worker.{server,client,transport,wire}` carry the host↔worker nREPL transport with explicit teardown and non-EDN sentinel handling; `skeptic.worker.{analyzer_clj,analyzer_cljs}` are the in-worker analyzer entrypoints that read project source by path and project annotated AST data back over the wire; `skeptic.worker.project_context` holds project-state hand-off. See **Worker Runtime Isolation** below for the contract.
+- `skeptic.cli.*`: runner layer for deps.edn / Clojure CLI. `skeptic.cli.options` owns the shared CLI option vector — used by `skeptic.cli.main/check-from-launcher` for stdin-EDN `:args` parsing under the hermetic-host launcher and by `skeptic.cli.main/check-project` for the `-T` tool path. The lein-skeptic launcher namespace does NOT require `skeptic.cli.options`; it forwards `args` raw and parsing happens host-side. `skeptic.cli.cljs.{deps,lein,shadow}` implement project-layout-specific cljs source discovery returning the shared `DiscoverySources` shape in `skeptic.cli.cljs.discover`. **Rule:** project-metadata reading and CLI parsing live only under `skeptic.cli.*`; library namespaces never read project layout — they receive paths as arguments.
+- `skeptic.host.*`: host runtime dependency declaration. `skeptic.host.deps/host-deps` is a literal quoted vector of `[coord version]` tuples — the coordinates the lein-skeptic launcher resolves via aether to assemble the host JVM's `-cp`. Parallel to `skeptic.worker.deps/worker-deps` for the worker JVM. `skeptic/deps.edn`'s `:host` alias mirrors the same vector for ad-hoc invocations like `clj -A:host`. The deps.edn tool path (`clj -T:skeptic check`) is already hermetic by virtue of how `clj -T` runs tools, so it does not need an explicit host-deps resolution step. See **Host Runtime Isolation** below.
+- `skeptic.worker.*`: worker JVM that runs analysis in the project's runtime. Host code lives outside this family and never analyzes project source directly. Both entrypoints build the launch classpath as `(concat project-cp runtime-entries)` through `skeptic.worker.classpath`, resolving `skeptic.worker.deps/worker-deps` with their own build system (tools.deps for deps.edn, lein's aether wrapper for Lein). The deps.edn entrypoint spawns via `skeptic.worker.process`; the Lein launcher owns a worker subprocess created from Lein's prepared project JVM command with that runtime tail appended (the launcher inlines the worker classpath assembly because it cannot `:require skeptic.*`; equivalence with `skeptic.worker.classpath/worker-classpath-entries` is asserted by a launcher-side test). `skeptic.worker.{server,client,transport,wire}` carry the host↔worker nREPL transport with explicit teardown and non-EDN sentinel handling; `skeptic.worker.{analyzer_clj,analyzer_cljs}` are the in-worker analyzer entrypoints that read project source by path and project annotated AST data back over the wire; `skeptic.worker.project_context` holds project-state hand-off. See **Worker Runtime Isolation** below for the contract.
 - `skeptic.cljs.*`: ClojureScript loading and admission helpers. `analyzer-driver` exposes stateless cljs analyzer entrypoints via `cljs.analyzer.api` (no compiler state threaded across calls). `schema-interpreter` interprets post-macroexpansion Plumatic Schema bodies in a sci sandbox.
 - `skeptic.checking.*`: checking-time orchestration — AST/form/opts/state helpers consumed by the pipeline.
 - `skeptic.schema`, `skeptic.schema.collect[.cljs]`, `skeptic.typed-decls[.malli]`: declaration admission pipeline. Reads var metadata, admits raw Plumatic/Malli declarations, converts admitted descriptions into typed entries via `schema->type` / `malli-spec->type`.
@@ -167,6 +170,97 @@ Each Provenance also carries a `:lang` field — one of `:clj`, `:cljs`, or `#{:
 - Keep cast and analysis helpers small, focused, and type-domain-first.
 - Preserve ordered dispatch when branch priority is semantically meaningful.
 - Treat schema-level helpers as boundary adapters, not as the core analysis model.
+
+## Host Runtime Isolation
+
+Skeptic's host code runs in a JVM whose classpath is **only**
+Skeptic-resolved jars: no project `:dependencies`, no other lein
+plugin transitives, no shared classloader with the surrounding
+build tool. The deps.edn tool path (`clj -T:skeptic check`) gets
+this for free — `clj -T` is hermetic by construction. The Lein
+plugin path gets it through the hermetic-host launcher, which
+runs `leiningen.skeptic/skeptic` as a thin task body inside lein's
+JVM and then spawns a fresh host JVM that carries no Skeptic-side
+state from lein.
+
+The contract is strict and load-bearing:
+
+- **Lein-skeptic ships zero transitives.** The plugin's
+  `:dependencies` and `:managed-dependencies` are empty. Aether
+  mediation at lein plugin load sees one coord with no
+  transitives, so `:pedantic? :abort` projects do not abort on
+  lein-skeptic. Other plugins' transitives (codox's old cljs,
+  lein-doo's tools.reader, etc.) cannot win a host-side
+  classloader race against Skeptic's pinned versions, because
+  Skeptic's pinned versions are not on lein's classloader at all.
+- **The launcher resolves host-deps via aether against a
+  synthetic project.** `leiningen.skeptic/resolve-host-jars`
+  builds `{:dependencies <host-deps> :repositories
+  (:repositories project) ...}` and calls
+  `leiningen.core.classpath/resolve-managed-dependencies` —
+  `:add-classpath? true` is forbidden, so resolved jars NEVER
+  land on lein's classloader. The synthetic project inherits the
+  repo-connection keys (`:repositories`, `:mirrors`,
+  `:certificates`, `:local-repo`) so private repos and proxies
+  work, but never the user's `:dependencies`, `:plugins`, or
+  `:managed-dependencies`.
+- **Host-deps is data, not code.** `skeptic.host.deps/host-deps`
+  is a literal quoted vector with no `require`/`read-string`/
+  runtime evaluation in the file. The launcher reads it out of
+  the Skeptic jar as text without loading the namespace
+  (`leiningen.skeptic/read-skeptic-vector`); the same mechanism
+  reads `skeptic.worker.deps/worker-deps`. This keeps Skeptic's
+  whole universe off lein's classloader: even the var that
+  declares the deps is never resolved on the launcher side.
+- **The launcher namespace requires no `skeptic.*`.** It depends
+  only on `leiningen.core.*`, `clojure.java.io`, and
+  `clojure.string` — all already on lein's bundled classpath.
+  Anything Skeptic-side the launcher needs at task time
+  (`worker-classpath-entries` shape, source-path discovery from
+  the project map) is inlined; equivalence with the canonical
+  Skeptic-side implementation is asserted by tests.
+- **The host JVM connects to an already-running worker.** Alt B
+  of the design: the launcher (in lein) spawns the worker JVM
+  first via `leiningen.core.eval/shell-command project
+  worker-form` so the worker carries lein's full project
+  preparation (`:jvm-opts`, `:global-vars`, `:injections`,
+  `:warn-on-reflection`, `:prep-tasks`, env), waits for the port
+  handshake, then spawns the host JVM and tells it the worker's
+  port over stdin EDN. The host's `:worker-spawn` fn is a stub
+  returning `{:port <int> :stop-fn (constantly nil)}` — the host
+  does NOT spawn the worker, the launcher owns both subprocess
+  lifecycles.
+- **The launcher carries the user's CLI args forward, raw.**
+  `leiningen.skeptic/skeptic` does no CLI parsing beyond
+  recognizing literal `--help` / `-h` to short-circuit a JVM
+  spawn. Other args are written into the host's stdin EDN under
+  `:args` and parsed host-side via `skeptic.cli.options/parse`.
+  New flags need only a Skeptic release; lein-skeptic does not
+  need a coordinated bump.
+- **Host JVM does NOT inherit lein-only env vars.** The launcher
+  strips `LEIN_JVM_OPTS`, `DRIP_INIT`, `DRIP_INIT_CLASS`, and
+  `JVM_OPTS` from the host process's environment. `JVM_OPTS` is
+  intended for the project subprocess (lein convention); the host
+  is neither lein's JVM nor the project's subprocess.
+- **Tools.reader 1.0.0-beta3 floor.** `host-deps` pins
+  `tools.reader 1.6.0`. Pre-1.0.0-beta3 the
+  `SourceLoggingPushbackReader` is not `Closeable`, so the host's
+  `with-open` in `skeptic.file/ns-for-clojure-file` would
+  reflectively call `.close` on a class that has no such method
+  and crash. Aether mediation against the synthetic project picks
+  the explicit pin over any transitive's older version. The pin
+  is bumped via Skeptic library version bump, not user override.
+- **Stdout from the host JVM is the user-facing output.** The
+  launcher pipes host stdout to lein's stdout directly. Worker
+  stdout/stderr is drained by the launcher and forwarded to lein
+  stderr only under `-v`; never enters user-facing stdout.
+- **Launcher shutdown sequence on host exit.** `(1)` waitFor the
+  host process; `(2)` signal the worker to stop (currently via
+  `Process.destroy`; future work: nREPL `:op shutdown` once a
+  no-Skeptic-deps client lives in the launcher); `(3)` reap the
+  worker with a bounded waitFor + destroyForcibly tail. JVM
+  shutdown hooks on both subprocesses cover Ctrl-C / SIGTERM on
+  the lein side.
 
 ## Worker Runtime Isolation
 

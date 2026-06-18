@@ -6,8 +6,10 @@
             [skeptic.cli.cljs.discover :as discover]))
 
 (defn- cljsbuild-paths [project]
-  (let [root (:root project)]
-    (->> (get-in project [:cljsbuild :builds])
+  (let [root (:root project)
+        builds (get-in project [:cljsbuild :builds])
+        build-seq (if (map? builds) (vals builds) builds)]
+    (->> build-seq
          (mapcat :source-paths)
          (remove nil?)
          (mapv #(discover/absolutize root %)))))

@@ -1,5 +1,5 @@
 (defproject org.clojars.nomicflux/lein-skeptic "0.9.0-rc9"
-  :description "Static type checking for Clojure projects that use Plumatic Schema"
+  :description "Static type checking for Clojure projects that use Plumatic Schema / Malli (hermetic-host launcher)"
   :url "https://github.com/nomicflux/skeptic"
   :license {:name "MIT License"
             :url "https://spdx.org/licenses/MIT.html"}
@@ -11,5 +11,11 @@
    ["snapshots" {:url "https://repo.clojars.org"
                  :username :env/CLOJARS_USERNAME
                  :password :env/CLOJARS_LEIN_SKEPTIC_TOKEN}]]
-  :dependencies [[org.clojars.nomicflux/skeptic "0.9.0-rc9"]]
+  ;; Zero transitives. The launcher resolves Skeptic host-deps and worker-deps
+  ;; at task time via aether against a synthetic project, so neither shows up
+  ;; in lein's plugin-tree mediation. This is what makes :pedantic? :abort
+  ;; projects (like compojure-api) work and prevents other plugins (codox,
+  ;; lein-doo, ...) from polluting Skeptic's host classloader.
+  :dependencies []
+  :managed-dependencies []
   :eval-in-leiningen true)
