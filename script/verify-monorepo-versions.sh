@@ -25,22 +25,28 @@ plug_line="$(grep -m1 '^(defproject org.clojars.nomicflux/lein-skeptic ' "$PLUGI
 plug_ver="$(sed -n 's/^.*org\.clojars\.nomicflux\/lein-skeptic "\([^"]*\)".*/\1/p' <<<"$plug_line")"
 [[ -n "$plug_ver" ]] || die "could not parse plugin version from: $plug_line"
 
-# [org.clojars.nomicflux/skeptic "VERSION"]
-dep_line="$(grep '\[org.clojars.nomicflux/skeptic ' "$PLUGIN_PC" | head -1 || true)"
-[[ -n "$dep_line" ]] || die "expected [org.clojars.nomicflux/skeptic \"…\"] in lein-skeptic/project.clj"
-dep_ver="$(sed -n 's/.*\[org\.clojars\.nomicflux\/skeptic "\([^"]*\)".*/\1/p' <<<"$dep_line")"
-[[ -n "$dep_ver" ]] || die "could not parse skeptic dependency version from: $dep_line"
-
 # :plugins [[org.clojars.nomicflux/lein-skeptic "VERSION"]]
 prof_line="$(grep 'org.clojars.nomicflux/lein-skeptic' "$SKEPTIC_PC" | grep ':plugins' || true)"
 [[ -n "$prof_line" ]] || die "expected :plugins [[org.clojars.nomicflux/lein-skeptic \"…\"]] in skeptic/project.clj"
 prof_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' <<<"$prof_line")"
 [[ -n "$prof_ver" ]] || die "could not parse :skeptic-plugin lein-skeptic version from: $prof_line"
 
-[[ "$lib_ver" == "$dep_ver" ]] || \
-  die "lein-skeptic depends on skeptic \"$dep_ver\" but library is \"$lib_ver\""
 [[ "$plug_ver" == "$prof_ver" ]] || \
   die ":skeptic-plugin pins lein-skeptic \"$prof_ver\" but plugin project is \"$plug_ver\""
+
+# (def ^:const skeptic-version "VERSION") in lein-skeptic launcher source.
+# The launcher resolves [skeptic <skeptic-version>] at task time, so this
+# const must equal the library version. Replaces the old check that grep'd
+# [skeptic …] from lein-skeptic/project.clj's :dependencies (now empty —
+# the hermetic launcher has zero transitive deps).
+PLUGIN_SRC="${ROOT}/lein-skeptic/src/leiningen/skeptic.clj"
+[[ -f "$PLUGIN_SRC" ]] || die "missing ${PLUGIN_SRC}"
+const_ver="$(grep -A4 'def \^:const skeptic-version' "$PLUGIN_SRC" \
+              | tail -1 \
+              | sed -n 's/.*"\([^"]*\)".*/\1/p')"
+[[ -n "$const_ver" ]] || die "could not parse (def ^:const skeptic-version ...) literal from ${PLUGIN_SRC}"
+[[ "$lib_ver" == "$const_ver" ]] || \
+  die "launcher skeptic-version const is \"$const_ver\" but library is \"$lib_ver\""
 
 # Production-path fixture plugin coordinates: every dev-resources fixture
 # that pins lein-skeptic must pin the current plugin version.

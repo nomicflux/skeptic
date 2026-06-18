@@ -125,6 +125,31 @@ Options:
   to merge when discovering source paths. Example:
   `clj -T:skeptic check :alias :test`.
 
+### Including test sources on the deps.edn path
+
+`clj -T:skeptic check` discovers sources from the active deps.edn basis only.
+`:paths` in `deps.edn` is always on; test paths are not unless an alias
+declares them as `:extra-paths`. To check test code, pass the alias that
+adds the test path:
+
+```sh
+clj -T:skeptic check :alias :test
+```
+
+The Leiningen path picks up `:test-paths` automatically.
+
+### Projects pinned below Clojure 1.7
+
+Skeptic's worker requires Clojure 1.7+. Projects that pin an older Clojure
+in their `:dev` profile (e.g. fnhouse pins 1.6.0) need a profile that
+brings Clojure up to 1.7+ for the Skeptic run:
+
+```sh
+lein with-profile -dev,+1.7 skeptic
+```
+
+Use whichever profile the project provides that pins Clojure ≥ 1.7.
+
 ## Output
 
 ### Text (default)
