@@ -85,25 +85,30 @@
       path
       (.getPath (io/file root path)))))
 
-(defn- resolve-paths
-  "Source paths come from the single deps.edn basis resolved under
-  `basis-aliases`, the same basis the project portion of the worker classpath
-  uses. --paths overrides discovery entirely."
-  [{:keys [paths]} root basis-source-paths]
+(defn- user-paths-override
+  "If the user supplied :paths, return the absolute list; else nil. The
+  returned list is what discovery walks AND what the worker receives. The
+  basis is unchanged either way; eligibility filters the discovered files
+  against the alias-selected basis classpath in both cases."
+  [{:keys [paths]} root]
   (cond
     (string? paths)     (mapv (partial root-relative-path root)
                               (split-paths-arg paths))
     (sequential? paths) (mapv (partial root-relative-path root) paths)
-    :else               (mapv (partial root-relative-path root)
-                              basis-source-paths)))
+    :else               nil))
 
-(defn- paths-override?
-  [opts]
-  (contains? opts :paths))
+(defn- resolve-paths
+  "Source paths come from the single deps.edn basis resolved under
+  `basis-aliases`, the same basis the project portion of the worker classpath
+  uses. --paths overrides discovery: eligibility STILL runs against the
+  alias-selected basis classpath, but discovery walks the user's paths."
+  [opts root basis-source-paths]
+  (or (user-paths-override opts root)
+      (mapv (partial root-relative-path root) basis-source-paths)))
 
 (defn- with-selected-source-scope
   [opts project-context]
-  (if (and project-context (not (paths-override? opts)))
+  (if project-context
     (assoc opts
            :skeptic/source-files (:source-files project-context)
            :skeptic/source-discovery-failures (:source-discovery-failures project-context))
@@ -141,8 +146,12 @@
         opts (cond-> opts
                (seq cljs-only-namespaces)
                (assoc :cljs-only-namespaces cljs-only-namespaces))
+        paths-override (when (has-file? root "deps.edn")
+                         (user-paths-override opts root))
         project-context (when (has-file? root "deps.edn")
-                          (paths/project-context root aliases))
+                          (paths/project-context root aliases
+                                                 {:cljs-enabled? (boolean (:cljs-enable opts))
+                                                  :source-paths-override paths-override}))
         paths (resolve-paths opts root (:source-paths project-context))
         opts (with-selected-source-scope opts project-context)
         worker-jars (when project-context

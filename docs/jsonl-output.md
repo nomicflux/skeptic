@@ -92,12 +92,23 @@ wants a quick display without walking nested JSON.
 ## `kind: "ns-discovery-warning"`
 
 Emitted when a discovered file cannot be turned into checkable
-declarations and the run skips the namespace cleanly. Two situations
+declarations and the run skips the namespace cleanly. Three situations
 produce this record:
 
 - **File-level discovery failure.** A file in a source path could not be
   read (missing parent, IO error) or no `(ns ...)` form could be located.
   `path` is the offending file; `message` is the underlying error.
+- **Unresolvable-dep rejection (deps.edn tool path).** The file's
+  `(ns ...)` form `:require`d a namespace that the active tools.deps
+  basis cannot satisfy — neither defined by another in-project source
+  file nor present on the basis classpath as `<ns>.{clj,cljc,cljs}` or
+  `<ns>__init.class`. `path` is the file (relative to project root);
+  `message` names the unresolvable deps; `unresolvable_deps` is a
+  structured vector of the dep symbol strings. The rejection is
+  transitive: a file F whose `:require` closure (through project
+  namespaces) reaches a rejected file G is also rejected, and F's
+  `unresolvable_deps` carries the **root** dep symbol that caused G's
+  rejection.
 - **Per-namespace skip.** The namespace was discovered but Skeptic could
   not run analysis against it. `path` is the namespace's source file and
   `message` follows the form
@@ -113,8 +124,20 @@ produce this record:
 {"kind": "ns-discovery-warning", "path": "src/foo/broken.clj", "message": "..."}
 ```
 
+```json
+{
+  "kind": "ns-discovery-warning",
+  "path": "src/demo/async_user.clj",
+  "message": "skipped: unresolvable dep(s) clojure.core.async in ns-form",
+  "unresolvable_deps": ["clojure.core.async"]
+}
+```
+
 Discovery warnings do **not** flip `errored` on the final `run-summary`;
-a project with only discovery warnings exits `0`.
+a project with only discovery warnings exits `0`. The unresolvable-dep
+rejection runs only on the `clj -T:skeptic check` deps.edn tool path;
+the Leiningen plugin path uses lein's own source-path resolution and
+does not run this filter.
 
 ## `kind: "namespace-error-summary"` — per-namespace error counts
 

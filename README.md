@@ -213,6 +213,23 @@ line, in this order:
 
 ```json
 {
+  "kind": "ns-discovery-warning",
+  "path": "src/demo/async_user.clj",
+  "message": "skipped: unresolvable dep(s) clojure.core.async in ns-form",
+  "unresolvable_deps": ["clojure.core.async"]
+}
+```
+
+The `unresolvable_deps` field appears on `clj -T:skeptic check`
+rejections only: a file is skipped when its `(ns ...)` form `:require`s a
+namespace that is neither defined by another in-project source file nor
+present on the active tools.deps basis classpath. The field is a vector
+of unresolvable dep symbols; for transitively-rejected files (a file F
+whose `:require` closure reaches a rejected file G), the field names the
+root dep that caused G's rejection.
+
+```json
+{
   "kind": "finding",
   "ns": "foo.bar",
   "report_kind": "input",

@@ -122,10 +122,12 @@
 
 (def printer
   {:run-start (s/fn [_opts :- copts/PrinterOpts _nss])
-   :discovery-warn (s/fn [_opts :- copts/PrinterOpts {:keys [path message]}]
-                     (write-line! {:kind "ns-discovery-warning"
-                                   :path path
-                                   :message message}))
+   :discovery-warn (s/fn [_opts :- copts/PrinterOpts {:keys [path message unresolvable-deps]}]
+                     (write-line! (cond-> {:kind "ns-discovery-warning"
+                                           :path path
+                                           :message message}
+                                    (seq unresolvable-deps)
+                                    (assoc :unresolvable_deps (vec unresolvable-deps)))))
    :ns-start (s/fn [_ns _source-file _opts :- copts/PrinterOpts])
    :finding (fn [ns result summary opts]
               (let [record (case (:report-kind summary)

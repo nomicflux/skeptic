@@ -31,20 +31,36 @@
             paths)))
 
 (defn- blocking-discovery-failures
+  "A failure entry is BLOCKING only when it indicates Skeptic could not
+  read a source path at all (carries :exception). Eligibility rejections
+  (carry :unresolvable-deps) are informational warnings — they have
+  already removed the file from the worker's input set; throwing here
+  would defeat the warning channel and the ns-discovery-warning JSONL
+  line."
   [requested-namespaces discovered-pairs failures]
-  (cond
-    (empty? failures) []
-    (seq requested-namespaces) (if (every? (set (map first discovered-pairs))
-                                            requested-namespaces)
-                                 []
-                                 failures)
-    :else failures))
+  (let [hard-failures (filter :exception failures)]
+    (cond
+      (empty? hard-failures) []
+      (seq requested-namespaces) (if (every? (set (map first discovered-pairs))
+                                              requested-namespaces)
+                                   []
+                                   hard-failures)
+      :else hard-failures)))
 
 (defn- failure->info
-  [{:keys [path exception]}]
-  {:path path
-   :message (or (.getMessage ^Exception exception)
-                (str exception))})
+  [{:keys [path exception unresolvable-deps message]}]
+  (cond
+    exception
+    {:path path
+     :message (or (.getMessage ^Exception exception)
+                  (str exception))}
+    unresolvable-deps
+    {:path path
+     :message message
+     :unresolvable-deps unresolvable-deps}
+    :else
+    {:path path
+     :message (or message "")}))
 
 (defn- expand-namespace-args
   [raw]

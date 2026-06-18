@@ -9,6 +9,10 @@ Before changing anything that crosses the host/worker boundary (analyzer driver,
 classpath construction, transport, project-state wiring), read the **Worker
 Runtime Isolation** section below.
 
+## How Skeptic Runs
+
+Skeptic runs as a **Leiningen plugin** (`lein skeptic` / `lein with-profile +skeptic-plugin skeptic`) or as a **deps.edn tool** (`clj -T:skeptic check`). Those are the surfaces. Behavioral verification — corpus runs, "did this change fix the bug," reproducing a user-reported failure — uses one of those invocations against a target project. Library calls into `skeptic.cli.main` / `skeptic.core` / any other `skeptic.*` ns from a REPL or `lein run -m clojure.main` are internal entry points: they bypass the deps.edn `-T` tool boundary, the lein plugin classloader, and the basis/classpath assembly those tools perform, so they cannot answer questions about what the tools do. Test suites that call internal entry points test internal behavior, not the product.
+
 ## Deliverable matching (agents)
 
 When implementing or answering from this doc, **match the requested artifact and audience**. Do not substitute a different deliverable and treat it as equivalent.

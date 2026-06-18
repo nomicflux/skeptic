@@ -93,11 +93,17 @@
     (try
       (spit (io/file dir "deps.edn") "{}")
       (spit (io/file dir "shadow-cljs.edn") "{}")
-      (with-redefs [paths/project-context (fn [root aliases]
-                                            (reset! project-context-call {:root root :aliases aliases})
-                                            {:basis ::single-basis
-                                             :source-paths [(str (io/file root "src"))]
-                                             :classpath-entries ["project-cp"]})
+      (with-redefs [paths/project-context (fn
+                                            ([root aliases]
+                                             (reset! project-context-call {:root root :aliases aliases})
+                                             {:basis ::single-basis
+                                              :source-paths [(str (io/file root "src"))]
+                                              :classpath-entries ["project-cp"]})
+                                            ([root aliases _opts]
+                                             (reset! project-context-call {:root root :aliases aliases})
+                                             {:basis ::single-basis
+                                              :source-paths [(str (io/file root "src"))]
+                                              :classpath-entries ["project-cp"]}))
                     worker-classpath/worker-classpath-entries (fn [worker-jars project-cp]
                                                                  (reset! worker-builder-input {:worker-jars worker-jars
                                                                                                :project-cp project-cp})
