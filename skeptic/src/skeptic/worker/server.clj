@@ -733,14 +733,14 @@
         ast' (when ast
                (handle-project-node ast))
         source-form-meta (wire/capture-form-meta source-form')
-        ast-meta (wire/capture-form-meta ast')
+        ast-form-meta (wire/capture-ast-form-meta ast')
         malli-schema (source-form-malli-schema source-form)
         plumatic-schema (source-form-plumatic-schema ns-sym source-form)
         schema-var-prov (source-form-schema-var-prov ns-sym source-form)]
     (cond-> {:source-form (wire/strip-form-meta source-form')
              :source-form-meta source-form-meta
-             :ast (wire/strip-form-meta ast')
-             :ast-meta ast-meta}
+             :ast (wire/strip-ast-form-meta ast')
+             :ast-form-meta ast-form-meta}
       exception (assoc :exception-class (.getName (class ^Throwable exception))
                        :exception-message (chain-messages ^Throwable exception)
                        :exception-data (safe-pr-str

@@ -856,7 +856,7 @@
           {:loaded [] :load-failures {}}
           nss-with-source-files))
 
-(defn- reattach-entry-meta
+(defn reattach-entry-meta
   "Replay the sibling meta vectors the worker shipped (form metadata cannot ride
    as ordinary collection metadata) back onto an entry's `:source-form` and `:ast`, then drop
    the `-meta` carriers so the stored entry keeps its `{:source-form :ast}`
@@ -867,19 +867,19 @@
    tagged with `:clojure.error/phase :macroexpansion` so the existing
    `analyzer-failure-result` routing demotes the offending form to Dyn via
    `analysis-skipped-result`."
-  [{:keys [source-form source-form-meta ast ast-meta
+  [{:keys [source-form source-form-meta ast ast-form-meta
            exception-class exception-message exception-data] :as entry}]
-  (cond-> (dissoc entry :source-form-meta :ast-meta
+  (cond-> (dissoc entry :source-form-meta :ast-form-meta
                   :exception-class :exception-message :exception-data)
     source-form-meta (assoc :source-form (wire/apply-form-meta source-form source-form-meta))
-    ast-meta         (assoc :ast (wire/apply-form-meta ast ast-meta))
+    ast-form-meta    (assoc :ast (wire/apply-ast-form-meta ast ast-form-meta))
     exception-class  (assoc :exception (ex-info (str exception-class ": " exception-message)
                                                 {:clojure.error/phase :macroexpansion
                                                  :exception-class exception-class
                                                  :exception-message exception-message
                                                  :exception-data exception-data}))))
 
-(defn- process-stream-reply
+(defn process-stream-reply
   "Handle one intermediate reply from the streaming worker op. Reattaches
    entry metadata, stores in clj-state, builds ns-entries and discovery
    for that namespace. A `:shadowed-by` reply (the loaded runtime says

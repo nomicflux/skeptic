@@ -15,10 +15,10 @@
                                                   :source-file (str source-file)})]
       (when read-failure
         (throw (ex-info read-failure {:ns ns-sym :source-file source-file})))
-      (mapv (fn [{:keys [source-form source-form-meta ast ast-meta] :as entry}]
-              (cond-> (dissoc entry :source-form-meta :ast-meta)
+      (mapv (fn [{:keys [source-form source-form-meta ast ast-form-meta] :as entry}]
+              (cond-> (dissoc entry :source-form-meta :ast-form-meta)
                 source-form-meta (assoc :source-form (wire/apply-form-meta source-form source-form-meta))
-                ast-meta (assoc :ast (wire/apply-form-meta ast ast-meta))))
+                ast-form-meta (assoc :ast (wire/apply-ast-form-meta ast ast-form-meta))))
             entries))
     (throw (ex-info "admit/entries requires skeptic.test-support.shared-worker/with-shared-worker"
                     {:ns ns-sym :source-file source-file}))))

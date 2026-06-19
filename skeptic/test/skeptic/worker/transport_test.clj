@@ -85,16 +85,21 @@
 (deftest unknown-object-crosses-as-opaque-sentinel
   (with-transport-pair
     (fn [a b]
-      (nrepl-transport/send a {:v (java.time.Instant/parse "2026-06-10T00:00:00Z")
-                               :tag :probe})
-      (let [reply (nrepl-transport/recv b 1000)
-            v (:v reply)]
-        (testing "the rest of the message survives"
-          (is (= :probe (:tag reply))))
-        (testing "the unsupported value arrives as a backstop sentinel"
-          (is (wire/nonedn? v))
-          (is (= "java.time.Instant" (wire/opaque-class-name v)))
-          (is (string? (wire/opaque-string v))))))))
+      (let [err (java.io.StringWriter.)]
+        (binding [*err* err]
+          (nrepl-transport/send a {:v (java.time.Instant/parse "2026-06-10T00:00:00Z")
+                                   :tag :probe}))
+        (let [reply (nrepl-transport/recv b 1000)
+              v (:v reply)]
+          (testing "the rest of the message survives"
+            (is (= :probe (:tag reply))))
+          (testing "the unsupported value arrives as a backstop sentinel"
+            (is (wire/nonedn? v))
+            (is (= "java.time.Instant" (wire/opaque-class-name v)))
+            (is (string? (wire/opaque-string v))))
+          (testing "the opaque write announced the class on stderr"
+            (is (str/includes? (str err)
+                               "skeptic transit: opaque value crossed wire: java.time.Instant"))))))))
 
 (deftest transit-carried-leaves-round-trip-with-class-intact
   (with-transport-pair
