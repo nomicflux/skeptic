@@ -316,12 +316,21 @@
 (defn- strip-host-unread
   "Remove host-unread slots. Strips :atom :env :o-tag :return-tag, plus the
    verified host-unread analyzer flags :once :max-fixed-arity :variadic? :bridges.
-   Strips :info but retains [:info :name]. Strips :meta only when it is raw
-   var-metadata (no :op key)."
+   Also strips a second tier of slots that tools.analyzer attaches but no host
+   reader in src/skeptic/ (excluding worker, cljs, output) ever reads:
+   :arg-id :assignable? :class-display-name :field :fixed-arity :ignore-tag
+   :literal? :m-or-f :overloaded-field? :tag-display-name :top-level
+   :validated?. Verified droppable by a per-slot reader grep over the host
+   tree. Strips :info but retains [:info :name]. Strips :meta only when it
+   is raw var-metadata (no :op key)."
   [n]
   (let [info-name (get-in n [:info :name])
         n' (dissoc n :atom :env :o-tag :return-tag :info
-                   :once :max-fixed-arity :variadic? :bridges)
+                   :once :max-fixed-arity :variadic? :bridges
+                   :arg-id :assignable? :class-display-name :field
+                   :fixed-arity :ignore-tag :literal? :m-or-f
+                   :overloaded-field? :tag-display-name :top-level
+                   :validated?)
         n' (if info-name (assoc-in n' [:info :name] info-name) n')
         meta-val (:meta n')]
     (if (and (some? meta-val) (not (ast-node? meta-val)))

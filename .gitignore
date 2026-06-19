@@ -18,5 +18,7 @@ CLAUDE.md
 .cpcache/
 **/.lsp/.cache
 **/.nous
+**/docs/nous
+**/docs/facets
 **/scratch
 **/.scratch

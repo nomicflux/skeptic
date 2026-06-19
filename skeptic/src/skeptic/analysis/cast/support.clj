@@ -16,6 +16,9 @@
     (nil? source-type) :source-type
     (nil? target-type) :target-type))
 
+(defrecord CastResultRec
+    [ok? blame-side blame-polarity rule source-type target-type children reason])
+
 (s/defn cast-result :- csch/CastResult
   [{:keys [ok? source-type target-type rule polarity reason children details] :as inputs} :- s/Any]
   (if-let [missing-field (missing-type-field source-type target-type)]
@@ -24,15 +27,15 @@
                      :reason reason
                      :missing-field missing-field
                      :cast-result-inputs inputs}))
-    (cond-> {:ok? ok?
-             :blame-side (if ok? :none (abr/polarity->side polarity))
-             :blame-polarity (if ok? :none polarity)
-             :rule rule
-             :source-type source-type
-             :target-type target-type
-             :children (vec children)
-             :reason reason}
-      (map? details) (merge details))))
+    (let [base (->CastResultRec ok?
+                                (if ok? :none (abr/polarity->side polarity))
+                                (if ok? :none polarity)
+                                rule
+                                source-type
+                                target-type
+                                (vec children)
+                                reason)]
+      (if (map? details) (merge base details) base))))
 
 (s/defn cast-ok :- csch/CastResult
   ([source-type :- s/Any target-type :- s/Any rule :- s/Any]
