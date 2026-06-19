@@ -9,12 +9,20 @@
 
 (s/defn derive-prov :- provs/Provenance
   "Merge attached provenance of typed inputs. Requires at least one input —
-  throws otherwise, signalling a caller without real provenance context."
-  [& types :- [at/SemanticType]]
-  (if (seq types)
-    (reduce prov/merge-provenances (map prov/of types))
-    (throw (IllegalArgumentException.
-            "derive-prov called without any typed input carrying provenance"))))
+  throws otherwise, signalling a caller without real provenance context.
+
+  The 1-arg arity is a fast path for the dominant single-type callsite
+  pattern: reduce over a 1-element seq returns that element, so the
+  varargs path's result for n=1 is exactly (prov/of t)."
+  ([] (throw (IllegalArgumentException.
+              "derive-prov called without any typed input carrying provenance")))
+  ([t :- at/SemanticType] (prov/of t))
+  ([t1 :- at/SemanticType
+    t2 :- at/SemanticType
+    & more :- [at/SemanticType]]
+   (reduce prov/merge-provenances
+           (prov/of t1)
+           (map prov/of (cons t2 more)))))
 
 (s/defn literal-ground-type :- (s/maybe at/SemanticType)
   [prov  :- provs/Provenance
