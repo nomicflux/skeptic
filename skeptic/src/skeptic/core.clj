@@ -87,6 +87,19 @@
         (cleanup)
         (:value outcome)))))
 
+(defn- host-exception-result
+  [ns source-file phase e]
+  {:report-kind :exception
+   :phase phase
+   :namespace ns
+   :blame (str ns)
+   :source-expression nil
+   :location {:file (str source-file) :source :inferred :lang :clj}
+   :enclosing-form nil
+   :exception-class (symbol (.getName (class e)))
+   :exception-message (or (.getMessage ^Throwable e)
+                          (str e))})
+
 (defn- with-worker-connection
   [verbose? worker startup-log work]
   (run-with-cleanup
@@ -205,28 +218,57 @@
                                              (str/join ", " (:defined-by (get shadowed-files sf)))
                                              " on the project's classpath; the project never"
                                              " loads this file and it was not checked")}))
-            (let [errored (atom false)]
-              (doseq [[ns source-file] nss-to-check]
-                (ns-start ns source-file printer-opts)
-                (let [ns-findings (atom 0)
-                      {:keys [results]} (checking/check-namespace project-state ns source-file form-opts)]
-                  (doseq [result results]
-                    (if (= :debug-form (:report-kind result))
-                      (form-debug ns result printer-opts)
-                      (let [summary (inrep/report-summary result report-opts)
-                            kind (:report-kind summary)
-                            counter-key (case kind
-                                          :exception        :exception-count
-                                          :analysis-skipped :analysis-skipped-count
-                                          :finding-count)]
-                        (finding ns result summary printer-opts)
-                        (when-not (= :analysis-skipped kind)
+            (let [errored (atom false)
+                  process-result
+                  (fn [ns source-file ns-findings result]
+                    (try
+                      (if (= :debug-form (:report-kind result))
+                        (form-debug ns result printer-opts)
+                        (let [summary (inrep/report-summary result report-opts)
+                              kind (:report-kind summary)
+                              counter-key (case kind
+                                            :exception        :exception-count
+                                            :analysis-skipped :analysis-skipped-count
+                                            :finding-count)]
+                          (finding ns result summary printer-opts)
+                          (when-not (= :analysis-skipped kind)
+                            (reset! errored true)
+                            (swap! ns-findings inc))
+                          (swap! totals update counter-key inc)))
+                      (catch Throwable e
+                        (let [host-result (host-exception-result ns source-file :host-result e)
+                              summary (try (inrep/report-summary host-result report-opts)
+                                           (catch Throwable _ host-result))]
+                          (finding ns host-result summary printer-opts)
                           (reset! errored true)
-                          (swap! ns-findings inc))
-                        (swap! totals update counter-key inc))))
+                          (swap! ns-findings inc)
+                          (swap! totals update :exception-count inc)))))]
+              (doseq [[ns source-file] nss-to-check]
+                (try
+                  (ns-start ns source-file printer-opts)
+                  (catch Throwable _))
+                (let [ns-findings (atom 0)
+                      results (try
+                                (:results (checking/check-namespace project-state ns source-file form-opts))
+                                (catch Throwable e
+                                  (let [host-result (host-exception-result ns source-file :host-check-namespace e)
+                                        summary (try (inrep/report-summary host-result report-opts)
+                                                     (catch Throwable _ host-result))]
+                                    (try (finding ns host-result summary printer-opts)
+                                         (catch Throwable _))
+                                    (reset! errored true)
+                                    (swap! ns-findings inc)
+                                    (swap! totals update :exception-count inc)
+                                    nil)))]
+                  (doseq [result (or results [])]
+                    (process-result ns source-file ns-findings result))
                   (swap! totals assoc-in [:per-namespace-counts ns] @ns-findings)
                   (when (pos? @ns-findings)
                     (swap! totals update :namespaces-with-findings inc))
-                  (ns-end ns @ns-findings printer-opts)))
-              (run-end @errored @totals printer-opts)
+                  (try
+                    (ns-end ns @ns-findings printer-opts)
+                    (catch Throwable _))))
+              (try
+                (run-end @errored @totals printer-opts)
+                (catch Throwable _))
               (if @errored 1 0)))))))))
