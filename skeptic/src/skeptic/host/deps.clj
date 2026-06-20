@@ -15,7 +15,7 @@
    shape that caused the rc9 plumbing host-side bug.")
 
 (def host-deps
-  '[[org.clojars.nomicflux/skeptic            "0.9.0-rc10"]
+  '[[org.clojars.nomicflux/skeptic            "0.9.0-rc11-SNAPSHOT"]
     [org.clojure/clojure                      "1.12.0"]
     [org.clojure/tools.reader                 "1.6.0"]])
 

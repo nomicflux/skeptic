@@ -1,4 +1,4 @@
-(defproject org.clojars.nomicflux/lein-skeptic "0.9.0-rc10"
+(defproject org.clojars.nomicflux/lein-skeptic "0.9.0-rc11-SNAPSHOT"
   :description "Static type checking for Clojure projects that use Plumatic Schema / Malli (hermetic-host launcher)"
   :url "https://github.com/nomicflux/skeptic"
   :license {:name "MIT License"
