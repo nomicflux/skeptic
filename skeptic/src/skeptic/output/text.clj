@@ -181,7 +181,7 @@
 (def printer
   {:run-start (s/fn [{:keys [verbose]} :- copts/PrinterOpts nss]
                 (when verbose
-                  (println "Namespaces to check: " (pr-str (keys nss)))))
+                  (println "Namespaces to check: " (pr-str (mapv first nss)))))
    :discovery-warn (s/fn [_opts :- copts/PrinterOpts {:keys [path message unresolvable-deps]}]
                      (if (seq unresolvable-deps)
                        (println "ns-discovery-warning:"
