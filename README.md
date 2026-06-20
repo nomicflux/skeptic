@@ -48,13 +48,13 @@ plugin or as a Clojure CLI tool.
 Add the plugin to the `:plugins` vector in your `project.clj`:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.8.1"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0"]]
 ```
 
 Or for the snapshot version:
 
 ```clojure
-:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-rc10"]]
+:plugins [[org.clojars.nomicflux/lein-skeptic "0.9.0-SNAPSHOT"]]
 ```
 
 ### deps.edn / Clojure CLI
@@ -64,7 +64,7 @@ Add a tool alias to your `deps.edn`:
 ```clojure
 {:aliases
  {:skeptic
-  {:deps {org.clojars.nomicflux/skeptic {:mvn/version "0.9.0-rc10"}}
+  {:deps {org.clojars.nomicflux/skeptic {:mvn/version "0.9.0"}}
    :ns-default skeptic.tool}}}
 ```
 
@@ -75,8 +75,6 @@ clj -T:skeptic check
 ```
 
 ## Running it
-
-From the project you want to check.
 
 With Leiningen:
 
@@ -112,6 +110,7 @@ Options:
 - `--malli-disable`: skip Malli intake.
 - `--cljs-enable`: turn on ClojureScript analysis (experimental; off by
   default).
+- `--debug`: emit raw internal state for cross-environment diffing.
 - `--profile`: profile the run (CPU, memory, wall-clock time). Long-only.
 - `-o`, `--output OUTPUT_FILE`: write Skeptic's output to this file instead of
   stdout. Works with text and `-p` JSONL output.
@@ -161,8 +160,8 @@ override, or inference.
 
 ```
 ---------
-Namespace: 		skeptic.showcase
-Location: 		/Users/demouser/Code/skeptic/skeptic/src/skeptic/showcase.clj:10:3 [source: native]
+Namespace: 		myproject.example
+Location: 		src/myproject/example.clj:10:3 [source: native]
 Blame: 			context( value )
 ---
 (str x)
@@ -178,8 +177,8 @@ Problem fields:
 	- Str but expected Int
 
 ---------
-Namespace: 		skeptic.showcase
-Location: 		/Users/demouser/Code/skeptic/skeptic/src/skeptic/showcase.clj:14:3 [source: schema]
+Namespace: 		myproject.example
+Location: 		src/myproject/example.clj:14:3 [source: schema]
 Blame: 			context( value )
 ---
 (:n m)
@@ -195,7 +194,7 @@ Problems:
 	- a nullable value was provided where the type requires a non-null value
 
 Per-namespace inconsistencies:
-  skeptic.showcase: 2
+  myproject.example: 2
 ```
 
 When the run finds inconsistencies, the report ends with a per-namespace
@@ -204,8 +203,8 @@ worst-offending namespace first.
 
 ### JSONL (`-p` / `--porcelain`)
 
-`lein skeptic -p` switches stdout to newline-delimited JSON. One object per
-line, in this order:
+`lein skeptic -p` switches stdout to newline-delimited JSON, one object per
+line. The `kind` field discriminates between record types:
 
 ```json
 {"kind": "ns-discovery-warning", "path": "src/foo/broken.clj", "message": "..."}
@@ -275,6 +274,22 @@ root dep that caused G's rejection.
 
 ```json
 {
+  "kind": "analysis-skipped",
+  "ns": "foo.bar",
+  "phase": "analysis",
+  "location": {
+    "file": "src/foo/bar.clj",
+    "line": 42,
+    "source": "schema",
+    "lang": "clj"
+  },
+  "blame": "my-fn",
+  "messages": ["Skeptic skipped analysis for my-fn ..."]
+}
+```
+
+```json
+{
   "kind": "namespace-error-summary",
   "counts": {
     "foo.bar": 5,
@@ -289,15 +304,13 @@ root dep that caused G's rejection.
   "errored": true,
   "finding_count": 7,
   "exception_count": 1,
+  "analysis_skipped_count": 0,
   "namespace_count": 12,
   "namespaces_with_findings": 3
 }
 ```
 
 Exit code matches text mode (`0` clean, `1` otherwise).
-
-See [`docs/jsonl-output.md`](docs/jsonl-output.md) for the full per-kind field
-spec and the structured type-tag reference.
 
 ## Configuration
 
@@ -307,28 +320,28 @@ at the project root. The file is EDN and every key is optional.
 ```clojure
 {:exclude-files ["src/fixtures/*.clj"
                  "test/**/*_examples.clj"]
- :type-overrides {clojure.tools.logging/infof {:output (s/eq nil)}}}
+ :type-overrides {clojure.tools.logging/infof {:schema (s/=> (s/eq nil) s/Any)}}}
 ```
 
 ### `:exclude-files`
 
 Vector of glob patterns matched against each file's path relative to the
-project root. Matched files are skipped entirely. Patterns use the platform's 
-`java.nio.file.PathMatcher` glob syntax (`*`, `**`, `?`, character classes). 
+project root. Matched files are skipped entirely. Patterns use the platform's
+`java.nio.file.PathMatcher` glob syntax (`*`, `**`, `?`, character classes).
 
 ### `:type-overrides`
 
-Map from fully-qualified symbol to an override map with any of `:schema`,
-`:output`, `:arglists`. Values are Plumatic Schema expressions evaluated with
-`[schema.core :as s]` in scope, so you can write `(s/eq nil)`, `s/Int`, etc.
-Overrides replace whatever Skeptic would otherwise infer or collect for that
-symbol at call sites.
+Map from fully-qualified symbol to an override map with a `:schema` key. The
+value is a Plumatic Schema expression evaluated with `[schema.core :as s]` in
+scope, so you can write `(s/=> s/Int s/Any)`, `(s/eq nil)`, etc. The override
+replaces whatever Skeptic would otherwise infer or collect for that symbol at
+call sites.
 
 ```clojure
-{:type-overrides {clojure.tools.logging/infof {:output (s/eq nil)}}}
+{:type-overrides {clojure.tools.logging/infof {:schema (s/=> (s/eq nil) s/Any)}}}
 ```
 
-After this, call sites of `infof` are checked as returning `nil`.
+With this in place, call sites of `infof` are checked as returning `nil`.
 
 ## ClojureScript support
 
@@ -356,9 +369,6 @@ Sequence/regex combinators outside the `:=>` head (e.g. `:cat` outside the funct
 `:*`, `:+`, `:?`, `:repeat`, `:re`, `:fn`) are not currently supported.
 
 ## Suppressing checks
-
-Skeptic provides three opt-out mechanisms for when its inference is wrong or
-too dynamic. 
 
 ### Ignoring a function body
 
@@ -427,12 +437,9 @@ inconsistencies are flagged without required proof of consistency.
 
 ## Building from source
 
-To run an unreleased version of the plugin from a local checkout:
-
-1. Running `script/install-local.sh` we delete old versions in your `.m2` cache, install the Skeptic library, then
-   install the lein-skeptic plugin. This will ensure a clean run, but careful if you are running multiple versions.
-2. Otherwise, run `lein install` in the `skeptic/` directory first to install the core library, then again in the
-   `lein-skeptic/` directory to install the plugin.
+To run an unreleased version of the plugin from a local checkout, run
+`lein install` in the `skeptic/` directory first to install the core library,
+then again in the `lein-skeptic/` directory to install the plugin.
 
 ## License
 
