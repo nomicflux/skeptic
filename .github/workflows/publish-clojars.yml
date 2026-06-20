@@ -95,34 +95,46 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           trust_level: 5
 
+      # Idempotent publish. Re-running the workflow (e.g. after a transient
+      # failure) must not 403 on an already-published release. Clojars rejects
+      # redeploying a non-SNAPSHOT version, so for non-SNAPSHOT we skip deploy
+      # when the coordinate already exists. SNAPSHOT versions always deploy
+      # (Clojars permits SNAPSHOT overwrites).
+      - name: Determine skeptic publish state
+        id: skeptic_state
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^(defproject org\.clojars\.nomicflux\/skeptic "\([^"]*\)".*/\1/p' skeptic/project.clj)
+          [[ -n "$version" ]] || { echo "could not parse skeptic version"; exit 1; }
+          url="https://repo.clojars.org/org/clojars/nomicflux/skeptic/${version}/skeptic-${version}.pom"
+          if [[ "$version" == *-SNAPSHOT ]]; then
+            deploy=true
+          elif curl -sfI "$url" > /dev/null 2>&1; then
+            deploy=false
+          else
+            deploy=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "skeptic $version on Clojars: deploy=$deploy"
+
       - name: Build and deploy skeptic to Clojars
+        if: steps.skeptic_state.outputs.deploy == 'true'
         run: lein do clean, deploy
         working-directory: skeptic
 
-      - name: Capture published skeptic jar sha1 and version
-        id: skeptic_sha
-        run: |
-          set -euo pipefail
-          jar=$(ls target/skeptic-*.jar | grep -v -- '-sources\.jar$' | head -1)
-          sha=$(shasum -a 1 "$jar" | awk '{print $1}')
-          version=$(sed -n 's/^(defproject org\.clojars\.nomicflux\/skeptic "\([^"]*\)".*/\1/p' project.clj)
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Published $jar version=$version sha1=$sha"
-        working-directory: skeptic
+      - name: Skip skeptic deploy (already on Clojars)
+        if: steps.skeptic_state.outputs.deploy != 'true'
+        run: echo "skeptic ${{ steps.skeptic_state.outputs.version }} already on Clojars; skipping deploy."
 
       # lein-skeptic does not depend on skeptic via :dependencies (it is empty
       # by design); the launcher resolves [org.clojars.nomicflux/skeptic <ver>]
       # at task time. So `lein deps` in lein-skeptic resolves nothing skeptic-
-      # related. Resolve that exact coordinate directly to confirm the just-
-      # published jar is fetchable from Clojars before publishing the plugin.
-      - name: Purge local skeptic from ~/.m2 to force Clojars resolution
-        run: rm -rf ~/.m2/repository/org/clojars/nomicflux/skeptic
-
-      - name: Resolve and verify just-published skeptic from Clojars
+      # related. Resolve that exact coordinate directly to confirm the skeptic
+      # release is fetchable from Clojars before publishing the plugin.
+      - name: Resolve skeptic from Clojars for lein-skeptic
         env:
-          VERSION: ${{ steps.skeptic_sha.outputs.version }}
-          EXPECTED: ${{ steps.skeptic_sha.outputs.sha }}
+          VERSION: ${{ steps.skeptic_state.outputs.version }}
         run: |
           set -euo pipefail
           glob=~/.m2/repository/org/clojars/nomicflux/skeptic/"$VERSION"/skeptic-"$VERSION".jar
@@ -136,23 +148,40 @@ jobs:
             echo "skeptic $VERSION not resolvable from Clojars yet (attempt $attempt); waiting for index..."
             sleep 15
           done
-          resolved=$(ls $glob | head -1)
-          if [[ -z "${resolved:-}" || ! -f "$resolved" ]]; then
+          if ! compgen -G "$glob" > /dev/null; then
             echo "skeptic $VERSION did not become resolvable from Clojars"
             exit 1
           fi
-          sha=$(shasum -a 1 "$resolved" | awk '{print $1}')
-          if [[ "$sha" != "$EXPECTED" ]]; then
-            echo "Resolved $resolved sha1=$sha does not match just-published sha1=$EXPECTED"
-            exit 1
-          fi
-          echo "Verified $resolved matches just-published skeptic (sha1=$sha)"
+          echo "Resolved skeptic $VERSION from Clojars."
         working-directory: lein-skeptic
+
+      - name: Determine lein-skeptic publish state
+        id: lein_state
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^(defproject org\.clojars\.nomicflux\/lein-skeptic "\([^"]*\)".*/\1/p' lein-skeptic/project.clj)
+          [[ -n "$version" ]] || { echo "could not parse lein-skeptic version"; exit 1; }
+          url="https://repo.clojars.org/org/clojars/nomicflux/lein-skeptic/${version}/lein-skeptic-${version}.pom"
+          if [[ "$version" == *-SNAPSHOT ]]; then
+            deploy=true
+          elif curl -sfI "$url" > /dev/null 2>&1; then
+            deploy=false
+          else
+            deploy=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "lein-skeptic $version on Clojars: deploy=$deploy"
 
       - name: Install lein-skeptic plugin
         run: lein do clean, install
         working-directory: lein-skeptic
 
       - name: Deploy lein-skeptic to Clojars
+        if: steps.lein_state.outputs.deploy == 'true'
         run: lein deploy
         working-directory: lein-skeptic
+
+      - name: Skip lein-skeptic deploy (already on Clojars)
+        if: steps.lein_state.outputs.deploy != 'true'
+        run: echo "lein-skeptic ${{ steps.lein_state.outputs.version }} already on Clojars; skipping deploy."
