@@ -99,34 +99,55 @@ jobs:
         run: lein do clean, deploy
         working-directory: skeptic
 
-      - name: Capture published skeptic jar sha1
+      - name: Capture published skeptic jar sha1 and version
         id: skeptic_sha
         run: |
           set -euo pipefail
           jar=$(ls target/skeptic-*.jar | grep -v -- '-sources\.jar$' | head -1)
           sha=$(shasum -a 1 "$jar" | awk '{print $1}')
+          version=$(sed -n 's/^(defproject org\.clojars\.nomicflux\/skeptic "\([^"]*\)".*/\1/p' project.clj)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Published $jar sha1=$sha"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Published $jar version=$version sha1=$sha"
         working-directory: skeptic
 
+      # lein-skeptic does not depend on skeptic via :dependencies (it is empty
+      # by design); the launcher resolves [org.clojars.nomicflux/skeptic <ver>]
+      # at task time. So `lein deps` in lein-skeptic resolves nothing skeptic-
+      # related. Resolve that exact coordinate directly to confirm the just-
+      # published jar is fetchable from Clojars before publishing the plugin.
       - name: Purge local skeptic from ~/.m2 to force Clojars resolution
         run: rm -rf ~/.m2/repository/org/clojars/nomicflux/skeptic
 
-      - name: Resolve skeptic for lein-skeptic from Clojars
-        run: lein -U deps
-        working-directory: lein-skeptic
-
-      - name: Verify resolved skeptic matches just-published artifact
+      - name: Resolve and verify just-published skeptic from Clojars
+        env:
+          VERSION: ${{ steps.skeptic_sha.outputs.version }}
+          EXPECTED: ${{ steps.skeptic_sha.outputs.sha }}
         run: |
           set -euo pipefail
-          resolved=$(ls ~/.m2/repository/org/clojars/nomicflux/skeptic/*/skeptic-*.jar | grep -v -- '-sources\.jar$' | head -1)
+          glob=~/.m2/repository/org/clojars/nomicflux/skeptic/"$VERSION"/skeptic-"$VERSION".jar
+          for attempt in 1 2 3 4 5 6; do
+            rm -rf ~/.m2/repository/org/clojars/nomicflux/skeptic
+            if lein -U update-in :dependencies conj "[org.clojars.nomicflux/skeptic \"$VERSION\"]" -- deps; then
+              if compgen -G "$glob" > /dev/null; then
+                break
+              fi
+            fi
+            echo "skeptic $VERSION not resolvable from Clojars yet (attempt $attempt); waiting for index..."
+            sleep 15
+          done
+          resolved=$(ls $glob | head -1)
+          if [[ -z "${resolved:-}" || ! -f "$resolved" ]]; then
+            echo "skeptic $VERSION did not become resolvable from Clojars"
+            exit 1
+          fi
           sha=$(shasum -a 1 "$resolved" | awk '{print $1}')
-          expected="${{ steps.skeptic_sha.outputs.sha }}"
-          if [[ "$sha" != "$expected" ]]; then
-            echo "Resolved $resolved sha1=$sha does not match just-published sha1=$expected"
+          if [[ "$sha" != "$EXPECTED" ]]; then
+            echo "Resolved $resolved sha1=$sha does not match just-published sha1=$EXPECTED"
             exit 1
           fi
           echo "Verified $resolved matches just-published skeptic (sha1=$sha)"
+        working-directory: lein-skeptic
 
       - name: Install lein-skeptic plugin
         run: lein do clean, install
