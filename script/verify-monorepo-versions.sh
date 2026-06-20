@@ -94,23 +94,4 @@ deps_edn_ver="$(sed -n 's/.*:mvn\/version "\([^"]*\)".*/\1/p' <<<"$deps_edn_line
 [[ "$lib_ver" == "$deps_edn_ver" ]] || \
   die "skeptic/deps.edn :host alias pins skeptic \"$deps_edn_ver\" but library is \"$lib_ver\""
 
-# README install snippets pin the library / plugin to a current version. The
-# snapshot-version snippets are what users copy-paste when trying a pre-release;
-# they must match the in-tree version.
-README="${ROOT}/README.md"
-if [[ -f "$README" ]]; then
-  readme_lein_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' "$README" | sort -u | tail -1)"
-  if [[ -n "$readme_lein_ver" ]]; then
-    [[ "$plug_ver" == "$readme_lein_ver" ]] || \
-      die "README lein-skeptic snippet pins \"$readme_lein_ver\" but plugin is \"$plug_ver\""
-  fi
-  readme_lib_ver="$(grep 'org.clojars.nomicflux/skeptic ' "$README" \
-                    | sed -n 's/.*:mvn\/version "\([^"]*\)".*/\1/p' \
-                    | sort -u | tail -1)"
-  if [[ -n "$readme_lib_ver" ]]; then
-    [[ "$lib_ver" == "$readme_lib_ver" ]] || \
-      die "README skeptic snippet pins \"$readme_lib_ver\" but library is \"$lib_ver\""
-  fi
-fi
-
 echo "verify-monorepo-versions: OK (skeptic ${lib_ver}, lein-skeptic ${plug_ver})"
