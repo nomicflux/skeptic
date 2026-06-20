@@ -461,11 +461,33 @@
 (def ^:private host-entry-form
   "Form evaluated by the host JVM at startup. Requires the host
    entrypoint and invokes it; the entrypoint reads its EDN payload
-   from *in*."
+   from *in*.
+
+   If `require` throws, propagate it (clojure.main -e will print the
+   throwable). If the require succeeds but the entry var is missing,
+   surface a diagnostic naming the loaded skeptic/cli/main.clj resource
+   URL and the visible interns — that turns a silent NPE into evidence
+   of which jar the host JVM actually loaded."
   '(do
      (require 'skeptic.cli.main)
-     (System/exit
-      ((resolve 'skeptic.cli.main/check-from-launcher)))))
+     (let [entry (resolve 'skeptic.cli.main/check-from-launcher)]
+       (if entry
+         (System/exit (entry))
+         (binding [*out* *err*]
+           (println "skeptic host: skeptic.cli.main/check-from-launcher"
+                    "did not resolve after require")
+           (println "  loaded resource:"
+                    (str (clojure.java.io/resource "skeptic/cli/main.clj")))
+           (println "  ns-interns(skeptic.cli.main):"
+                    (try (sort (keys (ns-interns 'skeptic.cli.main)))
+                         (catch Throwable t (.getMessage t))))
+           (println "  java.class.path entries:"
+                    (count (clojure.string/split
+                            (System/getProperty "java.class.path" "")
+                            (re-pattern
+                             (java.util.regex.Pattern/quote
+                              (System/getProperty "path.separator"))))))
+           (System/exit 3))))))
 
 (defn- host-launch-command
   [host-jars]

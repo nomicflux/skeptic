@@ -70,4 +70,47 @@ root_ver="$(sed -n 's/^(defproject skeptic "\([^"]*\)".*/\1/p' <<<"$root_line")"
 [[ "$lib_ver" == "$root_ver" ]] || \
   die "root project.clj version \"$root_ver\" does not match library \"$lib_ver\""
 
+# Skeptic library coord pinned in skeptic.host.deps/host-deps. The launcher
+# reads this vector out of the resolved skeptic jar and resolves it to build
+# the host JVM's -cp; a stale pin here makes the host run an OLDER skeptic
+# while the launcher is current.
+HOST_DEPS_CLJ="${ROOT}/skeptic/src/skeptic/host/deps.clj"
+[[ -f "$HOST_DEPS_CLJ" ]] || die "missing ${HOST_DEPS_CLJ}"
+host_deps_line="$(grep 'org.clojars.nomicflux/skeptic' "$HOST_DEPS_CLJ" || true)"
+[[ -n "$host_deps_line" ]] || die "expected [org.clojars.nomicflux/skeptic …] in ${HOST_DEPS_CLJ}"
+host_deps_ver="$(sed -n 's/.*org\.clojars\.nomicflux\/skeptic[^"]*"\([^"]*\)".*/\1/p' <<<"$host_deps_line")"
+[[ -n "$host_deps_ver" ]] || die "could not parse skeptic version from: $host_deps_line"
+[[ "$lib_ver" == "$host_deps_ver" ]] || \
+  die "skeptic.host.deps/host-deps pins skeptic \"$host_deps_ver\" but library is \"$lib_ver\""
+
+# Skeptic library coord pinned in skeptic/deps.edn :host alias (mirrors
+# skeptic.host.deps/host-deps for ad-hoc `clj -A:host` invocations).
+DEPS_EDN="${ROOT}/skeptic/deps.edn"
+[[ -f "$DEPS_EDN" ]] || die "missing ${DEPS_EDN}"
+deps_edn_line="$(grep 'org.clojars.nomicflux/skeptic' "$DEPS_EDN" | grep ':mvn/version' || true)"
+[[ -n "$deps_edn_line" ]] || die "expected org.clojars.nomicflux/skeptic {:mvn/version …} in ${DEPS_EDN}"
+deps_edn_ver="$(sed -n 's/.*:mvn\/version "\([^"]*\)".*/\1/p' <<<"$deps_edn_line")"
+[[ -n "$deps_edn_ver" ]] || die "could not parse skeptic version from: $deps_edn_line"
+[[ "$lib_ver" == "$deps_edn_ver" ]] || \
+  die "skeptic/deps.edn :host alias pins skeptic \"$deps_edn_ver\" but library is \"$lib_ver\""
+
+# README install snippets pin the library / plugin to a current version. The
+# snapshot-version snippets are what users copy-paste when trying a pre-release;
+# they must match the in-tree version.
+README="${ROOT}/README.md"
+if [[ -f "$README" ]]; then
+  readme_lein_ver="$(sed -n 's/.*lein-skeptic "\([^"]*\)".*/\1/p' "$README" | sort -u | tail -1)"
+  if [[ -n "$readme_lein_ver" ]]; then
+    [[ "$plug_ver" == "$readme_lein_ver" ]] || \
+      die "README lein-skeptic snippet pins \"$readme_lein_ver\" but plugin is \"$plug_ver\""
+  fi
+  readme_lib_ver="$(grep 'org.clojars.nomicflux/skeptic ' "$README" \
+                    | sed -n 's/.*:mvn\/version "\([^"]*\)".*/\1/p' \
+                    | sort -u | tail -1)"
+  if [[ -n "$readme_lib_ver" ]]; then
+    [[ "$lib_ver" == "$readme_lib_ver" ]] || \
+      die "README skeptic snippet pins \"$readme_lib_ver\" but library is \"$lib_ver\""
+  fi
+fi
+
 echo "verify-monorepo-versions: OK (skeptic ${lib_ver}, lein-skeptic ${plug_ver})"
