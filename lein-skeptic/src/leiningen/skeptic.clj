@@ -32,7 +32,7 @@
   "Skeptic library version this lein-skeptic ships with. Kept in sync
    with the version declared in skeptic/project.clj and lein-skeptic/
    project.clj via script/verify-monorepo-versions.sh."
-  "0.9.0-rc11-SNAPSHOT")
+  "0.9.0")
 
 ;; -- Verbose startup markers ------------------------------------------
 
